@@ -3,7 +3,6 @@ package com.kareem.cortex;
 import android.app.*;
 import android.os.Bundle;
 import android.graphics.*;
-import android.graphics.drawable.ColorDrawable;
 import android.text.*;
 import android.view.*;
 import android.widget.*;
@@ -33,17 +32,18 @@ public class MainActivity extends Activity {
     void buildUi(){
         LinearLayout root=new LinearLayout(this);root.setOrientation(LinearLayout.VERTICAL);root.setBackgroundColor(bg);pad(root,16);
         TextView title=tv("CORTEX",26,text);title.setTypeface(null,1);root.addView(title);
-        TextView sub=tv("Your second brain • capture → understand → recall",14,muted);sub.setPadding(0,0,0,dp(12));root.addView(sub);
+        TextView sub=tv("Your second brain • capture → connect → recall",14,muted);sub.setPadding(0,0,0,dp(12));root.addView(sub);
 
         LinearLayout row=new LinearLayout(this);row.setOrientation(LinearLayout.HORIZONTAL);
         search=new EditText(this);search.setHint("Search memory, OCR, actions, entities…");search.setHintTextColor(muted);search.setTextColor(text);search.setSingleLine(true);search.setBackgroundColor(panel);pad(search,12);
         row.addView(search,new LinearLayout.LayoutParams(0,dp(50),1));
+        Button packs=new Button(this);packs.setText("PACKS");packs.setTextSize(11);packs.setTextColor(text);packs.setBackgroundColor(panel);LinearLayout.LayoutParams pp=new LinearLayout.LayoutParams(dp(82),dp(50));pp.setMargins(dp(8),0,0,0);row.addView(packs,pp);
         Button add=new Button(this);add.setText("+");add.setTextSize(24);add.setTextColor(Color.BLACK);add.setBackgroundColor(accent);LinearLayout.LayoutParams ap=new LinearLayout.LayoutParams(dp(58),dp(50));ap.setMargins(dp(8),0,0,0);row.addView(add,ap);root.addView(row);
         count=tv("",12,muted);count.setPadding(0,dp(8),0,dp(8));root.addView(count);
 
         ScrollView sv=new ScrollView(this);list=new LinearLayout(this);list.setOrientation(LinearLayout.VERTICAL);sv.addView(list);root.addView(sv,new LinearLayout.LayoutParams(-1,0,1));setContentView(root);
         search.addTextChangedListener(new TextWatcher(){public void beforeTextChanged(CharSequence s,int st,int c,int a){}public void onTextChanged(CharSequence s,int st,int b,int c){refresh(s.toString());}public void afterTextChanged(Editable e){}});
-        add.setOnClickListener(v->showAddMenu());
+        add.setOnClickListener(v->showAddMenu());packs.setOnClickListener(v->showPacks());
     }
 
     void showAddMenu(){
@@ -92,6 +92,28 @@ public class MainActivity extends Activity {
             if(!empty(k.tags)){TextView tags=tv("# "+k.tags.replace(",","   # "),11,muted);tags.setPadding(0,dp(6),0,0);card.addView(tags);}
             LinearLayout.LayoutParams cp=new LinearLayout.LayoutParams(-1,-2);cp.setMargins(0,0,0,dp(10));list.addView(card,cp);
         }
+    }
+
+    void showPacks(){
+        ArrayList<ContextPack> packs=ContextEngine.build(db);
+        if(packs.isEmpty()){Toast.makeText(this,"No Context Packs yet — add a few related memories",Toast.LENGTH_LONG).show();return;}
+        String[] labels=new String[packs.size()];
+        for(int i=0;i<packs.size();i++)labels[i]=packs.get(i).title+"   •   "+packs.get(i).items.size()+" items";
+        new AlertDialog.Builder(this).setTitle("Context Packs").setItems(labels,(d,which)->showPackDetail(packs.get(which))).setNegativeButton("Close",null).show();
+    }
+
+    void showPackDetail(ContextPack p){
+        ScrollView sv=new ScrollView(this);LinearLayout box=new LinearLayout(this);box.setOrientation(LinearLayout.VERTICAL);pad(box,16);sv.addView(box);
+        section(box,"WHY CORTEX GROUPED THESE",p.reason+"\n"+p.items.size()+" related memories");
+        for(KnowledgeItem k:p.items){
+            LinearLayout card=new LinearLayout(this);card.setOrientation(LinearLayout.VERTICAL);card.setBackgroundResource(R.drawable.rounded_panel);pad(card,12);card.setClickable(true);card.setOnClickListener(v->detail(k));
+            TextView t=tv(k.title,16,text);t.setTypeface(null,1);card.addView(t);
+            card.addView(tv(k.category+"  •  "+fmt(k.createdAt),11,muted));
+            String preview=!empty(k.summary)?k.summary:(!empty(k.rawText)?k.rawText:k.extractedText);if(preview==null)preview="";if(preview.length()>180)preview=preview.substring(0,180)+"…";
+            TextView pv=tv(preview,13,text);pv.setPadding(0,dp(5),0,0);card.addView(pv);
+            LinearLayout.LayoutParams cp=new LinearLayout.LayoutParams(-1,-2);cp.setMargins(0,dp(8),0,0);box.addView(card,cp);
+        }
+        new AlertDialog.Builder(this).setTitle(p.title).setView(sv).setNegativeButton("Close",null).show();
     }
 
     String statusText(String st,String err){
