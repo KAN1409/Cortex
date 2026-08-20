@@ -1,7 +1,7 @@
 package com.kareem.cortex;
 
 import android.app.*;
-import android.os.Bundle;
+import android.os.*;
 import android.graphics.*;
 import android.text.*;
 import android.view.*;
@@ -11,133 +11,45 @@ import java.text.SimpleDateFormat;
 import java.util.*;
 
 public class MainActivity extends Activity {
-    VaultDb db; LinearLayout list; EditText search; TextView count;
-    int bg=Color.rgb(16,17,20), panel=Color.rgb(24,26,31), text=Color.rgb(243,244,246), muted=Color.rgb(165,168,176), accent=Color.rgb(143,169,255), danger=Color.rgb(255,139,139);
+    VaultDb db;LinearLayout list;EditText search;TextView count;Handler handler=new Handler(Looper.getMainLooper());Runnable pendingSearch;
+    int bg=Color.rgb(16,17,20),panel=Color.rgb(24,26,31),text=Color.rgb(243,244,246),muted=Color.rgb(165,168,176),accent=Color.rgb(143,169,255),danger=Color.rgb(255,139,139);
 
-    @Override public void onCreate(Bundle b){
-        super.onCreate(b);db=new VaultDb(this);buildUi();
-        int imported=new ShareImporter(this,db).importIntent(getIntent());
-        refresh("");queue();
-        if(imported>0)Toast.makeText(this,"Saved to Cortex",Toast.LENGTH_SHORT).show();
-    }
-    @Override protected void onNewIntent(android.content.Intent i){
-        super.onNewIntent(i);setIntent(i);int n=new ShareImporter(this,db).importIntent(i);
-        refresh(search.getText().toString());queue();if(n>0)Toast.makeText(this,"Saved to Cortex",Toast.LENGTH_SHORT).show();
-    }
+    @Override public void onCreate(Bundle b){super.onCreate(b);db=new VaultDb(this);buildUi();int imported=new ShareImporter(this,db).importIntent(getIntent());refresh("");queue();new Thread(()->{try{SemanticIndex.ensureIndexed(db,80);}catch(Exception ignored){}}).start();if(imported>0)Toast.makeText(this,"Saved to Cortex",Toast.LENGTH_SHORT).show();}
+    @Override protected void onNewIntent(android.content.Intent i){super.onNewIntent(i);setIntent(i);int n=new ShareImporter(this,db).importIntent(i);refresh(search.getText().toString());queue();if(n>0)Toast.makeText(this,"Saved to Cortex",Toast.LENGTH_SHORT).show();}
 
-    TextView tv(String s,int sp,int c){TextView v=new TextView(this);v.setText(s);v.setTextSize(sp);v.setTextColor(c);return v;}
-    int dp(int x){return(int)(x*getResources().getDisplayMetrics().density+.5f);}
-    void pad(View v,int a){v.setPadding(dp(a),dp(a),dp(a),dp(a));}
+    TextView tv(String s,int sp,int c){TextView v=new TextView(this);v.setText(s);v.setTextSize(sp);v.setTextColor(c);return v;}int dp(int x){return(int)(x*getResources().getDisplayMetrics().density+.5f);}void pad(View v,int a){v.setPadding(dp(a),dp(a),dp(a),dp(a));}
 
     void buildUi(){
         LinearLayout root=new LinearLayout(this);root.setOrientation(LinearLayout.VERTICAL);root.setBackgroundColor(bg);pad(root,16);
-        TextView title=tv("CORTEX",26,text);title.setTypeface(null,1);root.addView(title);
-        TextView sub=tv("Your second brain • capture → connect → recall",14,muted);sub.setPadding(0,0,0,dp(12));root.addView(sub);
-
+        TextView title=tv("CORTEX",26,text);title.setTypeface(null,1);root.addView(title);TextView sub=tv("Your second brain • capture → connect → recall",14,muted);sub.setPadding(0,0,0,dp(12));root.addView(sub);
         LinearLayout row=new LinearLayout(this);row.setOrientation(LinearLayout.HORIZONTAL);
-        search=new EditText(this);search.setHint("Search memory, OCR, actions, entities…");search.setHintTextColor(muted);search.setTextColor(text);search.setSingleLine(true);search.setBackgroundColor(panel);pad(search,12);
-        row.addView(search,new LinearLayout.LayoutParams(0,dp(50),1));
-        Button packs=new Button(this);packs.setText("PACKS");packs.setTextSize(11);packs.setTextColor(text);packs.setBackgroundColor(panel);LinearLayout.LayoutParams pp=new LinearLayout.LayoutParams(dp(82),dp(50));pp.setMargins(dp(8),0,0,0);row.addView(packs,pp);
-        Button add=new Button(this);add.setText("+");add.setTextSize(24);add.setTextColor(Color.BLACK);add.setBackgroundColor(accent);LinearLayout.LayoutParams ap=new LinearLayout.LayoutParams(dp(58),dp(50));ap.setMargins(dp(8),0,0,0);row.addView(add,ap);root.addView(row);
-        count=tv("",12,muted);count.setPadding(0,dp(8),0,dp(8));root.addView(count);
-
-        ScrollView sv=new ScrollView(this);list=new LinearLayout(this);list.setOrientation(LinearLayout.VERTICAL);sv.addView(list);root.addView(sv,new LinearLayout.LayoutParams(-1,0,1));setContentView(root);
-        search.addTextChangedListener(new TextWatcher(){public void beforeTextChanged(CharSequence s,int st,int c,int a){}public void onTextChanged(CharSequence s,int st,int b,int c){refresh(s.toString());}public void afterTextChanged(Editable e){}});
-        add.setOnClickListener(v->showAddMenu());packs.setOnClickListener(v->showPacks());
+        search=new EditText(this);search.setHint("Search by words or meaning…");search.setHintTextColor(muted);search.setTextColor(text);search.setSingleLine(true);search.setBackgroundColor(panel);pad(search,12);row.addView(search,new LinearLayout.LayoutParams(0,dp(50),1));
+        Button ask=smallButton("ASK",64);row.addView(ask,marginParams(64));Button packs=smallButton("PACKS",78);row.addView(packs,marginParams(78));Button add=new Button(this);add.setText("+");add.setTextSize(24);add.setTextColor(Color.BLACK);add.setBackgroundColor(accent);row.addView(add,marginParams(58));root.addView(row);
+        count=tv("",12,muted);count.setPadding(0,dp(8),0,dp(8));root.addView(count);ScrollView sv=new ScrollView(this);list=new LinearLayout(this);list.setOrientation(LinearLayout.VERTICAL);sv.addView(list);root.addView(sv,new LinearLayout.LayoutParams(-1,0,1));setContentView(root);
+        search.addTextChangedListener(new TextWatcher(){public void beforeTextChanged(CharSequence s,int st,int c,int a){}public void onTextChanged(CharSequence s,int st,int b,int c){if(pendingSearch!=null)handler.removeCallbacks(pendingSearch);String q=s.toString();pendingSearch=()->refresh(q);handler.postDelayed(pendingSearch,220);}public void afterTextChanged(Editable e){}});
+        add.setOnClickListener(v->showAddMenu());packs.setOnClickListener(v->showPacks());ask.setOnClickListener(v->showAsk());
     }
+    Button smallButton(String label,int width){Button b=new Button(this);b.setText(label);b.setTextSize(10);b.setTextColor(text);b.setBackgroundColor(panel);return b;}LinearLayout.LayoutParams marginParams(int w){LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(dp(w),dp(50));p.setMargins(dp(7),0,0,0);return p;}
 
-    void showAddMenu(){
-        String[] choices={"Quick note / text","Prompt + example result"};
-        new AlertDialog.Builder(this).setTitle("Add to Cortex").setItems(choices,(d,which)->{if(which==0)addTextDialog();else promptBundleDialog();}).show();
-    }
+    void showAddMenu(){String[] choices={"Quick note / text","Prompt + example result"};new AlertDialog.Builder(this).setTitle("Add to Cortex").setItems(choices,(d,which)->{if(which==0)addTextDialog();else promptBundleDialog();}).show();}
+    void addTextDialog(){EditText e=new EditText(this);e.setHint("Paste a note, URL, log, research, data…");e.setMinLines(7);new AlertDialog.Builder(this).setTitle("Quick capture").setView(e).setNegativeButton("Cancel",null).setPositiveButton("Save",(d,w)->{String s=e.getText().toString().trim();if(s.isEmpty())return;String cat=AutoClassifier.category(s,"text/plain");long id=db.insert("TEXT","manual",AutoClassifier.title(s,"text/plain"),s,cat,AutoClassifier.tags(s,cat),"",Fingerprint.text(s),"{}");if(id<0)Toast.makeText(this,"Already in Cortex",Toast.LENGTH_SHORT).show();else{refresh(search.getText().toString());queue();}}).show();}
 
-    void addTextDialog(){
-        EditText e=new EditText(this);e.setHint("Paste a note, URL, log, research, data…");e.setMinLines(7);
-        new AlertDialog.Builder(this).setTitle("Quick capture").setView(e).setNegativeButton("Cancel",null).setPositiveButton("Save",(d,w)->{
-            String s=e.getText().toString().trim();if(s.isEmpty())return;String cat=AutoClassifier.category(s,"text/plain");
-            long id=db.insert("TEXT","manual",AutoClassifier.title(s,"text/plain"),s,cat,AutoClassifier.tags(s,cat),"",Fingerprint.text(s),"{}");
-            if(id<0)Toast.makeText(this,"Already in Cortex",Toast.LENGTH_SHORT).show();else{refresh(search.getText().toString());queue();}
-        }).show();
-    }
+    void promptBundleDialog(){LinearLayout box=new LinearLayout(this);box.setOrientation(LinearLayout.VERTICAL);box.setPadding(dp(20),0,dp(20),0);EditText prompt=field("Prompt *",5),input=field("Example input / context (optional)",3),result=field("Example result *",5);Spinner rating=new Spinner(this);String[] ratings={"Rating: not set","Rating: 1/5","Rating: 2/5","Rating: 3/5","Rating: 4/5","Rating: 5/5"};rating.setAdapter(new ArrayAdapter<>(this,android.R.layout.simple_spinner_dropdown_item,ratings));box.addView(prompt);box.addView(input);box.addView(result);box.addView(rating);new AlertDialog.Builder(this).setTitle("Prompt + example").setView(box).setNegativeButton("Cancel",null).setPositiveButton("Save bundle",(d,w)->{String p=prompt.getText().toString().trim(),in=input.getText().toString().trim(),out=result.getText().toString().trim();if(p.isEmpty()||out.isEmpty()){Toast.makeText(this,"Prompt and result are required",Toast.LENGTH_SHORT).show();return;}long pid=db.insert("AI_PROMPT","manual",AutoClassifier.title(p,"text/plain"),p,"AI Prompts",AutoClassifier.tags(p,"AI Prompts")+",example","",Fingerprint.text("prompt|"+p),"{}");if(pid<0)pid=-pid;long iid=0;if(!in.isEmpty()){iid=db.insert("EXAMPLE_INPUT","manual",AutoClassifier.title(in,"text/plain"),in,"Examples","example,input","",Fingerprint.text("input|"+in),"{}");if(iid<0)iid=-iid;}long oid=db.insert("AI_RESULT","manual","Example result",out,"Examples","example,result","",Fingerprint.text("result|"+out),"{}");if(oid<0)oid=-oid;db.addExample(pid,iid,oid,rating.getSelectedItemPosition(),"");refresh(search.getText().toString());queue();Toast.makeText(this,"Prompt bundle saved",Toast.LENGTH_SHORT).show();}).show();}
+    EditText field(String hint,int lines){EditText e=new EditText(this);e.setHint(hint);e.setMinLines(lines);e.setGravity(Gravity.TOP);return e;}void queue(){AnalysisQueue.kick(this,db,()->runOnUiThread(()->refresh(search==null?"":search.getText().toString())));}
 
-    void promptBundleDialog(){
-        LinearLayout box=new LinearLayout(this);box.setOrientation(LinearLayout.VERTICAL);box.setPadding(dp(20),0,dp(20),0);
-        EditText prompt=field("Prompt *",5);EditText input=field("Example input / context (optional)",3);EditText result=field("Example result *",5);
-        Spinner rating=new Spinner(this);String[] ratings={"Rating: not set","Rating: 1/5","Rating: 2/5","Rating: 3/5","Rating: 4/5","Rating: 5/5"};rating.setAdapter(new ArrayAdapter<>(this,android.R.layout.simple_spinner_dropdown_item,ratings));
-        box.addView(prompt);box.addView(input);box.addView(result);box.addView(rating);
-        new AlertDialog.Builder(this).setTitle("Prompt + example").setView(box).setNegativeButton("Cancel",null).setPositiveButton("Save bundle",(d,w)->{
-            String p=prompt.getText().toString().trim(),in=input.getText().toString().trim(),out=result.getText().toString().trim();if(p.isEmpty()||out.isEmpty()){Toast.makeText(this,"Prompt and result are required",Toast.LENGTH_SHORT).show();return;}
-            long pid=db.insert("AI_PROMPT","manual",AutoClassifier.title(p,"text/plain"),p,"AI Prompts",AutoClassifier.tags(p,"AI Prompts")+",example", "",Fingerprint.text("prompt|"+p),"{}");
-            if(pid<0)pid=-pid;
-            long iid=0;if(!in.isEmpty()){iid=db.insert("EXAMPLE_INPUT","manual",AutoClassifier.title(in,"text/plain"),in,"Examples","example,input","",Fingerprint.text("input|"+in),"{}");if(iid<0)iid=-iid;}
-            long oid=db.insert("AI_RESULT","manual","Example result",out,"Examples","example,result","",Fingerprint.text("result|"+out),"{}");if(oid<0)oid=-oid;
-            db.addExample(pid,iid,oid,rating.getSelectedItemPosition(),"");refresh(search.getText().toString());queue();Toast.makeText(this,"Prompt bundle saved",Toast.LENGTH_SHORT).show();
-        }).show();
-    }
-    EditText field(String hint,int lines){EditText e=new EditText(this);e.setHint(hint);e.setMinLines(lines);e.setGravity(Gravity.TOP);return e;}
+    void refresh(String q){ArrayList<KnowledgeItem> items=db.search(q);list.removeAllViews();int pending=db.pendingCount(),failed=db.failedCount();boolean semantic=q!=null&&!q.trim().isEmpty();count.setText(items.size()+" items"+(semantic?"  •  hybrid semantic recall":"")+(pending>0?"  •  "+pending+" analyzing":"")+(failed>0?"  •  "+failed+" failed":""));for(KnowledgeItem k:items)addMemoryCard(k);}
+    void addMemoryCard(KnowledgeItem k){LinearLayout card=new LinearLayout(this);card.setOrientation(LinearLayout.VERTICAL);card.setBackgroundResource(R.drawable.rounded_panel);pad(card,14);card.setClickable(true);card.setOnClickListener(v->detail(k));TextView t=tv(k.title,17,text);t.setTypeface(null,1);card.addView(t);TextView meta=tv(k.category+"  •  "+k.type+"  •  "+fmt(k.createdAt),12,muted);meta.setPadding(0,dp(5),0,dp(7));card.addView(meta);String preview=!empty(k.summary)?k.summary:(!empty(k.rawText)?k.rawText:k.extractedText);if(empty(preview)&&("SCREENSHOT".equals(k.type)||"IMAGE".equals(k.type)))preview="Image stored locally";if(preview!=null&&preview.length()>240)preview=preview.substring(0,240)+"…";card.addView(tv(preview==null?"":preview,14,text));TextView st=tv(statusText(k.status,k.analysisError),12,statusColor(k.status));st.setPadding(0,dp(8),0,0);card.addView(st);if(!empty(k.tags)){TextView tags=tv("# "+k.tags.replace(",","   # "),11,muted);tags.setPadding(0,dp(6),0,0);card.addView(tags);}LinearLayout.LayoutParams cp=new LinearLayout.LayoutParams(-1,-2);cp.setMargins(0,0,0,dp(10));list.addView(card,cp);}
 
-    void queue(){AnalysisQueue.kick(this,db,()->runOnUiThread(()->refresh(search==null?"":search.getText().toString())));}
+    void showAsk(){EditText q=new EditText(this);q.setHint("Ask about anything saved in Cortex…");q.setMinLines(3);AlertDialog dlg=new AlertDialog.Builder(this).setTitle("Ask Cortex").setMessage("Retrieval mode • answers come only from your saved memory").setView(q).setNegativeButton("Cancel",null).setPositiveButton("Search",null).create();dlg.setOnShowListener(x->dlg.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->{String s=q.getText().toString().trim();if(s.isEmpty())return;ArrayList<SemanticHit> hits=SemanticIndex.search(db,s,6);dlg.dismiss();showAskResults(s,hits);}));dlg.show();}
+    void showAskResults(String question,ArrayList<SemanticHit> hits){ScrollView sv=new ScrollView(this);LinearLayout box=new LinearLayout(this);box.setOrientation(LinearLayout.VERTICAL);pad(box,16);sv.addView(box);section(box,"QUESTION",question);section(box,"MODE","Hybrid retrieval • "+SemanticIndex.providerLabel()+"\nNo cloud model or generated facts are used in this build.");if(hits.isEmpty())section(box,"RESULT","No strong memory match found.");else{section(box,"BEST EVIDENCE","Cortex found "+hits.size()+" relevant memories. Tap any source to open it.");for(SemanticHit h:hits)addHitCard(box,h);}new AlertDialog.Builder(this).setTitle("Ask Cortex").setView(sv).setNegativeButton("Close",null).show();}
+    void addHitCard(LinearLayout box,SemanticHit h){LinearLayout c=new LinearLayout(this);c.setOrientation(LinearLayout.VERTICAL);c.setBackgroundResource(R.drawable.rounded_panel);pad(c,12);c.setClickable(true);c.setOnClickListener(v->detail(h.item));TextView t=tv(h.item.title,15,text);t.setTypeface(null,1);c.addView(t);c.addView(tv("Relevance "+Math.round(h.score*100)+"%  •  "+h.item.category,11,muted));TextView sn=tv(h.snippet,13,text);sn.setPadding(0,dp(5),0,0);c.addView(sn);LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,-2);p.setMargins(0,dp(8),0,0);box.addView(c,p);}
 
-    void refresh(String q){
-        ArrayList<KnowledgeItem> items=db.search(q);list.removeAllViews();int pending=db.pendingCount(),failed=db.failedCount();
-        count.setText(items.size()+" items"+(q.trim().isEmpty()?"":" matching \""+q+"\"")+(pending>0?"  •  "+pending+" analyzing":"")+(failed>0?"  •  "+failed+" failed":""));
-        for(KnowledgeItem k:items){
-            LinearLayout card=new LinearLayout(this);card.setOrientation(LinearLayout.VERTICAL);card.setBackgroundResource(R.drawable.rounded_panel);pad(card,14);card.setClickable(true);card.setOnClickListener(v->detail(k));
-            TextView t=tv(k.title,17,text);t.setTypeface(null,1);card.addView(t);
-            TextView meta=tv(k.category+"  •  "+k.type+"  •  "+fmt(k.createdAt),12,muted);meta.setPadding(0,dp(5),0,dp(7));card.addView(meta);
-            String preview=!empty(k.summary)?k.summary:(!empty(k.rawText)?k.rawText:k.extractedText);
-            if(empty(preview)&&("SCREENSHOT".equals(k.type)||"IMAGE".equals(k.type)))preview="Image stored locally";
-            if(preview!=null&&preview.length()>240)preview=preview.substring(0,240)+"…";card.addView(tv(preview==null?"":preview,14,text));
-            TextView st=tv(statusText(k.status,k.analysisError),12,statusColor(k.status));st.setPadding(0,dp(8),0,0);card.addView(st);
-            if(!empty(k.tags)){TextView tags=tv("# "+k.tags.replace(",","   # "),11,muted);tags.setPadding(0,dp(6),0,0);card.addView(tags);}
-            LinearLayout.LayoutParams cp=new LinearLayout.LayoutParams(-1,-2);cp.setMargins(0,0,0,dp(10));list.addView(card,cp);
-        }
-    }
+    void showPacks(){ArrayList<ContextPack> packs=ContextEngine.build(db);if(packs.isEmpty()){Toast.makeText(this,"No Context Packs yet — add a few related memories",Toast.LENGTH_LONG).show();return;}String[] labels=new String[packs.size()];for(int i=0;i<packs.size();i++)labels[i]=packs.get(i).title+"   •   "+packs.get(i).items.size()+" items";new AlertDialog.Builder(this).setTitle("Context Packs").setItems(labels,(d,which)->showPackDetail(packs.get(which))).setNegativeButton("Close",null).show();}
+    void showPackDetail(ContextPack p){ScrollView sv=new ScrollView(this);LinearLayout box=new LinearLayout(this);box.setOrientation(LinearLayout.VERTICAL);pad(box,16);sv.addView(box);section(box,"WHY CORTEX GROUPED THESE",p.reason+"\n"+p.items.size()+" related memories");for(KnowledgeItem k:p.items){LinearLayout card=new LinearLayout(this);card.setOrientation(LinearLayout.VERTICAL);card.setBackgroundResource(R.drawable.rounded_panel);pad(card,12);card.setClickable(true);card.setOnClickListener(v->detail(k));TextView t=tv(k.title,16,text);t.setTypeface(null,1);card.addView(t);card.addView(tv(k.category+"  •  "+fmt(k.createdAt),11,muted));String preview=!empty(k.summary)?k.summary:(!empty(k.rawText)?k.rawText:k.extractedText);if(preview==null)preview="";if(preview.length()>180)preview=preview.substring(0,180)+"…";TextView pv=tv(preview,13,text);pv.setPadding(0,dp(5),0,0);card.addView(pv);LinearLayout.LayoutParams cp=new LinearLayout.LayoutParams(-1,-2);cp.setMargins(0,dp(8),0,0);box.addView(card,cp);}new AlertDialog.Builder(this).setTitle(p.title).setView(sv).setNegativeButton("Close",null).show();}
 
-    void showPacks(){
-        ArrayList<ContextPack> packs=ContextEngine.build(db);
-        if(packs.isEmpty()){Toast.makeText(this,"No Context Packs yet — add a few related memories",Toast.LENGTH_LONG).show();return;}
-        String[] labels=new String[packs.size()];
-        for(int i=0;i<packs.size();i++)labels[i]=packs.get(i).title+"   •   "+packs.get(i).items.size()+" items";
-        new AlertDialog.Builder(this).setTitle("Context Packs").setItems(labels,(d,which)->showPackDetail(packs.get(which))).setNegativeButton("Close",null).show();
-    }
+    String statusText(String st,String err){if("analyzed".equals(st))return "● Analyzed + indexed";if("analyzing".equals(st))return "● Analyzing…";if("queued".equals(st))return "● Queued for analysis";if("analysis_failed".equals(st))return "● Analysis failed"+(empty(err)?"":" — "+err);return "● "+st;}int statusColor(String st){return "analysis_failed".equals(st)?danger:("analyzed".equals(st)?muted:accent);}
 
-    void showPackDetail(ContextPack p){
-        ScrollView sv=new ScrollView(this);LinearLayout box=new LinearLayout(this);box.setOrientation(LinearLayout.VERTICAL);pad(box,16);sv.addView(box);
-        section(box,"WHY CORTEX GROUPED THESE",p.reason+"\n"+p.items.size()+" related memories");
-        for(KnowledgeItem k:p.items){
-            LinearLayout card=new LinearLayout(this);card.setOrientation(LinearLayout.VERTICAL);card.setBackgroundResource(R.drawable.rounded_panel);pad(card,12);card.setClickable(true);card.setOnClickListener(v->detail(k));
-            TextView t=tv(k.title,16,text);t.setTypeface(null,1);card.addView(t);
-            card.addView(tv(k.category+"  •  "+fmt(k.createdAt),11,muted));
-            String preview=!empty(k.summary)?k.summary:(!empty(k.rawText)?k.rawText:k.extractedText);if(preview==null)preview="";if(preview.length()>180)preview=preview.substring(0,180)+"…";
-            TextView pv=tv(preview,13,text);pv.setPadding(0,dp(5),0,0);card.addView(pv);
-            LinearLayout.LayoutParams cp=new LinearLayout.LayoutParams(-1,-2);cp.setMargins(0,dp(8),0,0);box.addView(card,cp);
-        }
-        new AlertDialog.Builder(this).setTitle(p.title).setView(sv).setNegativeButton("Close",null).show();
-    }
+    void detail(KnowledgeItem k){ScrollView sv=new ScrollView(this);LinearLayout box=new LinearLayout(this);box.setOrientation(LinearLayout.VERTICAL);pad(box,16);sv.addView(box);if(!empty(k.attachmentPath)&&new File(k.attachmentPath).exists()){Bitmap b=BitmapFactory.decodeFile(k.attachmentPath);if(b!=null){ImageView im=new ImageView(this);im.setImageBitmap(b);im.setAdjustViewBounds(true);im.setScaleType(ImageView.ScaleType.CENTER_INSIDE);box.addView(im,new LinearLayout.LayoutParams(-1,dp(260)));}}section(box,"SUMMARY",empty(k.summary)?"Analysis pending":k.summary);if(!empty(k.rawText))section(box,"SOURCE TEXT",k.rawText);if(!empty(k.extractedText))section(box,"OCR / EXTRACTED TEXT",k.extractedText);ArrayList<String> es=db.entities(k.id);if(!es.isEmpty())section(box,"ENTITIES",join(es));ArrayList<String> as=db.actions(k.id);if(!as.isEmpty())section(box,"OPEN ACTIONS",join(as));if("AI_PROMPT".equals(k.type)){ArrayList<String> ex=db.exampleDetails(k.id);if(!ex.isEmpty())section(box,"EXAMPLE BUNDLE",String.join("\n\n———\n\n",ex));}ArrayList<SemanticHit> rel=SemanticIndex.related(db,k,5);if(!rel.isEmpty()){TextView h=tv("RELATED MEMORIES",11,accent);h.setTypeface(null,1);h.setPadding(0,dp(12),0,dp(4));box.addView(h);for(SemanticHit hit:rel)addHitCard(box,hit);}section(box,"SEMANTIC INDEX",SemanticIndex.providerLabel()+"\nChunk-level local index");section(box,"METADATA",k.category+"\n"+k.tags+"\nSource: "+k.source+"\nStatus: "+k.status+"\nCaptured: "+fmt(k.createdAt));AlertDialog dlg=new AlertDialog.Builder(this).setTitle(k.title).setView(sv).setNegativeButton("Close",null).setNeutralButton("Re-analyze",null).create();dlg.setOnShowListener(x->dlg.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener(v->{db.retry(k.id);dlg.dismiss();refresh(search.getText().toString());queue();}));dlg.show();}
 
-    String statusText(String st,String err){
-        if("analyzed".equals(st))return "● Analyzed";if("analyzing".equals(st))return "● Analyzing…";if("queued".equals(st))return "● Queued for analysis";if("analysis_failed".equals(st))return "● Analysis failed"+(empty(err)?"":" — "+err);return "● "+st;
-    }
-    int statusColor(String st){return "analysis_failed".equals(st)?danger:("analyzed".equals(st)?muted:accent);}
-
-    void detail(KnowledgeItem k){
-        ScrollView sv=new ScrollView(this);LinearLayout box=new LinearLayout(this);box.setOrientation(LinearLayout.VERTICAL);pad(box,16);sv.addView(box);
-        if(!empty(k.attachmentPath)&&new File(k.attachmentPath).exists()){
-            Bitmap b=BitmapFactory.decodeFile(k.attachmentPath);if(b!=null){ImageView im=new ImageView(this);im.setImageBitmap(b);im.setAdjustViewBounds(true);im.setScaleType(ImageView.ScaleType.CENTER_INSIDE);box.addView(im,new LinearLayout.LayoutParams(-1,dp(260)));}
-        }
-        section(box,"SUMMARY",empty(k.summary)?"Analysis pending":k.summary);
-        if(!empty(k.rawText))section(box,"SOURCE TEXT",k.rawText);
-        if(!empty(k.extractedText))section(box,"OCR / EXTRACTED TEXT",k.extractedText);
-        ArrayList<String> es=db.entities(k.id);if(!es.isEmpty())section(box,"ENTITIES",join(es));
-        ArrayList<String> as=db.actions(k.id);if(!as.isEmpty())section(box,"OPEN ACTIONS",join(as));
-        if("AI_PROMPT".equals(k.type)){ArrayList<String> ex=db.exampleDetails(k.id);if(!ex.isEmpty())section(box,"EXAMPLE BUNDLE",String.join("\n\n———\n\n",ex));}
-        section(box,"METADATA",k.category+"\n"+k.tags+"\nSource: "+k.source+"\nStatus: "+k.status+"\nCaptured: "+fmt(k.createdAt));
-        AlertDialog dlg=new AlertDialog.Builder(this).setTitle(k.title).setView(sv).setNegativeButton("Close",null).setNeutralButton("Re-analyze",null).create();
-        dlg.setOnShowListener(x->dlg.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener(v->{db.retry(k.id);dlg.dismiss();refresh(search.getText().toString());queue();}));dlg.show();
-    }
-    void section(LinearLayout box,String heading,String body){TextView h=tv(heading,11,accent);h.setTypeface(null,1);h.setPadding(0,dp(12),0,dp(4));box.addView(h);box.addView(tv(body,14,text));}
-    String join(ArrayList<String> xs){StringBuilder s=new StringBuilder();for(String x:xs){if(s.length()>0)s.append("\n");s.append("• ").append(x);}return s.toString();}
-    boolean empty(String s){return s==null||s.trim().isEmpty();}
-    String fmt(long ms){return new SimpleDateFormat("dd MMM • HH:mm",Locale.getDefault()).format(new Date(ms));}
+    void section(LinearLayout box,String heading,String body){TextView h=tv(heading,11,accent);h.setTypeface(null,1);h.setPadding(0,dp(12),0,dp(4));box.addView(h);box.addView(tv(body,14,text));}String join(ArrayList<String> xs){StringBuilder s=new StringBuilder();for(String x:xs){if(s.length()>0)s.append("\n");s.append("• ").append(x);}return s.toString();}boolean empty(String s){return s==null||s.trim().isEmpty();}String fmt(long ms){return new SimpleDateFormat("dd MMM • HH:mm",Locale.getDefault()).format(new Date(ms));}
 }
