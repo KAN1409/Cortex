@@ -1,0 +1,7 @@
+<resources>
+    <color name="cortex_bg">#101114</color>
+    <color name="cortex_panel">#181A1F</color>
+    <color name="cortex_text">#F3F4F6</color>
+    <color name="cortex_muted">#A5A8B0</color>
+    <color name="cortex_accent">#8FA9FF</color>
+</resources>
