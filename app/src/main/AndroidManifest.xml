@@ -16,12 +16,20 @@
             <meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/debug_file_paths" />
         </provider>
 
-        <activity android:name=".BrainActivity" android:exported="true">
+        <activity android:name=".GroqSetupActivity" android:exported="true" android:label="Cortex Prime">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="cortex" android:host="asr-settings" />
+            </intent-filter>
         </activity>
+
+        <activity android:name=".BrainActivity" android:exported="true" />
 
         <activity android:name=".RestoreActivity" android:exported="true" android:label="Cortex Prime Restore">
             <intent-filter>
