@@ -1,8 +1,8 @@
 name: Prepare Metro ASR Benchmark Bundle
 
 on:
-  push:
-    branches: [ asr-benchmark-lab ]
+  pull_request:
+    branches: [ v1.0.1-mixed-language-voice ]
     paths:
       - '.github/workflows/prepare-metro-benchmark-bundle.yml'
   workflow_dispatch:
