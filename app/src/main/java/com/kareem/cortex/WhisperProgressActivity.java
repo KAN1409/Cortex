@@ -23,7 +23,7 @@ public class WhisperProgressActivity extends Activity {
 
     void build(){
         LinearLayout root=new LinearLayout(this);root.setOrientation(LinearLayout.VERTICAL);root.setGravity(Gravity.CENTER_HORIZONTAL);root.setBackgroundColor(bg);root.setPadding(dp(24),dp(34),dp(24),dp(24));
-        TextView title=tv("EGYPTIAN CODE-SWITCH ASR",22,text);title.setTypeface(null,1);root.addView(title,new LinearLayout.LayoutParams(-1,-2));
+        TextView title=tv("EGYPTIAN CODE-SWITCH MEDIUM",21,text);title.setTypeface(null,1);root.addView(title,new LinearLayout.LayoutParams(-1,-2));
         TextView sub=tv("Local • Arabic + English • no cloud/API",14,muted);sub.setPadding(0,dp(6),0,dp(26));root.addView(sub,new LinearLayout.LayoutParams(-1,-2));
         stage=tv("Preparing…",18,text);root.addView(stage,new LinearLayout.LayoutParams(-1,-2));
         bar=new ProgressBar(this,null,android.R.attr.progressBarStyleHorizontal);bar.setMax(100);bar.setProgress(0);LinearLayout.LayoutParams bp=new LinearLayout.LayoutParams(-1,dp(18));bp.setMargins(0,dp(18),0,dp(8));root.addView(bar,bp);
@@ -37,7 +37,7 @@ public class WhisperProgressActivity extends Activity {
         String s=WhisperRuntimeState.stageName(WhisperProgressActivity.this),d=WhisperRuntimeState.detailText(WhisperProgressActivity.this);
         int pct=WhisperRuntimeState.progressPercent(WhisperProgressActivity.this);stage.setText(pretty(s));detail.setText(d==null?"":d);
         if("preparing local model".equals(s)){bar.setIndeterminate(false);bar.setProgress(pct);amount.setText(WhisperRuntimeState.progressText(WhisperProgressActivity.this));}
-        else if("preparing model".equals(s)||"loading model".equals(s)||"transcribing".equals(s)){bar.setIndeterminate(true);amount.setText("preparing model".equals(s)?"Bundled model • preparing…":("loading model".equals(s)?"Model ready • loading…":"Model loaded • transcribing…"));}
+        else if("preparing model".equals(s)||"loading model".equals(s)||"transcribing".equals(s)){bar.setIndeterminate(true);amount.setText("preparing model".equals(s)?"Bundled Medium model • preparing…":("loading model".equals(s)?"Model ready • loading…":"Model loaded • transcribing…"));}
         else if("ready".equals(s)){bar.setIndeterminate(false);bar.setProgress(100);amount.setText("100% • complete");close.setText("DONE");close.setEnabled(true);}
         else if("failed".equals(s)){bar.setIndeterminate(false);amount.setText("FAILED");close.setText("CLOSE");close.setEnabled(true);}
         KnowledgeItem k=itemId>0?db.getById(itemId):null;
