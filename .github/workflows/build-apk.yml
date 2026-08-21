@@ -32,106 +32,28 @@ jobs:
       - name: Run ASR regression tests
         run: gradle :app:testDebugUnitTest --stacktrace
 
-      - name: Cache tuned medium code-switch model
-        uses: actions/cache@v4
-        with:
-          path: .cortex-model-cache
-          key: cortex-egyptian-english-codeswitch-medium-q4_0-v1
-
-      - name: Prepare Egyptian English medium code-switch model
-        shell: bash
-        run: |
-          set -euo pipefail
-          MODEL_NAME="ggml-egyptian-codeswitch-medium-q4_0.bin"
-          mkdir -p .cortex-model-cache app/src/main/assets/models /tmp/cortex-model
-
-          git clone --depth 1 https://github.com/ggml-org/whisper.cpp.git /tmp/whisper.cpp
-          cmake -S /tmp/whisper.cpp -B /tmp/whisper.cpp/build -DWHISPER_BUILD_EXAMPLES=ON -DWHISPER_BUILD_TESTS=OFF
-          cmake --build /tmp/whisper.cpp/build -j2 --config Release
-
-          if [ ! -s ".cortex-model-cache/$MODEL_NAME" ]; then
-            python3 -m pip install --upgrade pip
-            python3 -m pip install torch transformers huggingface_hub safetensors
-            git clone --depth 1 https://github.com/openai/whisper.git /tmp/openai-whisper
-            python3 - <<'PY'
-          from huggingface_hub import snapshot_download
-
-          out = "/tmp/cortex-model/hf"
-          snapshot_download(
-              repo_id="Seif-Eldeen-Sameh/whisper-medium-arabic-codeswitched",
-              local_dir=out,
-              allow_patterns=[
-                  "config.json","generation_config.json","preprocessor_config.json",
-                  "model.safetensors","pytorch_model.bin"
-              ],
-          )
-          # The fine-tune inherits Whisper Medium's tokenizer. Put the base tokenizer
-          # files beside the fine-tuned weights for whisper.cpp conversion.
-          snapshot_download(
-              repo_id="openai/whisper-medium",
-              local_dir=out,
-              allow_patterns=[
-                  "vocab.json","merges.txt","tokenizer.json","tokenizer_config.json",
-                  "normalizer.json","special_tokens_map.json","added_tokens.json"
-              ],
-          )
-          PY
-            mkdir -p /tmp/cortex-model/ggml
-            python3 /tmp/whisper.cpp/models/convert-h5-to-ggml.py /tmp/cortex-model/hf /tmp/openai-whisper /tmp/cortex-model/ggml
-            QUANTIZER="$(find /tmp/whisper.cpp/build/bin -maxdepth 1 -type f \( -name quantize -o -name whisper-quantize \) | head -n 1)"
-            if [ -z "$QUANTIZER" ]; then echo "whisper.cpp quantizer not found" >&2; exit 1; fi
-            "$QUANTIZER" /tmp/cortex-model/ggml/ggml-model.bin ".cortex-model-cache/$MODEL_NAME" q4_0
-          fi
-
-          cp ".cortex-model-cache/$MODEL_NAME" "app/src/main/assets/models/$MODEL_NAME"
-          sha256sum "app/src/main/assets/models/$MODEL_NAME" | tee /tmp/cortex-model/model.sha256
-          stat -c '%s' "app/src/main/assets/models/$MODEL_NAME" | tee /tmp/cortex-model/model.bytes
-
-          CLI="$(find /tmp/whisper.cpp/build/bin -maxdepth 1 -type f -name whisper-cli | head -n 1)"
-          if [ -z "$CLI" ]; then echo "whisper-cli not found" >&2; exit 1; fi
-          "$CLI" -m "app/src/main/assets/models/$MODEL_NAME" -f /tmp/whisper.cpp/samples/jfk.wav -l en --no-timestamps >/tmp/cortex-model/load-test.txt 2>&1 || { cat /tmp/cortex-model/load-test.txt; exit 1; }
-
       - name: Build unsigned release APK
         run: gradle :app:assembleRelease --stacktrace
 
-      - name: Prepare APK and validation artifacts
+      - name: Prepare APK and signing tools
         shell: bash
         run: |
           set -euo pipefail
-          MODEL_NAME="ggml-egyptian-codeswitch-medium-q4_0.bin"
-          mkdir -p dist-apk/signing-tools/lib dist-validation/lib
-          cp app/build/outputs/apk/release/app-release-unsigned.apk dist-apk/Cortex-v1.0.12-release-unsigned.apk
-          sha256sum dist-apk/Cortex-v1.0.12-release-unsigned.apk > dist-apk/Cortex-v1.0.12-release-unsigned.sha256
-
-          cp "app/src/main/assets/models/$MODEL_NAME" "dist-validation/$MODEL_NAME"
-          cp /tmp/cortex-model/model.sha256 dist-validation/model.sha256
-          cp /tmp/cortex-model/model.bytes dist-validation/model.bytes
-          cp /tmp/cortex-model/load-test.txt dist-validation/load-test.txt
-          CLI="$(find /tmp/whisper.cpp/build/bin -maxdepth 1 -type f -name whisper-cli | head -n 1)"
-          cp "$CLI" dist-validation/whisper-cli-linux
-          chmod +x dist-validation/whisper-cli-linux
-          find /tmp/whisper.cpp/build -type f -name '*.so*' -exec cp -L {} dist-validation/lib/ \;
-
+          mkdir -p dist/signing-tools/lib
+          cp app/build/outputs/apk/release/app-release-unsigned.apk dist/Cortex-v1.0.12-release-unsigned.apk
+          sha256sum dist/Cortex-v1.0.12-release-unsigned.apk > dist/Cortex-v1.0.12-release-unsigned.sha256
           APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
           if [ -z "$APKSIGNER" ]; then echo 'apksigner not found' >&2; exit 1; fi
           BT_DIR="$(dirname "$APKSIGNER")"
-          cp "$APKSIGNER" dist-apk/signing-tools/apksigner
-          cp "$BT_DIR/lib/apksigner.jar" dist-apk/signing-tools/lib/apksigner.jar
-          cp "$BT_DIR/zipalign" dist-apk/signing-tools/zipalign
-          chmod +x dist-apk/signing-tools/apksigner dist-apk/signing-tools/zipalign
+          cp "$APKSIGNER" dist/signing-tools/apksigner
+          cp "$BT_DIR/lib/apksigner.jar" dist/signing-tools/lib/apksigner.jar
+          cp "$BT_DIR/zipalign" dist/signing-tools/zipalign
+          chmod +x dist/signing-tools/apksigner dist/signing-tools/zipalign
 
-      - name: Upload Cortex APK artifact
+      - name: Upload Cortex APK
         uses: actions/upload-artifact@v4
         with:
-          name: Cortex-v1.0.12-apk
-          path: dist-apk/
-          if-no-files-found: error
-          retention-days: 30
-
-      - name: Upload ASR validation kit
-        uses: actions/upload-artifact@v4
-        with:
-          name: Cortex-v1.0.12-asr-validation
-          path: dist-validation/
+          name: Cortex-v1.0.12-local-model
+          path: dist/
           if-no-files-found: error
           retention-days: 30
