@@ -1,0 +1,36 @@
+name: Fetch Stock Whisper Base Control
+
+on:
+  pull_request:
+    branches: [ main ]
+    paths:
+      - '.github/workflows/fetch-stock-whisper-base.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  fetch-model:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download stock multilingual Whisper Base Q5_1
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          curl -L --fail --retry 3 \
+            https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base-q5_1.bin \
+            -o dist/ggml-base-q5_1.bin
+          test -s dist/ggml-base-q5_1.bin
+          sha256sum dist/ggml-base-q5_1.bin > dist/ggml-base-q5_1.sha256
+          ls -lh dist/
+
+      - name: Upload stock control model
+        uses: actions/upload-artifact@v4
+        with:
+          name: stock-whisper-base-q5_1-control
+          path: dist/
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 7
