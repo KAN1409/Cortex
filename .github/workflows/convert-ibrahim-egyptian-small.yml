@@ -1,0 +1,133 @@
+name: Convert Ibrahim Egyptian Code-Switch Small
+
+on:
+  push:
+    branches: [ v1.0.1-mixed-language-voice ]
+    paths:
+      - '.github/workflows/convert-ibrahim-egyptian-small.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  convert-small:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout Cortex
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+
+      - name: Install conversion dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          python -m pip install --index-url https://download.pytorch.org/whl/cpu torch==2.8.0
+          python -m pip install 'transformers>=4.46,<5' 'huggingface_hub>=0.28' safetensors numpy
+
+      - name: Download Ibrahim Egyptian code-switch Small
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from huggingface_hub import snapshot_download
+          snapshot_download(
+              repo_id='IbrahimAmin/code-switched-egyptian-arabic-whisper-small',
+              local_dir='hf-model',
+              allow_patterns=[
+                  'model.safetensors',
+                  'config.json',
+                  'generation_config.json',
+                  'preprocessor_config.json',
+                  'tokenizer_config.json',
+                  'special_tokens_map.json',
+                  'normalizer.json',
+                  'vocab.json',
+                  'added_tokens.json',
+                  'merges.txt',
+              ],
+          )
+          PY
+          test -s hf-model/model.safetensors
+          test -s hf-model/vocab.json
+          test -s hf-model/added_tokens.json
+          test -s hf-model/merges.txt
+          du -sh hf-model
+
+      - name: Clone whisper.cpp and OpenAI Whisper assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --depth 1 https://github.com/ggml-org/whisper.cpp.git whisper.cpp
+          git clone --depth 1 https://github.com/openai/whisper.git openai-whisper
+
+      - name: Convert to GGML F16
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p converted
+          python whisper.cpp/models/convert-h5-to-ggml.py hf-model openai-whisper converted
+          test -s converted/ggml-model.bin
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('converted/ggml-model.bin')
+          assert p.read_bytes()[:4] == b'lmgg'
+          print('F16 bytes:', p.stat().st_size)
+          PY
+
+      - name: Build quantizer and CLI
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S whisper.cpp -B whisper.cpp/build -DCMAKE_BUILD_TYPE=Release
+          cmake --build whisper.cpp/build --config Release -j2 --target whisper-quantize whisper-cli
+
+      - name: Quantize Q5_0 and Q8_0
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist/q5 dist/q8
+          whisper.cpp/build/bin/whisper-quantize converted/ggml-model.bin dist/q5/ggml-ibrahim-egyptian-codeswitch-small-q5_0.bin q5_0
+          whisper.cpp/build/bin/whisper-quantize converted/ggml-model.bin dist/q8/ggml-ibrahim-egyptian-codeswitch-small-q8_0.bin q8_0
+          test -s dist/q5/ggml-ibrahim-egyptian-codeswitch-small-q5_0.bin
+          test -s dist/q8/ggml-ibrahim-egyptian-codeswitch-small-q8_0.bin
+          sha256sum dist/q5/*.bin > dist/q5/SHA256SUMS.txt
+          sha256sum dist/q8/*.bin > dist/q8/SHA256SUMS.txt
+          ls -lh dist/q5 dist/q8
+
+      - name: Smoke test models
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -L --fail --retry 3 -o jfk.wav https://raw.githubusercontent.com/ggml-org/whisper.cpp/master/samples/jfk.wav
+          whisper.cpp/build/bin/whisper-cli -m dist/q5/ggml-ibrahim-egyptian-codeswitch-small-q5_0.bin -f jfk.wav -l auto -nt --no-prints >/tmp/q5.txt
+          whisper.cpp/build/bin/whisper-cli -m dist/q8/ggml-ibrahim-egyptian-codeswitch-small-q8_0.bin -f jfk.wav -l auto -nt --no-prints >/tmp/q8.txt
+          test -s /tmp/q5.txt
+          test -s /tmp/q8.txt
+          echo 'Q5 smoke:'; cat /tmp/q5.txt
+          echo 'Q8 smoke:'; cat /tmp/q8.txt
+
+      - name: Upload Q5 Cortex-ready model
+        uses: actions/upload-artifact@v4
+        with:
+          name: Cortex-Ibrahim-Egyptian-CodeSwitch-Small-Q5_0
+          path: dist/q5/
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload Q8 Cortex-ready model
+        uses: actions/upload-artifact@v4
+        with:
+          name: Cortex-Ibrahim-Egyptian-CodeSwitch-Small-Q8_0
+          path: dist/q8/
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 30
