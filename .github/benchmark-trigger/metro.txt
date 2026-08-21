@@ -1,1 +1,1 @@
-metro benchmark trigger 2026-08-21T20:38+03:00
+nemotron binary benchmark trigger 2026-08-21T20:52+03:00
