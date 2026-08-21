@@ -16,17 +16,17 @@ public final class AudioAnalyzer {
             MultilingualWhisperTranscriber.transcribe(ctx,f,new MultilingualWhisperTranscriber.Callback(){
                 @Override public void ok(TranscriptResult t){finish(t,cb);}
                 @Override public void fail(Exception whisperError){
-                    if(whisperOnly){
-                        cb.fail(new IllegalStateException("Whisper-only retry failed — "+safe(whisperError),whisperError));
+                    if(whisperOnly||LocalAsrModelStore.ready(ctx)){
+                        cb.fail(new IllegalStateException("Local ASR failed — "+safe(whisperError),whisperError));
                         return;
                     }
                     SystemAudioTranscriber.transcribe(ctx,f,new SystemAudioTranscriber.Callback(){
                         public void ok(TranscriptResult t){
-                            t.engine=t.engine+"_fallback_after_whisper["+compact(whisperError)+"]";
+                            t.engine=t.engine+"_fallback_after_local_asr["+compact(whisperError)+"]";
                             finish(t,cb);
                         }
                         public void fail(Exception androidError){
-                            cb.fail(new IllegalStateException("Whisper failed: "+safe(whisperError)+"; Android fallback failed: "+safe(androidError),androidError));
+                            cb.fail(new IllegalStateException("Local ASR failed: "+safe(whisperError)+"; Android fallback failed: "+safe(androidError),androidError));
                         }
                     });
                 }
@@ -42,10 +42,12 @@ public final class AudioAnalyzer {
 
     private static void finish(TranscriptResult t,Callback cb){
         try{
+            // ASR text is immutable here. LocalAnalyzer may summarize/extract metadata,
+            // but it never rewrites the transcript stored in extractedText or segments.
             AnalysisResult r=LocalAnalyzer.analyze(t.text,"text/plain");
             r.extractedText=t.text;
-            r.engine=t.engine+"+local_rules";
-            r.version="3";
+            r.engine=t.engine;
+            r.version="4";
             r.category="Voice & Audio";
             r.tags="voice,audio,transcript,"+AutoClassifier.tags(t.text,"Voice & Audio");
             String title=AutoClassifier.title(t.text,"text/plain");
