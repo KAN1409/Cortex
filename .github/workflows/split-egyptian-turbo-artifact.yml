@@ -1,0 +1,77 @@
+name: Split Egyptian Turbo Artifact for Delivery
+
+on:
+  pull_request:
+    branches: [ main ]
+    paths:
+      - '.github/workflows/split-egyptian-turbo-artifact.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  split-artifact:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout Cortex
+        uses: actions/checkout@v6
+
+      - name: Download converted model artifact from successful run
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p source
+          gh run download 32495386973 \
+            --repo KAN1409/Cortex \
+            --name Cortex-Egyptian-Large-V3-Turbo-Q8_0 \
+            --dir source
+          ls -lh source
+          test -s source/ggml-egyptian-large-v3-turbo-q8_0.bin
+          test -s source/ggml-egyptian-large-v3-turbo-q8_0.sha256
+          (cd source && sha256sum -c ggml-egyptian-large-v3-turbo-q8_0.sha256)
+
+      - name: Split model into connector-safe parts
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p parts
+          split -b 300M -d -a 2 \
+            source/ggml-egyptian-large-v3-turbo-q8_0.bin \
+            parts/ggml-egyptian-large-v3-turbo-q8_0.bin.part-
+          cp source/ggml-egyptian-large-v3-turbo-q8_0.sha256 parts/
+          ls -lh parts
+          test -s parts/ggml-egyptian-large-v3-turbo-q8_0.bin.part-00
+          test -s parts/ggml-egyptian-large-v3-turbo-q8_0.bin.part-01
+          test -s parts/ggml-egyptian-large-v3-turbo-q8_0.bin.part-02
+
+      - name: Upload part 00
+        uses: actions/upload-artifact@v4
+        with:
+          name: Cortex-Egyptian-Turbo-Q8-part-00
+          path: |
+            parts/ggml-egyptian-large-v3-turbo-q8_0.bin.part-00
+            parts/ggml-egyptian-large-v3-turbo-q8_0.sha256
+          compression-level: 0
+          retention-days: 30
+
+      - name: Upload part 01
+        uses: actions/upload-artifact@v4
+        with:
+          name: Cortex-Egyptian-Turbo-Q8-part-01
+          path: parts/ggml-egyptian-large-v3-turbo-q8_0.bin.part-01
+          compression-level: 0
+          retention-days: 30
+
+      - name: Upload part 02
+        uses: actions/upload-artifact@v4
+        with:
+          name: Cortex-Egyptian-Turbo-Q8-part-02
+          path: parts/ggml-egyptian-large-v3-turbo-q8_0.bin.part-02
+          compression-level: 0
+          retention-days: 30
