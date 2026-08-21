@@ -11,7 +11,7 @@ permissions:
   contents: read
 
 jobs:
-  convert-tata:
+  convert-tata-f16:
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
@@ -28,7 +28,7 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt omegaconf
 
-      - name: Download and normalize TATA checkpoint layout
+      - name: Download normalize and inspect TATA checkpoint
         shell: bash
         run: |
           set -euo pipefail
@@ -42,45 +42,37 @@ jobs:
           PY
           python - <<'PY'
           from pathlib import Path
-          import shutil, yaml
+          import shutil, yaml, torch
           from omegaconf import OmegaConf
 
           root = Path('tata-source')
           src_cfg = root / 'config.yaml'
-
-          # Resolve ${model.*} references while the original full config tree
-          # still exists, then extract the model section for NeMo-Speech.cpp.
           conf = OmegaConf.load(src_cfg)
           resolved = OmegaConf.to_container(conf, resolve=True)
-          if not isinstance(resolved, dict):
-              raise SystemExit('Resolved TATA config is not a mapping')
           model_cfg = resolved.get('model', resolved)
-          if not isinstance(model_cfg, dict):
-              raise SystemExit('Resolved TATA model config is not a mapping')
-
           (root / 'model_config.yaml').write_text(
-              yaml.safe_dump(model_cfg, sort_keys=False, allow_unicode=True),
-              encoding='utf-8',
-          )
+              yaml.safe_dump(model_cfg, sort_keys=False, allow_unicode=True), encoding='utf-8')
           src_cfg.unlink()
           shutil.copy2(root / 'asr_model.ckpt', root / 'model_weights.ckpt')
-
           tok_models = list((root / 'tokenizer').rglob('*.model'))
           if not tok_models:
-              raise SystemExit('No SentencePiece tokenizer model found')
+              raise SystemExit('No tokenizer model')
           shutil.copy2(tok_models[0], root / 'tokenizer.model')
 
-          text = (root / 'model_config.yaml').read_text(encoding='utf-8')
-          if '${' in text:
-              raise SystemExit('Unresolved OmegaConf interpolation remains in model_config.yaml')
-
-          print('normalized files:')
-          for p in sorted(root.rglob('*')):
-              if p.is_file() and '.cache' not in p.parts:
-                  print(p, p.stat().st_size)
+          ckpt = torch.load(root / 'model_weights.ckpt', map_location='cpu', weights_only=False)
+          sd = ckpt.get('state_dict', ckpt)
+          for key in [
+              'joint.joint_net.2.weight', 'joint.joint_net.2.bias',
+              'joint.enc.weight', 'joint.pred.weight',
+              'decoder.prediction.embed.weight']:
+              t = sd.get(key)
+              print('CHECKPOINT_SHAPE', key, None if t is None else tuple(t.shape), None if t is None else str(t.dtype))
+          print('CONFIG decoder vocab_size', model_cfg.get('decoder', {}).get('vocab_size'))
+          print('CONFIG joint num_classes', model_cfg.get('joint', {}).get('num_classes'))
+          print('CONFIG labels len', len(model_cfg.get('labels', []) or []))
           PY
 
-      - name: Convert TATA Egyptian RNNT to Q8 GGUF
+      - name: Convert TATA RNNT to F16 GGUF
         shell: bash
         run: |
           set -euo pipefail
@@ -88,16 +80,16 @@ jobs:
           cd nemo-speech-src
           python convert_model.py ../tata-source \
             --architecture asr \
-            --outfile ../dist-tata/tata-egyptian-rnnt.q8_0.gguf \
-            --outtype q8_0
+            --outfile ../dist-tata/tata-egyptian-rnnt.f16.gguf \
+            --outtype fp16
           cd ..
           sha256sum dist-tata/*.gguf > dist-tata/sha256.txt
           ls -lh dist-tata
 
-      - name: Upload TATA Q8
+      - name: Upload TATA F16
         uses: actions/upload-artifact@v4
         with:
-          name: tata-egyptian-rnnt-q8
+          name: tata-egyptian-rnnt-f16
           path: dist-tata/
           compression-level: 0
           if-no-files-found: error
