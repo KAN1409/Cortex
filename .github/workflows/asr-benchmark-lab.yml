@@ -26,7 +26,7 @@ jobs:
           git clone --depth 1 https://github.com/NVIDIA/NeMo-Speech.cpp.git nemo-speech-src
           cd nemo-speech-src
           python -m pip install --upgrade pip
-          python -m pip install -r requirements.txt
+          python -m pip install -r requirements.txt omegaconf
 
       - name: Download and normalize TATA checkpoint layout
         shell: bash
@@ -52,19 +52,17 @@ jobs:
               yaml.safe_dump(model_cfg, sort_keys=False, allow_unicode=True),
               encoding='utf-8',
           )
+          src_cfg.unlink()
           shutil.copy2(root / 'asr_model.ckpt', root / 'model_weights.ckpt')
 
           tok_models = list((root / 'tokenizer').rglob('*.model'))
           if not tok_models:
               raise SystemExit('No SentencePiece tokenizer model found')
-          if tok_models[0].name != 'tokenizer.model':
-              shutil.copy2(tok_models[0], root / 'tokenizer.model')
-          else:
-              shutil.copy2(tok_models[0], root / 'tokenizer.model')
+          shutil.copy2(tok_models[0], root / 'tokenizer.model')
 
           print('normalized files:')
           for p in sorted(root.rglob('*')):
-              if p.is_file():
+              if p.is_file() and '.cache' not in p.parts:
                   print(p, p.stat().st_size)
           PY
 
