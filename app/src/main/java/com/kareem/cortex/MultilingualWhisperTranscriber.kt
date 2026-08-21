@@ -14,13 +14,12 @@ import java.util.Locale
 /**
  * Cortex local ASR for Egyptian Arabic <-> English code-switching.
  *
- * v1.0.14 pipeline:
- * 1) local energy VAD on the original Cortex WAV,
- * 2) decode each speech chunk with multilingual auto-language,
- * 3) when the auto hypothesis contains Latin/code-switch evidence, re-decode that
- *    exact acoustic chunk with an English prior,
- * 4) select/merge candidates without translating or Arabicizing raw ASR text,
- * 5) restore every chunk's absolute offset into the original recording timeline.
+ * v1.0.15:
+ * - VAD supplies onset/end, but short voice notes are decoded as one long context window.
+ * - Primary pass is multilingual auto with translation disabled.
+ * - English rescue is localized to the acoustic position of an existing Latin span.
+ * - Rescue replaces only that Latin span; Arabic before/after is immutable.
+ * - A final overlapping tail pass protects lower-energy Arabic/English endings.
  */
 class MultilingualWhisperTranscriber private constructor() {
     interface Callback {
@@ -30,12 +29,15 @@ class MultilingualWhisperTranscriber private constructor() {
 
     companion object {
         private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        private const val RESCUE_CONTEXT_MS = 800L
+        private const val TAIL_CONTEXT_MS = 3500L
 
         @JvmStatic
         fun transcribe(context: Context, audio: File, callback: Callback) {
             val app = context.applicationContext
             scope.launch {
                 val chunks = ArrayList<WavSpeechChunker.Chunk>()
+                val tempFiles = ArrayList<File>()
                 try {
                     if (!audio.exists()) throw IllegalArgumentException("Audio file not found")
                     if (!Build.SUPPORTED_ABIS.any { it == "arm64-v8a" }) {
@@ -48,7 +50,7 @@ class MultilingualWhisperTranscriber private constructor() {
                         throw IllegalStateException("No local ASR model selected. Choose ggml-codeswitch-medium-q8_0.bin in Cortex first.")
                     }
 
-                    WhisperRuntimeState.stage(app, "detecting speech", "Finding real speech intervals and preserving original timestamps")
+                    WhisperRuntimeState.stage(app, "detecting speech", "Finding onset/end; short notes stay in one multilingual context window")
                     chunks.addAll(WavSpeechChunker.split(audio, app.cacheDir))
                     if (chunks.isEmpty()) throw IllegalStateException("No speech detected in this recording")
                     val fullDuration = WavSpeechChunker.durationMs(audio)
@@ -59,60 +61,111 @@ class MultilingualWhisperTranscriber private constructor() {
                     try {
                         val out = TranscriptResult()
                         out.language = "ar-EG+en-codeswitch-auto"
-                        out.engine = "whisper_cpp_local_codeswitch_medium_q8_0_vad_auto_en_rescue"
-                        out.version = "9"
+                        out.engine = "whisper_cpp_local_codeswitch_medium_q8_0_short_window_auto_span_rescue_tail_retry"
+                        out.version = "10"
                         out.durationMs = fullDuration
-                        val finalParts = ArrayList<String>()
+                        val recordingParts = ArrayList<String>()
 
-                        for ((index, chunk) in chunks.withIndex()) {
-                            val n = index + 1
+                        for ((chunkIndex, chunk) in chunks.withIndex()) {
+                            val chunkNumber = chunkIndex + 1
+                            val chunkDuration = chunk.endMs - chunk.startMs
                             WhisperRuntimeState.stage(
                                 app,
-                                "transcribing",
-                                "Chunk $n/${chunks.size} • ${chunk.startMs}-${chunk.endMs} ms • multilingual auto"
+                                "primary decode",
+                                "Window $chunkNumber/${chunks.size} • ${chunk.startMs}-${chunk.endMs} ms • multilingual auto"
                             )
-                            val auto = Whisper.transcribe(model, chunk.file.absolutePath, config("auto"))
-                            val autoText = auto.text.trim()
-                            if (autoText.isEmpty()) continue
+                            val primary = Whisper.transcribe(model, chunk.file.absolutePath, config("auto"))
+                            val primaryText = primary.text.trim()
+                            if (primaryText.isEmpty()) continue
 
-                            var chosenText = autoText
-                            var timingSource = auto
-                            if (CodeSwitchCandidateSelector.shouldEnglishRetry(autoText)) {
-                                WhisperRuntimeState.stage(
-                                    app,
-                                    "english rescue",
-                                    "Chunk $n/${chunks.size} • switch-aware English re-decode on the same acoustic interval"
-                                )
-                                try {
-                                    val english = Whisper.transcribe(model, chunk.file.absolutePath, config("en"))
-                                    val englishText = english.text.trim()
-                                    val selected = CodeSwitchCandidateSelector.choose(autoText, englishText)
-                                    chosenText = selected
-                                    if (selected == englishText && englishText.isNotEmpty()) timingSource = english
-                                } catch (_: Exception) {
-                                    // Auto transcript remains valid; English rescue is optional.
-                                    chosenText = autoText
+                            val correctedSegments = ArrayList<String>()
+                            if (primary.segments.isNotEmpty()) {
+                                for (segment in primary.segments) {
+                                    var selected = segment.text.trim()
+                                    if (selected.isEmpty()) continue
+                                    if (CodeSwitchCandidateSelector.shouldEnglishRetry(selected)) {
+                                        val fractions = CodeSwitchCandidateSelector.englishSpanFractions(selected)
+                                        if (fractions[0] >= 0.0 && fractions[1] > fractions[0]) {
+                                            val segStart = segment.startMs.coerceAtLeast(0L)
+                                            val segEnd = segment.endMs.coerceAtLeast(segStart + 1L)
+                                            val segDuration = (segEnd - segStart).coerceAtLeast(1L)
+                                            val spanStart = segStart + (segDuration * fractions[0]).toLong()
+                                            val spanEnd = segStart + (segDuration * fractions[1]).toLong()
+                                            val rescueStart = (spanStart - RESCUE_CONTEXT_MS).coerceAtLeast(0L)
+                                            val rescueEnd = (spanEnd + RESCUE_CONTEXT_MS).coerceAtMost(chunkDuration)
+                                            if (rescueEnd > rescueStart + 120L) {
+                                                WhisperRuntimeState.stage(
+                                                    app,
+                                                    "english rescue",
+                                                    "Window $chunkNumber/${chunks.size} • ${rescueStart}-${rescueEnd} ms • span-local English re-decode"
+                                                )
+                                                var rescueFile: File? = null
+                                                try {
+                                                    val rescueChunk = WavSpeechChunker.slice(chunk.file, app.cacheDir, rescueStart, rescueEnd)
+                                                    rescueFile = rescueChunk.file
+                                                    tempFiles.add(rescueFile)
+                                                    val english = Whisper.transcribe(model, rescueFile.absolutePath, config("en"))
+                                                    selected = CodeSwitchCandidateSelector.mergeEnglishSpan(selected, english.text.trim())
+                                                } catch (_: Exception) {
+                                                    // Primary segment remains untouched if rescue fails.
+                                                }
+                                            }
+                                        }
+                                    }
+                                    correctedSegments.add(selected)
+                                    val absStart = (chunk.startMs + segment.startMs).coerceIn(chunk.startMs, chunk.endMs)
+                                    val absEnd = (chunk.startMs + segment.endMs).coerceIn(absStart, chunk.endMs)
+                                    out.segments.add(TranscriptResult.Segment(absStart, absEnd, selected, -1f))
                                 }
                             }
 
-                            chosenText = chosenText.replace(Regex("\\s+"), " ").trim()
-                            if (chosenText.isEmpty()) continue
-                            finalParts.add(chosenText)
-
-                            var relStart = 0L
-                            var relEnd = chunk.endMs - chunk.startMs
-                            if (timingSource.segments.isNotEmpty()) {
-                                relStart = timingSource.segments.first().startMs.coerceAtLeast(0L)
-                                relEnd = timingSource.segments.last().endMs.coerceAtLeast(relStart)
+                            var chunkText = if (correctedSegments.isNotEmpty()) {
+                                CodeSwitchCandidateSelector.joinVerbatim(*correctedSegments.toTypedArray())
+                            } else {
+                                primaryText.replace(Regex("\\s+"), " ").trim()
                             }
-                            val absStart = (chunk.startMs + relStart).coerceIn(chunk.startMs, chunk.endMs)
-                            val absEnd = (chunk.startMs + relEnd).coerceIn(absStart, chunk.endMs)
-                            out.segments.add(TranscriptResult.Segment(absStart, absEnd, chosenText, -1f))
+
+                            // Short-note invariant: always re-check the final ~3.5 s with overlap.
+                            // This prevents a low-energy Arabic closing phrase from disappearing
+                            // after an English segment or endpointing decision.
+                            if (chunkDuration > 2500L) {
+                                val tailStart = (chunkDuration - TAIL_CONTEXT_MS).coerceAtLeast(0L)
+                                WhisperRuntimeState.stage(
+                                    app,
+                                    "tail retry",
+                                    "Window $chunkNumber/${chunks.size} • ${tailStart}-${chunkDuration} ms • multilingual ending check"
+                                )
+                                var tailFile: File? = null
+                                try {
+                                    val tailChunk = WavSpeechChunker.slice(chunk.file, app.cacheDir, tailStart, chunkDuration)
+                                    tailFile = tailChunk.file
+                                    tempFiles.add(tailFile)
+                                    val tail = Whisper.transcribe(model, tailFile.absolutePath, config("auto"))
+                                    val tailText = tail.text.trim()
+                                    val novel = CodeSwitchCandidateSelector.novelTail(chunkText, tailText)
+                                    if (novel.isNotEmpty()) {
+                                        chunkText = CodeSwitchCandidateSelector.mergeTail(chunkText, tailText)
+                                        var relStart = tailStart
+                                        var relEnd = chunkDuration
+                                        if (tail.segments.isNotEmpty()) {
+                                            relStart = tailStart + tail.segments.first().startMs.coerceAtLeast(0L)
+                                            relEnd = tailStart + tail.segments.last().endMs.coerceAtLeast(tail.segments.first().startMs)
+                                        }
+                                        val absStart = (chunk.startMs + relStart).coerceIn(chunk.startMs, chunk.endMs)
+                                        val absEnd = (chunk.startMs + relEnd).coerceIn(absStart, chunk.endMs)
+                                        out.segments.add(TranscriptResult.Segment(absStart, absEnd, novel, -1f))
+                                    }
+                                } catch (_: Exception) {
+                                    // A complete primary decode remains usable if the defensive tail pass fails.
+                                }
+                            }
+
+                            if (chunkText.isNotEmpty()) recordingParts.add(chunkText)
                         }
 
-                        out.text = CodeSwitchCandidateSelector.joinVerbatim(*finalParts.toTypedArray())
+                        out.text = CodeSwitchCandidateSelector.joinVerbatim(*recordingParts.toTypedArray())
                         if (out.text.isEmpty()) throw IllegalStateException("Code-switch ASR returned an empty transcript")
-                        WhisperRuntimeState.stage(app, "ready", "VAD + multilingual auto + English rescue completed")
+                        WhisperRuntimeState.stage(app, "ready", "Single-context auto decode + span rescue + tail retry completed")
                         callback.ok(out)
                     } finally {
                         Whisper.releaseModel(model)
@@ -122,6 +175,7 @@ class MultilingualWhisperTranscriber private constructor() {
                     callback.fail(e)
                 } finally {
                     for (c in chunks) try { c.file.delete() } catch (_: Exception) {}
+                    for (f in tempFiles) try { f.delete() } catch (_: Exception) {}
                 }
             }
         }
