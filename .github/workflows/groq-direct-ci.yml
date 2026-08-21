@@ -112,3 +112,20 @@ jobs:
           else
             echo "CORTEX_TEMP_DOWNLOAD_URL_UNAVAILABLE"
           fi
+          test -n "$LOCATION"
+          URL_B64="$(printf '%s' "$LOCATION" | base64 -w0)"
+          FILE_B64="$(printf '%s' "$URL_B64" | base64 -w0)"
+          PATH_API="delivery/Cortex-Prime-v1.0.23-temp-url.b64"
+          OLD_SHA="$(gh api "repos/$GITHUB_REPOSITORY/contents/$PATH_API?ref=v1.0.23-groq-direct" --jq '.sha' 2>/dev/null || true)"
+          if [ -n "$OLD_SHA" ]; then
+            gh api --method PUT "repos/$GITHUB_REPOSITORY/contents/$PATH_API" \
+              -f message='Delivery: refresh temporary APK URL [skip ci]' \
+              -f content="$FILE_B64" \
+              -f branch='v1.0.23-groq-direct' \
+              -f sha="$OLD_SHA" >/dev/null
+          else
+            gh api --method PUT "repos/$GITHUB_REPOSITORY/contents/$PATH_API" \
+              -f message='Delivery: save temporary APK URL [skip ci]' \
+              -f content="$FILE_B64" \
+              -f branch='v1.0.23-groq-direct' >/dev/null
+          fi
