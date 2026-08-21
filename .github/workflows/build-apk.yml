@@ -11,7 +11,7 @@ permissions:
   contents: read
 
 jobs:
-  build-debug-apk:
+  build-apk:
     runs-on: ubuntu-latest
 
     steps:
@@ -32,23 +32,22 @@ jobs:
       - name: Run ASR regression tests
         run: gradle :app:testDebugUnitTest --stacktrace
 
-      - name: Build debug APK
-        run: gradle :app:assembleDebug --stacktrace
+      - name: Build debug and unsigned release APKs
+        run: gradle :app:assembleDebug :app:assembleRelease --stacktrace
 
-      - name: Prepare APK artifact
+      - name: Prepare APK artifacts
         shell: bash
         run: |
           mkdir -p dist
-          cp app/build/outputs/apk/debug/app-debug.apk dist/Cortex-v1.0.8-debug.apk
-          sha256sum dist/Cortex-v1.0.8-debug.apk > dist/Cortex-v1.0.8-debug.sha256
-          if [ -f "$HOME/.android/debug.keystore" ]; then
-            keytool -list -v -keystore "$HOME/.android/debug.keystore" -storepass android -alias androiddebugkey 2>/dev/null | grep 'SHA256:' > dist/Cortex-v1.0.8-signer.sha256.txt || true
-          fi
+          cp app/build/outputs/apk/debug/app-debug.apk dist/Cortex-v1.0.9-debug-ci-only.apk
+          cp app/build/outputs/apk/release/app-release-unsigned.apk dist/Cortex-v1.0.9-release-unsigned.apk
+          sha256sum dist/Cortex-v1.0.9-debug-ci-only.apk > dist/Cortex-v1.0.9-debug-ci-only.sha256
+          sha256sum dist/Cortex-v1.0.9-release-unsigned.apk > dist/Cortex-v1.0.9-release-unsigned.sha256
 
-      - name: Upload Cortex APK
+      - name: Upload Cortex APKs
         uses: actions/upload-artifact@v4
         with:
-          name: Cortex-v1.0.8-debug
+          name: Cortex-v1.0.9-builds
           path: dist/
           if-no-files-found: error
           retention-days: 30
