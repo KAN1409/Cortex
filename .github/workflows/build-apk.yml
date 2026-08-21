@@ -40,8 +40,8 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p dist/signing-tools/lib
-          cp app/build/outputs/apk/release/app-release-unsigned.apk dist/Cortex-v1.0.12-release-unsigned.apk
-          sha256sum dist/Cortex-v1.0.12-release-unsigned.apk > dist/Cortex-v1.0.12-release-unsigned.sha256
+          cp app/build/outputs/apk/release/app-release-unsigned.apk dist/Cortex-v1.0.13-release-unsigned.apk
+          sha256sum dist/Cortex-v1.0.13-release-unsigned.apk > dist/Cortex-v1.0.13-release-unsigned.sha256
           APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
           if [ -z "$APKSIGNER" ]; then echo 'apksigner not found' >&2; exit 1; fi
           BT_DIR="$(dirname "$APKSIGNER")"
@@ -53,7 +53,7 @@ jobs:
       - name: Upload Cortex APK
         uses: actions/upload-artifact@v4
         with:
-          name: Cortex-v1.0.12-local-model
+          name: Cortex-v1.0.13-local-model-hotfix
           path: dist/
           if-no-files-found: error
           retention-days: 30
