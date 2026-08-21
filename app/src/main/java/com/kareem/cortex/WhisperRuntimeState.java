@@ -34,7 +34,12 @@ public final class WhisperRuntimeState {
     }
 
     public static void forceWhisperOnly(Context c,long itemId){
-        p(c).edit().putLong("force_item",itemId).apply();
+        p(c).edit().putLong("force_item",itemId)
+                .putString("stage","queued whisper")
+                .putString("detail","Preparing Whisper small multilingual model")
+                .putLong("downloaded",0)
+                .putLong("total",488000000L)
+                .putLong("updated",System.currentTimeMillis()).apply();
         try{
             Intent i=new Intent(c,WhisperProgressActivity.class).putExtra("item_id",itemId);
             if(!(c instanceof Activity))i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
