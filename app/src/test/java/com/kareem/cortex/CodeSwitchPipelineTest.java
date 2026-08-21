@@ -16,6 +16,13 @@ public class CodeSwitchPipelineTest {
         assertFalse(CodeSwitchCandidateSelector.shouldTailRetry(28_000L,27_000L,0L));
     }
 
+    @Test public void firstSegmentTimestampExcludesVadPreRoll(){
+        WavSpeechChunker.Chunk chunk=new WavSpeechChunker.Chunk(new java.io.File("unused.wav"),1_720L,15_560L);
+        assertEquals(2_220L,WavSpeechChunker.restoreAbsoluteSegmentStart(chunk,0L,true));
+        assertEquals(2_020L,WavSpeechChunker.restoreAbsoluteSegmentStart(chunk,300L,true));
+        assertEquals(1_720L,WavSpeechChunker.restoreAbsoluteSegmentStart(chunk,0L,false));
+    }
+
     @Test public void longNoteRetriesOnlyWhenPrimaryReallyMissedTail(){
         assertFalse(CodeSwitchCandidateSelector.shouldTailRetry(40_000L,25_000L,24_250L));
         assertTrue(CodeSwitchCandidateSelector.shouldTailRetry(40_000L,25_000L,23_900L));

@@ -10,6 +10,7 @@ public final class WavSpeechChunker {
     private static final long SHORT_NOTE_MS=28_000L;
     private static final long MERGE_GAP_MS=1_500L;
     private static final long MIN_SPEECH_MS=150L;
+    static final long SPEECH_PRE_ROLL_MS=500L;
 
     public static final class Chunk {
         public final File file; public final long startMs,endMs;
@@ -78,6 +79,20 @@ public final class WavSpeechChunker {
 
     public static long durationMs(File wav)throws Exception{return readWav(wav).durationMs;}
 
+    /**
+     * The first Whisper segment often starts at zero because the whole short-note
+     * context is emitted as one 30-second segment. Keep the acoustic pre-roll in
+     * the decoder input, but do not report that silence as spoken audio.
+     */
+    static long restoreAbsoluteSegmentStart(Chunk chunk,long relativeStartMs,boolean firstSegment){
+        long relative=Math.max(0L,relativeStartMs);
+        long absolute=Math.max(chunk.startMs,Math.min(chunk.endMs,chunk.startMs+relative));
+        if(firstSegment&&relative<=100L&&chunk.startMs>0L){
+            absolute=Math.min(chunk.endMs,absolute+SPEECH_PRE_ROLL_MS);
+        }
+        return absolute;
+    }
+
     static ArrayList<long[]> detectRanges(short[] samples,int sampleRate){
         ArrayList<long[]> out=new ArrayList<>();
         if(samples==null||samples.length==0||sampleRate<=0)return out;
@@ -98,7 +113,7 @@ public final class WavSpeechChunker {
         for(int i=1;i<frames-1;i++)if(!hot[i]&&hot[i-1]&&hot[i+1])hot[i]=true;
         for(int i=1;i<frames-2;i++)if(!hot[i]&&!hot[i+1]&&hot[i-1]&&hot[i+2]){hot[i]=hot[i+1]=true;}
 
-        int enter=2,exit=15,pre=25,post=30; // 40ms enter, 300ms hangover, 500/600ms padding
+        int enter=2,exit=15,pre=(int)(SPEECH_PRE_ROLL_MS/20L),post=30; // 40ms enter, 300ms hangover, 500/600ms padding
         int run=0,sil=0,start=-1;
         for(int i=0;i<frames;i++){
             if(hot[i]){run++;sil=0;if(start<0&&run>=enter)start=Math.max(0,i-enter+1-pre);}

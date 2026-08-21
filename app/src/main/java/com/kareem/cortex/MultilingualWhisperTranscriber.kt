@@ -92,6 +92,7 @@ class MultilingualWhisperTranscriber private constructor() {
                             var lastPrimaryEndMs = 0L
                             if (primary.segments.isNotEmpty()) {
                                 for (segment in primary.segments) {
+                                    val firstPrimarySegment = correctedSegments.isEmpty()
                                     var selected = CodeSwitchCandidateSelector.normalizeEgyptianOutput(segment.text)
                                     if (selected.isEmpty()) continue
                                     lastPrimaryEndMs = maxOf(lastPrimaryEndMs, segment.endMs)
@@ -127,7 +128,11 @@ class MultilingualWhisperTranscriber private constructor() {
                                         }
                                     }
                                     correctedSegments.add(selected)
-                                    val absStart = (chunk.startMs + segment.startMs).coerceIn(chunk.startMs, chunk.endMs)
+                                    val absStart = WavSpeechChunker.restoreAbsoluteSegmentStart(
+                                        chunk,
+                                        segment.startMs,
+                                        firstPrimarySegment
+                                    )
                                     val absEnd = (chunk.startMs + segment.endMs).coerceIn(absStart, chunk.endMs)
                                     out.segments.add(TranscriptResult.Segment(absStart, absEnd, selected, -1f))
                                 }
