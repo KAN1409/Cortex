@@ -11,7 +11,7 @@ permissions:
   contents: read
 
 jobs:
-  convert-tata-f16:
+  convert-tata-fixed:
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
@@ -28,7 +28,7 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt omegaconf
 
-      - name: Download normalize and inspect TATA checkpoint
+      - name: Download normalize and repair TATA metadata
         shell: bash
         run: |
           set -euo pipefail
@@ -50,29 +50,51 @@ jobs:
           conf = OmegaConf.load(src_cfg)
           resolved = OmegaConf.to_container(conf, resolve=True)
           model_cfg = resolved.get('model', resolved)
+          if not isinstance(model_cfg, dict):
+              raise SystemExit('TATA model config is not a mapping')
+
+          ckpt = torch.load(root / 'asr_model.ckpt', map_location='cpu', weights_only=False)
+          sd = ckpt.get('state_dict', ckpt)
+          joint_w = sd['joint.joint_net.2.weight']
+          embed_w = sd['decoder.prediction.embed.weight']
+          if joint_w.ndim != 2 or embed_w.ndim != 2:
+              raise SystemExit('Unexpected TATA RNNT tensor rank')
+          output_classes = int(joint_w.shape[0])
+          embed_rows = int(embed_w.shape[0])
+          if output_classes != embed_rows:
+              raise SystemExit(f'Joint/embed class mismatch: {output_classes} vs {embed_rows}')
+          if output_classes < 2:
+              raise SystemExit('Invalid RNNT output class count')
+
+          # NeMo RNNT decoder.vocab_size excludes blank. The converter adds 1.
+          vocab_without_blank = output_classes - 1
+          model_cfg.setdefault('decoder', {})['vocab_size'] = vocab_without_blank
+          model_cfg.setdefault('joint', {})['num_classes'] = vocab_without_blank
+
           (root / 'model_config.yaml').write_text(
               yaml.safe_dump(model_cfg, sort_keys=False, allow_unicode=True), encoding='utf-8')
           src_cfg.unlink()
           shutil.copy2(root / 'asr_model.ckpt', root / 'model_weights.ckpt')
+
           tok_models = list((root / 'tokenizer').rglob('*.model'))
           if not tok_models:
               raise SystemExit('No tokenizer model')
           shutil.copy2(tok_models[0], root / 'tokenizer.model')
 
-          ckpt = torch.load(root / 'model_weights.ckpt', map_location='cpu', weights_only=False)
-          sd = ckpt.get('state_dict', ckpt)
-          for key in [
-              'joint.joint_net.2.weight', 'joint.joint_net.2.bias',
-              'joint.enc.weight', 'joint.pred.weight',
-              'decoder.prediction.embed.weight']:
-              t = sd.get(key)
-              print('CHECKPOINT_SHAPE', key, None if t is None else tuple(t.shape), None if t is None else str(t.dtype))
-          print('CONFIG decoder vocab_size', model_cfg.get('decoder', {}).get('vocab_size'))
-          print('CONFIG joint num_classes', model_cfg.get('joint', {}).get('num_classes'))
-          print('CONFIG labels len', len(model_cfg.get('labels', []) or []))
+          import sentencepiece as spm
+          sp = spm.SentencePieceProcessor(model_file=str(root / 'tokenizer.model'))
+          print('TATA actual joint classes:', output_classes)
+          print('TATA vocab excluding blank:', vocab_without_blank)
+          print('TATA tokenizer pieces:', sp.get_piece_size())
+          print('TATA blank id:', output_classes - 1)
+          print('TATA joint weight:', tuple(joint_w.shape))
+          print('TATA embedding weight:', tuple(embed_w.shape))
+          if sp.get_piece_size() != vocab_without_blank:
+              raise SystemExit(
+                  f'Tokenizer pieces {sp.get_piece_size()} != checkpoint vocab {vocab_without_blank}')
           PY
 
-      - name: Convert TATA RNNT to F16 GGUF
+      - name: Convert repaired TATA RNNT to Q8 GGUF
         shell: bash
         run: |
           set -euo pipefail
@@ -80,16 +102,16 @@ jobs:
           cd nemo-speech-src
           python convert_model.py ../tata-source \
             --architecture asr \
-            --outfile ../dist-tata/tata-egyptian-rnnt.f16.gguf \
-            --outtype fp16
+            --outfile ../dist-tata/tata-egyptian-rnnt.fixed.q8_0.gguf \
+            --outtype q8_0
           cd ..
           sha256sum dist-tata/*.gguf > dist-tata/sha256.txt
           ls -lh dist-tata
 
-      - name: Upload TATA F16
+      - name: Upload repaired TATA Q8
         uses: actions/upload-artifact@v4
         with:
-          name: tata-egyptian-rnnt-f16
+          name: tata-egyptian-rnnt-fixed-q8
           path: dist-tata/
           compression-level: 0
           if-no-files-found: error
