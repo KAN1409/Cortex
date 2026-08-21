@@ -37,8 +37,8 @@ public final class WhisperRuntimeState {
         SharedPreferences s=p(c);
         String stage=s.getString("stage","not started");
         String detail=s.getString("detail","");
-        File model=new File(new File(c.getFilesDir(),"models"),"ggml-base.bin");
+        File model=new File(new File(c.getFilesDir(),"models"),"ggml-small.bin");
         String modelState=model.exists()?String.format(Locale.US,"%.1f MB",model.length()/1048576.0):"not downloaded";
-        return "Model: "+modelState+"\nStage: "+stage+(detail==null||detail.isEmpty()?"":"\nDetail: "+detail);
+        return "Model: small multilingual • "+modelState+"\nStage: "+stage+(detail==null||detail.isEmpty()?"":"\nDetail: "+detail);
     }
 }
