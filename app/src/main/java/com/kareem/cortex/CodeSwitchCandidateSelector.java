@@ -11,11 +11,14 @@ import java.util.regex.*;
 public final class CodeSwitchCandidateSelector {
     private CodeSwitchCandidateSelector(){}
 
+    public static final long SHORT_NOTE_PRIMARY_ONLY_MS=28_000L;
+    private static final long TAIL_MISSING_MS=900L;
+
     private static final Set<String> EN_HINTS=new HashSet<>(Arrays.asList(
             "a","an","and","are","as","at","audio","backup","because","before","but","call","chat","chatgpt",
-            "code","conversation","cortex","data","debug","do","document","english","file","for","from","have",
+            "code","conversation","cortex","cpu","data","debug","do","document","english","few","file","for","from","have",
             "hello","i","image","in","include","is","it","later","memory","message","model","need","note","of",
-            "on","openai","part","please","prompt","record","recording","result","search","send","screenshot",
+            "load","new","on","openai","part","please","prompt","ram","record","recording","result","search","seconds","send","silence","screenshot",
             "switch","test","text","the","this","to","transcribe","transcription","transcript","voice","want",
             "we","with","you"
     ));
@@ -35,6 +38,17 @@ public final class CodeSwitchCandidateSelector {
         if(a.isEmpty())return false;
         if(findBestLatinSpan(a)!=null)return true;
         return ARABICIZED_EN.matcher(a).find();
+    }
+
+    /** Short notes fit in one Whisper context and must never be fragmented or retried. */
+    public static boolean useSinglePromptedPass(long recordingDurationMs){
+        return recordingDurationMs>0L&&recordingDurationMs<=SHORT_NOTE_PRIMARY_ONLY_MS;
+    }
+
+    /** Retry only when a long-note primary decode actually stopped before the audio tail. */
+    public static boolean shouldTailRetry(long recordingDurationMs,long chunkDurationMs,long lastSegmentEndMs){
+        if(useSinglePromptedPass(recordingDurationMs)||chunkDurationMs<=2_500L)return false;
+        return lastSegmentEndMs<=0L||chunkDurationMs-lastSegmentEndMs>TAIL_MISSING_MS;
     }
 
     /** Relative text position of the best Latin span; used to localize acoustic rescue. */
@@ -112,8 +126,39 @@ public final class CodeSwitchCandidateSelector {
         String a=norm(primary),b=norm(tail);if(b.isEmpty())return "";if(a.isEmpty())return b;
         String[] aa=a.split(" "),bb=b.split(" ");int max=Math.min(Math.min(aa.length,bb.length),12),overlap=0;
         for(int n=max;n>=1;n--){boolean same=true;for(int i=0;i<n;i++)if(!cleanToken(aa[aa.length-n+i]).equalsIgnoreCase(cleanToken(bb[i]))){same=false;break;}if(same){overlap=n;break;}}
-        if(overlap>=bb.length)return "";
-        StringBuilder out=new StringBuilder();for(int i=overlap;i<bb.length;i++){if(out.length()>0)out.append(' ');out.append(bb[i]);}return norm(out.toString());
+        if(overlap>0){
+            if(overlap>=bb.length)return "";
+            StringBuilder out=new StringBuilder();for(int i=overlap;i<bb.length;i++){if(out.length()>0)out.append(' ');out.append(bb[i]);}return norm(out.toString());
+        }
+
+        // A retry can disagree phonetically (CPU -> spew) while still covering the
+        // same acoustic tail. Fuzzy ordered overlap makes that a replacement/no-op,
+        // never a blind append that duplicates the end of the note.
+        int aStart=Math.max(0,aa.length-16),aLen=aa.length-aStart,bLen=Math.min(bb.length,16);
+        int[][] lcs=new int[aLen+1][bLen+1];
+        for(int i=1;i<=aLen;i++)for(int j=1;j<=bLen;j++){
+            if(tokenEquivalent(aa[aStart+i-1],bb[j-1]))lcs[i][j]=lcs[i-1][j-1]+1;
+            else lcs[i][j]=Math.max(lcs[i-1][j],lcs[i][j-1]);
+        }
+        int matched=lcs[aLen][bLen];
+        if(matched<2||(double)matched/Math.max(1,Math.min(aLen,bLen))<0.50)return "";
+
+        int i=aLen,j=bLen,lastMatchedTail=-1;
+        while(i>0&&j>0){
+            if(tokenEquivalent(aa[aStart+i-1],bb[j-1])){lastMatchedTail=Math.max(lastMatchedTail,j-1);i--;j--;}
+            else if(lcs[i-1][j]>=lcs[i][j-1])i--;else j--;
+        }
+        if(lastMatchedTail<0||lastMatchedTail+1>=bb.length)return "";
+        StringBuilder out=new StringBuilder();for(int k=lastMatchedTail+1;k<bb.length;k++){if(out.length()>0)out.append(' ');out.append(bb[k]);}
+        return norm(out.toString());
+    }
+
+    /** Tiny dialect spelling normalization; never translates or changes scripts. */
+    public static String normalizeEgyptianOutput(String text){
+        String out=norm(text);
+        out=out.replaceAll("(?<![\\p{L}\\p{M}])أعوزين(?![\\p{L}\\p{M}])","عاوزين");
+        out=out.replaceAll("(?<![\\p{L}\\p{M}])أعوز(?![\\p{L}\\p{M}])","عاوز");
+        return norm(out);
     }
 
     public static String joinVerbatim(String...parts){
@@ -140,7 +185,9 @@ public final class CodeSwitchCandidateSelector {
 
     private static String extractRelevantEnglishWindow(String current,String rescue){
         String e=norm(rescue);ArrayList<String> ew=words(e),cw=words(current);if(ew.isEmpty())return "";
-        int wanted=Math.min(10,Math.max(3,cw.size()+2));if(ew.size()<=wanted+1)return String.join(" ",ew);
+        // Allow at most two recovered domain words (for example "the text"), but
+        // trim unanchored growth such as a hallucinated trailing "so that".
+        int base=Math.max(2,cw.size()),wanted=Math.min(10,base+2);
         String first=cw.isEmpty()?"":cw.get(0).toLowerCase(Locale.US);int bestStart=0,bestScore=Integer.MIN_VALUE;
         for(int start=0;start<ew.size();start++){
             if(!first.isEmpty()&&!ew.get(start).equalsIgnoreCase(first))continue;
@@ -150,7 +197,9 @@ public final class CodeSwitchCandidateSelector {
             score-=Math.abs(window.size()-wanted);
             if(score>bestScore){bestScore=score;bestStart=start;}
         }
-        int end=Math.min(ew.size(),bestStart+wanted);return String.join(" ",ew.subList(bestStart,end));
+        int end=Math.min(ew.size(),bestStart+wanted);ArrayList<String> candidate=new ArrayList<>(ew.subList(bestStart,end));
+        while(candidate.size()>base&&!EN_HINTS.contains(candidate.get(candidate.size()-1).toLowerCase(Locale.US)))candidate.remove(candidate.size()-1);
+        return String.join(" ",candidate);
     }
 
     private static ArrayList<String> words(String s){ArrayList<String> out=new ArrayList<>();Matcher m=LATIN_WORD.matcher(s);while(m.find())out.add(m.group());return out;}
@@ -162,6 +211,7 @@ public final class CodeSwitchCandidateSelector {
     private static boolean isArabicLetter(char c){return Character.isLetter(c)&&((c>=0x0600&&c<=0x06FF)||(c>=0x0750&&c<=0x077F)||(c>=0x08A0&&c<=0x08FF));}
     private static boolean containsLetter(String s){for(int i=0;i<s.length();i++)if(Character.isLetter(s.charAt(i)))return true;return false;}
     private static String cleanToken(String s){return s==null?"":s.replaceAll("^[^\\p{L}\\p{N}]+|[^\\p{L}\\p{N}]+$","");}
+    private static boolean tokenEquivalent(String a,String b){String x=cleanToken(a).toLowerCase(Locale.ROOT),y=cleanToken(b).toLowerCase(Locale.ROOT);return !x.isEmpty()&&!y.isEmpty()&&(x.equals(y)||similarity(x,y)>=0.78);}
     private static double similarity(String a,String b){if(a.equals(b))return 1.0;if(a.isEmpty()||b.isEmpty())return 0.0;int[] prev=new int[b.length()+1],cur=new int[b.length()+1];for(int j=0;j<=b.length();j++)prev[j]=j;for(int i=1;i<=a.length();i++){cur[0]=i;for(int j=1;j<=b.length();j++){int cost=a.charAt(i-1)==b.charAt(j-1)?0:1;cur[j]=Math.min(Math.min(cur[j-1]+1,prev[j]+1),prev[j-1]+cost);}int[] t=prev;prev=cur;cur=t;}int d=prev[b.length()];return 1.0-(double)d/Math.max(a.length(),b.length());}
     private static String norm(String s){return s==null?"":s.replaceAll("\\s+"," ").trim();}
 }

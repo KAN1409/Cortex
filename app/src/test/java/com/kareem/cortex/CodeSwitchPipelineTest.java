@@ -5,6 +5,22 @@ import java.util.*;
 import static org.junit.Assert.*;
 
 public class CodeSwitchPipelineTest {
+    @Test public void recordingsUpToTwentyEightSecondsUseOnePromptedPass(){
+        assertTrue(CodeSwitchCandidateSelector.useSinglePromptedPass(20_840L));
+        assertTrue(CodeSwitchCandidateSelector.useSinglePromptedPass(28_000L));
+        assertFalse(CodeSwitchCandidateSelector.useSinglePromptedPass(28_001L));
+    }
+
+    @Test public void shortNoteNeverRunsTailRetry(){
+        assertFalse(CodeSwitchCandidateSelector.shouldTailRetry(20_840L,18_300L,13_000L));
+        assertFalse(CodeSwitchCandidateSelector.shouldTailRetry(28_000L,27_000L,0L));
+    }
+
+    @Test public void longNoteRetriesOnlyWhenPrimaryReallyMissedTail(){
+        assertFalse(CodeSwitchCandidateSelector.shouldTailRetry(40_000L,25_000L,24_250L));
+        assertTrue(CodeSwitchCandidateSelector.shouldTailRetry(40_000L,25_000L,23_900L));
+    }
+
     @Test public void spanLocalEnglishRescuePreservesArabicReturn(){
         String primary="هنسجل جزء عربي and then code English part عشان نجرب الـtranscription";
         String rescue="and include English part in the text";
@@ -22,6 +38,26 @@ public class CodeSwitchPipelineTest {
         String out=CodeSwitchCandidateSelector.mergeTail(primary,tail);
         assertEquals("هنسجل جزء عربي and include English part in the text عشان نجرب الـtranscription",out);
         assertFalse(out.contains("English part English part"));
+    }
+
+    @Test public void spanRescueCannotAppendHallucinatedEnglishSuffix(){
+        String primary="ممكن silence for a few seconds عشان أنا عاوز أجرب";
+        String rescue="silence for a few seconds so that";
+        String out=CodeSwitchCandidateSelector.mergeEnglishSpan(primary,rescue);
+        assertEquals("ممكن silence for a few seconds عشان أنا عاوز أجرب",out);
+        assertFalse(out.contains("so that"));
+    }
+
+    @Test public void fuzzyTailOverlapRejectsDuplicatedWorseRetry(){
+        String primary="عاوزين نجرب الـ RAM load و الـ CPU load";
+        String retry="بل ال ram load و ال spew load";
+        assertEquals("",CodeSwitchCandidateSelector.novelTail(primary,retry));
+        assertEquals(primary,CodeSwitchCandidateSelector.mergeTail(primary,retry));
+    }
+
+    @Test public void dialectNormalizationIsNarrowAndScriptPreserving(){
+        assertEquals("أنا عاوز أجرب وإحنا عاوزين نجرب English",
+                CodeSwitchCandidateSelector.normalizeEgyptianOutput("أنا أعوز أجرب وإحنا أعوزين نجرب English"));
     }
 
     @Test public void genuineArabicChunkIsNeverReplacedByEnglishTranslation(){

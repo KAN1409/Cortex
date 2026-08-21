@@ -14,12 +14,12 @@ import java.util.Locale
 /**
  * Cortex local ASR for Egyptian Arabic <-> English code-switching.
  *
- * v1.0.16:
- * - VAD supplies onset/end, but short voice notes are decoded as one long context window.
- * - Primary pass is multilingual auto with translation disabled.
- * - English rescue is localized to the acoustic position of an existing Latin span.
- * - Rescue replaces only that Latin span; Arabic before/after is immutable.
- * - A final overlapping tail pass protects lower-energy Arabic/English endings.
+ * v1.0.17:
+ * - Notes up to 28 seconds use exactly one VAD-trimmed, prompted multilingual pass.
+ * - Short notes never run span rescue or tail retry, so language context cannot reset
+ *   and a second pass cannot duplicate or corrupt a correct ending.
+ * - Longer notes retain span-local rescue and only retry a genuinely missing tail.
+ * - Tail merging requires reliable acoustic-text overlap and never blindly appends.
  */
 class MultilingualWhisperTranscriber private constructor() {
     interface Callback {
@@ -31,6 +31,9 @@ class MultilingualWhisperTranscriber private constructor() {
         private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
         private const val RESCUE_CONTEXT_MS = 800L
         private const val TAIL_CONTEXT_MS = 3500L
+        private const val EGYPTIAN_TECH_PROMPT =
+            "أنا عاوز أجرب. إحنا عاوزين نجرب. اسمه إبراهيم. عربي مع English. " +
+                "silence for a few seconds. new transcription model. RAM load. CPU load."
 
         @JvmStatic
         fun transcribe(context: Context, audio: File, callback: Callback) {
@@ -54,6 +57,7 @@ class MultilingualWhisperTranscriber private constructor() {
                     chunks.addAll(WavSpeechChunker.split(audio, app.cacheDir))
                     if (chunks.isEmpty()) throw IllegalStateException("No speech detected in this recording")
                     val fullDuration = WavSpeechChunker.durationMs(audio)
+                    val shortPrimaryOnly = CodeSwitchCandidateSelector.useSinglePromptedPass(fullDuration)
 
                     val modelFile = LocalAsrModelStore.modelFile(app)
                     WhisperRuntimeState.stage(app, "loading model", modelFile.name)
@@ -61,8 +65,12 @@ class MultilingualWhisperTranscriber private constructor() {
                     try {
                         val out = TranscriptResult()
                         out.language = "ar-EG+en-codeswitch-auto"
-                        out.engine = "whisper_cpp_local_codeswitch_${LocalAsrModelStore.profileId(app)}_short_window_auto_span_rescue_tail_retry"
-                        out.version = "11"
+                        out.engine = if (shortPrimaryOnly) {
+                            "whisper_cpp_local_codeswitch_${LocalAsrModelStore.profileId(app)}_full_prompt_primary_only"
+                        } else {
+                            "whisper_cpp_local_codeswitch_${LocalAsrModelStore.profileId(app)}_context_prompt_span_rescue_guarded_tail"
+                        }
+                        out.version = "12"
                         out.durationMs = fullDuration
                         val recordingParts = ArrayList<String>()
 
@@ -74,16 +82,18 @@ class MultilingualWhisperTranscriber private constructor() {
                                 "primary decode",
                                 "Window $chunkNumber/${chunks.size} • ${chunk.startMs}-${chunk.endMs} ms • multilingual auto"
                             )
-                            val primary = Whisper.transcribe(model, chunk.file.absolutePath, config("auto"))
-                            val primaryText = primary.text.trim()
+                            val primary = Whisper.transcribe(model, chunk.file.absolutePath, config("auto", true))
+                            val primaryText = CodeSwitchCandidateSelector.normalizeEgyptianOutput(primary.text)
                             if (primaryText.isEmpty()) continue
 
                             val correctedSegments = ArrayList<String>()
+                            var lastPrimaryEndMs = 0L
                             if (primary.segments.isNotEmpty()) {
                                 for (segment in primary.segments) {
-                                    var selected = segment.text.trim()
+                                    var selected = CodeSwitchCandidateSelector.normalizeEgyptianOutput(segment.text)
                                     if (selected.isEmpty()) continue
-                                    if (CodeSwitchCandidateSelector.shouldEnglishRetry(selected)) {
+                                    lastPrimaryEndMs = maxOf(lastPrimaryEndMs, segment.endMs)
+                                    if (!shortPrimaryOnly && CodeSwitchCandidateSelector.shouldEnglishRetry(selected)) {
                                         val fractions = CodeSwitchCandidateSelector.englishSpanFractions(selected)
                                         if (fractions[0] >= 0.0 && fractions[1] > fractions[0]) {
                                             val segStart = segment.startMs.coerceAtLeast(0L)
@@ -104,8 +114,10 @@ class MultilingualWhisperTranscriber private constructor() {
                                                     val rescueChunk = WavSpeechChunker.slice(chunk.file, app.cacheDir, rescueStart, rescueEnd)
                                                     rescueFile = rescueChunk.file
                                                     tempFiles.add(rescueFile)
-                                                    val english = Whisper.transcribe(model, rescueFile.absolutePath, config("en"))
-                                                    selected = CodeSwitchCandidateSelector.mergeEnglishSpan(selected, english.text.trim())
+                                                    val english = Whisper.transcribe(model, rescueFile.absolutePath, config("en", false))
+                                                    selected = CodeSwitchCandidateSelector.normalizeEgyptianOutput(
+                                                        CodeSwitchCandidateSelector.mergeEnglishSpan(selected, english.text.trim())
+                                                    )
                                                 } catch (_: Exception) {
                                                     // Primary segment remains untouched if rescue fails.
                                                 }
@@ -122,13 +134,16 @@ class MultilingualWhisperTranscriber private constructor() {
                             var chunkText = if (correctedSegments.isNotEmpty()) {
                                 CodeSwitchCandidateSelector.joinVerbatim(*correctedSegments.toTypedArray())
                             } else {
-                                primaryText.replace(Regex("\\s+"), " ").trim()
+                                primaryText
                             }
 
-                            // Short-note invariant: always re-check the final ~3.5 s with overlap.
-                            // This prevents a low-energy Arabic closing phrase from disappearing
-                            // after an English segment or endpointing decision.
-                            if (chunkDuration > 2500L) {
+                            // Never retry a short note. For long notes, retry only when the
+                            // primary decoder stopped at least 900 ms before the prepared audio.
+                            if (CodeSwitchCandidateSelector.shouldTailRetry(
+                                    fullDuration,
+                                    chunkDuration,
+                                    lastPrimaryEndMs
+                                )) {
                                 val tailStart = (chunkDuration - TAIL_CONTEXT_MS).coerceAtLeast(0L)
                                 WhisperRuntimeState.stage(
                                     app,
@@ -140,8 +155,8 @@ class MultilingualWhisperTranscriber private constructor() {
                                     val tailChunk = WavSpeechChunker.slice(chunk.file, app.cacheDir, tailStart, chunkDuration)
                                     tailFile = tailChunk.file
                                     tempFiles.add(tailFile)
-                                    val tail = Whisper.transcribe(model, tailFile.absolutePath, config("auto"))
-                                    val tailText = tail.text.trim()
+                                    val tail = Whisper.transcribe(model, tailFile.absolutePath, config("auto", true))
+                                    val tailText = CodeSwitchCandidateSelector.normalizeEgyptianOutput(tail.text)
                                     val novel = CodeSwitchCandidateSelector.novelTail(chunkText, tailText)
                                     if (novel.isNotEmpty()) {
                                         chunkText = CodeSwitchCandidateSelector.mergeTail(chunkText, tailText)
@@ -165,7 +180,12 @@ class MultilingualWhisperTranscriber private constructor() {
 
                         out.text = CodeSwitchCandidateSelector.joinVerbatim(*recordingParts.toTypedArray())
                         if (out.text.isEmpty()) throw IllegalStateException("Code-switch ASR returned an empty transcript")
-                        WhisperRuntimeState.stage(app, "ready", "Single-context auto decode + span rescue + tail retry completed")
+                        val readyDetail = if (shortPrimaryOnly) {
+                            "Single prompted multilingual pass completed; rescue and tail retry disabled"
+                        } else {
+                            "Prompted multilingual decode + guarded span/tail recovery completed"
+                        }
+                        WhisperRuntimeState.stage(app, "ready", readyDetail)
                         callback.ok(out)
                     } finally {
                         Whisper.releaseModel(model)
@@ -180,12 +200,14 @@ class MultilingualWhisperTranscriber private constructor() {
             }
         }
 
-        private fun config(language: String): WhisperConfig = WhisperConfig(
+        private fun config(language: String, includePrompt: Boolean): WhisperConfig = WhisperConfig(
             language = language,
             translate = false,
             threads = chooseThreads(),
             maxSegmentLength = 0,
             printTimestamps = true,
+            initialPrompt = if (includePrompt) EGYPTIAN_TECH_PROMPT else "",
+            suppressNonSpeechTokens = true,
         )
 
         @JvmStatic

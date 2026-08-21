@@ -7,7 +7,7 @@ import java.util.*;
 public final class WavSpeechChunker {
     private WavSpeechChunker(){}
 
-    private static final long SHORT_NOTE_MS=30_000L;
+    private static final long SHORT_NOTE_MS=28_000L;
     private static final long MERGE_GAP_MS=1_500L;
     private static final long MIN_SPEECH_MS=150L;
 
