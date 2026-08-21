@@ -10,6 +10,20 @@ function respond(int $status, array $payload): never {
     exit;
 }
 
+function multipartField(string $boundary, string $name, string $value): string {
+    return '--' . $boundary . "\r\n"
+        . 'Content-Disposition: form-data; name="' . $name . '"' . "\r\n\r\n"
+        . $value . "\r\n";
+}
+
+function multipartFile(string $boundary, string $name, string $filename, string $mime, string $bytes): string {
+    $safe = str_replace(["\r", "\n", '"'], '_', $filename);
+    return '--' . $boundary . "\r\n"
+        . 'Content-Disposition: form-data; name="' . $name . '"; filename="' . $safe . '"' . "\r\n"
+        . 'Content-Type: ' . $mime . "\r\n\r\n"
+        . $bytes . "\r\n";
+}
+
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     respond(405, ['ok' => false, 'error' => 'POST required', 'retryable' => false]);
 }
@@ -61,25 +75,29 @@ if (!in_array($mime, $allowed, true)) {
     respond(415, ['ok' => false, 'error' => 'Unsupported audio type: ' . $mime, 'retryable' => false]);
 }
 
+$audioBytes = file_get_contents($tmp);
+if ($audioBytes === false || $audioBytes === '') {
+    respond(400, ['ok' => false, 'error' => 'Could not read uploaded audio', 'retryable' => false]);
+}
+
 $prompt = 'Verbatim transcription of Egyptian Arabic and English code-switching. '
     . 'Preserve Arabic speech in Arabic script and English speech in Latin letters exactly as spoken. '
     . 'Do not translate. Do not transliterate English into Arabic. '
     . 'Be especially strict at mid-sentence Arabic -> English -> Arabic transitions.';
 
-$post = [
-    'model' => 'gpt-transcribe',
-    'file' => new CURLFile($tmp, $mime, $name),
-    'prompt' => $prompt,
-    // gpt-transcribe supports multiple expected languages. Do not also send singular language.
-    'languages[0]' => 'ar',
-    'languages[1]' => 'en',
-    // Literal hints are deliberately short to reduce hallucination pressure.
-    'keywords[0]' => 'Cortex',
-    'keywords[1]' => 'transcription',
-    'keywords[2]' => 'ASR',
-    'keywords[3]' => 'English',
-    'keywords[4]' => 'Arabic',
-];
+// OpenAI documents array form-data parameters using repeated [] field names.
+$boundary = '----CortexOpenAI' . bin2hex(random_bytes(12));
+$requestBody = '';
+$requestBody .= multipartField($boundary, 'model', 'gpt-transcribe');
+$requestBody .= multipartFile($boundary, 'file', $name, $mime, $audioBytes);
+$requestBody .= multipartField($boundary, 'prompt', $prompt);
+$requestBody .= multipartField($boundary, 'languages[]', 'ar');
+$requestBody .= multipartField($boundary, 'languages[]', 'en');
+foreach (['Cortex', 'transcription', 'ASR', 'English', 'Arabic'] as $keyword) {
+    $requestBody .= multipartField($boundary, 'keywords[]', $keyword);
+}
+$requestBody .= multipartField($boundary, 'response_format', 'json');
+$requestBody .= '--' . $boundary . "--\r\n";
 
 $ch = curl_init('https://api.openai.com/v1/audio/transcriptions');
 curl_setopt_array($ch, [
@@ -90,8 +108,9 @@ curl_setopt_array($ch, [
     CURLOPT_HTTPHEADER => [
         'Authorization: Bearer ' . $apiKey,
         'Accept: application/json',
+        'Content-Type: multipart/form-data; boundary=' . $boundary,
     ],
-    CURLOPT_POSTFIELDS => $post,
+    CURLOPT_POSTFIELDS => $requestBody,
 ]);
 
 $body = curl_exec($ch);
@@ -123,11 +142,22 @@ if (isset($provider['usage']['seconds']) && is_numeric($provider['usage']['secon
     $durationMs = (int) round(((float) $provider['usage']['seconds']) * 1000.0);
 }
 
-$detected = $provider['languages'] ?? null;
-$languageLabel = 'ar-EG+en-codeswitch-auto';
-if (is_array($detected) && count($detected) > 0) {
-    $languageLabel = implode('+', array_map('strval', $detected));
+$languageCodes = [];
+$detected = $provider['languages'] ?? [];
+if (is_array($detected)) {
+    foreach ($detected as $entry) {
+        if (is_array($entry) && isset($entry['code']) && is_string($entry['code'])) {
+            $code = trim($entry['code']);
+            if ($code !== '') $languageCodes[] = $code;
+        } elseif (is_string($entry)) {
+            $code = trim($entry);
+            if ($code !== '') $languageCodes[] = $code;
+        }
+    }
 }
+$languageLabel = count($languageCodes) > 0
+    ? implode('+', array_values(array_unique($languageCodes)))
+    : 'ar-EG+en-codeswitch-auto';
 
 respond(200, [
     'ok' => true,
