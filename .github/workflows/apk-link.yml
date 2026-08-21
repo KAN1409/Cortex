@@ -1,0 +1,45 @@
+name: Generate Cortex APK Link
+
+on:
+  push:
+    branches: [ v1.0.23-groq-direct ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  link:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Generate and persist temporary APK URL
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG="cortex-v1.0.23-groq-direct-ci"
+          NAME="Cortex-Prime-v1.0.23-groq-direct-aligned-unsigned.apk"
+          ASSET_ID="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" --jq ".assets[] | select(.name==\"$NAME\") | .id" | head -n1)"
+          test -n "$ASSET_ID"
+          HEADERS="$RUNNER_TEMP/h.txt"
+          curl -sS -D "$HEADERS" -o /dev/null --max-redirs 0 \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/octet-stream" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/releases/assets/$ASSET_ID" || true
+          LOCATION="$(sed -n 's/^[Ll]ocation: //p' "$HEADERS" | tr -d '\r' | tail -n1)"
+          test -n "$LOCATION"
+          URL_B64="$(printf '%s' "$LOCATION" | base64 -w0)"
+          FILE_B64="$(printf '%s' "$URL_B64" | base64 -w0)"
+          PATH_API="delivery/Cortex-Prime-v1.0.23-temp-url.b64"
+          OLD_SHA="$(gh api "repos/$GITHUB_REPOSITORY/contents/$PATH_API?ref=v1.0.23-groq-direct" --jq '.sha' 2>/dev/null || true)"
+          if [ -n "$OLD_SHA" ]; then
+            gh api --method PUT "repos/$GITHUB_REPOSITORY/contents/$PATH_API" \
+              -f message='Delivery: refresh temporary APK URL [skip ci]' \
+              -f content="$FILE_B64" -f branch='v1.0.23-groq-direct' -f sha="$OLD_SHA" >/dev/null
+          else
+            gh api --method PUT "repos/$GITHUB_REPOSITORY/contents/$PATH_API" \
+              -f message='Delivery: save temporary APK URL [skip ci]' \
+              -f content="$FILE_B64" -f branch='v1.0.23-groq-direct' >/dev/null
+          fi
