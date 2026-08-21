@@ -6,6 +6,11 @@ on:
     paths:
       - '.github/workflows/build-whisper-prompt-aar.yml'
       - 'tools/whisper-cortex/**'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - '.github/workflows/build-whisper-prompt-aar.yml'
+      - 'tools/whisper-cortex/**'
   workflow_dispatch:
 
 permissions:
