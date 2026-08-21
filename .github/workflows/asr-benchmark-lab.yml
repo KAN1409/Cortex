@@ -1,0 +1,90 @@
+name: ASR Benchmark Lab
+
+on:
+  pull_request:
+    branches: [ v1.0.1-mixed-language-voice ]
+    paths:
+      - '.github/benchmark-trigger/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  metro-bundle:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+
+      - name: Install minimal tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          python -m pip install --index-url https://download.pytorch.org/whl/cpu torch==2.8.0
+          python -m pip install 'huggingface_hub>=0.28'
+
+      - name: Fetch Metro source and released Small model
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --depth 1 https://github.com/MohammedAly22/metro-asr.git upstream
+          python - <<'PY'
+          from huggingface_hub import snapshot_download
+          snapshot_download(
+              repo_id='mohammedaly22/Metro-ASR-Small',
+              local_dir='model',
+              allow_patterns=['config.yaml','model.pt','bpe.model','bpe.vocab'],
+          )
+          PY
+          ls -lh model
+
+      - name: Strip optimizer and training state
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import torch, os
+          p='model/model.pt'
+          ckpt=torch.load(p,map_location='cpu',weights_only=False)
+          print('checkpoint keys:', list(ckpt.keys()) if isinstance(ckpt,dict) else type(ckpt))
+          if not isinstance(ckpt,dict) or 'model_state_dict' not in ckpt:
+              raise SystemExit('Unexpected Metro checkpoint structure')
+          torch.save({'model_state_dict': ckpt['model_state_dict']}, 'model/model-inference.pt')
+          os.remove(p)
+          os.replace('model/model-inference.pt', p)
+          print('stripped bytes:', os.path.getsize(p))
+          PY
+
+      - name: Build portable bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p bundle
+          cp -R upstream/metro_asr bundle/
+          cp upstream/pyproject.toml upstream/requirements.txt bundle/
+          cp -R model bundle/model
+          python - <<'PY'
+          import hashlib, json, os
+          files=['bundle/model/model.pt','bundle/model/config.yaml','bundle/model/bpe.model','bundle/model/bpe.vocab']
+          out={}
+          for p in files:
+              h=hashlib.sha256(open(p,'rb').read()).hexdigest()
+              out[os.path.basename(p)]={'sha256':h,'bytes':os.path.getsize(p)}
+          open('bundle/manifest.json','w').write(json.dumps(out,indent=2))
+          print(json.dumps(out,indent=2))
+          PY
+          du -sh bundle
+
+      - name: Upload Metro Small inference bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: metro-asr-small-inference-bundle
+          path: bundle/
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 7
