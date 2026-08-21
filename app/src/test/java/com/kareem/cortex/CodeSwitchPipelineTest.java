@@ -5,19 +5,23 @@ import java.util.*;
 import static org.junit.Assert.*;
 
 public class CodeSwitchPipelineTest {
-    @Test public void exactArabicEnglishRegressionIsPreservedVerbatim(){
-        String arabic1="هنسجل جزء عربي";
-        String englishPhrase=CodeSwitchCandidateSelector.choose(
-                "و نضيف English part في التكس لإنجليزي",
-                "and include English part in the text");
-        String arabic2="عشان نجرب";
-        String englishTail=CodeSwitchCandidateSelector.choose("Transcript","transcription");
-        String out=CodeSwitchCandidateSelector.joinVerbatim(arabic1,englishPhrase,arabic2,englishTail);
-        assertEquals("هنسجل جزء عربي and include English part in the text عشان نجرب transcription",out);
-        assertFalse(out.contains("و نضيف"));
-        assertFalse(out.contains("في التكس"));
-        assertFalse(out.contains("لإنجليزي"));
-        assertFalse(out.endsWith("Transcript"));
+    @Test public void spanLocalEnglishRescuePreservesArabicReturn(){
+        String primary="هنسجل جزء عربي and then code English part عشان نجرب الـtranscription";
+        String rescue="and include English part in the text";
+        String out=CodeSwitchCandidateSelector.mergeEnglishSpan(primary,rescue);
+        assertEquals("هنسجل جزء عربي and include English part in the text عشان نجرب الـtranscription",out);
+        assertTrue(out.contains("هنسجل جزء عربي"));
+        assertTrue(out.contains("and include English part in the text"));
+        assertTrue(out.contains("عشان نجرب الـtranscription"));
+        assertFalse(out.contains("and then code"));
+    }
+
+    @Test public void tailRetryRestoresClosingArabicEnglishSwitchWithoutDuplication(){
+        String primary="هنسجل جزء عربي and include English part";
+        String tail="English part in the text عشان نجرب الـtranscription";
+        String out=CodeSwitchCandidateSelector.mergeTail(primary,tail);
+        assertEquals("هنسجل جزء عربي and include English part in the text عشان نجرب الـtranscription",out);
+        assertFalse(out.contains("English part English part"));
     }
 
     @Test public void genuineArabicChunkIsNeverReplacedByEnglishTranslation(){
@@ -25,15 +29,30 @@ public class CodeSwitchPipelineTest {
         assertEquals("هنسجل جزء عربي",out);
     }
 
-    @Test public void vadRestoresNonZeroSpeechOnset(){
+    @Test public void shortVoiceNoteMergesThreeSpeechIslandsIntoOneContextRange(){
         int rate=16000;
-        short[] audio=new short[(int)(4.2*rate)];
-        // 2.2 seconds silence/background, then a clearly voiced synthetic region.
-        for(int i=(int)(2.2*rate);i<(int)(3.35*rate);i++)audio[i]=(short)(5200*Math.sin(2*Math.PI*210*i/rate));
+        short[] audio=new short[(int)(9.46*rate)];
+        tone(audio,rate,2.20,3.50,5200,210);
+        tone(audio,rate,4.15,6.20,5000,230);
+        tone(audio,rate,7.25,8.70,3600,190); // lower-energy trailing Arabic phrase
         ArrayList<long[]> ranges=WavSpeechChunker.detectRanges(audio,rate);
-        assertFalse(ranges.isEmpty());
-        long onset=ranges.get(0)[0];
-        assertTrue("speech onset should not collapse to 00:00",onset>=1900);
-        assertTrue("speech onset should stay close to the real ~2.2s start",onset<=2250);
+        assertEquals("nearby speech islands should be merged before ASR",1,ranges.size());
+        long onset=ranges.get(0)[0],end=ranges.get(0)[1];
+        assertTrue("speech onset must not collapse to 00:00",onset>=1500);
+        assertTrue("500ms pre-roll should keep onset close to ~1.7s",onset<=1900);
+        assertTrue("lower-energy final island must survive VAD",end>=9000);
+    }
+
+    @Test public void englishRescueFractionsIgnoreMixedArabicArticleToken(){
+        String text="هنسجل جزء عربي and then code English part عشان نجرب الـtranscription";
+        double[] f=CodeSwitchCandidateSelector.englishSpanFractions(text);
+        assertTrue(f[0]>0.15);
+        assertTrue(f[1]<0.78); // must target middle English span, not الـtranscription
+        assertTrue(f[1]>f[0]);
+    }
+
+    private static void tone(short[] audio,int rate,double from,double to,int amp,int hz){
+        int a=(int)(from*rate),z=Math.min(audio.length,(int)(to*rate));
+        for(int i=a;i<z;i++)audio[i]=(short)(amp*Math.sin(2*Math.PI*hz*i/rate));
     }
 }
