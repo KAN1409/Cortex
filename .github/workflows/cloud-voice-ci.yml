@@ -28,6 +28,22 @@ jobs:
         with:
           gradle-version: '8.9'
 
+      - name: Assert local ASR removed
+        shell: bash
+        run: |
+          set -euo pipefail
+          test ! -e app/libs/whisper-android-cortex-prompt-1.0.0.aar
+          for f in \
+            app/src/main/java/com/kareem/cortex/LocalAsrModelStore.java \
+            app/src/main/java/com/kareem/cortex/MultilingualWhisperTranscriber.kt \
+            app/src/main/java/com/kareem/cortex/SystemAudioTranscriber.java \
+            app/src/main/java/com/kareem/cortex/WhisperGgmlModel.java \
+            app/src/main/java/com/kareem/cortex/WhisperProgressActivity.java \
+            app/src/main/java/com/kareem/cortex/WhisperRuntimeState.java; do
+            test ! -e "$f"
+          done
+          ! grep -R -n -E 'whisper-android|MultilingualWhisperTranscriber|LocalAsrModelStore|WhisperRuntimeState' app/src/main app/build.gradle
+
       - name: Validate PHP backend syntax
         run: php -l backend/transcribe.php
 
@@ -44,14 +60,14 @@ jobs:
           mkdir -p dist
           ZIPALIGN="$(find "$ANDROID_HOME/build-tools" -type f -name zipalign | sort -V | tail -n 1)"
           if [ -z "$ZIPALIGN" ]; then echo 'zipalign not found' >&2; exit 1; fi
-          "$ZIPALIGN" -P 16 -f 4 app/build/outputs/apk/release/app-release-unsigned.apk dist/Cortex-Prime-v1.0.20-cloud-voice-aligned-unsigned.apk
-          "$ZIPALIGN" -c -P 16 -v 4 dist/Cortex-Prime-v1.0.20-cloud-voice-aligned-unsigned.apk
-          sha256sum dist/Cortex-Prime-v1.0.20-cloud-voice-aligned-unsigned.apk > dist/Cortex-Prime-v1.0.20-cloud-voice-aligned-unsigned.sha256
+          "$ZIPALIGN" -P 16 -f 4 app/build/outputs/apk/release/app-release-unsigned.apk dist/Cortex-Prime-v1.0.21-cloud-asr-aligned-unsigned.apk
+          "$ZIPALIGN" -c -P 16 -v 4 dist/Cortex-Prime-v1.0.21-cloud-asr-aligned-unsigned.apk
+          sha256sum dist/Cortex-Prime-v1.0.21-cloud-asr-aligned-unsigned.apk > dist/Cortex-Prime-v1.0.21-cloud-asr-aligned-unsigned.sha256
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: Cortex-Prime-v1.0.20-cloud-voice
+          name: Cortex-Prime-v1.0.21-cloud-asr
           path: dist/
           if-no-files-found: error
           retention-days: 30

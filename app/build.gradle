@@ -1,6 +1,5 @@
 plugins {
     id 'com.android.application'
-    id 'org.jetbrains.kotlin.android'
 }
 
 android {
@@ -11,21 +10,13 @@ android {
         applicationId 'com.kareem.cortex'
         minSdk 26
         targetSdk 35
-        versionCode 30
-        versionName '1.0.20'
-    }
-
-    androidResources {
-        noCompress += ['bin']
+        versionCode 31
+        versionName '1.0.21'
     }
 
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
-    }
-
-    kotlinOptions {
-        jvmTarget = '17'
     }
 }
 
@@ -33,9 +24,5 @@ dependencies {
     implementation 'com.google.mlkit:text-recognition:16.0.1'
     implementation 'cz.adaptech.tesseract4android:tesseract4android:4.9.0'
     implementation 'androidx.work:work-runtime:2.11.2'
-    // Legacy whisper runtime is retained temporarily for source compatibility only.
-    // Production voice transcription no longer invokes it and requires no local model.
-    implementation files('libs/whisper-android-cortex-prompt-1.0.0.aar')
-    implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0'
     testImplementation 'junit:junit:4.13.2'
 }
