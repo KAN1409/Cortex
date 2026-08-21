@@ -79,40 +79,45 @@ jobs:
           if [ -z "$CLI" ]; then echo "whisper-cli not found" >&2; exit 1; fi
           "$CLI" -m "app/src/main/assets/models/$MODEL_NAME" -f /tmp/whisper.cpp/samples/jfk.wav -l en --no-timestamps >/tmp/cortex-model/load-test.txt 2>&1 || { cat /tmp/cortex-model/load-test.txt; exit 1; }
 
-      - name: Build debug and unsigned release APKs
-        run: gradle :app:assembleDebug :app:assembleRelease --stacktrace
+      - name: Build unsigned release APK
+        run: gradle :app:assembleRelease --stacktrace
 
-      - name: Prepare APK artifacts and validation kit
+      - name: Prepare APK and validation artifacts
         shell: bash
         run: |
           set -euo pipefail
           MODEL_NAME="ggml-egyptian-codeswitch-small-q5_1.bin"
-          mkdir -p dist/signing-tools/lib dist/validation
-          cp app/build/outputs/apk/debug/app-debug.apk dist/Cortex-v1.0.12-debug-ci-only.apk
-          cp app/build/outputs/apk/release/app-release-unsigned.apk dist/Cortex-v1.0.12-release-unsigned.apk
-          sha256sum dist/Cortex-v1.0.12-debug-ci-only.apk > dist/Cortex-v1.0.12-debug-ci-only.sha256
-          sha256sum dist/Cortex-v1.0.12-release-unsigned.apk > dist/Cortex-v1.0.12-release-unsigned.sha256
+          mkdir -p dist-apk/signing-tools/lib dist-validation
+          cp app/build/outputs/apk/release/app-release-unsigned.apk dist-apk/Cortex-v1.0.12-release-unsigned.apk
+          sha256sum dist-apk/Cortex-v1.0.12-release-unsigned.apk > dist-apk/Cortex-v1.0.12-release-unsigned.sha256
 
-          cp "app/src/main/assets/models/$MODEL_NAME" "dist/validation/$MODEL_NAME"
-          cp /tmp/cortex-model/model.sha256 dist/validation/model.sha256
-          cp /tmp/cortex-model/load-test.txt dist/validation/load-test.txt
+          cp "app/src/main/assets/models/$MODEL_NAME" "dist-validation/$MODEL_NAME"
+          cp /tmp/cortex-model/model.sha256 dist-validation/model.sha256
+          cp /tmp/cortex-model/load-test.txt dist-validation/load-test.txt
           CLI="$(find /tmp/whisper.cpp/build/bin -maxdepth 1 -type f -name whisper-cli | head -n 1)"
-          cp "$CLI" dist/validation/whisper-cli-linux
-          chmod +x dist/validation/whisper-cli-linux
+          cp "$CLI" dist-validation/whisper-cli-linux
+          chmod +x dist-validation/whisper-cli-linux
 
           APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
           if [ -z "$APKSIGNER" ]; then echo 'apksigner not found' >&2; exit 1; fi
           BT_DIR="$(dirname "$APKSIGNER")"
-          cp "$APKSIGNER" dist/signing-tools/apksigner
-          cp "$BT_DIR/lib/apksigner.jar" dist/signing-tools/lib/apksigner.jar
-          cp "$BT_DIR/zipalign" dist/signing-tools/zipalign
-          chmod +x dist/signing-tools/apksigner dist/signing-tools/zipalign
-          "$APKSIGNER" verify --verbose app/build/outputs/apk/debug/app-debug.apk > dist/debug-apksigner-verify.txt
+          cp "$APKSIGNER" dist-apk/signing-tools/apksigner
+          cp "$BT_DIR/lib/apksigner.jar" dist-apk/signing-tools/lib/apksigner.jar
+          cp "$BT_DIR/zipalign" dist-apk/signing-tools/zipalign
+          chmod +x dist-apk/signing-tools/apksigner dist-apk/signing-tools/zipalign
 
-      - name: Upload Cortex APKs
+      - name: Upload Cortex APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Cortex-v1.0.12-builds
-          path: dist/
+          name: Cortex-v1.0.12-apk
+          path: dist-apk/
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload ASR validation kit
+        uses: actions/upload-artifact@v4
+        with:
+          name: Cortex-v1.0.12-asr-validation
+          path: dist-validation/
           if-no-files-found: error
           retention-days: 30
