@@ -11,18 +11,22 @@ public final class AudioAnalyzer {
         try{
             if(item.attachmentPath==null||item.attachmentPath.isEmpty())throw new IllegalArgumentException("Missing audio file");
             File f=new File(item.attachmentPath);if(!f.exists())throw new IllegalArgumentException("Audio file not found");
+            final boolean whisperOnly=WhisperRuntimeState.consumeWhisperOnly(ctx,item.id);
 
-            // v1.0.7: use one multilingual model for Arabic/English code-switching.
-            // If Whisper cannot run (model/network/ABI/imported non-WAV), retain the Android recognizer as fallback.
             MultilingualWhisperTranscriber.transcribe(ctx,f,new MultilingualWhisperTranscriber.Callback(){
                 @Override public void ok(TranscriptResult t){finish(t,cb);}
                 @Override public void fail(Exception whisperError){
+                    if(whisperOnly){
+                        cb.fail(new IllegalStateException("Whisper-only retry failed — "+safe(whisperError),whisperError));
+                        return;
+                    }
                     SystemAudioTranscriber.transcribe(ctx,f,new SystemAudioTranscriber.Callback(){
-                        public void ok(TranscriptResult t){t.engine=t.engine+"_fallback_after_whisper";finish(t,cb);}
+                        public void ok(TranscriptResult t){
+                            t.engine=t.engine+"_fallback_after_whisper["+compact(whisperError)+"]";
+                            finish(t,cb);
+                        }
                         public void fail(Exception androidError){
-                            String a=whisperError==null?"unknown":whisperError.getMessage();
-                            String b=androidError==null?"unknown":androidError.getMessage();
-                            cb.fail(new IllegalStateException("Whisper failed: "+a+"; Android fallback failed: "+b,androidError));
+                            cb.fail(new IllegalStateException("Whisper failed: "+safe(whisperError)+"; Android fallback failed: "+safe(androidError),androidError));
                         }
                     });
                 }
@@ -30,12 +34,18 @@ public final class AudioAnalyzer {
         }catch(Exception e){cb.fail(e);}
     }
 
+    private static String safe(Throwable e){return e==null?"unknown":e.getClass().getSimpleName()+": "+String.valueOf(e.getMessage());}
+    private static String compact(Throwable e){
+        String x=safe(e).replace('\n',' ').replace('\r',' ').replace('[','(').replace(']',')');
+        return x.length()>96?x.substring(0,96):x;
+    }
+
     private static void finish(TranscriptResult t,Callback cb){
         try{
             AnalysisResult r=LocalAnalyzer.analyze(t.text,"text/plain");
             r.extractedText=t.text;
             r.engine=t.engine+"+local_rules";
-            r.version="2";
+            r.version="3";
             r.category="Voice & Audio";
             r.tags="voice,audio,transcript,"+AutoClassifier.tags(t.text,"Voice & Audio");
             String title=AutoClassifier.title(t.text,"text/plain");
