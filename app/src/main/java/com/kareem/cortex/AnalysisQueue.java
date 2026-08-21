@@ -13,6 +13,8 @@ public final class AnalysisQueue {
             OcrAnalyzer.analyze(ctx,item,new OcrAnalyzer.Callback(){public void ok(AnalysisResult r){finish(db,item.id,r,changed);next(ctx,db,changed);}public void fail(Exception e){fail(db,item.id,e,changed);next(ctx,db,changed);}});
         }else if("AUDIO".equals(item.type)){
             AudioAnalyzer.analyze(ctx,item,new AudioAnalyzer.Callback(){public void ok(AnalysisResult r){db.applyAnalysis(item.id,r);AudioStore.save(db,item.id,r);if(changed!=null)changed.run();next(ctx,db,changed);}public void fail(Exception e){fail(db,item.id,e,changed);next(ctx,db,changed);}});
+        }else if("FILE".equals(item.type)){
+            try{finish(db,item.id,AttachmentAnalyzer.analyze(item),changed);}catch(Exception e){fail(db,item.id,e,changed);}next(ctx,db,changed);
         }else{
             try{AnalysisResult r=LocalAnalyzer.analyze(item.rawText,"text/plain");db.applyAnalysis(item.id,r);}catch(Exception e){db.markFailed(item.id,e.getMessage());}if(changed!=null)changed.run();next(ctx,db,changed);
         }
