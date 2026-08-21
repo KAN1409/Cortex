@@ -152,7 +152,7 @@ class MultilingualWhisperTranscriber private constructor() {
                         return model
                     } catch (e: Exception) {
                         last = e
-                        WhisperRuntimeState.stage(context, "download retry", e.javaClass.simpleName+": "+String.valueOf(e.message))
+                        WhisperRuntimeState.stage(context, "download retry", e.javaClass.simpleName+": "+(e.message ?: "null"))
                     }
                 }
                 throw IllegalStateException("Could not obtain a valid Whisper multilingual model", last)
