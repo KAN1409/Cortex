@@ -39,10 +39,10 @@ jobs:
         shell: bash
         run: |
           mkdir -p dist/signing-tools/lib
-          cp app/build/outputs/apk/debug/app-debug.apk dist/Cortex-v1.0.10-debug-ci-only.apk
-          cp app/build/outputs/apk/release/app-release-unsigned.apk dist/Cortex-v1.0.10-release-unsigned.apk
-          sha256sum dist/Cortex-v1.0.10-debug-ci-only.apk > dist/Cortex-v1.0.10-debug-ci-only.sha256
-          sha256sum dist/Cortex-v1.0.10-release-unsigned.apk > dist/Cortex-v1.0.10-release-unsigned.sha256
+          cp app/build/outputs/apk/debug/app-debug.apk dist/Cortex-v1.0.11-debug-ci-only.apk
+          cp app/build/outputs/apk/release/app-release-unsigned.apk dist/Cortex-v1.0.11-release-unsigned.apk
+          sha256sum dist/Cortex-v1.0.11-debug-ci-only.apk > dist/Cortex-v1.0.11-debug-ci-only.sha256
+          sha256sum dist/Cortex-v1.0.11-release-unsigned.apk > dist/Cortex-v1.0.11-release-unsigned.sha256
           APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
           if [ -z "$APKSIGNER" ]; then echo 'apksigner not found' >&2; exit 1; fi
           BT_DIR="$(dirname "$APKSIGNER")"
@@ -55,7 +55,7 @@ jobs:
       - name: Upload Cortex APKs
         uses: actions/upload-artifact@v4
         with:
-          name: Cortex-v1.0.10-builds
+          name: Cortex-v1.0.11-builds
           path: dist/
           if-no-files-found: error
           retention-days: 30
