@@ -25,10 +25,11 @@ jobs:
         run: |
           set -euo pipefail
           sudo apt-get update
-          sudo apt-get install -y ninja-build cmake build-essential
+          sudo apt-get install -y ninja-build cmake build-essential libsentencepiece-dev
           python -m pip install --upgrade pip 'huggingface_hub>=0.28'
           cmake --version
           ninja --version
+          ldconfig -p | grep sentencepiece || true
 
       - name: Build NeMo-Speech.cpp CPU runtime
         shell: bash
@@ -36,7 +37,6 @@ jobs:
           set -euo pipefail
           git clone --depth 1 --recurse-submodules --shallow-submodules https://github.com/NVIDIA/NeMo-Speech.cpp.git nemo-speech-src
           cd nemo-speech-src
-          scripts/install.sh --help | head -120
           scripts/install.sh --source --backend cpu --prefix "$GITHUB_WORKSPACE/nemo-install" --no-modify-path
           "$GITHUB_WORKSPACE/nemo-install/bin/nemo-speech" --version
           ldd "$GITHUB_WORKSPACE/nemo-install/bin/nemo-speech" || true
