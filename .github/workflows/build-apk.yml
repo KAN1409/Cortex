@@ -35,14 +35,22 @@ jobs:
       - name: Build debug and unsigned release APKs
         run: gradle :app:assembleDebug :app:assembleRelease --stacktrace
 
-      - name: Prepare APK artifacts
+      - name: Prepare APK artifacts and signing tools
         shell: bash
         run: |
-          mkdir -p dist
+          mkdir -p dist/signing-tools/lib
           cp app/build/outputs/apk/debug/app-debug.apk dist/Cortex-v1.0.10-debug-ci-only.apk
           cp app/build/outputs/apk/release/app-release-unsigned.apk dist/Cortex-v1.0.10-release-unsigned.apk
           sha256sum dist/Cortex-v1.0.10-debug-ci-only.apk > dist/Cortex-v1.0.10-debug-ci-only.sha256
           sha256sum dist/Cortex-v1.0.10-release-unsigned.apk > dist/Cortex-v1.0.10-release-unsigned.sha256
+          APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
+          if [ -z "$APKSIGNER" ]; then echo 'apksigner not found' >&2; exit 1; fi
+          BT_DIR="$(dirname "$APKSIGNER")"
+          cp "$APKSIGNER" dist/signing-tools/apksigner
+          cp "$BT_DIR/lib/apksigner.jar" dist/signing-tools/lib/apksigner.jar
+          cp "$BT_DIR/zipalign" dist/signing-tools/zipalign
+          chmod +x dist/signing-tools/apksigner dist/signing-tools/zipalign
+          "$APKSIGNER" verify --verbose app/build/outputs/apk/debug/app-debug.apk > dist/debug-apksigner-verify.txt
 
       - name: Upload Cortex APKs
         uses: actions/upload-artifact@v4
