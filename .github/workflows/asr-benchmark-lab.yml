@@ -11,90 +11,84 @@ permissions:
   contents: read
 
 jobs:
-  nemotron-bundle:
+  convert-lemura:
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
-      - name: Set up Python
-        uses: actions/setup-python@v6
+      - uses: actions/setup-python@v6
         with:
           python-version: '3.11'
-
-      - name: Install prerequisites
-        shell: bash
-        run: |
-          set -euo pipefail
-          python -m pip install --upgrade pip 'huggingface_hub>=0.28'
-
-      - name: Install official NeMo-Speech.cpp CPU binary
+      - name: Prepare converter
         shell: bash
         run: |
           set -euo pipefail
           git clone --depth 1 https://github.com/NVIDIA/NeMo-Speech.cpp.git nemo-speech-src
           cd nemo-speech-src
-          scripts/install.sh --binary-only --backend cpu --prefix "$GITHUB_WORKSPACE/nemo-install" --no-modify-path
-          "$GITHUB_WORKSPACE/nemo-install/bin/nemo-speech" --version
-          ldd "$GITHUB_WORKSPACE/nemo-install/bin/nemo-speech" || true
-
-      - name: Download official Nemotron 3.5 ASR Q8 GGUF
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+      - name: Convert Lemura Arabic ASR Lite to Q8 GGUF
         shell: bash
         run: |
           set -euo pipefail
-          python - <<'PY'
-          from huggingface_hub import hf_hub_download
-          p=hf_hub_download(
-              repo_id='nvidia/nemotron-3.5-asr-streaming-0.6b',
-              filename='nemotron-3.5-asr-streaming-0.6b.q8_0.gguf',
-              local_dir='model',
+          cd nemo-speech-src
+          mkdir -p ../dist-lemura
+          python convert_model.py lemuralabs/lemura-arabic-asr-lite \
+            --outfile ../dist-lemura/lemura-arabic-asr-lite.q8_0.gguf --outtype q8_0
+          sha256sum ../dist-lemura/*.gguf > ../dist-lemura/sha256.txt
+          ls -lh ../dist-lemura
+      - name: Upload Lemura Q8
+        uses: actions/upload-artifact@v4
+        with:
+          name: lemura-arabic-asr-lite-q8
+          path: dist-lemura/
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 7
+
+  convert-tata:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+      - name: Prepare converter
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --depth 1 https://github.com/NVIDIA/NeMo-Speech.cpp.git nemo-speech-src
+          cd nemo-speech-src
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+      - name: Convert TATA Egyptian RNNT to Q8 GGUF
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd nemo-speech-src
+          mkdir -p ../dist-tata
+          if python convert_model.py yousefkotp/TATA-egyptian-arabic-asr-diarization \
+            --outfile ../dist-tata/tata-egyptian-rnnt.q8_0.gguf --outtype q8_0; then
+            echo 'Remote repository conversion succeeded.'
+          else
+            echo 'Remote conversion did not resolve a .nemo; trying local HF snapshot.'
+            python - <<'PY'
+          from huggingface_hub import snapshot_download
+          snapshot_download(
+              repo_id='yousefkotp/TATA-egyptian-arabic-asr-diarization',
+              local_dir='../tata-source',
+              allow_patterns=['config.yaml','asr_model.ckpt','tokenizer/*'],
           )
-          print(p)
           PY
-          echo 'a5c435f294eea8f88ce68dd27b8c3bfea7f777cb2fbba04fcd30eaa555f429ae  model/nemotron-3.5-asr-streaming-0.6b.q8_0.gguf' | sha256sum -c -
-          ls -lh model/nemotron-3.5-asr-streaming-0.6b.q8_0.gguf
-
-      - name: Split model for connector delivery
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p split
-          split -b 280M -d -a 2 model/nemotron-3.5-asr-streaming-0.6b.q8_0.gguf split/nemotron.q8.gguf.part-
-          sha256sum model/nemotron-3.5-asr-streaming-0.6b.q8_0.gguf > split/nemotron.q8.gguf.sha256
-          ls -lh split
-
-      - name: Upload runtime
+            python convert_model.py ../tata-source \
+              --outfile ../dist-tata/tata-egyptian-rnnt.q8_0.gguf --outtype q8_0
+          fi
+          sha256sum ../dist-tata/*.gguf > ../dist-tata/sha256.txt
+          ls -lh ../dist-tata
+      - name: Upload TATA Q8
         uses: actions/upload-artifact@v4
         with:
-          name: nemo-speech-cpu-runtime
-          path: nemo-install/
-          compression-level: 0
-          if-no-files-found: error
-          retention-days: 7
-
-      - name: Upload model part 00
-        uses: actions/upload-artifact@v4
-        with:
-          name: nemotron-q8-part-00
-          path: split/nemotron.q8.gguf.part-00
-          compression-level: 0
-          if-no-files-found: error
-          retention-days: 7
-
-      - name: Upload model part 01
-        uses: actions/upload-artifact@v4
-        with:
-          name: nemotron-q8-part-01
-          path: split/nemotron.q8.gguf.part-01
-          compression-level: 0
-          if-no-files-found: error
-          retention-days: 7
-
-      - name: Upload model part 02 plus checksum
-        uses: actions/upload-artifact@v4
-        with:
-          name: nemotron-q8-part-02
-          path: |
-            split/nemotron.q8.gguf.part-02
-            split/nemotron.q8.gguf.sha256
+          name: tata-egyptian-rnnt-q8
+          path: dist-tata/
           compression-level: 0
           if-no-files-found: error
           retention-days: 7
