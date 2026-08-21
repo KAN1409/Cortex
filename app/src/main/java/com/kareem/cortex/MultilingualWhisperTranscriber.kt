@@ -9,14 +9,16 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import java.io.File
+import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.net.HttpURLConnection
 import java.net.URL
+import java.security.MessageDigest
+import java.util.Locale
 
 /**
  * Primary Cortex voice ASR for Arabic/English code-switching.
- * One multilingual Whisper hypothesis is allowed to emit Arabic and Latin tokens
- * in the same sentence; no utterance-level language lock and no translation.
+ * One multilingual Whisper hypothesis can emit Arabic and Latin tokens in the same utterance.
  */
 class MultilingualWhisperTranscriber private constructor() {
     interface Callback {
@@ -26,10 +28,17 @@ class MultilingualWhisperTranscriber private constructor() {
 
     companion object {
         private const val MODEL_NAME = "ggml-base.bin"
-        private const val MODEL_URL = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin"
-        private const val MIN_MODEL_BYTES = 100_000_000L
+        private const val EXPECTED_SHA1 = "465707469ff3a37a2b9b8d8f89f2f99de7299dac"
+        private const val MIN_MODEL_BYTES = 140_000_000L
+        private val MODEL_URLS = arrayOf(
+            "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin?download=true",
+            "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin"
+        )
         private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
         @Volatile private var downloading = false
+        @Volatile private var validatedFile: String? = null
+        @Volatile private var validatedLength: Long = -1L
+        @Volatile private var validatedModified: Long = -1L
 
         @JvmStatic
         fun transcribe(context: Context, audio: File, callback: Callback) {
@@ -40,13 +49,16 @@ class MultilingualWhisperTranscriber private constructor() {
                     if (!Build.SUPPORTED_ABIS.any { it == "arm64-v8a" }) {
                         throw UnsupportedOperationException("Whisper build requires arm64-v8a")
                     }
-                    if (!audio.name.lowercase().endsWith(".wav")) {
-                        throw UnsupportedOperationException("Whisper primary path currently expects Cortex WAV audio")
+                    if (!audio.name.lowercase(Locale.US).endsWith(".wav")) {
+                        throw UnsupportedOperationException("Whisper primary path expects Cortex WAV audio")
                     }
 
+                    WhisperRuntimeState.stage(app, "checking model", "Validating multilingual base model")
                     val modelFile = ensureModel(app)
+                    WhisperRuntimeState.stage(app, "loading model", modelFile.name)
                     val model = Whisper.loadModel(app, modelFile.absolutePath)
                     try {
+                        WhisperRuntimeState.stage(app, "transcribing", "language=auto • translate=false")
                         val config = WhisperConfig(
                             language = "auto",
                             translate = false,
@@ -62,7 +74,7 @@ class MultilingualWhisperTranscriber private constructor() {
                         out.text = text
                         out.language = "auto-multilingual"
                         out.engine = "whisper_cpp_base_multilingual_auto"
-                        out.version = "2"
+                        out.version = "3"
                         var maxEnd = 0L
                         for (segment in whisper.segments) {
                             val s = segment.text.trim()
@@ -71,14 +83,14 @@ class MultilingualWhisperTranscriber private constructor() {
                             out.segments.add(TranscriptResult.Segment(segment.startMs, segment.endMs, s, -1f))
                         }
                         out.durationMs = if (maxEnd > 0L) maxEnd else wavDurationMs(audio)
-                        if (out.segments.isEmpty()) {
-                            out.segments.add(TranscriptResult.Segment(0, out.durationMs, text, -1f))
-                        }
+                        if (out.segments.isEmpty()) out.segments.add(TranscriptResult.Segment(0, out.durationMs, text, -1f))
+                        WhisperRuntimeState.stage(app, "ready", "Whisper transcription completed")
                         callback.ok(out)
                     } finally {
                         Whisper.releaseModel(model)
                     }
                 } catch (e: Exception) {
+                    WhisperRuntimeState.error(app, e)
                     callback.fail(e)
                 }
             }
@@ -90,75 +102,139 @@ class MultilingualWhisperTranscriber private constructor() {
             return f.exists() && f.length() >= MIN_MODEL_BYTES
         }
 
-        @Synchronized
-        private fun markDownloadStart(): Boolean {
+        @Synchronized private fun markDownloadStart(): Boolean {
             if (downloading) return false
             downloading = true
             return true
         }
-
-        @Synchronized
-        private fun markDownloadEnd() {
-            downloading = false
-        }
+        @Synchronized private fun markDownloadEnd() { downloading = false }
 
         private fun ensureModel(context: Context): File {
             val dir = File(context.filesDir, "models")
             if (!dir.exists() && !dir.mkdirs()) throw IllegalStateException("Could not create model directory")
             val model = File(dir, MODEL_NAME)
-            if (model.exists() && model.length() >= MIN_MODEL_BYTES) return model
 
-            // Only one downloader per process. Other callers wait for the same file.
+            if (model.exists()) {
+                if (isValidated(model) || (model.length() >= MIN_MODEL_BYTES && verifyModel(context, model))) return model
+                WhisperRuntimeState.stage(context, "invalid model", "Existing model failed SHA-1 validation; downloading a clean copy")
+                model.delete()
+                clearValidation()
+            }
+
             if (!markDownloadStart()) {
-                val deadline = System.currentTimeMillis() + 10 * 60_000L
+                val deadline = System.currentTimeMillis() + 20 * 60_000L
                 while (System.currentTimeMillis() < deadline) {
-                    if (model.exists() && model.length() >= MIN_MODEL_BYTES) return model
-                    Thread.sleep(500)
+                    if (model.exists() && model.length() >= MIN_MODEL_BYTES && verifyModel(context, model)) return model
+                    Thread.sleep(700)
                 }
                 throw IllegalStateException("Timed out waiting for multilingual model download")
             }
 
             val tmp = File(dir, "$MODEL_NAME.download")
             try {
-                if (tmp.exists()) tmp.delete()
-                download(MODEL_URL, tmp)
-                if (tmp.length() < MIN_MODEL_BYTES) {
-                    throw IllegalStateException("Downloaded Whisper model is incomplete (${tmp.length()} bytes)")
+                var last: Exception? = null
+                for ((index, url) in MODEL_URLS.withIndex()) {
+                    try {
+                        if (index > 0 && tmp.exists()) tmp.delete()
+                        downloadResumable(context, url, tmp)
+                        WhisperRuntimeState.stage(context, "verifying model", String.format(Locale.US, "%.1f MB downloaded", tmp.length()/1048576.0))
+                        if (tmp.length() < MIN_MODEL_BYTES) throw IllegalStateException("Whisper model download incomplete (${tmp.length()} bytes)")
+                        if (!sha1(tmp).equals(EXPECTED_SHA1, ignoreCase = true)) {
+                            throw IllegalStateException("Whisper model checksum mismatch")
+                        }
+                        if (model.exists()) model.delete()
+                        if (!tmp.renameTo(model)) {
+                            tmp.inputStream().use { input -> model.outputStream().use { output -> input.copyTo(output) } }
+                            tmp.delete()
+                        }
+                        rememberValidation(model)
+                        WhisperRuntimeState.stage(context, "model ready", String.format(Locale.US, "%.1f MB • SHA-1 verified", model.length()/1048576.0))
+                        return model
+                    } catch (e: Exception) {
+                        last = e
+                        WhisperRuntimeState.stage(context, "download retry", e.javaClass.simpleName+": "+String.valueOf(e.message))
+                    }
                 }
-                if (model.exists()) model.delete()
-                if (!tmp.renameTo(model)) {
-                    tmp.inputStream().use { input -> model.outputStream().use { output -> input.copyTo(output) } }
-                    tmp.delete()
-                }
-                return model
+                throw IllegalStateException("Could not obtain a valid Whisper multilingual model", last)
             } finally {
                 markDownloadEnd()
             }
         }
 
-        private fun download(url: String, out: File) {
-            var connection: HttpURLConnection? = null
-            try {
-                connection = URL(url).openConnection() as HttpURLConnection
-                connection.instanceFollowRedirects = true
-                connection.connectTimeout = 20_000
-                connection.readTimeout = 45_000
-                connection.setRequestProperty("User-Agent", "Cortex/1.0.7 Android")
-                connection.setRequestProperty("Accept", "application/octet-stream")
-                connection.connect()
-                val code = connection.responseCode
-                if (code !in 200..299) throw IllegalStateException("Model download HTTP $code")
-                connection.inputStream.use { input ->
-                    FileOutputStream(out).use { output ->
-                        val buffer = ByteArray(1024 * 1024)
-                        var n: Int
-                        while (input.read(buffer).also { n = it } > 0) output.write(buffer, 0, n)
-                        output.fd.sync()
+        private fun verifyModel(context: Context, f: File): Boolean {
+            return try {
+                WhisperRuntimeState.stage(context, "verifying model", String.format(Locale.US, "%.1f MB", f.length()/1048576.0))
+                val ok = sha1(f).equals(EXPECTED_SHA1, ignoreCase = true)
+                if (ok) rememberValidation(f)
+                ok
+            } catch (_: Exception) { false }
+        }
+
+        private fun isValidated(f: File): Boolean =
+            validatedFile == f.absolutePath && validatedLength == f.length() && validatedModified == f.lastModified()
+        private fun rememberValidation(f: File){validatedFile=f.absolutePath;validatedLength=f.length();validatedModified=f.lastModified()}
+        private fun clearValidation(){validatedFile=null;validatedLength=-1;validatedModified=-1}
+
+        private fun downloadResumable(context: Context, initialUrl: String, out: File) {
+            var current = URL(initialUrl)
+            var redirects = 0
+            while (true) {
+                val existing = if (out.exists()) out.length() else 0L
+                var c: HttpURLConnection? = null
+                try {
+                    c = current.openConnection() as HttpURLConnection
+                    c.instanceFollowRedirects = false
+                    c.connectTimeout = 30_000
+                    c.readTimeout = 120_000
+                    c.setRequestProperty("User-Agent", "Cortex/1.0.8 Android")
+                    c.setRequestProperty("Accept", "application/octet-stream")
+                    if (existing > 0) c.setRequestProperty("Range", "bytes=$existing-")
+                    c.connect()
+                    val code = c.responseCode
+                    if (code in intArrayOf(301,302,303,307,308)) {
+                        val location = c.getHeaderField("Location") ?: throw IllegalStateException("Model redirect missing Location")
+                        if (++redirects > 8) throw IllegalStateException("Too many model download redirects")
+                        current = URL(current, location)
+                        continue
                     }
-                }
-            } finally {
-                connection?.disconnect()
+                    if (code == 416 && out.exists()) return
+                    if (code != 200 && code != 206) throw IllegalStateException("Model download HTTP $code")
+                    val append = code == 206 && existing > 0
+                    if (!append && out.exists()) out.delete()
+                    var written = if (append) existing else 0L
+                    var nextReport = written + 8L*1024L*1024L
+                    c.inputStream.use { input ->
+                        FileOutputStream(out, append).use { output ->
+                            val buffer = ByteArray(1024*1024)
+                            while (true) {
+                                val n = input.read(buffer)
+                                if (n <= 0) break
+                                output.write(buffer,0,n)
+                                written += n
+                                if (written >= nextReport) {
+                                    WhisperRuntimeState.stage(context, "downloading model", String.format(Locale.US, "%.1f MB downloaded", written/1048576.0))
+                                    nextReport = written + 8L*1024L*1024L
+                                }
+                            }
+                            output.fd.sync()
+                        }
+                    }
+                    return
+                } finally { c?.disconnect() }
             }
+        }
+
+        private fun sha1(file: File): String {
+            val md = MessageDigest.getInstance("SHA-1")
+            FileInputStream(file).use { input ->
+                val buf = ByteArray(1024*1024)
+                while (true) {
+                    val n = input.read(buf)
+                    if (n <= 0) break
+                    md.update(buf,0,n)
+                }
+            }
+            return md.digest().joinToString("") { "%02x".format(it) }
         }
 
         private fun chooseThreads(): Int {
@@ -167,7 +243,6 @@ class MultilingualWhisperTranscriber private constructor() {
         }
 
         private fun wavDurationMs(file: File): Long {
-            // Cortex recordings are 16 kHz, mono, PCM16: 32,000 payload bytes/sec.
             val payload = (file.length() - 44L).coerceAtLeast(0L)
             return payload * 1000L / 32_000L
         }
