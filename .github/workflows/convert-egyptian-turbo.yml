@@ -1,8 +1,8 @@
 name: Convert Egyptian Whisper Turbo to GGML Q8
 
 on:
-  push:
-    branches: [ v1.0.1-mixed-language-voice ]
+  pull_request:
+    branches: [ main ]
     paths:
       - '.github/workflows/convert-egyptian-turbo.yml'
   workflow_dispatch:
@@ -82,7 +82,8 @@ jobs:
           python - <<'PY'
           from pathlib import Path
           p = Path('converted/ggml-model.bin')
-          assert p.read_bytes()[:4] == b'lmgg', 'Unexpected GGML magic'
+          with p.open('rb') as f:
+              assert f.read(4) == b'lmgg', 'Unexpected GGML magic'
           print('GGML F16 bytes:', p.stat().st_size)
           PY
 
@@ -106,7 +107,8 @@ jobs:
           python - <<'PY'
           from pathlib import Path
           p = Path('dist/ggml-egyptian-large-v3-turbo-q8_0.bin')
-          assert p.read_bytes()[:4] == b'lmgg', 'Unexpected GGML magic after quantization'
+          with p.open('rb') as f:
+              assert f.read(4) == b'lmgg', 'Unexpected GGML magic after quantization'
           print('Q8_0 bytes:', p.stat().st_size)
           PY
           sha256sum dist/ggml-egyptian-large-v3-turbo-q8_0.bin > dist/ggml-egyptian-large-v3-turbo-q8_0.sha256
