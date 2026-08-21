@@ -21,9 +21,11 @@ jobs:
           curl -L --fail --retry 3 \
             https://github.com/sjoerdteunisse/whisper.cpp/releases/download/v1.0.0/whisper-cpp-linux-x64-cpu.zip \
             -o whisper-cli.zip
+          mkdir -p whisper-cli
           unzip -q whisper-cli.zip -d whisper-cli
           find whisper-cli -maxdepth 3 -type f -print
-          test -f whisper-cli/whisper-cli
+          test -f whisper-cli/whisper-cpp-linux-x64-cpu
+          mv whisper-cli/whisper-cpp-linux-x64-cpu whisper-cli/whisper-cli
           chmod +x whisper-cli/whisper-cli
           whisper-cli/whisper-cli --version || true
           sha256sum whisper-cli/whisper-cli > whisper-cli/whisper-cli.sha256
