@@ -31,10 +31,10 @@ public final class ChatGptDebugReview {
             KnowledgeItem k=new VaultDb(ctx).getById(itemId);if(k==null)return;
             Intent i=new Intent(ctx,DebugReviewActivity.class);i.putExtra("item_id",itemId);i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK|Intent.FLAG_ACTIVITY_CLEAR_TOP);
             PendingIntent pi=PendingIntent.getActivity(ctx,(int)(itemId%100000),i,PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE);
-            String body="Tap to open ChatGPT with the original audio + Cortex transcript for independent bilingual review.";
+            String body="Tap to open ChatGPT with the original audio + Cortex Prime transcript for independent bilingual review.";
             NotificationCompat.Builder b=new NotificationCompat.Builder(ctx,CHANNEL)
                     .setSmallIcon(android.R.drawable.ic_btn_speak_now)
-                    .setContentTitle("Cortex voice debug ready")
+                    .setContentTitle("Cortex Prime voice debug ready")
                     .setContentText(body)
                     .setStyle(new NotificationCompat.BigTextStyle().bigText(body))
                     .setContentIntent(pi).setAutoCancel(true).setPriority(NotificationCompat.PRIORITY_HIGH);
@@ -45,7 +45,7 @@ public final class ChatGptDebugReview {
     private static void ensureChannel(Context ctx){
         if(Build.VERSION.SDK_INT<26)return;
         NotificationManager nm=(NotificationManager)ctx.getSystemService(Context.NOTIFICATION_SERVICE);
-        if(nm.getNotificationChannel(CHANNEL)==null){NotificationChannel ch=new NotificationChannel(CHANNEL,"Cortex Voice Debug",NotificationManager.IMPORTANCE_HIGH);ch.setDescription("Temporary notifications for comparing Cortex voice transcription with ChatGPT.");nm.createNotificationChannel(ch);}
+        if(nm.getNotificationChannel(CHANNEL)==null){NotificationChannel ch=new NotificationChannel(CHANNEL,"Cortex Prime Voice Debug",NotificationManager.IMPORTANCE_HIGH);ch.setDescription("Temporary notifications for comparing Cortex Prime voice transcription with ChatGPT.");nm.createNotificationChannel(ch);}
     }
 
     public static void share(Context ctx,VaultDb db,long itemId) throws Exception {
@@ -70,11 +70,8 @@ public final class ChatGptDebugReview {
             }catch(Exception e){last=e;}
         }
 
-        // Last-resort diagnostic fallback: open ChatGPT directly and copy the exact prompt.
-        // This intentionally avoids the Android share sheet so the user can tell us whether
-        // this ChatGPT build exposes an attachment+text receiver at all.
         ClipboardManager cm=(ClipboardManager)ctx.getSystemService(Context.CLIPBOARD_SERVICE);
-        cm.setPrimaryClip(ClipData.newPlainText("Cortex voice debug prompt",prompt));
+        cm.setPrimaryClip(ClipData.newPlainText("Cortex Prime voice debug prompt",prompt));
         Intent launch=ctx.getPackageManager().getLaunchIntentForPackage(CHATGPT_PACKAGE);
         if(launch!=null){
             ctx.startActivity(launch);
@@ -91,10 +88,10 @@ public final class ChatGptDebugReview {
         send.setType(mime);
         send.putExtra(Intent.EXTRA_STREAM,uri);
         send.putExtra(Intent.EXTRA_TEXT,prompt);
-        send.putExtra(Intent.EXTRA_SUBJECT,"Cortex bilingual voice transcription debug");
+        send.putExtra(Intent.EXTRA_SUBJECT,"Cortex Prime bilingual voice transcription debug");
         send.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
         ClipData.Item item=new ClipData.Item(prompt,null,null,uri);
-        send.setClipData(new ClipData("Cortex original voice + debug prompt",new String[]{"audio/wav","text/plain"},item));
+        send.setClipData(new ClipData("Cortex Prime original voice + debug prompt",new String[]{"audio/wav","text/plain"},item));
         return send;
     }
 
@@ -107,23 +104,23 @@ public final class ChatGptDebugReview {
 
     private static String buildPrompt(VaultDb db,KnowledgeItem k){
         StringBuilder p=new StringBuilder();
-        p.append("CORTEX_VOICE_DEBUG_REVIEW_V2\n\n");
-        p.append("The attached WAV is the ORIGINAL Cortex recording. Perform this as an independent ASR debugging review.\n\n");
+        p.append("CORTEX_PRIME_VOICE_DEBUG_REVIEW_V2\n\n");
+        p.append("The attached WAV is the ORIGINAL Cortex Prime recording. Perform this as an independent ASR debugging review.\n\n");
         p.append("DO THIS IN THIS ORDER:\n");
         p.append("1) Listen to the attached audio FIRST and create your own verbatim transcript from the audio alone. Preserve Arabic and English exactly as spoken, including code-switching. Keep English words in English letters; do not transliterate them into Arabic.\n");
-        p.append("2) Only AFTER finishing your independent transcript, read the Cortex result below.\n");
+        p.append("2) Only AFTER finishing your independent transcript, read the Cortex Prime result below.\n");
         p.append("3) Compare them and return:\n");
-        p.append("   A. Independent transcript\n   B. Cortex transcript\n   C. Exact omissions, substitutions and language-switch errors\n   D. Approximate timestamps for every meaningful mismatch\n   E. Whether Cortex forced English speech into Arabic phonetic text\n   F. Likely ASR failure mode\n   G. A concrete engineering fix for Cortex mixed Arabic/English transcription\n");
-        p.append("4) Be especially strict with Arabic -> English -> Arabic transitions. Treat the attached audio as ground truth, not the Cortex transcript.\n\n");
-        p.append("--- CORTEX RESULT (REFERENCE ONLY; NOT GROUND TRUTH) ---\n");
+        p.append("   A. Independent transcript\n   B. Cortex Prime transcript\n   C. Exact omissions, substitutions and language-switch errors\n   D. Approximate timestamps for every meaningful mismatch\n   E. Whether Cortex Prime forced English speech into Arabic phonetic text\n   F. Likely ASR failure mode\n   G. A concrete engineering fix for Cortex Prime mixed Arabic/English transcription\n");
+        p.append("4) Be especially strict with Arabic -> English -> Arabic transitions. Treat the attached audio as ground truth, not the Cortex Prime transcript.\n\n");
+        p.append("--- CORTEX PRIME RESULT (REFERENCE ONLY; NOT GROUND TRUTH) ---\n");
         p.append("Memory ID: ").append(k.id).append('\n');
         p.append("Captured: ").append(new SimpleDateFormat("yyyy-MM-dd HH:mm:ss",Locale.US).format(new Date(k.createdAt))).append('\n');
         p.append("Status: ").append(k.status).append('\n');
         if(k.analysisError!=null&&!k.analysisError.trim().isEmpty())p.append("Error: ").append(k.analysisError).append('\n');
         String info=AudioStore.info(db,k.id);if(info!=null&&!info.trim().isEmpty())p.append(info).append('\n');
-        p.append("Cortex transcript:\n").append(k.extractedText==null||k.extractedText.trim().isEmpty()?"<none>":k.extractedText.trim()).append("\n\n");
-        ArrayList<String> seg=AudioStore.segments(db,k.id);if(!seg.isEmpty()){p.append("Cortex timed segments:\n");for(String s:seg)p.append(s).append('\n');}
-        p.append("--- END CORTEX RESULT ---\n");
+        p.append("Cortex Prime transcript:\n").append(k.extractedText==null||k.extractedText.trim().isEmpty()?"<none>":k.extractedText.trim()).append("\n\n");
+        ArrayList<String> seg=AudioStore.segments(db,k.id);if(!seg.isEmpty()){p.append("Cortex Prime timed segments:\n");for(String s:seg)p.append(s).append('\n');}
+        p.append("--- END CORTEX PRIME RESULT ---\n");
         return p.toString();
     }
 }
