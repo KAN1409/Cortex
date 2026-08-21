@@ -32,17 +32,74 @@ jobs:
       - name: Run ASR regression tests
         run: gradle :app:testDebugUnitTest --stacktrace
 
+      - name: Cache tuned code-switch model
+        uses: actions/cache@v4
+        with:
+          path: .cortex-model-cache
+          key: cortex-egyptian-english-codeswitch-small-q5_1-v1
+
+      - name: Prepare Egyptian English code-switch model
+        shell: bash
+        run: |
+          set -euo pipefail
+          MODEL_NAME="ggml-egyptian-codeswitch-small-q5_1.bin"
+          mkdir -p .cortex-model-cache app/src/main/assets/models /tmp/cortex-model
+
+          git clone --depth 1 https://github.com/ggml-org/whisper.cpp.git /tmp/whisper.cpp
+          cmake -S /tmp/whisper.cpp -B /tmp/whisper.cpp/build -DWHISPER_BUILD_EXAMPLES=ON -DWHISPER_BUILD_TESTS=OFF
+          cmake --build /tmp/whisper.cpp/build -j2 --config Release
+
+          if [ ! -s ".cortex-model-cache/$MODEL_NAME" ]; then
+            python3 -m pip install --upgrade pip
+            python3 -m pip install torch transformers huggingface_hub safetensors
+            git clone --depth 1 https://github.com/openai/whisper.git /tmp/openai-whisper
+            python3 - <<'PY'
+          from huggingface_hub import snapshot_download
+          snapshot_download(
+              repo_id="IbrahimAmin/code-switched-egyptian-arabic-whisper-small",
+              local_dir="/tmp/cortex-model/hf",
+              allow_patterns=[
+                  "config.json","generation_config.json","preprocessor_config.json",
+                  "model.safetensors","vocab.json","merges.txt","added_tokens.json",
+                  "normalizer.json","special_tokens_map.json","tokenizer_config.json"
+              ],
+          )
+          PY
+            mkdir -p /tmp/cortex-model/ggml
+            python3 /tmp/whisper.cpp/models/convert-h5-to-ggml.py /tmp/cortex-model/hf /tmp/openai-whisper /tmp/cortex-model/ggml
+            QUANTIZER="$(find /tmp/whisper.cpp/build/bin -maxdepth 1 -type f \( -name quantize -o -name whisper-quantize \) | head -n 1)"
+            if [ -z "$QUANTIZER" ]; then echo "whisper.cpp quantizer not found" >&2; exit 1; fi
+            "$QUANTIZER" /tmp/cortex-model/ggml/ggml-model.bin ".cortex-model-cache/$MODEL_NAME" q5_1
+          fi
+
+          cp ".cortex-model-cache/$MODEL_NAME" "app/src/main/assets/models/$MODEL_NAME"
+          sha256sum "app/src/main/assets/models/$MODEL_NAME" | tee /tmp/cortex-model/model.sha256
+
+          CLI="$(find /tmp/whisper.cpp/build/bin -maxdepth 1 -type f -name whisper-cli | head -n 1)"
+          if [ -z "$CLI" ]; then echo "whisper-cli not found" >&2; exit 1; fi
+          "$CLI" -m "app/src/main/assets/models/$MODEL_NAME" -f /tmp/whisper.cpp/samples/jfk.wav -l en --no-timestamps >/tmp/cortex-model/load-test.txt 2>&1 || { cat /tmp/cortex-model/load-test.txt; exit 1; }
+
       - name: Build debug and unsigned release APKs
         run: gradle :app:assembleDebug :app:assembleRelease --stacktrace
 
-      - name: Prepare APK artifacts and signing tools
+      - name: Prepare APK artifacts and validation kit
         shell: bash
         run: |
-          mkdir -p dist/signing-tools/lib
-          cp app/build/outputs/apk/debug/app-debug.apk dist/Cortex-v1.0.11-debug-ci-only.apk
-          cp app/build/outputs/apk/release/app-release-unsigned.apk dist/Cortex-v1.0.11-release-unsigned.apk
-          sha256sum dist/Cortex-v1.0.11-debug-ci-only.apk > dist/Cortex-v1.0.11-debug-ci-only.sha256
-          sha256sum dist/Cortex-v1.0.11-release-unsigned.apk > dist/Cortex-v1.0.11-release-unsigned.sha256
+          set -euo pipefail
+          MODEL_NAME="ggml-egyptian-codeswitch-small-q5_1.bin"
+          mkdir -p dist/signing-tools/lib dist/validation
+          cp app/build/outputs/apk/debug/app-debug.apk dist/Cortex-v1.0.12-debug-ci-only.apk
+          cp app/build/outputs/apk/release/app-release-unsigned.apk dist/Cortex-v1.0.12-release-unsigned.apk
+          sha256sum dist/Cortex-v1.0.12-debug-ci-only.apk > dist/Cortex-v1.0.12-debug-ci-only.sha256
+          sha256sum dist/Cortex-v1.0.12-release-unsigned.apk > dist/Cortex-v1.0.12-release-unsigned.sha256
+
+          cp "app/src/main/assets/models/$MODEL_NAME" "dist/validation/$MODEL_NAME"
+          cp /tmp/cortex-model/model.sha256 dist/validation/model.sha256
+          cp /tmp/cortex-model/load-test.txt dist/validation/load-test.txt
+          CLI="$(find /tmp/whisper.cpp/build/bin -maxdepth 1 -type f -name whisper-cli | head -n 1)"
+          cp "$CLI" dist/validation/whisper-cli-linux
+          chmod +x dist/validation/whisper-cli-linux
+
           APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
           if [ -z "$APKSIGNER" ]; then echo 'apksigner not found' >&2; exit 1; fi
           BT_DIR="$(dirname "$APKSIGNER")"
@@ -55,7 +112,7 @@ jobs:
       - name: Upload Cortex APKs
         uses: actions/upload-artifact@v4
         with:
-          name: Cortex-v1.0.11-builds
+          name: Cortex-v1.0.12-builds
           path: dist/
           if-no-files-found: error
           retention-days: 30
