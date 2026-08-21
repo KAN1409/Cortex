@@ -34,7 +34,7 @@ jobs:
           ls -lh source
           test -s source/ggml-egyptian-large-v3-turbo-q8_0.bin
           test -s source/ggml-egyptian-large-v3-turbo-q8_0.sha256
-          (cd source && sha256sum -c ggml-egyptian-large-v3-turbo-q8_0.sha256)
+          (cd source && sed 's#dist/##' ggml-egyptian-large-v3-turbo-q8_0.sha256 | sha256sum -c -)
 
       - name: Split model into connector-safe parts
         shell: bash
