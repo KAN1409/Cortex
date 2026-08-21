@@ -32,17 +32,17 @@ jobs:
       - name: Run ASR regression tests
         run: gradle :app:testDebugUnitTest --stacktrace
 
-      - name: Cache tuned code-switch model
+      - name: Cache tuned medium code-switch model
         uses: actions/cache@v4
         with:
           path: .cortex-model-cache
-          key: cortex-egyptian-english-codeswitch-small-q5_1-v1
+          key: cortex-egyptian-english-codeswitch-medium-q4_0-v1
 
-      - name: Prepare Egyptian English code-switch model
+      - name: Prepare Egyptian English medium code-switch model
         shell: bash
         run: |
           set -euo pipefail
-          MODEL_NAME="ggml-egyptian-codeswitch-small-q5_1.bin"
+          MODEL_NAME="ggml-egyptian-codeswitch-medium-q4_0.bin"
           mkdir -p .cortex-model-cache app/src/main/assets/models /tmp/cortex-model
 
           git clone --depth 1 https://github.com/ggml-org/whisper.cpp.git /tmp/whisper.cpp
@@ -55,13 +55,24 @@ jobs:
             git clone --depth 1 https://github.com/openai/whisper.git /tmp/openai-whisper
             python3 - <<'PY'
           from huggingface_hub import snapshot_download
+
+          out = "/tmp/cortex-model/hf"
           snapshot_download(
-              repo_id="IbrahimAmin/code-switched-egyptian-arabic-whisper-small",
-              local_dir="/tmp/cortex-model/hf",
+              repo_id="Seif-Eldeen-Sameh/whisper-medium-arabic-codeswitched",
+              local_dir=out,
               allow_patterns=[
                   "config.json","generation_config.json","preprocessor_config.json",
-                  "model.safetensors","vocab.json","merges.txt","added_tokens.json",
-                  "normalizer.json","special_tokens_map.json","tokenizer_config.json"
+                  "model.safetensors","pytorch_model.bin"
+              ],
+          )
+          # The fine-tune inherits Whisper Medium's tokenizer. Put the base tokenizer
+          # files beside the fine-tuned weights for whisper.cpp conversion.
+          snapshot_download(
+              repo_id="openai/whisper-medium",
+              local_dir=out,
+              allow_patterns=[
+                  "vocab.json","merges.txt","tokenizer.json","tokenizer_config.json",
+                  "normalizer.json","special_tokens_map.json","added_tokens.json"
               ],
           )
           PY
@@ -69,11 +80,12 @@ jobs:
             python3 /tmp/whisper.cpp/models/convert-h5-to-ggml.py /tmp/cortex-model/hf /tmp/openai-whisper /tmp/cortex-model/ggml
             QUANTIZER="$(find /tmp/whisper.cpp/build/bin -maxdepth 1 -type f \( -name quantize -o -name whisper-quantize \) | head -n 1)"
             if [ -z "$QUANTIZER" ]; then echo "whisper.cpp quantizer not found" >&2; exit 1; fi
-            "$QUANTIZER" /tmp/cortex-model/ggml/ggml-model.bin ".cortex-model-cache/$MODEL_NAME" q5_1
+            "$QUANTIZER" /tmp/cortex-model/ggml/ggml-model.bin ".cortex-model-cache/$MODEL_NAME" q4_0
           fi
 
           cp ".cortex-model-cache/$MODEL_NAME" "app/src/main/assets/models/$MODEL_NAME"
           sha256sum "app/src/main/assets/models/$MODEL_NAME" | tee /tmp/cortex-model/model.sha256
+          stat -c '%s' "app/src/main/assets/models/$MODEL_NAME" | tee /tmp/cortex-model/model.bytes
 
           CLI="$(find /tmp/whisper.cpp/build/bin -maxdepth 1 -type f -name whisper-cli | head -n 1)"
           if [ -z "$CLI" ]; then echo "whisper-cli not found" >&2; exit 1; fi
@@ -86,19 +98,19 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          MODEL_NAME="ggml-egyptian-codeswitch-small-q5_1.bin"
+          MODEL_NAME="ggml-egyptian-codeswitch-medium-q4_0.bin"
           mkdir -p dist-apk/signing-tools/lib dist-validation/lib
           cp app/build/outputs/apk/release/app-release-unsigned.apk dist-apk/Cortex-v1.0.12-release-unsigned.apk
           sha256sum dist-apk/Cortex-v1.0.12-release-unsigned.apk > dist-apk/Cortex-v1.0.12-release-unsigned.sha256
 
           cp "app/src/main/assets/models/$MODEL_NAME" "dist-validation/$MODEL_NAME"
           cp /tmp/cortex-model/model.sha256 dist-validation/model.sha256
+          cp /tmp/cortex-model/model.bytes dist-validation/model.bytes
           cp /tmp/cortex-model/load-test.txt dist-validation/load-test.txt
           CLI="$(find /tmp/whisper.cpp/build/bin -maxdepth 1 -type f -name whisper-cli | head -n 1)"
           cp "$CLI" dist-validation/whisper-cli-linux
           chmod +x dist-validation/whisper-cli-linux
           find /tmp/whisper.cpp/build -type f -name '*.so*' -exec cp -L {} dist-validation/lib/ \;
-          ls -lh dist-validation/lib
 
           APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
           if [ -z "$APKSIGNER" ]; then echo 'apksigner not found' >&2; exit 1; fi
