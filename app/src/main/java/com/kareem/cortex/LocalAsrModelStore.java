@@ -15,6 +15,7 @@ import java.util.Locale;
 public final class LocalAsrModelStore {
     public static final String MODEL_FILENAME="ggml-codeswitch-medium-q8_0.bin";
     public static final long MIN_MODEL_BYTES=600_000_000L;
+    private static final int GGML_MAGIC=0x67676d6c;
     private static final String PREF="cortex_local_asr_model";
     private LocalAsrModelStore(){}
 
@@ -55,9 +56,16 @@ public final class LocalAsrModelStore {
         WhisperRuntimeState.modelReady(app,sourceName,dst.length());return dst;
     }
 
+    /** whisper.cpp writes 0x67676d6c as a little-endian uint32, so file bytes are 'l','m','g','g'. */
+    static boolean isGgmlHeader(byte[] h){
+        if(h==null||h.length<4)return false;
+        int magic=(h[0]&0xff)|((h[1]&0xff)<<8)|((h[2]&0xff)<<16)|((h[3]&0xff)<<24);
+        return magic==GGML_MAGIC;
+    }
+
     private static boolean hasGgmlMagic(File f){
         if(f==null||!f.exists()||f.length()<4)return false;
-        try(FileInputStream in=new FileInputStream(f)){byte[] h=new byte[4];if(in.read(h)!=4)return false;return h[0]=='g'&&h[1]=='g'&&h[2]=='m'&&h[3]=='l';}catch(Exception e){return false;}
+        try(FileInputStream in=new FileInputStream(f)){byte[] h=new byte[4];return in.read(h)==4&&isGgmlHeader(h);}catch(Exception e){return false;}
     }
     private static String queryName(ContentResolver cr,Uri u){
         try(Cursor cur=cr.query(u,new String[]{OpenableColumns.DISPLAY_NAME},null,null,null)){if(cur!=null&&cur.moveToFirst()){String s=cur.getString(0);if(s!=null&&!s.trim().isEmpty())return s;}}catch(Exception ignored){}return MODEL_FILENAME;
