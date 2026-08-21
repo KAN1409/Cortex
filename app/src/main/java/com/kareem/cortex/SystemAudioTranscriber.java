@@ -13,10 +13,13 @@ public final class SystemAudioTranscriber {
     private SystemAudioTranscriber(){}
 
     static final class PcmSource { File file; int sampleRate=16000,channels=1,encoding=AudioFormat.ENCODING_PCM_16BIT; long durationMs; }
+    static final class PcmChunk { File file; long startMs,endMs; }
+    static final class Candidate { String text="",language="";float confidence=-1f;Exception error; }
+    interface CandidateCallback { void done(Candidate c); }
 
     public static void transcribe(Context ctx,File audio,Callback cb){
         if(Build.VERSION.SDK_INT<33){cb.fail(new UnsupportedOperationException("Audio-file transcription requires Android 13+"));return;}
-        new Thread(()->{try{PcmSource pcm=decode(audio,ctx.getCacheDir());new Handler(Looper.getMainLooper()).post(()->startRecognizer(ctx,pcm,cb));}catch(Exception e){cb.fail(e);}},"CortexAudioDecode").start();
+        new Thread(()->{try{PcmSource pcm=decode(audio,ctx.getCacheDir());new Handler(Looper.getMainLooper()).post(()->startAutoSwitch(ctx,pcm,cb));}catch(Exception e){cb.fail(e);}},"CortexAudioDecode").start();
     }
 
     private static PcmSource decode(File source,File cache) throws Exception {
@@ -35,32 +38,67 @@ public final class SystemAudioTranscriber {
                 else if(index>=0){ByteBuffer b=codec.getOutputBuffer(index);if(b!=null&&info.size>0&&(info.flags&MediaCodec.BUFFER_FLAG_CODEC_CONFIG)==0){b.position(info.offset);b.limit(info.offset+info.size);byte[] bytes=new byte[info.size];b.get(bytes);os.write(bytes);}outputDone=(info.flags&MediaCodec.BUFFER_FLAG_END_OF_STREAM)!=0;codec.releaseOutputBuffer(index,false);}
             }
         }finally{try{os.close();}catch(Exception ignored){}try{codec.stop();}catch(Exception ignored){}codec.release();ex.release();}
-        PcmSource p=new PcmSource();p.file=out;p.sampleRate=rate;p.channels=channels;p.encoding=encoding;p.durationMs=duration;return p;
+        PcmSource p=new PcmSource();p.file=out;p.sampleRate=rate;p.channels=channels;p.encoding=encoding;p.durationMs=duration;
+        if(p.durationMs<=0){long bytesPerSec=(long)p.sampleRate*Math.max(1,p.channels)*2L;p.durationMs=bytesPerSec>0?(p.file.length()*1000L/bytesPerSec):0;}
+        return p;
     }
 
-    private static void startRecognizer(Context ctx,PcmSource pcm,Callback cb){
-        final SpeechRecognizer sr;try{sr=SpeechRecognizer.createSpeechRecognizer(ctx);}catch(Exception e){pcm.file.delete();cb.fail(e);return;}
-        final ParcelFileDescriptor pfd;try{pfd=ParcelFileDescriptor.open(pcm.file,ParcelFileDescriptor.MODE_READ_ONLY);}catch(Exception e){sr.destroy();pcm.file.delete();cb.fail(e);return;}
-        TranscriptResult result=new TranscriptResult();result.durationMs=pcm.durationMs;StringBuilder text=new StringBuilder();final boolean[] finished={false};
+    private static void startAutoSwitch(Context ctx,PcmSource pcm,Callback cb){
+        final SpeechRecognizer sr;try{sr=SpeechRecognizer.createSpeechRecognizer(ctx);}catch(Exception e){startBilingualFallback(ctx,pcm,cb,e);return;}
+        final ParcelFileDescriptor pfd;try{pfd=ParcelFileDescriptor.open(pcm.file,ParcelFileDescriptor.MODE_READ_ONLY);}catch(Exception e){sr.destroy();startBilingualFallback(ctx,pcm,cb,e);return;}
+        TranscriptResult result=new TranscriptResult();result.durationMs=pcm.durationMs;result.engine="android_speech_mixed";StringBuilder text=new StringBuilder();final boolean[] finished={false};final boolean[] switchProblem={false};final String[] detected={""};
         RecognitionListener listener=new RecognitionListener(){
-            String detected="";
-            void append(Bundle b){
-                ArrayList<String> xs=b.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);if(xs!=null&&!xs.isEmpty()){String s=xs.get(0).trim();if(!s.isEmpty()&&(text.length()==0||!text.toString().endsWith(s))){if(text.length()>0)text.append(' ');text.append(s);}}
-                if(Build.VERSION.SDK_INT>=34){try{ArrayList<RecognitionPart> parts=b.getParcelableArrayList(SpeechRecognizer.RECOGNITION_PARTS);if(parts!=null)for(RecognitionPart p:parts){String raw=p.getFormattedText()!=null?p.getFormattedText():p.getRawText();if(raw!=null&&!raw.trim().isEmpty())result.segments.add(new TranscriptResult.Segment(p.getTimestampMillis(),p.getTimestampMillis(),raw.trim(),0));}}catch(Exception ignored){}}
-            }
-            void done(){if(finished[0])return;finished[0]=true;result.text=text.toString().trim();result.language=detected;if(result.segments.isEmpty()&&!result.text.isEmpty())result.segments.add(new TranscriptResult.Segment(0,result.durationMs,result.text,0));cleanup();if(result.text.isEmpty())cb.fail(new IOException("No speech recognized"));else cb.ok(result);}
-            void cleanup(){try{pfd.close();}catch(Exception ignored){}try{sr.destroy();}catch(Exception ignored){}pcm.file.delete();}
+            void append(Bundle b){ArrayList<String> xs=b.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);if(xs!=null&&!xs.isEmpty()){String s=xs.get(0).trim();if(!s.isEmpty()&&(text.length()==0||!text.toString().endsWith(s))){if(text.length()>0)text.append(' ');text.append(s);}}}
+            void cleanup(){try{pfd.close();}catch(Exception ignored){}try{sr.destroy();}catch(Exception ignored){}}
+            void fallback(Exception why){if(finished[0])return;finished[0]=true;cleanup();startBilingualFallback(ctx,pcm,cb,why);}
+            void success(){if(finished[0])return;if(switchProblem[0]){fallback(new IOException("Android language switch unavailable"));return;}String out=text.toString().trim();if(out.isEmpty()){fallback(new IOException("No speech recognized in mixed-language mode"));return;}finished[0]=true;result.text=out;result.language=detected[0].isEmpty()?"ar-EG+en-US":detected[0];result.segments.add(new TranscriptResult.Segment(0,result.durationMs,out,0));cleanup();pcm.file.delete();cb.ok(result);}
             public void onReadyForSpeech(Bundle p){}public void onBeginningOfSpeech(){}public void onRmsChanged(float r){}public void onBufferReceived(byte[] b){}public void onEndOfSpeech(){}
-            public void onError(int error){if(finished[0])return;finished[0]=true;cleanup();cb.fail(new IOException("Speech recognition error "+error));}
-            public void onResults(Bundle b){append(b);done();}
-            public void onPartialResults(Bundle b){}public void onEvent(int t,Bundle b){}
+            public void onError(int error){if(error==SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS||error==SpeechRecognizer.ERROR_AUDIO){if(finished[0])return;finished[0]=true;cleanup();pcm.file.delete();cb.fail(new IOException(errorName(error)));}else fallback(new IOException(errorName(error)));}
+            public void onResults(Bundle b){append(b);success();}public void onPartialResults(Bundle b){}public void onEvent(int t,Bundle b){}
             @Override public void onSegmentResults(Bundle b){append(b);}
-            @Override public void onEndOfSegmentedSession(){done();}
-            @Override public void onLanguageDetection(Bundle b){if(Build.VERSION.SDK_INT>=34){String x=b.getString(SpeechRecognizer.DETECTED_LANGUAGE);if(x!=null)detected=x;}}
+            @Override public void onEndOfSegmentedSession(){success();}
+            @Override public void onLanguageDetection(Bundle b){if(Build.VERSION.SDK_INT>=34){String x=b.getString(SpeechRecognizer.DETECTED_LANGUAGE);if(x!=null&&!x.isEmpty())detected[0]=x;int sw=b.getInt(SpeechRecognizer.LANGUAGE_SWITCH_RESULT,SpeechRecognizer.LANGUAGE_SWITCH_RESULT_NOT_ATTEMPTED);if(sw==SpeechRecognizer.LANGUAGE_SWITCH_RESULT_FAILED||sw==SpeechRecognizer.LANGUAGE_SWITCH_RESULT_SKIPPED_NO_MODEL)switchProblem[0]=true;}}
         };
         sr.setRecognitionListener(listener);
-        Intent i=new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);i.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL,RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);i.putExtra(RecognizerIntent.EXTRA_LANGUAGE,"ar-EG");i.putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS,false);i.putExtra(RecognizerIntent.EXTRA_AUDIO_SOURCE,pfd);i.putExtra(RecognizerIntent.EXTRA_AUDIO_SOURCE_CHANNEL_COUNT,pcm.channels);i.putExtra(RecognizerIntent.EXTRA_AUDIO_SOURCE_ENCODING,pcm.encoding);i.putExtra(RecognizerIntent.EXTRA_AUDIO_SOURCE_SAMPLING_RATE,pcm.sampleRate);i.putExtra(RecognizerIntent.EXTRA_SEGMENTED_SESSION,RecognizerIntent.EXTRA_AUDIO_SOURCE);
-        if(Build.VERSION.SDK_INT>=34){i.putExtra(RecognizerIntent.EXTRA_REQUEST_WORD_TIMING,true);i.putExtra(RecognizerIntent.EXTRA_REQUEST_WORD_CONFIDENCE,true);i.putExtra(RecognizerIntent.EXTRA_ENABLE_LANGUAGE_SWITCH,RecognizerIntent.LANGUAGE_SWITCH_BALANCED);i.putStringArrayListExtra(RecognizerIntent.EXTRA_LANGUAGE_SWITCH_ALLOWED_LANGUAGES,new ArrayList<>(Arrays.asList("ar-EG","en-US","en-GB")));}
-        try{sr.startListening(i);}catch(Exception e){try{pfd.close();}catch(Exception ignored){}sr.destroy();pcm.file.delete();cb.fail(e);}
+        Intent i=baseIntent("ar-EG",pcm,pfd);i.putExtra(RecognizerIntent.EXTRA_SEGMENTED_SESSION,RecognizerIntent.EXTRA_AUDIO_SOURCE);
+        if(Build.VERSION.SDK_INT>=34){i.putExtra(RecognizerIntent.EXTRA_ENABLE_LANGUAGE_SWITCH,RecognizerIntent.LANGUAGE_SWITCH_QUICK_RESPONSE);i.putStringArrayListExtra(RecognizerIntent.EXTRA_LANGUAGE_SWITCH_ALLOWED_LANGUAGES,new ArrayList<>(Arrays.asList("ar-EG","en-US")));i.putStringArrayListExtra(RecognizerIntent.EXTRA_LANGUAGE_DETECTION_ALLOWED_LANGUAGES,new ArrayList<>(Arrays.asList("ar-EG","en-US")));}
+        try{sr.startListening(i);}catch(Exception e){try{pfd.close();}catch(Exception ignored){}try{sr.destroy();}catch(Exception ignored){}startBilingualFallback(ctx,pcm,cb,e);}
     }
+
+    private static void startBilingualFallback(Context ctx,PcmSource pcm,Callback cb,Exception original){
+        new Thread(()->{try{ArrayList<PcmChunk> chunks=makeChunks(pcm,ctx.getCacheDir());new Handler(Looper.getMainLooper()).post(()->processChunk(ctx,pcm,chunks,0,new TranscriptResult(),new LinkedHashSet<>(),cb,original));}catch(Exception e){pcm.file.delete();cb.fail(new IOException("Mixed-language fallback failed: "+e.getMessage(),e));}},"CortexBilingualPrep").start();
+    }
+
+    private static ArrayList<PcmChunk> makeChunks(PcmSource pcm,File cache) throws Exception {
+        ArrayList<PcmChunk> out=new ArrayList<>();long total=Math.max(1,pcm.durationMs);long chunkMs=7000,overlapMs=500;long bytesPerSec=(long)pcm.sampleRate*Math.max(1,pcm.channels)*2L;int frameBytes=Math.max(2,pcm.channels*2);RandomAccessFile in=new RandomAccessFile(pcm.file,"r");
+        try{for(long start=0;start<total;start+=chunkMs-overlapMs){long end=Math.min(total,start+chunkMs);long a=(start*bytesPerSec/1000L);long b=(end*bytesPerSec/1000L);a-=a%frameBytes;b-=b%frameBytes;if(b<=a)break;File f=new File(cache,"cortex_mix_"+System.nanoTime()+"_"+out.size()+".raw");FileOutputStream os=new FileOutputStream(f);try{in.seek(a);long remain=b-a;byte[] buf=new byte[32768];while(remain>0){int n=in.read(buf,0,(int)Math.min(buf.length,remain));if(n<0)break;os.write(buf,0,n);remain-=n;}}finally{os.close();}PcmChunk c=new PcmChunk();c.file=f;c.startMs=start;c.endMs=end;out.add(c);if(end>=total)break;}}finally{in.close();}
+        return out;
+    }
+
+    private static void processChunk(Context ctx,PcmSource pcm,ArrayList<PcmChunk> chunks,int index,TranscriptResult result,Set<String> languages,Callback cb,Exception original){
+        if(index>=chunks.size()){pcm.file.delete();result.text=result.text.trim();result.durationMs=pcm.durationMs;result.engine="android_speech_bilingual_fallback";result.language=languages.isEmpty()?"mixed":String.join("+",languages);if(result.text.isEmpty())cb.fail(new IOException("Mixed Arabic/English transcription failed after fallback",original));else cb.ok(result);return;}
+        PcmChunk chunk=chunks.get(index);recognizeFixed(ctx,pcm,chunk,"ar-EG",0,ar->recognizeFixed(ctx,pcm,chunk,"en-US",0,en->{Candidate best=choose(ar,en);chunk.file.delete();if(best!=null&&!best.text.trim().isEmpty()){String clean=best.text.trim();result.text=mergeOverlap(result.text,clean);result.segments.add(new TranscriptResult.Segment(chunk.startMs,chunk.endMs,clean,best.confidence));languages.add(best.language);}new Handler(Looper.getMainLooper()).postDelayed(()->processChunk(ctx,pcm,chunks,index+1,result,languages,cb,original),120);}));
+    }
+
+    private static void recognizeFixed(Context ctx,PcmSource pcm,PcmChunk chunk,String language,int attempt,CandidateCallback cb){
+        Candidate out=new Candidate();out.language=language;final SpeechRecognizer sr;try{sr=SpeechRecognizer.createSpeechRecognizer(ctx);}catch(Exception e){out.error=e;cb.done(out);return;}
+        final ParcelFileDescriptor pfd;try{pfd=ParcelFileDescriptor.open(chunk.file,ParcelFileDescriptor.MODE_READ_ONLY);}catch(Exception e){sr.destroy();out.error=e;cb.done(out);return;}final boolean[] finished={false};
+        RecognitionListener listener=new RecognitionListener(){
+            void cleanup(){try{pfd.close();}catch(Exception ignored){}try{sr.destroy();}catch(Exception ignored){}}
+            void finish(Bundle b){if(finished[0])return;finished[0]=true;ArrayList<String> xs=b==null?null:b.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);if(xs!=null&&!xs.isEmpty())out.text=xs.get(0)==null?"":xs.get(0).trim();float[] scores=b==null?null:b.getFloatArray(SpeechRecognizer.CONFIDENCE_SCORES);if(scores!=null&&scores.length>0)out.confidence=scores[0];cleanup();cb.done(out);}
+            public void onReadyForSpeech(Bundle p){}public void onBeginningOfSpeech(){}public void onRmsChanged(float r){}public void onBufferReceived(byte[] b){}public void onEndOfSpeech(){}
+            public void onError(int error){if(finished[0])return;finished[0]=true;cleanup();if(attempt<1&&retryable(error)){new Handler(Looper.getMainLooper()).postDelayed(()->recognizeFixed(ctx,pcm,chunk,language,attempt+1,cb),450);return;}out.error=new IOException(errorName(error));cb.done(out);}
+            public void onResults(Bundle b){finish(b);}public void onPartialResults(Bundle b){}public void onEvent(int t,Bundle b){}@Override public void onSegmentResults(Bundle b){finish(b);}@Override public void onEndOfSegmentedSession(){if(!finished[0])finish(null);}
+        };
+        sr.setRecognitionListener(listener);Intent i=baseIntent(language,pcm,pfd);i.putExtra(RecognizerIntent.EXTRA_SEGMENTED_SESSION,RecognizerIntent.EXTRA_AUDIO_SOURCE);try{sr.startListening(i);}catch(Exception e){try{pfd.close();}catch(Exception ignored){}try{sr.destroy();}catch(Exception ignored){}out.error=e;cb.done(out);}
+    }
+
+    private static Intent baseIntent(String language,PcmSource pcm,ParcelFileDescriptor pfd){Intent i=new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);i.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL,RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);i.putExtra(RecognizerIntent.EXTRA_LANGUAGE,language);i.putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS,false);i.putExtra(RecognizerIntent.EXTRA_MAX_RESULTS,3);i.putExtra(RecognizerIntent.EXTRA_AUDIO_SOURCE,pfd);i.putExtra(RecognizerIntent.EXTRA_AUDIO_SOURCE_CHANNEL_COUNT,pcm.channels);i.putExtra(RecognizerIntent.EXTRA_AUDIO_SOURCE_ENCODING,pcm.encoding);i.putExtra(RecognizerIntent.EXTRA_AUDIO_SOURCE_SAMPLING_RATE,pcm.sampleRate);return i;}
+
+    private static Candidate choose(Candidate ar,Candidate en){if((ar==null||ar.text.isEmpty())&&(en==null||en.text.isEmpty()))return null;if(ar==null||ar.text.isEmpty())return en;if(en==null||en.text.isEmpty())return ar;double as=score(ar,true),es=score(en,false);return es>as?en:ar;}
+    private static double score(Candidate c,boolean arabic){double conf=c.confidence>=0?Math.max(0,Math.min(1,c.confidence)):0.50;int a=0,l=0;for(int i=0;i<c.text.length();i++){char ch=c.text.charAt(i);if((ch>='\u0600'&&ch<='\u06FF')||(ch>='\u0750'&&ch<='\u077F'))a++;else if((ch>='A'&&ch<='Z')||(ch>='a'&&ch<='z'))l++;}int letters=Math.max(1,a+l);double fit=(arabic?a:l)/(double)letters;return conf*0.70+fit*0.25+Math.min(.05,c.text.length()/300.0);}
+    private static String mergeOverlap(String existing,String next){String a=existing==null?"":existing.trim(),b=next==null?"":next.trim();if(a.isEmpty())return b;if(b.isEmpty())return a;String[] aw=a.split("\\s+"),bw=b.split("\\s+");int max=Math.min(6,Math.min(aw.length,bw.length)),drop=0;for(int n=max;n>=1;n--){boolean same=true;for(int i=0;i<n;i++)if(!normToken(aw[aw.length-n+i]).equals(normToken(bw[i]))){same=false;break;}if(same){drop=n;break;}}StringBuilder out=new StringBuilder(a);for(int i=drop;i<bw.length;i++){if(out.length()>0)out.append(' ');out.append(bw[i]);}return out.toString();}
+    private static String normToken(String s){return s==null?"":s.toLowerCase(Locale.ROOT).replaceAll("[^\\p{L}\\p{Nd}]","");}
+    private static boolean retryable(int e){return e==SpeechRecognizer.ERROR_NETWORK||e==SpeechRecognizer.ERROR_NETWORK_TIMEOUT||e==SpeechRecognizer.ERROR_SERVER||e==SpeechRecognizer.ERROR_RECOGNIZER_BUSY||e==SpeechRecognizer.ERROR_TOO_MANY_REQUESTS;}
+    private static String errorName(int e){switch(e){case SpeechRecognizer.ERROR_NETWORK_TIMEOUT:return "Speech network timeout";case SpeechRecognizer.ERROR_NETWORK:return "Speech network unavailable";case SpeechRecognizer.ERROR_AUDIO:return "Speech audio error";case SpeechRecognizer.ERROR_SERVER:return "Speech server error";case SpeechRecognizer.ERROR_CLIENT:return "Speech client error";case SpeechRecognizer.ERROR_SPEECH_TIMEOUT:return "No speech detected";case SpeechRecognizer.ERROR_NO_MATCH:return "No speech match";case SpeechRecognizer.ERROR_RECOGNIZER_BUSY:return "Speech recognizer busy";case SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS:return "Speech permission missing";case SpeechRecognizer.ERROR_TOO_MANY_REQUESTS:return "Speech service rate limited";case SpeechRecognizer.ERROR_LANGUAGE_NOT_SUPPORTED:return "Speech language not supported";case SpeechRecognizer.ERROR_LANGUAGE_UNAVAILABLE:return "Speech language model unavailable";default:return "Speech recognition error "+e;}}
 }
