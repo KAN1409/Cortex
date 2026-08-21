@@ -7,7 +7,7 @@
         <package android:name="com.openai.chatgpt" />
     </queries>
 
-    <application android:theme="@style/AppTheme" android:label="Cortex" android:allowBackup="true">
+    <application android:theme="@style/AppTheme" android:label="Cortex Prime" android:allowBackup="true">
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.debugfiles"
@@ -23,14 +23,14 @@
             </intent-filter>
         </activity>
 
-        <activity android:name=".RestoreActivity" android:exported="true" android:label="Cortex Restore">
+        <activity android:name=".RestoreActivity" android:exported="true" android:label="Cortex Prime Restore">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
 
-        <activity android:name=".DebugReviewActivity" android:exported="true" android:label="Cortex Voice Debug">
+        <activity android:name=".DebugReviewActivity" android:exported="true" android:label="Cortex Prime Voice Debug">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
