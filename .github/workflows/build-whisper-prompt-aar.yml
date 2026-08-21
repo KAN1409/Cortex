@@ -1,4 +1,4 @@
-name: Build Cortex Whisper Prompt AAR
+name: Build Cortex Whisper Prompt Beam-5 AAR
 
 on:
   push:
@@ -17,7 +17,7 @@ permissions:
   contents: read
 
 jobs:
-  build-prompt-aar:
+  build-prompt-beam5-aar:
     runs-on: ubuntu-latest
 
     steps:
@@ -44,19 +44,19 @@ jobs:
       - name: Install pinned Android NDK and CMake
         run: sdkmanager 'ndk;27.2.12479018' 'cmake;3.22.1'
 
-      - name: Apply Cortex prompt patch
+      - name: Apply Cortex prompt + beam-5 patch
         run: python3 tools/whisper-cortex/patch_whisper_android.py upstream-whisper
 
       - name: Build patched release AAR
         working-directory: upstream-whisper
         run: |
           chmod +x gradlew
-          ./gradlew :library:assembleRelease -PVERSION=1.0.0-cortex-prompt --stacktrace
+          ./gradlew :library:assembleRelease -PVERSION=1.0.0-cortex-prompt-beam5 --stacktrace
 
       - name: Upload patched AAR
         uses: actions/upload-artifact@v4
         with:
-          name: cortex-whisper-android-prompt-1.0.0
+          name: cortex-whisper-android-prompt-beam5-1.0.0
           path: upstream-whisper/library/build/outputs/aar/library-release.aar
           if-no-files-found: error
           retention-days: 30

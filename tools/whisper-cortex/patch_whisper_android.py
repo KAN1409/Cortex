@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
-"""Patch whisper-android 1.0.0 with Cortex initial-prompt support.
+"""Patch whisper-android 1.0.0 with Cortex prompt + beam-search support.
 
 The patch is intentionally tiny and reproducible. It adds two decoder options:
-an initial prompt and non-speech-token suppression. The JNI bridge also drops
+an initial prompt and non-speech-token suppression. Decoding uses beam search
+with five beams; greedy decoding can collapse a clear multi-switch short note
+to a tiny fragment. The JNI bridge also drops
 only low-probability ASCII number/punctuation tokens that appear before the
 first spoken word; this removes prompt leakage such as ``2.2`` without touching
 high-confidence spoken numbers or any Arabic/Latin word.
@@ -103,7 +105,9 @@ extern "C" {''',
         "    whisper_full_params wparams = whisper_full_default_params(WHISPER_SAMPLING_GREEDY);",
         "    const std::string lang = jstr(env, jlang);\n"
         "    const std::string prompt = jstr(env, jprompt);\n"
-        "    whisper_full_params wparams = whisper_full_default_params(WHISPER_SAMPLING_GREEDY);",
+        "    whisper_full_params wparams = whisper_full_default_params(WHISPER_SAMPLING_BEAM_SEARCH);\n"
+        "    wparams.beam_search.beam_size = 5;\n"
+        "    wparams.beam_search.patience = -1.0f;",
     )
     replace_once(
         cpp,
@@ -152,7 +156,18 @@ extern "C" {''',
         "                    \",\\\"text\\\":\\\"\"  + json_escape(seg) + \"\\\"}\";",
     )
 
-    print("CORTEX_WHISPER_PROMPT_PATCH=PASS")
+    patched_cpp = cpp.read_text()
+    required = (
+        "whisper_full_default_params(WHISPER_SAMPLING_BEAM_SEARCH)",
+        "wparams.beam_search.beam_size = 5",
+        "wparams.initial_prompt = prompt.empty() ? nullptr : prompt.c_str()",
+    )
+    if any(marker not in patched_cpp for marker in required):
+        raise RuntimeError("Cortex beam-5 decoder patch verification failed")
+    if "whisper_full_default_params(WHISPER_SAMPLING_GREEDY)" in patched_cpp:
+        raise RuntimeError("Greedy decoder survived Cortex beam-5 patch")
+
+    print("CORTEX_WHISPER_PROMPT_BEAM5_PATCH=PASS")
 
 
 if __name__ == "__main__":
