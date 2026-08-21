@@ -35,20 +35,21 @@ jobs:
       - name: Build unsigned release APK
         run: gradle :app:assembleRelease --stacktrace
 
-      - name: Prepare APK and signing tools
+      - name: Zipalign release and prepare signing tools
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p dist/signing-tools/lib
-          cp app/build/outputs/apk/release/app-release-unsigned.apk dist/Cortex-v1.0.15-release-unsigned.apk
-          sha256sum dist/Cortex-v1.0.15-release-unsigned.apk > dist/Cortex-v1.0.15-release-unsigned.sha256
           APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
-          if [ -z "$APKSIGNER" ]; then echo 'apksigner not found' >&2; exit 1; fi
+          ZIPALIGN="$(find "$ANDROID_HOME/build-tools" -type f -name zipalign | sort -V | tail -n 1)"
+          if [ -z "$APKSIGNER" ] || [ -z "$ZIPALIGN" ]; then echo 'Android signing tools not found' >&2; exit 1; fi
+          "$ZIPALIGN" -P 16 -f 4 app/build/outputs/apk/release/app-release-unsigned.apk dist/Cortex-v1.0.15-release-aligned-unsigned.apk
+          "$ZIPALIGN" -c -P 16 -v 4 dist/Cortex-v1.0.15-release-aligned-unsigned.apk
+          sha256sum dist/Cortex-v1.0.15-release-aligned-unsigned.apk > dist/Cortex-v1.0.15-release-aligned-unsigned.sha256
           BT_DIR="$(dirname "$APKSIGNER")"
           cp "$APKSIGNER" dist/signing-tools/apksigner
           cp "$BT_DIR/lib/apksigner.jar" dist/signing-tools/lib/apksigner.jar
-          cp "$BT_DIR/zipalign" dist/signing-tools/zipalign
-          chmod +x dist/signing-tools/apksigner dist/signing-tools/zipalign
+          chmod +x dist/signing-tools/apksigner
 
       - name: Upload Cortex APK
         uses: actions/upload-artifact@v4
