@@ -5,7 +5,7 @@ import android.os.Bundle;
 import android.widget.Toast;
 import java.io.File;
 
-/** Temporary voice debugging console for the latest Cortex recording. */
+/** Voice debugging console for the latest Cortex Prime recording. */
 public class DebugReviewActivity extends Activity {
     VaultDb db; long itemId; KnowledgeItem item;
 
@@ -15,17 +15,17 @@ public class DebugReviewActivity extends Activity {
         itemId=getIntent()==null?0:getIntent().getLongExtra("item_id",0);
         if(itemId<=0)itemId=ChatGptDebugReview.latestVoiceId(db);
         item=itemId<=0?null:db.getById(itemId);
-        if(item==null){Toast.makeText(this,"No voice recording found in Cortex",Toast.LENGTH_LONG).show();finish();return;}
+        if(item==null){Toast.makeText(this,"No voice recording found in Cortex Prime",Toast.LENGTH_LONG).show();finish();return;}
         showMenu();
     }
 
     void showMenu(){
-        String[] options={"RE-ANALYZE WITH WHISPER","DEBUG WITH CHATGPT","EXPORT VOICE"};
+        String[] options={"RE-TRANSCRIBE IN CLOUD","DEBUG WITH CHATGPT","EXPORT VOICE"};
         new AlertDialog.Builder(this)
-                .setTitle("Cortex Voice Debug")
-                .setMessage(WhisperRuntimeState.describe(this)+"\n\nRecording: "+item.title)
+                .setTitle("Cortex Prime Voice Debug")
+                .setMessage(statusMessage())
                 .setItems(options,(d,w)->{
-                    if(w==0)retryWhisper();
+                    if(w==0)retryCloud();
                     else if(w==1)openChatGpt();
                     else exportVoice();
                 })
@@ -34,14 +34,27 @@ public class DebugReviewActivity extends Activity {
                 .show();
     }
 
-    void retryWhisper(){
-        WhisperRuntimeState.forceWhisperOnly(this,itemId);
+    String statusMessage(){
+        String status=item.status==null?"unknown":item.status;
+        String engine="";
+        try{String info=AudioStore.info(db,itemId);if(info!=null&&!info.trim().isEmpty())engine="\n"+info;}catch(Exception ignored){}
+        return "Cloud ASR • gpt-transcribe → Google Chirp 3 → Azure Speech\n"
+                +"No local ASR model is used.\n\nRecording: "+item.title
+                +"\nStatus: "+status+engine;
+    }
+
+    void retryCloud(){
         db.retry(itemId);
-        Toast.makeText(this,"Whisper-only re-analysis started on the same WAV",Toast.LENGTH_LONG).show();
+        Toast.makeText(this,"Cloud re-transcription queued on the original recording",Toast.LENGTH_LONG).show();
         AnalysisQueue.kick(this,db,()->runOnUiThread(()->{
             KnowledgeItem fresh=db.getById(itemId);
-            String state=WhisperRuntimeState.describe(this);
-            Toast.makeText(this,(fresh!=null&&"analyzed".equals(fresh.status)?"Whisper analysis finished\n":"Whisper analysis stopped\n")+state,Toast.LENGTH_LONG).show();
+            if(fresh!=null&&"analyzed".equals(fresh.status)){
+                Toast.makeText(this,"Cloud transcription finished",Toast.LENGTH_LONG).show();
+            }else if(fresh!=null&&"analysis_failed".equals(fresh.status)){
+                Toast.makeText(this,"Cloud transcription will retry if the provider/network failure is temporary",Toast.LENGTH_LONG).show();
+            }else{
+                Toast.makeText(this,"Cloud transcription queued",Toast.LENGTH_LONG).show();
+            }
             finish();
         }));
     }
