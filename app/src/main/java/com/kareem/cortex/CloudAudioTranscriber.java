@@ -19,7 +19,7 @@ import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
-/** Cloud-only ASR client. Provider credentials remain server-side. */
+/** Direct Groq Whisper ASR client. The user's API key stays encrypted on-device. */
 public final class CloudAudioTranscriber {
     public interface Callback {
         void ok(TranscriptResult result);
@@ -31,23 +31,24 @@ public final class CloudAudioTranscriber {
         public RetryableException(String message, Throwable cause) { super(message, cause); }
     }
 
-    private static final String ENDPOINT = "https://kareemabdelaziz.com/ai/transcribe.php";
-    private static final int MAX_REDIRECTS = 3;
+    private static final String ENDPOINT = "https://api.groq.com/openai/v1/audio/transcriptions";
+    private static final String MODEL = "whisper-large-v3";
     private static final ExecutorService EXECUTOR = Executors.newCachedThreadPool();
 
     private CloudAudioTranscriber() {}
 
     public static void transcribe(Context context, File audioFile, Callback callback) {
+        Context app = context.getApplicationContext();
         EXECUTOR.execute(() -> {
             try {
-                callback.ok(transcribeBlocking(audioFile));
+                callback.ok(transcribeBlocking(app, audioFile));
             } catch (Exception e) {
                 callback.fail(e);
             }
         });
     }
 
-    static TranscriptResult transcribeBlocking(File audioFile) throws Exception {
+    static TranscriptResult transcribeBlocking(Context context, File audioFile) throws Exception {
         if (audioFile == null || !audioFile.exists() || !audioFile.isFile()) {
             throw new IllegalArgumentException("Audio file is missing");
         }
@@ -55,59 +56,61 @@ public final class CloudAudioTranscriber {
             throw new IllegalArgumentException("Audio file is empty");
         }
         if (audioFile.length() > 25L * 1024L * 1024L) {
-            throw new IllegalArgumentException("Audio file exceeds the 25 MB cloud transcription limit");
+            throw new IllegalArgumentException("Audio file exceeds Groq free-tier 25 MB limit");
         }
-        return postAudio(new URL(ENDPOINT), audioFile, 0);
+
+        String apiKey = GroqKeyStore.load(context);
+        if (apiKey.isEmpty()) {
+            throw new IllegalStateException("Groq API key is not configured. Open Cortex ASR settings first.");
+        }
+        return postAudio(audioFile, apiKey);
     }
 
-    private static TranscriptResult postAudio(URL endpoint, File audioFile, int redirectCount) throws Exception {
+    private static TranscriptResult postAudio(File audioFile, String apiKey) throws Exception {
         HttpURLConnection connection = null;
-        String boundary = "----CortexPrimeVoice" + UUID.randomUUID().toString().replace("-", "");
+        String boundary = "----CortexGroqVoice" + UUID.randomUUID().toString().replace("-", "");
         try {
-            connection = (HttpURLConnection) endpoint.openConnection();
-            // Android/HttpURLConnection does not reliably replay POST bodies for 307/308.
-            // Handle redirects ourselves so the original WAV and multipart POST survive intact.
+            connection = (HttpURLConnection) new URL(ENDPOINT).openConnection();
             connection.setInstanceFollowRedirects(false);
             connection.setRequestMethod("POST");
             connection.setConnectTimeout(20_000);
             connection.setReadTimeout(180_000);
             connection.setDoOutput(true);
             connection.setUseCaches(false);
+            connection.setRequestProperty("Authorization", "Bearer " + apiKey);
             connection.setRequestProperty("Accept", "application/json");
             connection.setRequestProperty("Content-Type", "multipart/form-data; boundary=" + boundary);
-            connection.setRequestProperty("X-Cortex-Client", "android-cloud-voice-v2");
+            connection.setRequestProperty("User-Agent", "CortexPrime/1.0.23 Android");
 
             try (OutputStream raw = connection.getOutputStream()) {
-                writeTextPart(raw, boundary, "mode", "ar-EG+en-codeswitch-auto");
-                writeTextPart(raw, boundary, "languages", "ar,en");
-                writeFilePart(raw, boundary, "audio", audioFile, mimeFor(audioFile));
+                writeTextPart(raw, boundary, "model", MODEL);
+                writeTextPart(raw, boundary, "prompt",
+                        "Egyptian Arabic mixed naturally with English words and technical terms. " +
+                        "Keep Arabic speech in Arabic script and English terms in Latin letters. " +
+                        "Cortex Prime, transcription, ASR, Android, code-switching.");
+                writeTextPart(raw, boundary, "response_format", "verbose_json");
+                writeTextPart(raw, boundary, "timestamp_granularities[]", "segment");
+                writeTextPart(raw, boundary, "temperature", "0");
+                // Deliberately do not force a single language. The recording can switch Arabic <-> English.
+                writeFilePart(raw, boundary, "file", audioFile, mimeFor(audioFile));
                 raw.write(("--" + boundary + "--\r\n").getBytes(StandardCharsets.UTF_8));
                 raw.flush();
             }
 
             int code = connection.getResponseCode();
-            if (code == 301 || code == 302 || code == 307 || code == 308) {
-                if (redirectCount >= MAX_REDIRECTS) {
-                    throw new IllegalStateException("Cortex transcription backend redirect loop (HTTP " + code + ")");
-                }
-                String location = connection.getHeaderField("Location");
-                if (location == null || location.trim().isEmpty()) {
-                    throw new IllegalStateException("Cortex transcription backend HTTP " + code + " without Location header");
-                }
-                URL next = new URL(endpoint, location.trim());
-                validateRedirect(endpoint, next);
-                connection.disconnect();
-                connection = null;
-                return postAudio(next, audioFile, redirectCount + 1);
-            }
-
             String body = readBody(code >= 200 && code < 300
                     ? connection.getInputStream()
                     : connection.getErrorStream());
 
             if (code < 200 || code >= 300) {
-                String message = "Cortex transcription backend HTTP " + code +
-                        (body.isEmpty() ? "" : ": " + body);
+                String detail = groqError(body);
+                if (code == 401 || code == 403) {
+                    throw new IllegalStateException("Groq API key rejected (HTTP " + code + "). Open Cortex ASR settings and replace the key.");
+                }
+                if (code == 413) {
+                    throw new IllegalStateException("Groq rejected this audio because the upload is too large for the current plan.");
+                }
+                String message = "Groq transcription HTTP " + code + (detail.isEmpty() ? "" : ": " + detail);
                 if (code == 408 || code == 425 || code == 429 || code >= 500) {
                     throw new RetryableException(message);
                 }
@@ -115,21 +118,16 @@ public final class CloudAudioTranscriber {
             }
 
             JSONObject json = new JSONObject(body);
-            if (!json.optBoolean("ok", true)) {
-                String message = json.optString("error", "Cloud transcription failed");
-                if (json.optBoolean("retryable", false)) throw new RetryableException(message);
-                throw new IllegalStateException(message);
-            }
-
-            String text = json.optString("transcript", json.optString("text", "")).trim();
-            if (text.isEmpty()) throw new IllegalStateException("Cloud transcription returned no text");
+            String text = json.optString("text", "").trim();
+            if (text.isEmpty()) throw new IllegalStateException("Groq Whisper returned no text");
 
             TranscriptResult result = new TranscriptResult();
             result.text = text;
-            result.engine = json.optString("engine", "gpt-transcribe_cloud");
-            result.version = json.optString("version", "cloud-v2");
-            result.language = json.optString("language", "ar-EG+en-codeswitch-auto");
-            result.durationMs = json.optLong("duration_ms", 0L);
+            result.engine = "groq_whisper_large_v3";
+            result.version = "groq-direct-v1";
+            String language = json.optString("language", "").trim();
+            result.language = language.isEmpty() ? "ar+en-auto" : language + "+code-switch-auto";
+            result.durationMs = Math.max(0L, Math.round(json.optDouble("duration", 0.0) * 1000.0));
 
             JSONArray segments = json.optJSONArray("segments");
             if (segments != null) {
@@ -138,9 +136,13 @@ public final class CloudAudioTranscriber {
                     if (s == null) continue;
                     String segmentText = s.optString("text", "").trim();
                     if (segmentText.isEmpty()) continue;
-                    long startMs = s.optLong("start_ms", 0L);
-                    long endMs = s.optLong("end_ms", startMs);
-                    float confidence = (float) s.optDouble("confidence", 0.0);
+                    long startMs = Math.max(0L, Math.round(s.optDouble("start", 0.0) * 1000.0));
+                    long endMs = Math.max(startMs, Math.round(s.optDouble("end", startMs / 1000.0) * 1000.0));
+                    double avgLogProb = s.optDouble("avg_logprob", Double.NaN);
+                    float confidence = 0.0f;
+                    if (!Double.isNaN(avgLogProb)) {
+                        confidence = (float) Math.max(0.0, Math.min(1.0, Math.exp(avgLogProb)));
+                    }
                     result.segments.add(new TranscriptResult.Segment(startMs, endMs, segmentText, confidence));
                 }
             }
@@ -148,26 +150,23 @@ public final class CloudAudioTranscriber {
         } catch (RetryableException e) {
             throw e;
         } catch (java.net.SocketTimeoutException | java.net.ConnectException | java.net.UnknownHostException e) {
-            throw new RetryableException("Cloud transcription unavailable: " + e.getMessage(), e);
+            throw new RetryableException("Groq transcription unavailable: " + e.getMessage(), e);
         } finally {
             if (connection != null) connection.disconnect();
         }
     }
 
-    private static void validateRedirect(URL from, URL to) {
-        if (!"https".equalsIgnoreCase(to.getProtocol())) {
-            throw new SecurityException("Refusing non-HTTPS transcription redirect");
+    private static String groqError(String body) {
+        if (body == null || body.trim().isEmpty()) return "";
+        try {
+            JSONObject json = new JSONObject(body);
+            JSONObject error = json.optJSONObject("error");
+            if (error != null) return error.optString("message", "").trim();
+            return json.optString("message", "").trim();
+        } catch (Exception ignored) {
+            String clean = body.replace('\n', ' ').replace('\r', ' ').trim();
+            return clean.length() > 240 ? clean.substring(0, 240) + "…" : clean;
         }
-        String fromHost = normalizeHost(from.getHost());
-        String toHost = normalizeHost(to.getHost());
-        if (!fromHost.equals(toHost)) {
-            throw new SecurityException("Refusing transcription redirect to another host: " + to.getHost());
-        }
-    }
-
-    private static String normalizeHost(String host) {
-        String h = host == null ? "" : host.toLowerCase(Locale.US);
-        return h.startsWith("www.") ? h.substring(4) : h;
     }
 
     private static void writeTextPart(OutputStream out, String boundary, String name, String value) throws Exception {
@@ -208,6 +207,8 @@ public final class CloudAudioTranscriber {
         if (n.endsWith(".wav")) return "audio/wav";
         if (n.endsWith(".m4a")) return "audio/mp4";
         if (n.endsWith(".mp3")) return "audio/mpeg";
+        if (n.endsWith(".mp4")) return "video/mp4";
+        if (n.endsWith(".ogg")) return "audio/ogg";
         if (n.endsWith(".webm")) return "audio/webm";
         return "application/octet-stream";
     }
