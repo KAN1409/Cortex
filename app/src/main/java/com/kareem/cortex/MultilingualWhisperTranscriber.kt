@@ -15,8 +15,8 @@ import java.util.Locale
 /**
  * Cortex local ASR tuned for Egyptian Arabic <-> English code-switching.
  *
- * v1.0.12 ships a Q5_1 GGML conversion of
- * IbrahimAmin/code-switched-egyptian-arabic-whisper-small inside the APK.
+ * v1.0.12 ships a Q4_0 GGML conversion of
+ * Seif-Eldeen-Sameh/whisper-medium-arabic-codeswitched inside the APK.
  * There is no runtime model download and no paid/cloud API.
  */
 class MultilingualWhisperTranscriber private constructor() {
@@ -26,9 +26,9 @@ class MultilingualWhisperTranscriber private constructor() {
     }
 
     companion object {
-        private const val MODEL_NAME = "ggml-egyptian-codeswitch-small-q5_1.bin"
+        private const val MODEL_NAME = "ggml-egyptian-codeswitch-medium-q4_0.bin"
         private const val ASSET_MODEL = "models/$MODEL_NAME"
-        private const val MIN_MODEL_BYTES = 150_000_000L
+        private const val MIN_MODEL_BYTES = 360_000_000L
         private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
         @JvmStatic
@@ -44,14 +44,12 @@ class MultilingualWhisperTranscriber private constructor() {
                         throw UnsupportedOperationException("Local code-switch ASR expects Cortex WAV audio")
                     }
 
-                    WhisperRuntimeState.stage(app, "preparing model", "Egyptian Arabic + English code-switch model")
+                    WhisperRuntimeState.stage(app, "preparing model", "Egyptian Arabic + English Medium code-switch model")
                     val modelFile = ensureBundledModel(app)
                     WhisperRuntimeState.stage(app, "loading model", modelFile.name)
                     val model = Whisper.loadModel(app, modelFile.absolutePath)
                     try {
-                        // This fine-tune is trained with Arabic as the task language while preserving
-                        // English tokens in Latin script inside the same hypothesis.
-                        WhisperRuntimeState.stage(app, "transcribing", "Egyptian Arabic + English • transcribe • no translation")
+                        WhisperRuntimeState.stage(app, "transcribing", "Egyptian Arabic + English • Medium • no translation")
                         val config = WhisperConfig(
                             language = "ar",
                             translate = false,
@@ -66,8 +64,8 @@ class MultilingualWhisperTranscriber private constructor() {
                         val out = TranscriptResult()
                         out.text = text
                         out.language = "ar-EG+en-codeswitch"
-                        out.engine = "whisper_cpp_egyptian_english_codeswitch_small_q5_1"
-                        out.version = "6"
+                        out.engine = "whisper_cpp_egyptian_english_codeswitch_medium_q4_0"
+                        out.version = "7"
                         var maxEnd = 0L
                         for (segment in whisper.segments) {
                             val s = segment.text.trim()
@@ -77,7 +75,7 @@ class MultilingualWhisperTranscriber private constructor() {
                         }
                         out.durationMs = if (maxEnd > 0L) maxEnd else wavDurationMs(audio)
                         if (out.segments.isEmpty()) out.segments.add(TranscriptResult.Segment(0, out.durationMs, text, -1f))
-                        WhisperRuntimeState.stage(app, "ready", "Egyptian-English code-switch transcription completed")
+                        WhisperRuntimeState.stage(app, "ready", "Egyptian-English Medium code-switch transcription completed")
                         callback.ok(out)
                     } finally {
                         Whisper.releaseModel(model)
@@ -123,15 +121,15 @@ class MultilingualWhisperTranscriber private constructor() {
             }
             if (model.length() < MIN_MODEL_BYTES) {
                 model.delete()
-                throw IllegalStateException("Bundled Egyptian-English model copy incomplete (${written} bytes)")
+                throw IllegalStateException("Bundled Egyptian-English Medium model copy incomplete (${written} bytes)")
             }
             if (total > 0L && model.length() != total) {
                 model.delete()
                 throw IllegalStateException("Bundled model size mismatch (${written}/${total} bytes)")
             }
 
-            // Remove old generic Whisper models once the tuned model is ready.
             try {
+                File(dir, "ggml-egyptian-codeswitch-small-q5_1.bin").delete()
                 File(dir, "ggml-small.bin").delete()
                 File(dir, "ggml-base.bin").delete()
             } catch (_: Exception) {}
