@@ -23,6 +23,13 @@
             </intent-filter>
         </activity>
 
+        <activity android:name=".RestoreActivity" android:exported="true" android:label="Cortex Restore">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
         <activity android:name=".DebugReviewActivity" android:exported="true" android:label="Cortex Voice Debug">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
