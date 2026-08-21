@@ -40,7 +40,8 @@ public final class CloudTranscriptionRetryWorker extends Worker {
     @NonNull @Override public Result doWork(){
         long itemId=getInputData().getLong(KEY_ITEM_ID,-1L);
         if(itemId<=0)return Result.failure();
-        VaultDb db=new VaultDb(getApplicationContext());
+        Context appContext=getApplicationContext();
+        VaultDb db=new VaultDb(appContext);
         try{
             KnowledgeItem item=db.getById(itemId);
             if(item==null)return Result.failure();
@@ -50,11 +51,11 @@ public final class CloudTranscriptionRetryWorker extends Worker {
             if(!audio.exists())return Result.failure();
 
             db.markAnalyzing(itemId);
-            TranscriptResult transcript=CloudAudioTranscriber.transcribeBlocking(audio);
+            TranscriptResult transcript=CloudAudioTranscriber.transcribeBlocking(appContext,audio);
             AnalysisResult analysis=AudioAnalyzer.toAnalysisResult(transcript);
             db.applyAnalysis(itemId,analysis);
             AudioStore.save(db,itemId,analysis);
-            ChatGptDebugReview.notifyReady(getApplicationContext(),itemId);
+            ChatGptDebugReview.notifyReady(appContext,itemId);
             return Result.success();
         }catch(CloudAudioTranscriber.RetryableException e){
             db.markFailed(itemId,"Cloud ASR waiting for network/provider — "+safe(e));
