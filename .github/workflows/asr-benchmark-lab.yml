@@ -11,108 +11,31 @@ permissions:
   contents: read
 
 jobs:
-  convert-tata-fixed:
+  fetch-tiny-rescue-models:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 20
     steps:
-      - uses: actions/setup-python@v6
-        with:
-          python-version: '3.11'
-
-      - name: Prepare converter
+      - name: Download Whisper Tiny Q5 rescue models
         shell: bash
         run: |
           set -euo pipefail
-          git clone --depth 1 https://github.com/NVIDIA/NeMo-Speech.cpp.git nemo-speech-src
-          cd nemo-speech-src
-          python -m pip install --upgrade pip
-          python -m pip install -r requirements.txt omegaconf
+          mkdir -p dist
+          curl -L --fail --retry 3 \
+            https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny-q5_1.bin \
+            -o dist/ggml-tiny-q5_1.bin
+          curl -L --fail --retry 3 \
+            https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.en-q5_1.bin \
+            -o dist/ggml-tiny.en-q5_1.bin
+          test -s dist/ggml-tiny-q5_1.bin
+          test -s dist/ggml-tiny.en-q5_1.bin
+          sha256sum dist/*.bin > dist/sha256.txt
+          ls -lh dist
 
-      - name: Download normalize and repair TATA metadata
-        shell: bash
-        run: |
-          set -euo pipefail
-          python - <<'PY'
-          from huggingface_hub import snapshot_download
-          snapshot_download(
-              repo_id='yousefkotp/TATA-egyptian-arabic-asr-diarization',
-              local_dir='tata-source',
-              allow_patterns=['config.yaml','asr_model.ckpt','tokenizer/*'],
-          )
-          PY
-          python - <<'PY'
-          from pathlib import Path
-          import shutil, yaml, torch
-          from omegaconf import OmegaConf
-
-          root = Path('tata-source')
-          src_cfg = root / 'config.yaml'
-          conf = OmegaConf.load(src_cfg)
-          resolved = OmegaConf.to_container(conf, resolve=True)
-          model_cfg = resolved.get('model', resolved)
-          if not isinstance(model_cfg, dict):
-              raise SystemExit('TATA model config is not a mapping')
-
-          ckpt = torch.load(root / 'asr_model.ckpt', map_location='cpu', weights_only=False)
-          sd = ckpt.get('state_dict', ckpt)
-          joint_w = sd['joint.joint_net.2.weight']
-          embed_w = sd['decoder.prediction.embed.weight']
-          if joint_w.ndim != 2 or embed_w.ndim != 2:
-              raise SystemExit('Unexpected TATA RNNT tensor rank')
-          output_classes = int(joint_w.shape[0])
-          embed_rows = int(embed_w.shape[0])
-          if output_classes != embed_rows:
-              raise SystemExit(f'Joint/embed class mismatch: {output_classes} vs {embed_rows}')
-          if output_classes < 2:
-              raise SystemExit('Invalid RNNT output class count')
-
-          # NeMo RNNT decoder.vocab_size excludes blank. The converter adds 1.
-          vocab_without_blank = output_classes - 1
-          model_cfg.setdefault('decoder', {})['vocab_size'] = vocab_without_blank
-          model_cfg.setdefault('joint', {})['num_classes'] = vocab_without_blank
-
-          (root / 'model_config.yaml').write_text(
-              yaml.safe_dump(model_cfg, sort_keys=False, allow_unicode=True), encoding='utf-8')
-          src_cfg.unlink()
-          shutil.copy2(root / 'asr_model.ckpt', root / 'model_weights.ckpt')
-
-          tok_models = list((root / 'tokenizer').rglob('*.model'))
-          if not tok_models:
-              raise SystemExit('No tokenizer model')
-          shutil.copy2(tok_models[0], root / 'tokenizer.model')
-
-          import sentencepiece as spm
-          sp = spm.SentencePieceProcessor(model_file=str(root / 'tokenizer.model'))
-          print('TATA actual joint classes:', output_classes)
-          print('TATA vocab excluding blank:', vocab_without_blank)
-          print('TATA tokenizer pieces:', sp.get_piece_size())
-          print('TATA blank id:', output_classes - 1)
-          print('TATA joint weight:', tuple(joint_w.shape))
-          print('TATA embedding weight:', tuple(embed_w.shape))
-          if sp.get_piece_size() != vocab_without_blank:
-              raise SystemExit(
-                  f'Tokenizer pieces {sp.get_piece_size()} != checkpoint vocab {vocab_without_blank}')
-          PY
-
-      - name: Convert repaired TATA RNNT to Q8 GGUF
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p dist-tata
-          cd nemo-speech-src
-          python convert_model.py ../tata-source \
-            --architecture asr \
-            --outfile ../dist-tata/tata-egyptian-rnnt.fixed.q8_0.gguf \
-            --outtype q8_0
-          cd ..
-          sha256sum dist-tata/*.gguf > dist-tata/sha256.txt
-          ls -lh dist-tata
-
-      - name: Upload repaired TATA Q8
+      - name: Upload Tiny rescue models
         uses: actions/upload-artifact@v4
         with:
-          name: tata-egyptian-rnnt-fixed-q8
-          path: dist-tata/
+          name: whisper-tiny-q5-rescue-models
+          path: dist/
           compression-level: 0
           if-no-files-found: error
           retention-days: 7
