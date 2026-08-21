@@ -1,7 +1,10 @@
 package com.kareem.cortex
 
+import android.app.DownloadManager
 import android.content.Context
+import android.net.Uri
 import android.os.Build
+import android.os.Environment
 import dev.ffmpegkit.whisper.Whisper
 import dev.ffmpegkit.whisper.WhisperConfig
 import kotlinx.coroutines.CoroutineScope
@@ -11,15 +14,12 @@ import kotlinx.coroutines.launch
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
-import java.net.HttpURLConnection
-import java.net.URL
 import java.security.MessageDigest
 import java.util.Locale
 
 /**
  * Primary Cortex voice ASR for Arabic/English code-switching.
- * Uses the Whisper SMALL multilingual model so one hypothesis can emit
- * Arabic and Latin tokens in the same utterance without forced translation.
+ * Uses Whisper SMALL multilingual with automatic language selection.
  */
 class MultilingualWhisperTranscriber private constructor() {
     interface Callback {
@@ -32,6 +32,8 @@ class MultilingualWhisperTranscriber private constructor() {
         private const val OLD_MODEL_NAME = "ggml-base.bin"
         private const val EXPECTED_SHA1 = "55356645c2b361a969dfd0ef2c5a50d530afd8d5"
         private const val MIN_MODEL_BYTES = 480_000_000L
+        private const val DISPLAY_MODEL_BYTES = 488_000_000L
+        private const val DOWNLOAD_TIMEOUT_MS = 60L * 60L * 1000L
         private val MODEL_URLS = arrayOf(
             "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.bin?download=true",
             "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.bin"
@@ -76,7 +78,7 @@ class MultilingualWhisperTranscriber private constructor() {
                         out.text = text
                         out.language = "auto-multilingual"
                         out.engine = "whisper_cpp_small_multilingual_auto"
-                        out.version = "4"
+                        out.version = "5"
                         var maxEnd = 0L
                         for (segment in whisper.segments) {
                             val s = segment.text.trim()
@@ -127,28 +129,29 @@ class MultilingualWhisperTranscriber private constructor() {
             }
 
             if (!markDownloadStart()) {
-                val deadline = System.currentTimeMillis() + 30 * 60_000L
+                val deadline = System.currentTimeMillis() + DOWNLOAD_TIMEOUT_MS
                 while (System.currentTimeMillis() < deadline) {
                     if (model.exists() && model.length() >= MIN_MODEL_BYTES && verifyModel(context, model)) {
                         cleanupOldBase(dir)
                         return model
                     }
-                    Thread.sleep(700)
+                    Thread.sleep(750)
                 }
                 throw IllegalStateException("Timed out waiting for Whisper small multilingual model download")
             }
 
             val tmp = File(dir, "$MODEL_NAME.download")
             try {
+                if (tmp.exists()) tmp.delete()
                 var last: Exception? = null
-                for ((index, url) in MODEL_URLS.withIndex()) {
+                for (url in MODEL_URLS) {
                     try {
-                        if (index > 0 && tmp.exists()) tmp.delete()
-                        downloadResumable(context, url, tmp)
-                        WhisperRuntimeState.stage(context, "verifying model", String.format(Locale.US, "%.1f MB downloaded", tmp.length()/1048576.0))
+                        downloadWithSystemManager(context, url, tmp)
+                        WhisperRuntimeState.stage(context, "verifying model", String.format(Locale.US, "%.1f MB downloaded • checking SHA-1", tmp.length()/1048576.0))
                         if (tmp.length() < MIN_MODEL_BYTES) throw IllegalStateException("Whisper small model download incomplete (${tmp.length()} bytes)")
-                        if (!sha1(tmp).equals(EXPECTED_SHA1, ignoreCase = true)) {
-                            throw IllegalStateException("Whisper small model checksum mismatch")
+                        val actualSha1 = sha1(tmp)
+                        if (!actualSha1.equals(EXPECTED_SHA1, ignoreCase = true)) {
+                            throw IllegalStateException("Whisper small model checksum mismatch: $actualSha1")
                         }
                         if (model.exists()) model.delete()
                         if (!tmp.renameTo(model)) {
@@ -157,16 +160,75 @@ class MultilingualWhisperTranscriber private constructor() {
                         }
                         rememberValidation(model)
                         cleanupOldBase(dir)
+                        WhisperRuntimeState.downloadProgress(context, model.length(), model.length())
                         WhisperRuntimeState.stage(context, "model ready", String.format(Locale.US, "%.1f MB • small multilingual • SHA-1 verified", model.length()/1048576.0))
                         return model
                     } catch (e: Exception) {
                         last = e
+                        if (tmp.exists()) tmp.delete()
                         WhisperRuntimeState.stage(context, "download retry", e.javaClass.simpleName+": "+(e.message ?: "null"))
                     }
                 }
-                throw IllegalStateException("Could not obtain a valid Whisper small multilingual model", last)
+                val cause = last?.let { it.javaClass.simpleName+": "+(it.message ?: "null") } ?: "unknown download failure"
+                throw IllegalStateException("Could not obtain a valid Whisper small multilingual model — $cause", last)
             } finally {
                 markDownloadEnd()
+            }
+        }
+
+        private fun downloadWithSystemManager(context: Context, url: String, out: File) {
+            val dm = context.getSystemService(Context.DOWNLOAD_SERVICE) as? DownloadManager
+                ?: throw IllegalStateException("Android DownloadManager unavailable")
+            val externalRoot = context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)
+                ?: throw IllegalStateException("External app download directory unavailable")
+            val relative = "CortexModels/$MODEL_NAME.download"
+            val target = File(externalRoot, relative)
+            target.parentFile?.mkdirs()
+            if (target.exists()) target.delete()
+
+            val request = DownloadManager.Request(Uri.parse(url))
+                .setTitle("Cortex Whisper Small")
+                .setDescription("Downloading multilingual speech model")
+                .setMimeType("application/octet-stream")
+                .setAllowedOverMetered(true)
+                .setAllowedOverRoaming(false)
+                .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE)
+                .setDestinationInExternalFilesDir(context, Environment.DIRECTORY_DOWNLOADS, relative)
+
+            val id = dm.enqueue(request)
+            WhisperRuntimeState.setDownloadId(context, id)
+            val deadline = System.currentTimeMillis() + DOWNLOAD_TIMEOUT_MS
+            try {
+                while (System.currentTimeMillis() < deadline) {
+                    val cursor = dm.query(DownloadManager.Query().setFilterById(id))
+                    try {
+                        if (!cursor.moveToFirst()) throw IllegalStateException("DownloadManager lost model download $id")
+                        val status = cursor.getInt(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS))
+                        val downloaded = cursor.getLong(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR))
+                        val reportedTotal = cursor.getLong(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_TOTAL_SIZE_BYTES))
+                        val total = if (reportedTotal > 0L) reportedTotal else DISPLAY_MODEL_BYTES
+                        WhisperRuntimeState.downloadProgress(context, downloaded.coerceAtLeast(0L), total)
+                        when (status) {
+                            DownloadManager.STATUS_SUCCESSFUL -> {
+                                if (!target.exists()) throw IllegalStateException("DownloadManager completed but model file is missing")
+                                target.inputStream().use { input -> FileOutputStream(out, false).use { output -> input.copyTo(output) } }
+                                return
+                            }
+                            DownloadManager.STATUS_FAILED -> {
+                                val reason = cursor.getInt(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_REASON))
+                                throw IllegalStateException("Android DownloadManager failed (reason $reason) at ${downloaded.coerceAtLeast(0L)} bytes")
+                            }
+                        }
+                    } finally {
+                        cursor.close()
+                    }
+                    Thread.sleep(500)
+                }
+                throw IllegalStateException("Whisper model download timed out after 60 minutes")
+            } finally {
+                try { dm.remove(id) } catch (_: Exception) {}
+                WhisperRuntimeState.clearDownloadId(context, id)
+                if (target.exists()) target.delete()
             }
         }
 
@@ -192,55 +254,6 @@ class MultilingualWhisperTranscriber private constructor() {
             validatedFile == f.absolutePath && validatedLength == f.length() && validatedModified == f.lastModified()
         private fun rememberValidation(f: File){validatedFile=f.absolutePath;validatedLength=f.length();validatedModified=f.lastModified()}
         private fun clearValidation(){validatedFile=null;validatedLength=-1;validatedModified=-1}
-
-        private fun downloadResumable(context: Context, initialUrl: String, out: File) {
-            var current = URL(initialUrl)
-            var redirects = 0
-            while (true) {
-                val existing = if (out.exists()) out.length() else 0L
-                var c: HttpURLConnection? = null
-                try {
-                    c = current.openConnection() as HttpURLConnection
-                    c.instanceFollowRedirects = false
-                    c.connectTimeout = 30_000
-                    c.readTimeout = 120_000
-                    c.setRequestProperty("User-Agent", "Cortex/1.0.10 Android")
-                    c.setRequestProperty("Accept", "application/octet-stream")
-                    if (existing > 0) c.setRequestProperty("Range", "bytes=$existing-")
-                    c.connect()
-                    val code = c.responseCode
-                    if (code in intArrayOf(301,302,303,307,308)) {
-                        val location = c.getHeaderField("Location") ?: throw IllegalStateException("Model redirect missing Location")
-                        if (++redirects > 8) throw IllegalStateException("Too many model download redirects")
-                        current = URL(current, location)
-                        continue
-                    }
-                    if (code == 416 && out.exists()) return
-                    if (code != 200 && code != 206) throw IllegalStateException("Model download HTTP $code")
-                    val append = code == 206 && existing > 0
-                    if (!append && out.exists()) out.delete()
-                    var written = if (append) existing else 0L
-                    var nextReport = written + 8L*1024L*1024L
-                    c.inputStream.use { input ->
-                        FileOutputStream(out, append).use { output ->
-                            val buffer = ByteArray(1024*1024)
-                            while (true) {
-                                val n = input.read(buffer)
-                                if (n <= 0) break
-                                output.write(buffer,0,n)
-                                written += n
-                                if (written >= nextReport) {
-                                    WhisperRuntimeState.stage(context, "downloading model", String.format(Locale.US, "%.1f MB downloaded", written/1048576.0))
-                                    nextReport = written + 8L*1024L*1024L
-                                }
-                            }
-                            output.fd.sync()
-                        }
-                    }
-                    return
-                } finally { c?.disconnect() }
-            }
-        }
 
         private fun sha1(file: File): String {
             val md = MessageDigest.getInstance("SHA-1")
