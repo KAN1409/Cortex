@@ -1,0 +1,38 @@
+name: Fetch Whisper CLI Binary
+
+on:
+  pull_request:
+    branches: [ main ]
+    paths:
+      - '.github/workflows/fetch-whisper-cli.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  fetch-cli:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download prebuilt whisper-cli
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -L --fail --retry 3 \
+            https://github.com/sjoerdteunisse/whisper.cpp/releases/download/v1.0.0/whisper-cpp-linux-x64-cpu.zip \
+            -o whisper-cli.zip
+          unzip -q whisper-cli.zip -d whisper-cli
+          find whisper-cli -maxdepth 3 -type f -print
+          test -f whisper-cli/whisper-cli
+          chmod +x whisper-cli/whisper-cli
+          whisper-cli/whisper-cli --version || true
+          sha256sum whisper-cli/whisper-cli > whisper-cli/whisper-cli.sha256
+
+      - name: Upload whisper-cli
+        uses: actions/upload-artifact@v4
+        with:
+          name: whisper-cli-linux-x64-cpu
+          path: whisper-cli/
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 7
