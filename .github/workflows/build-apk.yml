@@ -43,9 +43,9 @@ jobs:
           APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
           ZIPALIGN="$(find "$ANDROID_HOME/build-tools" -type f -name zipalign | sort -V | tail -n 1)"
           if [ -z "$APKSIGNER" ] || [ -z "$ZIPALIGN" ]; then echo 'Android signing tools not found' >&2; exit 1; fi
-          "$ZIPALIGN" -P 16 -f 4 app/build/outputs/apk/release/app-release-unsigned.apk dist/Cortex-v1.0.15-release-aligned-unsigned.apk
-          "$ZIPALIGN" -c -P 16 -v 4 dist/Cortex-v1.0.15-release-aligned-unsigned.apk
-          sha256sum dist/Cortex-v1.0.15-release-aligned-unsigned.apk > dist/Cortex-v1.0.15-release-aligned-unsigned.sha256
+          "$ZIPALIGN" -P 16 -f 4 app/build/outputs/apk/release/app-release-unsigned.apk dist/Cortex-v1.0.16-release-aligned-unsigned.apk
+          "$ZIPALIGN" -c -P 16 -v 4 dist/Cortex-v1.0.16-release-aligned-unsigned.apk
+          sha256sum dist/Cortex-v1.0.16-release-aligned-unsigned.apk > dist/Cortex-v1.0.16-release-aligned-unsigned.sha256
           BT_DIR="$(dirname "$APKSIGNER")"
           cp "$APKSIGNER" dist/signing-tools/apksigner
           cp "$BT_DIR/lib/apksigner.jar" dist/signing-tools/lib/apksigner.jar
@@ -54,7 +54,7 @@ jobs:
       - name: Upload Cortex APK
         uses: actions/upload-artifact@v4
         with:
-          name: Cortex-v1.0.15-short-window-span-rescue
+          name: Cortex-v1.0.16-small-model-import
           path: dist/
           if-no-files-found: error
           retention-days: 30

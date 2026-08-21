@@ -14,7 +14,7 @@ import java.util.Locale
 /**
  * Cortex local ASR for Egyptian Arabic <-> English code-switching.
  *
- * v1.0.15:
+ * v1.0.16:
  * - VAD supplies onset/end, but short voice notes are decoded as one long context window.
  * - Primary pass is multilingual auto with translation disabled.
  * - English rescue is localized to the acoustic position of an existing Latin span.
@@ -47,7 +47,7 @@ class MultilingualWhisperTranscriber private constructor() {
                         throw UnsupportedOperationException("Local code-switch ASR expects Cortex WAV audio")
                     }
                     if (!LocalAsrModelStore.ready(app)) {
-                        throw IllegalStateException("No local ASR model selected. Choose ggml-codeswitch-medium-q8_0.bin in Cortex first.")
+                        throw IllegalStateException("No local ASR model selected. Choose a supported Whisper Small/Medium Q8_0 GGML model in Cortex first.")
                     }
 
                     WhisperRuntimeState.stage(app, "detecting speech", "Finding onset/end; short notes stay in one multilingual context window")
@@ -61,8 +61,8 @@ class MultilingualWhisperTranscriber private constructor() {
                     try {
                         val out = TranscriptResult()
                         out.language = "ar-EG+en-codeswitch-auto"
-                        out.engine = "whisper_cpp_local_codeswitch_medium_q8_0_short_window_auto_span_rescue_tail_retry"
-                        out.version = "10"
+                        out.engine = "whisper_cpp_local_codeswitch_${LocalAsrModelStore.profileId(app)}_short_window_auto_span_rescue_tail_retry"
+                        out.version = "11"
                         out.durationMs = fullDuration
                         val recordingParts = ArrayList<String>()
 
