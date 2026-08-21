@@ -3,9 +3,13 @@ package com.kareem.cortex;
 import java.io.*;
 import java.util.*;
 
-/** Lightweight local energy-VAD for Cortex's PCM16 mono WAV recordings. */
+/** Lightweight local energy-VAD for Cortex PCM16 mono WAV recordings. */
 public final class WavSpeechChunker {
     private WavSpeechChunker(){}
+
+    private static final long SHORT_NOTE_MS=30_000L;
+    private static final long MERGE_GAP_MS=1_500L;
+    private static final long MIN_SPEECH_MS=150L;
 
     public static final class Chunk {
         public final File file; public final long startMs,endMs;
@@ -15,21 +19,61 @@ public final class WavSpeechChunker {
         int sampleRate,channels,bits; byte[] pcm; long durationMs;
     }
 
+    /**
+     * Short voice notes are intentionally decoded as one continuous utterance window.
+     * VAD only finds the real onset/end; it does not fragment Arabic -> English -> Arabic.
+     */
     public static ArrayList<Chunk> split(File wav,File cacheDir)throws Exception{
         WavData w=readWav(wav);
         if(w.channels!=1||w.bits!=16)throw new IOException("Cortex VAD requires PCM16 mono WAV");
         short[] samples=toShorts(w.pcm);
         ArrayList<long[]> ranges=detectRanges(samples,w.sampleRate);
         ArrayList<Chunk> out=new ArrayList<>();
+        if(ranges.isEmpty())return out;
+
+        if(w.durationMs<=SHORT_NOTE_MS){
+            long start=Math.max(0,ranges.get(0)[0]);
+            long end=Math.min(w.durationMs,ranges.get(ranges.size()-1)[1]);
+            if(end>start){
+                File f=new File(cacheDir,"cortex_short_utterance_"+System.nanoTime()+".wav");
+                writeChunk(f,samples,w.sampleRate,start,end);
+                out.add(new Chunk(f,start,end));
+            }
+            return out;
+        }
+
         int index=0;
         for(long[] r:ranges){
             long s=Math.max(0,r[0]),e=Math.min(w.durationMs,r[1]);
             if(e<=s)continue;
-            File f=new File(cacheDir,"cortex_vad_"+System.nanoTime()+"_"+(index++)+".wav");
-            writeChunk(f,samples,w.sampleRate,s,e);
-            out.add(new Chunk(f,s,e));
+            // Long recordings are bounded to keep local inference memory predictable.
+            while(e-s>26_000L){
+                long cut=s+25_000L;
+                File f=new File(cacheDir,"cortex_vad_"+System.nanoTime()+"_"+(index++)+".wav");
+                writeChunk(f,samples,w.sampleRate,s,cut);
+                out.add(new Chunk(f,s,cut));
+                s=Math.max(s+1,cut-1_200L);
+            }
+            if(e-s>=MIN_SPEECH_MS){
+                File f=new File(cacheDir,"cortex_vad_"+System.nanoTime()+"_"+(index++)+".wav");
+                writeChunk(f,samples,w.sampleRate,s,e);
+                out.add(new Chunk(f,s,e));
+            }
         }
         return out;
+    }
+
+    /** Make a relative sub-window from an already prepared WAV. */
+    public static Chunk slice(File wav,File cacheDir,long startMs,long endMs)throws Exception{
+        WavData w=readWav(wav);
+        if(w.channels!=1||w.bits!=16)throw new IOException("Cortex VAD requires PCM16 mono WAV");
+        long s=Math.max(0,Math.min(w.durationMs,startMs));
+        long e=Math.max(s,Math.min(w.durationMs,endMs));
+        if(e<=s)throw new IllegalArgumentException("Empty audio slice");
+        short[] samples=toShorts(w.pcm);
+        File f=new File(cacheDir,"cortex_slice_"+System.nanoTime()+".wav");
+        writeChunk(f,samples,w.sampleRate,s,e);
+        return new Chunk(f,s,e);
     }
 
     public static long durationMs(File wav)throws Exception{return readWav(wav).durationMs;}
@@ -46,15 +90,15 @@ public final class WavSpeechChunker {
             rms[i]=Math.sqrt(sum/Math.max(1,z-a));
         }
         double[] sorted=rms.clone();Arrays.sort(sorted);
-        int p=(int)Math.floor((sorted.length-1)*0.22);double noise=sorted[Math.max(0,p)];
-        double threshold=Math.max(420.0,noise*2.35+90.0);
+        int p=(int)Math.floor((sorted.length-1)*0.20);double noise=sorted[Math.max(0,p)];
+        // Less aggressive than v1.0.14 so lower-energy trailing speech survives.
+        double threshold=Math.max(300.0,noise*1.85+70.0);
 
         boolean[] hot=new boolean[frames];for(int i=0;i<frames;i++)hot[i]=rms[i]>=threshold;
-        // Bridge tiny 1-2 frame holes inside speech.
         for(int i=1;i<frames-1;i++)if(!hot[i]&&hot[i-1]&&hot[i+1])hot[i]=true;
         for(int i=1;i<frames-2;i++)if(!hot[i]&&!hot[i+1]&&hot[i-1]&&hot[i+2]){hot[i]=hot[i+1]=true;}
 
-        int enter=2,exit=11,pre=6,post=6; // 40ms enter, 220ms hangover, 120ms padding
+        int enter=2,exit=15,pre=25,post=30; // 40ms enter, 300ms hangover, 500/600ms padding
         int run=0,sil=0,start=-1;
         for(int i=0;i<frames;i++){
             if(hot[i]){run++;sil=0;if(start<0&&run>=enter)start=Math.max(0,i-enter+1-pre);}
@@ -62,24 +106,22 @@ public final class WavSpeechChunker {
         }
         if(start>=0)addRange(out,start,frames,frame,sampleRate);
 
-        // Merge pauses <=180ms, then cap very long continuous speech at ~3.4s.
+        // Preserve conversational context across pauses up to 1.5 seconds.
         ArrayList<long[]> merged=new ArrayList<>();
         for(long[] r:out){
-            if(merged.isEmpty())merged.add(r);
-            else {long[] last=merged.get(merged.size()-1);if(r[0]-last[1]<=180)last[1]=r[1];else merged.add(r);}
+            if(merged.isEmpty())merged.add(new long[]{r[0],r[1]});
+            else {
+                long[] last=merged.get(merged.size()-1);
+                if(r[0]-last[1]<=MERGE_GAP_MS)last[1]=Math.max(last[1],r[1]);
+                else merged.add(new long[]{r[0],r[1]});
+            }
         }
-        ArrayList<long[]> capped=new ArrayList<>();
-        for(long[] r:merged){
-            long s=r[0],e=r[1];
-            while(e-s>3400){long cut=s+3000;capped.add(new long[]{s,cut});s=Math.max(cut-140,s+1);}
-            if(e-s>=220)capped.add(new long[]{s,e});
-        }
-        return capped;
+        return merged;
     }
 
     private static void addRange(ArrayList<long[]> out,int sf,int ef,int frame,int rate){
         long s=(long)sf*frame*1000L/rate,e=(long)ef*frame*1000L/rate;
-        if(e-s>=220)out.add(new long[]{s,e});
+        if(e-s>=MIN_SPEECH_MS)out.add(new long[]{s,e});
     }
 
     private static WavData readWav(File f)throws Exception{
