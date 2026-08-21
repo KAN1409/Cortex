@@ -77,9 +77,38 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -- delivery/Cortex-Prime-v1.0.23-groq-direct-aligned-unsigned.apk delivery/Cortex-Prime-v1.0.23-groq-direct-aligned-unsigned.sha256
-          if git diff --cached --quiet; then
-            echo "Delivery APK already current"
-            exit 0
+          if ! git diff --cached --quiet; then
+            git commit -m "Delivery: Cortex Prime v1.0.23 unsigned APK [skip ci]"
+            git push origin HEAD:v1.0.23-groq-direct
           fi
-          git commit -m "Delivery: Cortex Prime v1.0.23 unsigned APK [skip ci]"
-          git push origin HEAD:v1.0.23-groq-direct
+
+      - name: Publish prerelease asset and expose temporary download URL
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG="cortex-v1.0.23-groq-direct-ci"
+          APK="dist/Cortex-Prime-v1.0.23-groq-direct-aligned-unsigned.apk"
+          SHA="dist/Cortex-Prime-v1.0.23-groq-direct-aligned-unsigned.sha256"
+          if ! gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --target v1.0.23-groq-direct --prerelease \
+              --title "Cortex Prime v1.0.23 Groq Direct CI" \
+              --notes "Temporary unsigned delivery build. Sign with the existing Cortex/Mnemo key before installing as an update."
+          fi
+          gh release upload "$TAG" "$APK" "$SHA" --repo "$GITHUB_REPOSITORY" --clobber
+          ASSET_ID="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" --jq '.assets[] | select(.name=="Cortex-Prime-v1.0.23-groq-direct-aligned-unsigned.apk") | .id' | head -n1)"
+          test -n "$ASSET_ID"
+          HEADERS="$RUNNER_TEMP/cortex-asset-headers.txt"
+          curl -sS -D "$HEADERS" -o /dev/null --max-redirs 0 \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/octet-stream" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/releases/assets/$ASSET_ID" || true
+          LOCATION="$(sed -n 's/^[Ll]ocation: //p' "$HEADERS" | tr -d '\r' | tail -n1)"
+          echo "CORTEX_RELEASE_ASSET_ID=$ASSET_ID"
+          if [ -n "$LOCATION" ]; then
+            echo "CORTEX_TEMP_DOWNLOAD_URL=$LOCATION"
+          else
+            echo "CORTEX_TEMP_DOWNLOAD_URL_UNAVAILABLE"
+          fi
