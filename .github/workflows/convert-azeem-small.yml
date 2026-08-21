@@ -1,0 +1,104 @@
+name: Convert Azeem Arabic-English CodeSwitch Small
+
+on:
+  pull_request:
+    branches: [ main ]
+    paths:
+      - '.github/workflows/convert-azeem-small.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  convert-model:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Checkout Cortex
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+
+      - name: Install conversion dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          python -m pip install --index-url https://download.pytorch.org/whl/cpu torch==2.8.0
+          python -m pip install 'transformers>=4.46,<5' 'huggingface_hub>=0.28' safetensors numpy
+
+      - name: Download Azeem code-switch model
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from huggingface_hub import snapshot_download
+          import os
+          snapshot_download(
+              repo_id='azeem23/whisper-small-codeswitching-ArabicEnglish',
+              local_dir=os.path.abspath('hf-model'),
+              allow_patterns=[
+                  'model.safetensors','config.json','generation_config.json',
+                  'preprocessor_config.json','processor_config.json',
+                  'tokenizer.json','tokenizer_config.json','vocab.json',
+                  'added_tokens.json','merges.txt','special_tokens_map.json','normalizer.json'
+              ],
+          )
+          PY
+          test -s hf-model/model.safetensors
+          test -s hf-model/config.json
+          test -s hf-model/vocab.json
+          test -s hf-model/added_tokens.json
+          test -s hf-model/merges.txt
+          sha256sum hf-model/model.safetensors
+          du -sh hf-model
+
+      - name: Clone converter sources
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --depth 1 https://github.com/ggml-org/whisper.cpp.git whisper.cpp
+          git clone --depth 1 https://github.com/openai/whisper.git openai-whisper
+
+      - name: Convert to GGML F16
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p converted
+          python whisper.cpp/models/convert-h5-to-ggml.py hf-model openai-whisper converted
+          test -s converted/ggml-model.bin
+
+      - name: Build quantizer
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S whisper.cpp -B whisper.cpp/build -DCMAKE_BUILD_TYPE=Release
+          cmake --build whisper.cpp/build --config Release -j2 --target whisper-quantize
+
+      - name: Quantize Q8_0
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          whisper.cpp/build/bin/whisper-quantize converted/ggml-model.bin dist/ggml-azeem-ar-en-codeswitch-small-q8_0.bin q8_0
+          test -s dist/ggml-azeem-ar-en-codeswitch-small-q8_0.bin
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('dist/ggml-azeem-ar-en-codeswitch-small-q8_0.bin')
+          assert p.read_bytes()[:4] == b'lmgg'
+          print('Q8 bytes:',p.stat().st_size)
+          PY
+          sha256sum dist/ggml-azeem-ar-en-codeswitch-small-q8_0.bin > dist/ggml-azeem-ar-en-codeswitch-small-q8_0.bin.sha256
+
+      - name: Upload Q8_0
+        uses: actions/upload-artifact@v4
+        with:
+          name: Azeem-Ar-En-CodeSwitch-Small-Q8_0
+          path: dist/
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 30

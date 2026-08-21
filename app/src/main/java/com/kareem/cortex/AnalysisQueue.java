@@ -12,7 +12,7 @@ public final class AnalysisQueue {
         if("SCREENSHOT".equals(item.type)||"IMAGE".equals(item.type)){
             OcrAnalyzer.analyze(ctx,item,new OcrAnalyzer.Callback(){public void ok(AnalysisResult r){finish(db,item.id,r,changed);next(ctx,db,changed);}public void fail(Exception e){AnalysisQueue.fail(db,item.id,e,changed);next(ctx,db,changed);}});
         }else if("AUDIO".equals(item.type)){
-            AudioAnalyzer.analyze(ctx,item,new AudioAnalyzer.Callback(){public void ok(AnalysisResult r){db.applyAnalysis(item.id,r);AudioStore.save(db,item.id,r);if(changed!=null)changed.run();next(ctx,db,changed);}public void fail(Exception e){AnalysisQueue.fail(db,item.id,e,changed);next(ctx,db,changed);}});
+            AudioAnalyzer.analyze(ctx,item,new AudioAnalyzer.Callback(){public void ok(AnalysisResult r){db.applyAnalysis(item.id,r);AudioStore.save(db,item.id,r);ChatGptDebugReview.notifyReady(ctx,item.id);if(changed!=null)changed.run();next(ctx,db,changed);}public void fail(Exception e){AnalysisQueue.fail(db,item.id,e,changed);ChatGptDebugReview.notifyReady(ctx,item.id);next(ctx,db,changed);}});
         }else if("FILE".equals(item.type)){
             try{finish(db,item.id,AttachmentAnalyzer.analyze(item),changed);}catch(Exception e){AnalysisQueue.fail(db,item.id,e,changed);}next(ctx,db,changed);
         }else{

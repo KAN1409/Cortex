@@ -1,0 +1,73 @@
+name: Validate Cortex Prime Cloud Voice
+
+on:
+  push:
+    branches: [ v1.0.2-cloud-voice ]
+  pull_request:
+    branches: [ v1.0.1-mixed-language-voice ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Cortex Prime
+        uses: actions/checkout@v6
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle 8.9
+        uses: gradle/actions/setup-gradle@v6
+        with:
+          gradle-version: '8.9'
+
+      - name: Assert local ASR removed
+        shell: bash
+        run: |
+          set -euo pipefail
+          test ! -e app/libs/whisper-android-cortex-prompt-1.0.0.aar
+          for f in \
+            app/src/main/java/com/kareem/cortex/LocalAsrModelStore.java \
+            app/src/main/java/com/kareem/cortex/MultilingualWhisperTranscriber.kt \
+            app/src/main/java/com/kareem/cortex/SystemAudioTranscriber.java \
+            app/src/main/java/com/kareem/cortex/WhisperGgmlModel.java \
+            app/src/main/java/com/kareem/cortex/WhisperProgressActivity.java \
+            app/src/main/java/com/kareem/cortex/WhisperRuntimeState.java; do
+            test ! -e "$f"
+          done
+          ! grep -R -n -E 'whisper-android|MultilingualWhisperTranscriber|LocalAsrModelStore|WhisperRuntimeState' app/src/main app/build.gradle
+
+      - name: Validate PHP backend syntax
+        run: php -l backend/transcribe.php
+
+      - name: Run unit tests
+        run: gradle :app:testDebugUnitTest --stacktrace
+
+      - name: Build release APK
+        run: gradle :app:assembleRelease --stacktrace
+
+      - name: Prepare APK artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          ZIPALIGN="$(find "$ANDROID_HOME/build-tools" -type f -name zipalign | sort -V | tail -n 1)"
+          if [ -z "$ZIPALIGN" ]; then echo 'zipalign not found' >&2; exit 1; fi
+          "$ZIPALIGN" -P 16 -f 4 app/build/outputs/apk/release/app-release-unsigned.apk dist/Cortex-Prime-v1.0.22-cloud-asr-aligned-unsigned.apk
+          "$ZIPALIGN" -c -P 16 -v 4 dist/Cortex-Prime-v1.0.22-cloud-asr-aligned-unsigned.apk
+          sha256sum dist/Cortex-Prime-v1.0.22-cloud-asr-aligned-unsigned.apk > dist/Cortex-Prime-v1.0.22-cloud-asr-aligned-unsigned.sha256
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Cortex-Prime-v1.0.22-cloud-asr
+          path: dist/
+          if-no-files-found: error
+          retention-days: 30

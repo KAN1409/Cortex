@@ -1,0 +1,62 @@
+name: Build Cortex Whisper Prompt Beam-5 AAR
+
+on:
+  push:
+    branches: [ v1.0.1-mixed-language-voice ]
+    paths:
+      - '.github/workflows/build-whisper-prompt-aar.yml'
+      - 'tools/whisper-cortex/**'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - '.github/workflows/build-whisper-prompt-aar.yml'
+      - 'tools/whisper-cortex/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-prompt-beam5-aar:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Cortex
+        uses: actions/checkout@v6
+
+      - name: Checkout whisper-android v1.0.0
+        uses: actions/checkout@v6
+        with:
+          repository: ffmpegkit-maintained/whisper
+          ref: v1.0.0
+          path: upstream-whisper
+          submodules: recursive
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install pinned Android NDK and CMake
+        run: sdkmanager 'ndk;27.2.12479018' 'cmake;3.22.1'
+
+      - name: Apply Cortex prompt + beam-5 patch
+        run: python3 tools/whisper-cortex/patch_whisper_android.py upstream-whisper
+
+      - name: Build patched release AAR
+        working-directory: upstream-whisper
+        run: |
+          chmod +x gradlew
+          ./gradlew :library:assembleRelease -PVERSION=1.0.0-cortex-prompt-beam5 --stacktrace
+
+      - name: Upload patched AAR
+        uses: actions/upload-artifact@v4
+        with:
+          name: cortex-whisper-android-prompt-beam5-1.0.0
+          path: upstream-whisper/library/build/outputs/aar/library-release.aar
+          if-no-files-found: error
+          retention-days: 30
