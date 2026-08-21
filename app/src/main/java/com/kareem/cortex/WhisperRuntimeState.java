@@ -10,7 +10,6 @@ import java.util.Locale;
 /** Persistent diagnostics plus one-shot local-ASR retry control. */
 public final class WhisperRuntimeState {
     private static final String PREF="cortex_whisper_runtime";
-    private static final String MODEL="ggml-egyptian-codeswitch-medium-q4_0.bin";
     private WhisperRuntimeState(){}
 
     private static SharedPreferences p(Context c){return c.getSharedPreferences(PREF,Context.MODE_PRIVATE);}
@@ -21,10 +20,25 @@ public final class WhisperRuntimeState {
                 .putLong("updated",System.currentTimeMillis()).apply();
     }
 
+    public static void beginModelImport(Context c,String sourceName,long total){
+        p(c).edit().putString("stage","importing local model")
+                .putString("detail","Copying "+(sourceName==null?"selected model":sourceName)+" into Cortex private storage")
+                .putLong("downloaded",0)
+                .putLong("total",Math.max(0,total))
+                .putLong("updated",System.currentTimeMillis()).apply();
+    }
+
     public static void copyProgress(Context c,long copied,long total){
-        p(c).edit().putString("stage","preparing local model")
+        p(c).edit().putString("stage","importing local model")
                 .putLong("downloaded",Math.max(0,copied))
                 .putLong("total",Math.max(0,total))
+                .putLong("updated",System.currentTimeMillis()).apply();
+    }
+
+    public static void modelReady(Context c,String sourceName,long bytes){
+        p(c).edit().putString("stage","model ready")
+                .putString("detail",(sourceName==null?"Local ASR model":sourceName)+" • "+String.format(Locale.US,"%.1f MB",bytes/1048576.0))
+                .putLong("downloaded",Math.max(0,bytes)).putLong("total",Math.max(0,bytes))
                 .putLong("updated",System.currentTimeMillis()).apply();
     }
 
@@ -39,9 +53,8 @@ public final class WhisperRuntimeState {
     public static void forceWhisperOnly(Context c,long itemId){
         p(c).edit().putLong("force_item",itemId)
                 .putString("stage","queued local ASR")
-                .putString("detail","Preparing Egyptian Arabic + English Medium code-switch model")
-                .putLong("downloaded",0)
-                .putLong("total",0)
+                .putString("detail",LocalAsrModelStore.ready(c)?"Using imported Egyptian Arabic + English code-switch model":"No local ASR model selected")
+                .putLong("downloaded",0).putLong("total",0)
                 .putLong("updated",System.currentTimeMillis()).apply();
         try{
             Intent i=new Intent(c,WhisperProgressActivity.class).putExtra("item_id",itemId);
@@ -65,13 +78,12 @@ public final class WhisperRuntimeState {
     public static long downloadedBytes(Context c){return p(c).getLong("downloaded",0);}
     public static long totalBytes(Context c){return p(c).getLong("total",0);}
     public static int progressPercent(Context c){long d=downloadedBytes(c),t=totalBytes(c);if(t<=0)return 0;return (int)Math.max(0,Math.min(100,(d*100L)/t));}
-    public static String progressText(Context c){long d=downloadedBytes(c),t=totalBytes(c);if(t<=0)return d<=0?"Bundled model — no download required":String.format(Locale.US,"%.1f MB copied",d/1048576.0);return String.format(Locale.US,"%.1f / %.1f MB • %d%%",d/1048576.0,t/1048576.0,progressPercent(c));}
+    public static String progressText(Context c){long d=downloadedBytes(c),t=totalBytes(c);if(t<=0)return d<=0?"Waiting…":String.format(Locale.US,"%.1f MB copied",d/1048576.0);return String.format(Locale.US,"%.1f / %.1f MB • %d%%",d/1048576.0,t/1048576.0,progressPercent(c));}
 
     public static String describe(Context c){
         SharedPreferences s=p(c);String stage=s.getString("stage","not started");String detail=s.getString("detail","");
-        File model=new File(new File(c.getFilesDir(),"models"),MODEL);
-        String modelState=model.exists()?String.format(Locale.US,"%.1f MB ready",model.length()/1048576.0):"bundled in app";
-        String progress="preparing local model".equals(stage)?"\nProgress: "+progressText(c):"";
-        return "Model: Egyptian Arabic + English Medium code-switch • "+modelState+"\nStage: "+stage+progress+(detail==null||detail.isEmpty()?"":"\nDetail: "+detail);
+        String modelState=LocalAsrModelStore.statusText(c);
+        String progress="importing local model".equals(stage)?"\nProgress: "+progressText(c):"";
+        return modelState+"\nStage: "+stage+progress+(detail==null||detail.isEmpty()?"":"\nDetail: "+detail);
     }
 }
