@@ -88,3 +88,5 @@ jobs:
           compression-level: 0
           if-no-files-found: error
           retention-days: 7
+
+# benchmark trigger 2026-08-21
