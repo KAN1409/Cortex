@@ -3,6 +3,8 @@ name: Validate Cortex Cloud Voice
 on:
   push:
     branches: [ v1.0.2-cloud-voice ]
+  pull_request:
+    branches: [ v1.0.1-mixed-language-voice ]
   workflow_dispatch:
 
 permissions:
