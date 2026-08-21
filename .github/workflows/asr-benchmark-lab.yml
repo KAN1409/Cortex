@@ -11,80 +11,95 @@ permissions:
   contents: read
 
 jobs:
-  metro-bundle:
+  nemotron-bundle:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 90
     steps:
       - name: Set up Python
         uses: actions/setup-python@v6
         with:
           python-version: '3.11'
 
-      - name: Install minimal tools
+      - name: Install prerequisites
         shell: bash
         run: |
           set -euo pipefail
-          python -m pip install --upgrade pip
-          python -m pip install --index-url https://download.pytorch.org/whl/cpu torch==2.8.0
-          python -m pip install 'huggingface_hub>=0.28'
+          sudo apt-get update
+          sudo apt-get install -y ninja-build cmake build-essential
+          python -m pip install --upgrade pip 'huggingface_hub>=0.28'
+          cmake --version
+          ninja --version
 
-      - name: Fetch Metro source and released Small model
+      - name: Build NeMo-Speech.cpp CPU runtime
         shell: bash
         run: |
           set -euo pipefail
-          git clone --depth 1 https://github.com/MohammedAly22/metro-asr.git upstream
+          git clone --depth 1 --recurse-submodules --shallow-submodules https://github.com/NVIDIA/NeMo-Speech.cpp.git nemo-speech-src
+          cd nemo-speech-src
+          scripts/install.sh --help | head -120
+          scripts/install.sh --source --backend cpu --prefix "$GITHUB_WORKSPACE/nemo-install" --no-modify-path
+          "$GITHUB_WORKSPACE/nemo-install/bin/nemo-speech" --version
+          ldd "$GITHUB_WORKSPACE/nemo-install/bin/nemo-speech" || true
+
+      - name: Download official Nemotron 3.5 ASR Q8 GGUF
+        shell: bash
+        run: |
+          set -euo pipefail
           python - <<'PY'
-          from huggingface_hub import snapshot_download
-          snapshot_download(
-              repo_id='mohammedaly22/Metro-ASR-Small',
+          from huggingface_hub import hf_hub_download
+          p=hf_hub_download(
+              repo_id='nvidia/nemotron-3.5-asr-streaming-0.6b',
+              filename='nemotron-3.5-asr-streaming-0.6b.q8_0.gguf',
               local_dir='model',
-              allow_patterns=['config.yaml','model.pt','bpe.model','bpe.vocab'],
           )
+          print(p)
           PY
-          ls -lh model
+          echo 'a5c435f294eea8f88ce68dd27b8c3bfea7f777cb2fbba04fcd30eaa555f429ae  model/nemotron-3.5-asr-streaming-0.6b.q8_0.gguf' | sha256sum -c -
+          ls -lh model/nemotron-3.5-asr-streaming-0.6b.q8_0.gguf
 
-      - name: Strip optimizer and training state
+      - name: Split model for connector delivery
         shell: bash
         run: |
           set -euo pipefail
-          python - <<'PY'
-          import torch, os
-          p='model/model.pt'
-          ckpt=torch.load(p,map_location='cpu',weights_only=False)
-          print('checkpoint keys:', list(ckpt.keys()) if isinstance(ckpt,dict) else type(ckpt))
-          if not isinstance(ckpt,dict) or 'model_state_dict' not in ckpt:
-              raise SystemExit('Unexpected Metro checkpoint structure')
-          torch.save({'model_state_dict': ckpt['model_state_dict']}, 'model/model-inference.pt')
-          os.remove(p)
-          os.replace('model/model-inference.pt', p)
-          print('stripped bytes:', os.path.getsize(p))
-          PY
+          mkdir -p split
+          split -b 280M -d -a 2 model/nemotron-3.5-asr-streaming-0.6b.q8_0.gguf split/nemotron.q8.gguf.part-
+          sha256sum model/nemotron-3.5-asr-streaming-0.6b.q8_0.gguf > split/nemotron.q8.gguf.sha256
+          ls -lh split
 
-      - name: Build portable bundle
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p bundle
-          cp -R upstream/metro_asr bundle/
-          cp upstream/pyproject.toml upstream/requirements.txt bundle/
-          cp -R model bundle/model
-          python - <<'PY'
-          import hashlib, json, os
-          files=['bundle/model/model.pt','bundle/model/config.yaml','bundle/model/bpe.model','bundle/model/bpe.vocab']
-          out={}
-          for p in files:
-              h=hashlib.sha256(open(p,'rb').read()).hexdigest()
-              out[os.path.basename(p)]={'sha256':h,'bytes':os.path.getsize(p)}
-          open('bundle/manifest.json','w').write(json.dumps(out,indent=2))
-          print(json.dumps(out,indent=2))
-          PY
-          du -sh bundle
-
-      - name: Upload Metro Small inference bundle
+      - name: Upload runtime
         uses: actions/upload-artifact@v4
         with:
-          name: metro-asr-small-inference-bundle
-          path: bundle/
+          name: nemo-speech-cpu-runtime
+          path: nemo-install/
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Upload model part 00
+        uses: actions/upload-artifact@v4
+        with:
+          name: nemotron-q8-part-00
+          path: split/nemotron.q8.gguf.part-00
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Upload model part 01
+        uses: actions/upload-artifact@v4
+        with:
+          name: nemotron-q8-part-01
+          path: split/nemotron.q8.gguf.part-01
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Upload model part 02 plus checksum
+        uses: actions/upload-artifact@v4
+        with:
+          name: nemotron-q8-part-02
+          path: |
+            split/nemotron.q8.gguf.part-02
+            split/nemotron.q8.gguf.sha256
           compression-level: 0
           if-no-files-found: error
           retention-days: 7
