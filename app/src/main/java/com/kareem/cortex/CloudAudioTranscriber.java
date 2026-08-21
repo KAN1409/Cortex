@@ -65,7 +65,9 @@ public final class CloudAudioTranscriber {
         String boundary = "----CortexPrimeVoice" + UUID.randomUUID().toString().replace("-", "");
         try {
             connection = (HttpURLConnection) endpoint.openConnection();
-            connection.setInstanceFollowRedirects(false); // We must preserve POST + body across 307/308.
+            // Android/HttpURLConnection does not reliably replay POST bodies for 307/308.
+            // Handle redirects ourselves so the original WAV and multipart POST survive intact.
+            connection.setInstanceFollowRedirects(false);
             connection.setRequestMethod("POST");
             connection.setConnectTimeout(20_000);
             connection.setReadTimeout(180_000);
