@@ -6,40 +6,33 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.io.BufferedReader;
-import java.io.BufferedWriter;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
-import java.io.OutputStreamWriter;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
+import java.util.Locale;
 import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
-/**
- * Cloud-only ASR client.
- *
- * The Android app never receives an OpenAI/provider API key. It uploads the
- * recording to the Cortex backend, which owns provider credentials and returns
- * a normalized TranscriptResult.
- */
+/** Cloud-only ASR client. Provider credentials remain server-side. */
 public final class CloudAudioTranscriber {
     public interface Callback {
         void ok(TranscriptResult result);
         void fail(Exception error);
     }
 
-    /** Errors that are worth retrying when connectivity/provider capacity recovers. */
     public static final class RetryableException extends Exception {
         public RetryableException(String message) { super(message); }
         public RetryableException(String message, Throwable cause) { super(message, cause); }
     }
 
     private static final String ENDPOINT = "https://kareemabdelaziz.com/ai/transcribe.php";
+    private static final int MAX_REDIRECTS = 3;
     private static final ExecutorService EXECUTOR = Executors.newCachedThreadPool();
 
     private CloudAudioTranscriber() {}
@@ -61,15 +54,18 @@ public final class CloudAudioTranscriber {
         if (audioFile.length() <= 0) {
             throw new IllegalArgumentException("Audio file is empty");
         }
-        // OpenAI file transcription currently accepts files up to 25 MB.
         if (audioFile.length() > 25L * 1024L * 1024L) {
             throw new IllegalArgumentException("Audio file exceeds the 25 MB cloud transcription limit");
         }
+        return postAudio(new URL(ENDPOINT), audioFile, 0);
+    }
 
+    private static TranscriptResult postAudio(URL endpoint, File audioFile, int redirectCount) throws Exception {
         HttpURLConnection connection = null;
-        String boundary = "----CortexVoice" + UUID.randomUUID().toString().replace("-", "");
+        String boundary = "----CortexPrimeVoice" + UUID.randomUUID().toString().replace("-", "");
         try {
-            connection = (HttpURLConnection) new URL(ENDPOINT).openConnection();
+            connection = (HttpURLConnection) endpoint.openConnection();
+            connection.setInstanceFollowRedirects(false); // We must preserve POST + body across 307/308.
             connection.setRequestMethod("POST");
             connection.setConnectTimeout(20_000);
             connection.setReadTimeout(180_000);
@@ -77,7 +73,7 @@ public final class CloudAudioTranscriber {
             connection.setUseCaches(false);
             connection.setRequestProperty("Accept", "application/json");
             connection.setRequestProperty("Content-Type", "multipart/form-data; boundary=" + boundary);
-            connection.setRequestProperty("X-Cortex-Client", "android-cloud-voice-v1");
+            connection.setRequestProperty("X-Cortex-Client", "android-cloud-voice-v2");
 
             try (OutputStream raw = connection.getOutputStream()) {
                 writeTextPart(raw, boundary, "mode", "ar-EG+en-codeswitch-auto");
@@ -88,6 +84,21 @@ public final class CloudAudioTranscriber {
             }
 
             int code = connection.getResponseCode();
+            if (code == 301 || code == 302 || code == 307 || code == 308) {
+                if (redirectCount >= MAX_REDIRECTS) {
+                    throw new IllegalStateException("Cortex transcription backend redirect loop (HTTP " + code + ")");
+                }
+                String location = connection.getHeaderField("Location");
+                if (location == null || location.trim().isEmpty()) {
+                    throw new IllegalStateException("Cortex transcription backend HTTP " + code + " without Location header");
+                }
+                URL next = new URL(endpoint, location.trim());
+                validateRedirect(endpoint, next);
+                connection.disconnect();
+                connection = null;
+                return postAudio(next, audioFile, redirectCount + 1);
+            }
+
             String body = readBody(code >= 200 && code < 300
                     ? connection.getInputStream()
                     : connection.getErrorStream());
@@ -104,20 +115,17 @@ public final class CloudAudioTranscriber {
             JSONObject json = new JSONObject(body);
             if (!json.optBoolean("ok", true)) {
                 String message = json.optString("error", "Cloud transcription failed");
-                boolean retryable = json.optBoolean("retryable", false);
-                if (retryable) throw new RetryableException(message);
+                if (json.optBoolean("retryable", false)) throw new RetryableException(message);
                 throw new IllegalStateException(message);
             }
 
             String text = json.optString("transcript", json.optString("text", "")).trim();
-            if (text.isEmpty()) {
-                throw new IllegalStateException("Cloud transcription returned no text");
-            }
+            if (text.isEmpty()) throw new IllegalStateException("Cloud transcription returned no text");
 
             TranscriptResult result = new TranscriptResult();
             result.text = text;
             result.engine = json.optString("engine", "gpt-transcribe_cloud");
-            result.version = json.optString("version", "cloud-v1");
+            result.version = json.optString("version", "cloud-v2");
             result.language = json.optString("language", "ar-EG+en-codeswitch-auto");
             result.durationMs = json.optLong("duration_ms", 0L);
 
@@ -144,6 +152,22 @@ public final class CloudAudioTranscriber {
         }
     }
 
+    private static void validateRedirect(URL from, URL to) {
+        if (!"https".equalsIgnoreCase(to.getProtocol())) {
+            throw new SecurityException("Refusing non-HTTPS transcription redirect");
+        }
+        String fromHost = normalizeHost(from.getHost());
+        String toHost = normalizeHost(to.getHost());
+        if (!fromHost.equals(toHost)) {
+            throw new SecurityException("Refusing transcription redirect to another host: " + to.getHost());
+        }
+    }
+
+    private static String normalizeHost(String host) {
+        String h = host == null ? "" : host.toLowerCase(Locale.US);
+        return h.startsWith("www.") ? h.substring(4) : h;
+    }
+
     private static void writeTextPart(OutputStream out, String boundary, String name, String value) throws Exception {
         out.write(("--" + boundary + "\r\n").getBytes(StandardCharsets.UTF_8));
         out.write(("Content-Disposition: form-data; name=\"" + name + "\"\r\n\r\n").getBytes(StandardCharsets.UTF_8));
@@ -158,9 +182,7 @@ public final class CloudAudioTranscriber {
         try (FileInputStream in = new FileInputStream(file)) {
             byte[] buffer = new byte[64 * 1024];
             int n;
-            while ((n = in.read(buffer)) >= 0) {
-                if (n > 0) out.write(buffer, 0, n);
-            }
+            while ((n = in.read(buffer)) >= 0) if (n > 0) out.write(buffer, 0, n);
         }
         out.write("\r\n".getBytes(StandardCharsets.UTF_8));
     }
@@ -180,7 +202,7 @@ public final class CloudAudioTranscriber {
     }
 
     private static String mimeFor(File file) {
-        String n = file.getName().toLowerCase();
+        String n = file.getName().toLowerCase(Locale.US);
         if (n.endsWith(".wav")) return "audio/wav";
         if (n.endsWith(".m4a")) return "audio/mp4";
         if (n.endsWith(".mp3")) return "audio/mpeg";
