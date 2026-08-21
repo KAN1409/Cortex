@@ -24,7 +24,7 @@ public class WhisperProgressActivity extends Activity {
     void build(){
         LinearLayout root=new LinearLayout(this);root.setOrientation(LinearLayout.VERTICAL);root.setGravity(Gravity.CENTER_HORIZONTAL);root.setBackgroundColor(bg);root.setPadding(dp(24),dp(34),dp(24),dp(24));
         TextView title=tv("LOCAL CODE-SWITCH ASR",21,text);title.setTypeface(null,1);root.addView(title,new LinearLayout.LayoutParams(-1,-2));
-        TextView sub=tv("Egyptian Arabic + English • local • no cloud/API",14,muted);sub.setPadding(0,dp(6),0,dp(26));root.addView(sub,new LinearLayout.LayoutParams(-1,-2));
+        TextView sub=tv("Egyptian Arabic + English • VAD + auto + English rescue",14,muted);sub.setPadding(0,dp(6),0,dp(26));root.addView(sub,new LinearLayout.LayoutParams(-1,-2));
         stage=tv("Preparing…",18,text);root.addView(stage,new LinearLayout.LayoutParams(-1,-2));
         bar=new ProgressBar(this,null,android.R.attr.progressBarStyleHorizontal);bar.setMax(100);bar.setProgress(0);LinearLayout.LayoutParams bp=new LinearLayout.LayoutParams(-1,dp(18));bp.setMargins(0,dp(18),0,dp(8));root.addView(bar,bp);
         amount=tv("Waiting…",14,accent);root.addView(amount,new LinearLayout.LayoutParams(-1,-2));
@@ -37,8 +37,15 @@ public class WhisperProgressActivity extends Activity {
         String s=WhisperRuntimeState.stageName(WhisperProgressActivity.this),d=WhisperRuntimeState.detailText(WhisperProgressActivity.this);
         int pct=WhisperRuntimeState.progressPercent(WhisperProgressActivity.this);stage.setText(pretty(s));detail.setText(d==null?"":d);
         if("importing local model".equals(s)){bar.setIndeterminate(false);bar.setProgress(pct);amount.setText(WhisperRuntimeState.progressText(WhisperProgressActivity.this));}
-        else if("model ready".equals(s)){bar.setIndeterminate(false);bar.setProgress(100);amount.setText("100% • model ready");close.setText("DONE");close.setEnabled(true);}
-        else if("queued local ASR".equals(s)||"loading model".equals(s)||"transcribing".equals(s)){bar.setIndeterminate(true);amount.setText("loading model".equals(s)?"Local model ready • loading…":("transcribing".equals(s)?"Model loaded • transcribing…":"Queued for local ASR…"));}
+        else if("model ready".equals(s)){
+            if(itemId>0){bar.setIndeterminate(true);amount.setText("Model ready • starting re-analysis…");}
+            else{bar.setIndeterminate(false);bar.setProgress(100);amount.setText("100% • model ready");close.setText("DONE");close.setEnabled(true);}
+        }
+        else if("queued local ASR".equals(s)){bar.setIndeterminate(true);amount.setText("Queued for local ASR…");}
+        else if("detecting speech".equals(s)){bar.setIndeterminate(true);amount.setText("Finding speech intervals + real timestamps…");}
+        else if("loading model".equals(s)){bar.setIndeterminate(true);amount.setText("Local model ready • loading…");}
+        else if("transcribing".equals(s)){bar.setIndeterminate(true);amount.setText("Multilingual auto decode…");}
+        else if("english rescue".equals(s)){bar.setIndeterminate(true);amount.setText("English switch detected • re-decoding interval…");}
         else if("ready".equals(s)){bar.setIndeterminate(false);bar.setProgress(100);amount.setText("100% • transcription complete");close.setText("DONE");close.setEnabled(true);}
         else if("failed".equals(s)){bar.setIndeterminate(false);amount.setText("FAILED");close.setText("CLOSE");close.setEnabled(true);}
         if(!isFinishing()&&!isDestroyed()&&!close.isEnabled())h.postDelayed(this,400);
