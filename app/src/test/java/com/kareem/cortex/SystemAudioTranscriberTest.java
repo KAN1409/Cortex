@@ -25,4 +25,9 @@ public class SystemAudioTranscriberTest {
         assertEquals("recording transcript",out);
         assertTrue(out.matches("[A-Za-z ]+"));
     }
+
+    @Test public void whisperCppGgmlMagicIsLittleEndian(){
+        assertTrue(LocalAsrModelStore.isGgmlHeader(new byte[]{'l','m','g','g'}));
+        assertFalse(LocalAsrModelStore.isGgmlHeader(new byte[]{'g','g','m','l'}));
+    }
 }
