@@ -43,11 +43,21 @@ jobs:
           python - <<'PY'
           from pathlib import Path
           import shutil, yaml
+          from omegaconf import OmegaConf
 
           root = Path('tata-source')
           src_cfg = root / 'config.yaml'
-          cfg = yaml.safe_load(src_cfg.read_text(encoding='utf-8'))
-          model_cfg = cfg.get('model', cfg)
+
+          # Resolve ${model.*} references while the original full config tree
+          # still exists, then extract the model section for NeMo-Speech.cpp.
+          conf = OmegaConf.load(src_cfg)
+          resolved = OmegaConf.to_container(conf, resolve=True)
+          if not isinstance(resolved, dict):
+              raise SystemExit('Resolved TATA config is not a mapping')
+          model_cfg = resolved.get('model', resolved)
+          if not isinstance(model_cfg, dict):
+              raise SystemExit('Resolved TATA model config is not a mapping')
+
           (root / 'model_config.yaml').write_text(
               yaml.safe_dump(model_cfg, sort_keys=False, allow_unicode=True),
               encoding='utf-8',
@@ -59,6 +69,10 @@ jobs:
           if not tok_models:
               raise SystemExit('No SentencePiece tokenizer model found')
           shutil.copy2(tok_models[0], root / 'tokenizer.model')
+
+          text = (root / 'model_config.yaml').read_text(encoding='utf-8')
+          if '${' in text:
+              raise SystemExit('Unresolved OmegaConf interpolation remains in model_config.yaml')
 
           print('normalized files:')
           for p in sorted(root.rglob('*')):
