@@ -49,15 +49,14 @@ public final class AudioStore {
                 String status=j.optString("status","");if(!status.isEmpty()&&!"ok".equals(status))b.append("  [").append(status).append(']');
                 if(j.has("score"))b.append("\nScore: ").append(j.optDouble("score",0));
                 boolean coverageKnown=!j.has("coverage_known")||j.optBoolean("coverage_known",true);
-                if(coverageKnown)b.append("  | Coverage: ").append(Math.round(j.optDouble("coverage",0)*100)).append('%');
-                else b.append("  | Coverage: n/a");
+                if(coverageKnown)b.append("  | Coverage: ").append(Math.round(j.optDouble("coverage",0)*100)).append('%');else b.append("  | Coverage: n/a");
                 if(j.has("arabic_ratio")||j.has("latin_ratio"))b.append("\nArabic: ").append(Math.round(j.optDouble("arabic_ratio",0)*100)).append('%').append("  | Latin: ").append(Math.round(j.optDouble("latin_ratio",0)*100)).append('%');
                 if(j.has("avg_logprob"))b.append("\navg_logprob: ").append(j.optDouble("avg_logprob",0));
                 if(j.has("avg_compression_ratio"))b.append("  | compression: ").append(j.optDouble("avg_compression_ratio",0));
                 if(j.has("avg_no_speech_prob"))b.append("\nno_speech: ").append(j.optDouble("avg_no_speech_prob",0));
                 String note=j.optString("coverage_note","");if(!note.isEmpty())b.append("\n").append(note);
                 String warning=j.optString("warning","");if(!warning.isEmpty())b.append("\nWarning: ").append(warning);
-                String text=j.optString("text","").trim();if(!text.isEmpty())b.append("\nText: ").append(text);
+                String text=j.optString("text","").trim();if(!text.isEmpty())b.append("\nText: ").append(MixedBidiText.forDisplay(text));
             }
             return b.toString();
         }catch(Exception ignored){return "";}
@@ -67,8 +66,8 @@ public final class AudioStore {
         ensure(db);Cursor c=db.getReadableDatabase().query("audio_info",new String[]{"raw_transcript","provider_merged_transcript","raw_provider_response"},"item_id=?",new String[]{String.valueOf(itemId)},null,null,null,"1");String x="";
         if(c.moveToFirst()){
             String raw=c.getString(0),merged=c.getString(1),response=c.getString(2);StringBuilder b=new StringBuilder();String bench=benchmark(response);if(!bench.isEmpty())b.append("ASR BENCHMARK\n").append(bench);
-            if(raw!=null&&!raw.trim().isEmpty()){if(b.length()>0)b.append("\n\n");b.append("RAW ENGINE OUTPUT\n").append(raw.trim());}
-            if(merged!=null&&!merged.trim().isEmpty()&&!merged.trim().equals(raw==null?"":raw.trim())){if(b.length()>0)b.append("\n\n");b.append("MERGED SEGMENTS\n").append(merged.trim());}
+            if(raw!=null&&!raw.trim().isEmpty()){if(b.length()>0)b.append("\n\n");b.append("RAW ENGINE OUTPUT\n").append(MixedBidiText.forDisplay(raw.trim()));}
+            if(merged!=null&&!merged.trim().isEmpty()&&!merged.trim().equals(raw==null?"":raw.trim())){if(b.length()>0)b.append("\n\n");b.append("MERGED SEGMENTS\n").append(MixedBidiText.forDisplay(merged.trim()));}
             if(response!=null&&!response.trim().isEmpty()){if(b.length()>0)b.append("\n\n");String compact=response.trim();if(compact.length()>2500)compact=compact.substring(0,2500)+"…";b.append("RAW PROVIDER JSON\n").append(compact);}x=b.toString();
         }c.close();return x;
     }
