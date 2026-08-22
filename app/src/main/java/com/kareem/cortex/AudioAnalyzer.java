@@ -15,52 +15,66 @@ public final class AudioAnalyzer {
             if(item.attachmentPath==null||item.attachmentPath.isEmpty())throw new IllegalArgumentException("Missing audio file");
             File f=new File(item.attachmentPath);if(!f.exists())throw new IllegalArgumentException("Audio file not found");
             boolean groq=GroqKeyStore.has(ctx),gemini=GeminiKeyStore.has(ctx);
-            if(!groq&&!gemini){cb.fail(retryable("No ASR provider configured. Add Groq and/or Gemini API key",null));return;}
-            if(!groq){runGeminiOnly(ctx,f,cb);return;}
+            if(!groq&&!gemini){cb.fail(retryable("No ASR provider configured. Add Gemini and/or Groq API key",null));return;}
 
-            GroqAudioTranscriber.transcribe(ctx,f,new GroqAudioTranscriber.Callback(){
-                public void ok(TranscriptResult t){
-                    String warning=acceptabilityWarning(t);
-                    if(warning!=null){
-                        if(gemini)runGeminiOnly(ctx,f,cb);
-                        else cb.fail(retryable("Groq returned an incomplete transcript: "+warning,null));
-                        return;
+            // Production v27: Gemini 3.6 Flash is primary. Groq is fallback only.
+            if(gemini){
+                GeminiAudioTranscriber.transcribe(ctx,f,new GeminiAudioTranscriber.Callback(){
+                    public void ok(TranscriptResult g){
+                        String warning=acceptabilityWarning(g);
+                        if(warning==null){prepareGeminiPrimary(g,groq);finish(g,cb);}
+                        else if(groq)runGroqFallback(ctx,f,cb,"Gemini rejected: "+warning);
+                        else cb.fail(retryable("Gemini returned an incomplete transcript: "+warning,null));
                     }
-                    if(!gemini){enrichWithGemini(t,null,"NOT_CONFIGURED");finish(t,cb);return;}
-                    GeminiAudioTranscriber.transcribe(ctx,f,new GeminiAudioTranscriber.Callback(){
-                        public void ok(TranscriptResult g){enrichWithGemini(t,g,null);finish(t,cb);}
-                        public void fail(Exception e){enrichWithGemini(t,null,message(e));finish(t,cb);}
-                    });
-                }
-                public void fail(Exception groqError){
-                    if(gemini)runGeminiOnly(ctx,f,cb);
-                    else cb.fail(retryable("Groq failed: "+message(groqError),groqError));
-                }
-            });
+                    public void fail(Exception e){
+                        if(groq)runGroqFallback(ctx,f,cb,"Gemini failed: "+message(e));
+                        else cb.fail(retryable("Gemini failed: "+message(e),e));
+                    }
+                });
+                return;
+            }
+
+            runGroqFallback(ctx,f,cb,"Gemini API key not configured");
         }catch(Exception e){cb.fail(e);}
     }
 
-    private static void runGeminiOnly(Context ctx,File f,Callback cb){
-        GeminiAudioTranscriber.transcribe(ctx,f,new GeminiAudioTranscriber.Callback(){
-            public void ok(TranscriptResult g){String w=acceptabilityWarning(g);if(w==null)finish(g,cb);else cb.fail(retryable("Gemini returned an incomplete transcript: "+w,null));}
-            public void fail(Exception e){cb.fail(retryable("Gemini failed: "+message(e),e));}
+    private static void runGroqFallback(Context ctx,File f,Callback cb,String geminiStatus){
+        GroqAudioTranscriber.transcribe(ctx,f,new GroqAudioTranscriber.Callback(){
+            public void ok(TranscriptResult t){
+                String warning=acceptabilityWarning(t);
+                if(warning!=null){cb.fail(retryable("Groq fallback returned an incomplete transcript: "+warning+" | "+geminiStatus,null));return;}
+                enrichGroqFallback(t,geminiStatus);finish(t,cb);
+            }
+            public void fail(Exception e){cb.fail(retryable(geminiStatus+" | Groq fallback failed: "+message(e),e));}
         });
     }
 
-    private static void enrichWithGemini(TranscriptResult groq,TranscriptResult gemini,String geminiError){
+    private static void prepareGeminiPrimary(TranscriptResult g,boolean groqConfigured){
         try{
-            JSONObject root;
-            try{root=new JSONObject(groq.rawProviderResponse);}catch(Exception e){root=new JSONObject();}
+            String raw=g.rawProviderResponse==null?"":g.rawProviderResponse;
+            JSONObject root=new JSONObject();JSONArray arr=new JSONArray();
+            JSONObject j=new JSONObject();
+            j.put("label","gemini_3_6_flash");j.put("provider","gemini");j.put("status","ok");j.put("selected",true);
+            j.put("engine",g.engine);j.put("language",g.language);j.put("score",round1(geminiBenchmarkScore(g)));
+            j.put("coverage_known",false);j.put("coverage_note","Full audio supplied; Gemini generateContent does not return ASR segment timestamps");
+            j.put("arabic_ratio",round3(scriptRatio(g.text,true)));j.put("latin_ratio",round3(scriptRatio(g.text,false)));
+            j.put("text",g.text);j.put("raw_text",g.rawTranscript==null?g.text:g.rawTranscript);arr.put(j);
+            root.put("candidates",arr);root.put("selected","gemini_3_6_flash");root.put("gemini_status","ok");
+            root.put("asr_mode","Gemini 3.6 Flash primary; Groq fallback only");
+            root.put("groq_fallback",groqConfigured?"configured_not_called":"not_configured");
+            if(!raw.trim().isEmpty()){try{root.put("gemini_raw_provider",new JSONObject(raw));}catch(Exception e){root.put("gemini_raw_provider_text",raw);}}
+            g.rawProviderResponse=root.toString();
+        }catch(Exception ignored){}
+    }
+
+    private static void enrichGroqFallback(TranscriptResult groq,String geminiStatus){
+        try{
+            JSONObject root;try{root=new JSONObject(groq.rawProviderResponse);}catch(Exception e){root=new JSONObject();}
             JSONArray arr=root.optJSONArray("candidates");if(arr==null){arr=new JSONArray();root.put("candidates",arr);}
-            if(gemini!=null){
-                JSONObject j=new JSONObject();j.put("label","gemini_3_6_flash");j.put("provider","gemini");j.put("status","ok");j.put("engine",gemini.engine);j.put("language",gemini.language);j.put("score",round1(geminiBenchmarkScore(gemini)));j.put("warning",acceptabilityWarning(gemini)==null?"":acceptabilityWarning(gemini));j.put("coverage",0);j.put("coverage_note","Gemini generateContent does not return ASR segment timestamps; full audio was supplied");j.put("arabic_ratio",round3(scriptRatio(gemini.text,true)));j.put("latin_ratio",round3(scriptRatio(gemini.text,false)));j.put("text",gemini.text);j.put("raw_text",gemini.rawTranscript);arr.put(j);
-                root.put("gemini_status","ok");root.put("gemini_raw_provider",new JSONObject(gemini.rawProviderResponse));
-            }else if(geminiError!=null){
-                boolean missing="NOT_CONFIGURED".equals(geminiError);
-                JSONObject j=new JSONObject();j.put("label","gemini_3_6_flash");j.put("provider","gemini");j.put("status",missing?"not_configured":"failed");j.put("score",-1000);j.put("coverage",0);j.put("arabic_ratio",0);j.put("latin_ratio",0);j.put("warning",missing?"Gemini API key not configured":geminiError);arr.put(j);
-                root.put("gemini_status",missing?"not_configured":"failed");root.put("gemini_error",missing?"Gemini API key not configured":geminiError);
-            }
-            root.put("benchmark_mode","Groq Whisper candidates + Gemini 3.6 Flash side-by-side; Groq winner remains selected in v26 unless Groq fails");
+            JSONObject j=new JSONObject();j.put("label","gemini_3_6_flash");j.put("provider","gemini");j.put("status","failed_or_unavailable");j.put("score",-1000);
+            j.put("coverage_known",false);j.put("arabic_ratio",0);j.put("latin_ratio",0);j.put("warning",geminiStatus);arr.put(j);
+            root.put("gemini_status","fallback_triggered");root.put("gemini_error",geminiStatus);
+            root.put("asr_mode","Gemini 3.6 Flash primary; Groq fallback selected");
             groq.rawProviderResponse=root.toString();
         }catch(Exception ignored){}
     }
@@ -73,8 +87,7 @@ public final class AudioAnalyzer {
 
     private static String acceptabilityWarning(TranscriptResult t){
         if(t==null)return "missing transcript result";
-        String text=t.text==null?"":t.text.trim();
-        if(text.isEmpty())return "empty transcript";
+        String text=t.text==null?"":t.text.trim();if(text.isEmpty())return "empty transcript";
         if(text.toLowerCase(Locale.US).contains("<hesitation>"))return "contains <hesitation>";
         if(t.qualityWarning!=null&&!t.qualityWarning.trim().isEmpty())return t.qualityWarning.trim();
         int words=wordCount(text);
@@ -91,11 +104,8 @@ public final class AudioAnalyzer {
 
     private static void finish(TranscriptResult t,Callback cb){
         try{
-            String warning=acceptabilityWarning(t);
-            if(warning!=null){cb.fail(retryable("Transcript rejected before local analysis: "+warning,null));return;}
-            String clean=t.text==null?"":t.text.replaceAll("\\s+"," ").trim();
-            if(clean.isEmpty()){cb.fail(retryable("Transcript rejected before local analysis: empty transcript",null));return;}
-            t.text=clean;
+            String warning=acceptabilityWarning(t);if(warning!=null){cb.fail(retryable("Transcript rejected before local analysis: "+warning,null));return;}
+            String clean=t.text==null?"":t.text.replaceAll("\\s+"," ").trim();if(clean.isEmpty()){cb.fail(retryable("Transcript rejected before local analysis: empty transcript",null));return;}t.text=clean;
             AnalysisResult r=LocalAnalyzer.analyze(t.text,"text/plain");
             r.extractedText=t.text;r.engine=t.engine+"+local_analysis";r.version=t.version;r.category="Voice & Audio";r.tags="voice,audio,transcript,"+AutoClassifier.tags(t.text,"Voice & Audio");r.title="Voice: "+AutoClassifier.title(t.text,"text/plain");
             for(TranscriptResult.Segment s:t.segments)r.transcriptSegments.add(new AnalysisResult.TranscriptSegment(s.startMs,s.endMs,s.text,s.confidence));
