@@ -1,15 +1,39 @@
 plugins { id 'com.android.application' }
 
+// Cortex test builds use one stable debug signing identity so installing a new
+// APK upgrades the existing app instead of forcing an uninstall that wipes the
+// local database and Android-Keystore-encrypted provider keys.
+def cortexDebugKeystore = file('cortex-debug.keystore')
+def cortexDebugKeystoreB64 = file('cortex-debug.keystore.b64')
+if (!cortexDebugKeystore.exists() && cortexDebugKeystoreB64.exists()) {
+    cortexDebugKeystore.bytes = java.util.Base64.getDecoder().decode(cortexDebugKeystoreB64.text.trim())
+}
+
 android {
     namespace 'com.kareem.cortex'
     compileSdk 35
+
+    signingConfigs {
+        debug {
+            storeFile cortexDebugKeystore
+            storePassword 'android'
+            keyAlias 'androiddebugkey'
+            keyPassword 'android'
+        }
+    }
 
     defaultConfig {
         applicationId 'com.kareem.cortex'
         minSdk 26
         targetSdk 35
-        versionCode 29
-        versionName '1.0.0-v29'
+        versionCode 30
+        versionName '1.0.0-v30'
+    }
+
+    buildTypes {
+        debug {
+            signingConfig signingConfigs.debug
+        }
     }
 
     compileOptions {
