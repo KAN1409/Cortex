@@ -28,7 +28,12 @@ public final class GroqAudioTranscriber {
 
     private static final String ENDPOINT="https://api.groq.com/openai/v1/audio/transcriptions";
     private static final String MODEL="whisper-large-v3";
-    private static final String VERSION="groq-audio-v2";
+    private static final String VERSION="groq-audio-v3-code-switch-prompt";
+    private static final String CODE_SWITCH_PROMPT=
+            "Egyptian Arabic speech with frequent English code-switching. Transcribe verbatim. " +
+            "Preserve spoken English words in English Latin letters. Do not translate English into Arabic. " +
+            "Do not convert Egyptian Arabic to Modern Standard Arabic. Do not paraphrase. " +
+            "Technical terms may include: recording, transcription, model, Cohere, Whisper, Groq, API, Android, Cortex.";
 
     private GroqAudioTranscriber(){}
 
@@ -36,7 +41,7 @@ public final class GroqAudioTranscriber {
         final Context app=context.getApplicationContext();
         new Thread(()->{
             try{
-                TranscriptResult first=call(app,audio);
+                TranscriptResult first=call(app,audio,true);
                 String warning=qualityWarning(first,audio);
                 if(warning!=null){
                     first.qualityWarning=warning;
@@ -49,8 +54,8 @@ public final class GroqAudioTranscriber {
                     return;
                 }
                 try{
-                    TranscriptResult retry=call(app,audio);
-                    retry.engine=MODEL+"+network_retry";
+                    TranscriptResult retry=call(app,audio,true);
+                    retry.engine=MODEL+"+prompt+network_retry";
                     String warning=qualityWarning(retry,audio);
                     if(warning!=null){
                         retry.qualityWarning=warning;
@@ -67,7 +72,7 @@ public final class GroqAudioTranscriber {
         },"CortexGroqASR").start();
     }
 
-    private static TranscriptResult call(Context context,File audio) throws Exception {
+    private static TranscriptResult call(Context context,File audio,boolean prompted) throws Exception {
         if(audio==null||!audio.exists()||audio.length()==0)throw new IllegalArgumentException("Missing audio file");
         String key=GroqKeyStore.get(context);
         if(key.isEmpty())throw new IllegalStateException("Groq API key not configured");
@@ -88,6 +93,7 @@ public final class GroqAudioTranscriber {
             field(out,boundary,"response_format","verbose_json");
             field(out,boundary,"temperature","0");
             field(out,boundary,"timestamp_granularities[]","segment");
+            if(prompted)field(out,boundary,"prompt",CODE_SWITCH_PROMPT);
             file(out,boundary,"file",audio,mime(audio));
             write(out,"--"+boundary+"--\r\n");
         }
@@ -102,7 +108,7 @@ public final class GroqAudioTranscriber {
         TranscriptResult r=new TranscriptResult();
         r.rawProviderResponse=body;
         r.language=json.optString("language","auto");
-        r.engine=MODEL;
+        r.engine=MODEL+(prompted?"+prompt":"");
         r.version=VERSION;
         r.durationMs=duration(audio);
         if(r.durationMs<=0){
@@ -111,6 +117,7 @@ public final class GroqAudioTranscriber {
         }
 
         String topLevel=json.optString("text","").trim();
+        r.rawTranscript=topLevel;
         String merged=parseSegments(json,r);
         r.providerMergedTranscript=merged;
         r.text=!merged.isEmpty()?merged:dedupeRepeatedText(topLevel);
@@ -146,9 +153,7 @@ public final class GroqAudioTranscriber {
 
             boolean sameAsPrevious=normalized.equals(previousNormalized);
             boolean nearOrOverlapping=previousEnd>=0 && (start<=previousEnd+1200 || (previousStart>=0&&Math.abs(start-previousStart)<2500));
-            if(sameAsPrevious && nearOrOverlapping){
-                continue;
-            }
+            if(sameAsPrevious && nearOrOverlapping)continue;
 
             float confidence=(float)s.optDouble("confidence",0);
             r.segments.add(new TranscriptResult.Segment(start,end,text,confidence));
@@ -227,108 +232,22 @@ public final class GroqAudioTranscriber {
             int code=((HttpStatusException)e).code;
             return code==408||code==409||code==429||code>=500;
         }
-        return e instanceof SocketTimeoutException||
-                e instanceof ConnectException||
-                e instanceof SocketException||
-                e instanceof UnknownHostException;
+        return e instanceof SocketTimeoutException||e instanceof ConnectException||e instanceof SocketException||e instanceof UnknownHostException;
     }
 
-    private static String message(Exception e){
-        if(e==null)return "Unknown error";
-        String m=e.getMessage();
-        return m==null||m.trim().isEmpty()?e.getClass().getSimpleName():m.trim();
-    }
+    private static String message(Exception e){if(e==null)return "Unknown error";String m=e.getMessage();return m==null||m.trim().isEmpty()?e.getClass().getSimpleName():m.trim();}
+    private static int countWords(String s){String t=s==null?"":s.trim();return t.isEmpty()?0:t.split("\\s+").length;}
+    private static String cleanup(String s){if(s==null)return "";return s.replace("<hesitation>"," ").replaceAll("\\s+"," ").trim();}
+    private static long toMs(double seconds){if(seconds<=0)return 0;return Math.round(seconds*1000.0);}
 
-    private static int countWords(String s){
-        String t=s==null?"":s.trim();
-        return t.isEmpty()?0:t.split("\\s+").length;
-    }
+    private static void field(OutputStream out,String boundary,String name,String value) throws Exception {write(out,"--"+boundary+"\r\n");write(out,"Content-Disposition: form-data; name=\""+name+"\"\r\n\r\n");write(out,value+"\r\n");}
+    private static void file(OutputStream out,String boundary,String name,File f,String mime) throws Exception {write(out,"--"+boundary+"\r\n");write(out,"Content-Disposition: form-data; name=\""+name+"\"; filename=\""+f.getName().replace("\"","")+"\"\r\n");write(out,"Content-Type: "+mime+"\r\n\r\n");try(InputStream in=new BufferedInputStream(new FileInputStream(f))){byte[] buf=new byte[64*1024];for(int n;(n=in.read(buf))!=-1;)out.write(buf,0,n);}write(out,"\r\n");}
+    private static void write(OutputStream out,String s) throws Exception {out.write(s.getBytes(StandardCharsets.UTF_8));}
+    private static String read(InputStream in) throws Exception {if(in==null)return "";try(InputStream x=in;ByteArrayOutputStream b=new ByteArrayOutputStream()){byte[] buf=new byte[8192];for(int n;(n=x.read(buf))!=-1;)b.write(buf,0,n);return b.toString(StandardCharsets.UTF_8.name());}}
+    private static String compactError(String body){if(body==null)return "Unknown error";try{JSONObject j=new JSONObject(body);JSONObject error=j.optJSONObject("error");if(error!=null){String nested=error.optString("message","");if(!nested.isEmpty())return nested;}String direct=j.optString("message","");if(!direct.isEmpty())return direct;}catch(Exception ignored){}String s=body.replaceAll("\\s+"," ").trim();return s.length()>240?s.substring(0,240)+"…":s;}
+    private static String mime(File f){String n=f.getName().toLowerCase(Locale.US);if(n.endsWith(".wav"))return "audio/wav";if(n.endsWith(".mp3"))return "audio/mpeg";if(n.endsWith(".ogg"))return "audio/ogg";if(n.endsWith(".flac"))return "audio/flac";if(n.endsWith(".m4a")||n.endsWith(".mp4"))return "audio/mp4";if(n.endsWith(".webm"))return "audio/webm";if(n.endsWith(".mpeg")||n.endsWith(".mpga"))return "audio/mpeg";return "application/octet-stream";}
+    private static long duration(File audio){MediaMetadataRetriever m=new MediaMetadataRetriever();try{m.setDataSource(audio.getAbsolutePath());String d=m.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION);return d==null?0:Long.parseLong(d);}catch(Exception ignored){return 0;}finally{try{m.release();}catch(Exception ignored){}}}
 
-    private static String cleanup(String s){
-        if(s==null)return "";
-        return s.replace("<hesitation>"," ").replaceAll("\\s+"," ").trim();
-    }
-
-    private static long toMs(double seconds){
-        if(seconds<=0)return 0;
-        return Math.round(seconds*1000.0);
-    }
-
-    private static void field(OutputStream out,String boundary,String name,String value) throws Exception {
-        write(out,"--"+boundary+"\r\n");
-        write(out,"Content-Disposition: form-data; name=\""+name+"\"\r\n\r\n");
-        write(out,value+"\r\n");
-    }
-
-    private static void file(OutputStream out,String boundary,String name,File f,String mime) throws Exception {
-        write(out,"--"+boundary+"\r\n");
-        write(out,"Content-Disposition: form-data; name=\""+name+"\"; filename=\""+f.getName().replace("\"","")+"\"\r\n");
-        write(out,"Content-Type: "+mime+"\r\n\r\n");
-        try(InputStream in=new BufferedInputStream(new FileInputStream(f))){
-            byte[] buf=new byte[64*1024];
-            for(int n;(n=in.read(buf))!=-1;)out.write(buf,0,n);
-        }
-        write(out,"\r\n");
-    }
-
-    private static void write(OutputStream out,String s) throws Exception {
-        out.write(s.getBytes(StandardCharsets.UTF_8));
-    }
-
-    private static String read(InputStream in) throws Exception {
-        if(in==null)return "";
-        try(InputStream x=in;ByteArrayOutputStream b=new ByteArrayOutputStream()){
-            byte[] buf=new byte[8192];
-            for(int n;(n=x.read(buf))!=-1;)b.write(buf,0,n);
-            return b.toString(StandardCharsets.UTF_8.name());
-        }
-    }
-
-    private static String compactError(String body){
-        if(body==null)return "Unknown error";
-        try{
-            JSONObject j=new JSONObject(body);
-            JSONObject error=j.optJSONObject("error");
-            if(error!=null){
-                String nested=error.optString("message","");
-                if(!nested.isEmpty())return nested;
-            }
-            String direct=j.optString("message","");
-            if(!direct.isEmpty())return direct;
-        }catch(Exception ignored){}
-        String s=body.replaceAll("\\s+"," ").trim();
-        return s.length()>240?s.substring(0,240)+"…":s;
-    }
-
-    private static String mime(File f){
-        String n=f.getName().toLowerCase(Locale.US);
-        if(n.endsWith(".wav"))return "audio/wav";
-        if(n.endsWith(".mp3"))return "audio/mpeg";
-        if(n.endsWith(".ogg"))return "audio/ogg";
-        if(n.endsWith(".flac"))return "audio/flac";
-        if(n.endsWith(".m4a"))return "audio/mp4";
-        if(n.endsWith(".mp4"))return "audio/mp4";
-        if(n.endsWith(".webm"))return "audio/webm";
-        if(n.endsWith(".mpeg")||n.endsWith(".mpga"))return "audio/mpeg";
-        return "application/octet-stream";
-    }
-
-    private static long duration(File audio){
-        MediaMetadataRetriever m=new MediaMetadataRetriever();
-        try{
-            m.setDataSource(audio.getAbsolutePath());
-            String d=m.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION);
-            return d==null?0:Long.parseLong(d);
-        }catch(Exception ignored){return 0;}
-        finally{try{m.release();}catch(Exception ignored){}}
-    }
-
-    private static final class QualityException extends IOException {
-        QualityException(String message){super(message);}
-    }
-
-    private static final class HttpStatusException extends IOException {
-        final int code;
-        HttpStatusException(int code,String message){super(message);this.code=code;}
-    }
+    private static final class QualityException extends IOException {QualityException(String message){super(message);}}
+    private static final class HttpStatusException extends IOException {final int code;HttpStatusException(int code,String message){super(message);this.code=code;}}
 }
