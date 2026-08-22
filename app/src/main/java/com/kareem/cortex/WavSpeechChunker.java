@@ -10,7 +10,7 @@ public final class WavSpeechChunker {
     private static final long SHORT_NOTE_MS=28_000L;
     private static final long MERGE_GAP_MS=1_500L;
     private static final long MIN_SPEECH_MS=150L;
-    static final long SPEECH_PRE_ROLL_MS=500L;
+    static final long SPEECH_PRE_ROLL_MS=1_000L;
 
     public static final class Chunk {
         public final File file; public final long startMs,endMs;
@@ -113,7 +113,7 @@ public final class WavSpeechChunker {
         for(int i=1;i<frames-1;i++)if(!hot[i]&&hot[i-1]&&hot[i+1])hot[i]=true;
         for(int i=1;i<frames-2;i++)if(!hot[i]&&!hot[i+1]&&hot[i-1]&&hot[i+2]){hot[i]=hot[i+1]=true;}
 
-        int enter=2,exit=15,pre=(int)(SPEECH_PRE_ROLL_MS/20L),post=30; // 40ms enter, 300ms hangover, 500/600ms padding
+        int enter=2,exit=15,pre=(int)(SPEECH_PRE_ROLL_MS/20L),post=30; // 40ms enter, 300ms hangover, 1000/600ms padding
         int run=0,sil=0,start=-1;
         for(int i=0;i<frames;i++){
             if(hot[i]){run++;sil=0;if(start<0&&run>=enter)start=Math.max(0,i-enter+1-pre);}
