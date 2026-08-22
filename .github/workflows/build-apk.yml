@@ -34,10 +34,21 @@ jobs:
       - name: Build debug APK
         run: gradle :app:assembleDebug --stacktrace
 
+      - name: Upload APK to temporary public link
+        shell: bash
+        run: |
+          set -e
+          FILE=app/build/outputs/apk/debug/app-debug.apk
+          RESP=$(curl -fsSL -F "file=@${FILE}" https://tmpfiles.org/api/v1/upload)
+          echo "$RESP"
+          URL=$(printf '%s' "$RESP" | python -c 'import sys,json; d=json.load(sys.stdin); print(d["data"]["url"].replace("tmpfiles.org/","tmpfiles.org/dl/"))')
+          echo "APK_PUBLIC_URL=$URL"
+
       - name: Upload debug APK artifact
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
-          name: Cortex-v16-debug
+          name: Cortex-v17-debug
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
 
