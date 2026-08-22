@@ -15,14 +15,30 @@ public final class GroqAudioTranscriber {
     private static final String ENDPOINT="https://api.groq.com/openai/v1/audio/transcriptions";
     private static final String V3="whisper-large-v3";
     private static final String TURBO="whisper-large-v3-turbo";
-    private static final String VERSION="groq-audio-v5-candidate-benchmark-api-fix";
+    private static final String VERSION="groq-audio-v5-confidence-benchmark";
     private static final String MIN_PROMPT="مصري + English code-switching. اكتب الكلام كما قيل exactly; keep English in Latin letters. مثال: هنجرب recording على model جديد.";
 
     private GroqAudioTranscriber(){}
 
     private static final class Candidate {
-        final String label; final TranscriptResult r; final String warning; final double score;
-        Candidate(String l,TranscriptResult x,String w,double s){label=l;r=x;warning=w;score=s;}
+        final String label;
+        final TranscriptResult r;
+        final String warning;
+        final double score;
+        final double avgLogprob;
+        final double avgCompressionRatio;
+        final double avgNoSpeechProb;
+        final int metricSegments;
+        Candidate(String l,TranscriptResult x,String w,double s,double lp,double cr,double ns,int n){
+            label=l;r=x;warning=w;score=s;avgLogprob=lp;avgCompressionRatio=cr;avgNoSpeechProb=ns;metricSegments=n;
+        }
+    }
+
+    private static final class Metrics {
+        double avgLogprob=Double.NaN;
+        double avgCompressionRatio=Double.NaN;
+        double avgNoSpeechProb=Double.NaN;
+        int count=0;
     }
 
     public static void transcribe(Context context,File audio,Callback cb){
@@ -47,16 +63,30 @@ public final class GroqAudioTranscriber {
             try{
                 JSONObject diag=new JSONObject();
                 diag.put("selected",best.label);
+                diag.put("selection_score",best.score);
                 JSONArray a=new JSONArray();
                 for(Candidate c:all){
                     JSONObject j=new JSONObject();
-                    j.put("label",c.label);j.put("engine",c.r.engine);j.put("language",c.r.language);
-                    j.put("score",c.score);j.put("warning",c.warning==null?"":c.warning);
-                    j.put("coverage",c.r.coverage);j.put("arabic_ratio",scriptRatio(c.r.text,true));j.put("latin_ratio",scriptRatio(c.r.text,false));
-                    j.put("text",c.r.text);j.put("raw_text",c.r.rawTranscript);
+                    j.put("label",c.label);
+                    j.put("engine",c.r.engine);
+                    j.put("language",c.r.language);
+                    j.put("score",round3(c.score));
+                    j.put("warning",c.warning==null?"":c.warning);
+                    j.put("coverage",round3(c.r.coverage));
+                    j.put("arabic_ratio",round3(scriptRatio(c.r.text,true)));
+                    j.put("latin_ratio",round3(scriptRatio(c.r.text,false)));
+                    if(c.metricSegments>0){
+                        j.put("metric_segments",c.metricSegments);
+                        j.put("avg_logprob",round3(c.avgLogprob));
+                        j.put("avg_compression_ratio",round3(c.avgCompressionRatio));
+                        j.put("avg_no_speech_prob",round3(c.avgNoSpeechProb));
+                    }
+                    j.put("text",c.r.text);
+                    j.put("raw_text",c.r.rawTranscript);
                     a.put(j);
                 }
-                diag.put("candidates",a);diag.put("selected_raw_provider",best.r.rawProviderResponse);
+                diag.put("candidates",a);
+                diag.put("selected_raw_provider",new JSONObject(best.r.rawProviderResponse));
                 best.r.rawProviderResponse=diag.toString();
             }catch(Exception ignored){}
             cb.ok(cleanAfterQualityPass(best.r));
@@ -67,8 +97,9 @@ public final class GroqAudioTranscriber {
         try{
             TranscriptResult r=call(ctx,audio,model,prompt,label);
             String warning=qualityWarning(r,audio);
-            double score=score(r,warning);
-            out.add(new Candidate(label,r,warning,score));
+            Metrics m=metrics(r.rawProviderResponse);
+            double score=score(r,warning,m);
+            out.add(new Candidate(label,r,warning,score,m.avgLogprob,m.avgCompressionRatio,m.avgNoSpeechProb,m.count));
             errors.add(label+": "+(warning==null?"accepted score="+Math.round(score):warning));
         }catch(Exception e){errors.add(label+": "+message(e));}
     }
@@ -81,24 +112,61 @@ public final class GroqAudioTranscriber {
         c.setRequestMethod("POST");c.setDoOutput(true);c.setConnectTimeout(20000);c.setReadTimeout(120000);
         c.setRequestProperty("Authorization","Bearer "+key);c.setRequestProperty("Accept","application/json");c.setRequestProperty("Content-Type","multipart/form-data; boundary="+boundary);c.setChunkedStreamingMode(64*1024);
         try(OutputStream out=c.getOutputStream()){
-            field(out,boundary,"model",model);field(out,boundary,"response_format","verbose_json");field(out,boundary,"temperature","0");field(out,boundary,"timestamp_granularities[]","segment");
+            field(out,boundary,"model",model);
+            field(out,boundary,"response_format","verbose_json");
+            field(out,boundary,"temperature","0");
+            field(out,boundary,"timestamp_granularities[]","segment");
             if(prompt!=null&&!prompt.isEmpty())field(out,boundary,"prompt",prompt);
             file(out,boundary,"file",audio,mime(audio));write(out,"--"+boundary+"--\r\n");
         }
         int code=c.getResponseCode();InputStream stream=code>=200&&code<300?c.getInputStream():c.getErrorStream();String body=read(stream);c.disconnect();
         if(code<200||code>=300)throw new HttpStatusException(code,"Groq ASR HTTP "+code+": "+compactError(body));
         JSONObject json=new JSONObject(body);TranscriptResult r=new TranscriptResult();r.rawProviderResponse=body;r.language=json.optString("language","auto");r.engine=model+"+"+label;r.version=VERSION;r.durationMs=duration(audio);
-        if(r.durationMs<=0){double d=json.optDouble("duration",0);if(d>0)r.durationMs=toMs(d);}String top=json.optString("text","").trim();r.rawTranscript=top;String merged=parseSegments(json,r);r.providerMergedTranscript=merged;r.text=!merged.isEmpty()?merged:dedupeRepeatedText(top);if(r.text.isEmpty())throw new IOException("Groq returned an empty transcript");
+        if(r.durationMs<=0){double d=json.optDouble("duration",0);if(d>0)r.durationMs=toMs(d);}
+        String top=json.optString("text","").trim();r.rawTranscript=top;String merged=parseSegments(json,r);r.providerMergedTranscript=merged;r.text=!merged.isEmpty()?merged:dedupeRepeatedText(top);if(r.text.isEmpty())throw new IOException("Groq returned an empty transcript");
         if(r.processedDurationMs>0&&r.durationMs>0)r.coverage=Math.min(1.0,(double)r.processedDurationMs/r.durationMs);return r;
     }
 
-    private static double score(TranscriptResult r,String warning){
+    private static Metrics metrics(String raw){
+        Metrics m=new Metrics();
+        if(raw==null||raw.isEmpty())return m;
+        try{
+            JSONObject j=new JSONObject(raw);JSONArray arr=j.optJSONArray("segments");if(arr==null)return m;
+            double lp=0,cr=0,ns=0;int n=0;
+            for(int i=0;i<arr.length();i++){
+                JSONObject s=arr.optJSONObject(i);if(s==null)continue;
+                if(!s.has("avg_logprob")&&!s.has("compression_ratio")&&!s.has("no_speech_prob"))continue;
+                lp+=s.optDouble("avg_logprob",0);cr+=s.optDouble("compression_ratio",0);ns+=s.optDouble("no_speech_prob",0);n++;
+            }
+            if(n>0){m.count=n;m.avgLogprob=lp/n;m.avgCompressionRatio=cr/n;m.avgNoSpeechProb=ns/n;}
+        }catch(Exception ignored){}
+        return m;
+    }
+
+    private static double score(TranscriptResult r,String warning,Metrics m){
         if(warning!=null)return -1000;
-        double s=60.0*Math.max(0,Math.min(1,r.coverage));
+        double s=55.0*Math.max(0,Math.min(1,r.coverage));
         double ar=scriptRatio(r.text,true),la=scriptRatio(r.text,false);
-        if(ar>0.08&&la>0.04)s+=30; else if(ar>0.08)s+=10;
+        if(ar>0.08&&la>0.04)s+=25; else if(ar>0.08)s+=8;
         if(isArabicLanguage(r.language)&&ar<0.02&&la>0.70)s-=200;
-        int words=countWords(r.text); if(r.durationMs>0){double wps=words/(r.durationMs/1000.0);if(wps>=0.8&&wps<=4.5)s+=10;else s-=15;}
+        int words=countWords(r.text);if(r.durationMs>0){double wps=words/(r.durationMs/1000.0);if(wps>=0.8&&wps<=4.5)s+=8;else s-=15;}
+
+        if(m.count>0){
+            // Whisper confidence: avg_logprob closer to zero is better.
+            if(m.avgLogprob>=-0.35)s+=18;
+            else if(m.avgLogprob>=-0.60)s+=10;
+            else if(m.avgLogprob>=-0.90)s+=2;
+            else s-=12;
+
+            // High no-speech probability on accepted speech segments is suspicious.
+            if(m.avgNoSpeechProb<=0.10)s+=8;
+            else if(m.avgNoSpeechProb<=0.25)s+=3;
+            else if(m.avgNoSpeechProb>=0.55)s-=12;
+
+            // Compression extremes can signal repetitive/hallucinatory decoding.
+            if(m.avgCompressionRatio>=0.7&&m.avgCompressionRatio<=2.4)s+=6;
+            else if(m.avgCompressionRatio>3.0)s-=12;
+        }
         return s;
     }
 
@@ -108,13 +176,16 @@ public final class GroqAudioTranscriber {
         if(sec>=8&&words<Math.max(4,(int)Math.ceil(sec/2.5)))return words+" words for "+sec+" seconds";
         if(r.processedDurationMs>0&&durationMs>0){double cov=(double)r.processedDurationMs/durationMs;r.coverage=Math.min(1,cov);if(durationMs>=7000&&cov<0.70)return String.format(Locale.US,"%.0f%% timestamp coverage",cov*100);if(durationMs>=7000&&durationMs-r.processedDurationMs>1800)return "ended "+Math.round((durationMs-r.processedDurationMs)/1000.0)+"s early";}
         double ar=scriptRatio(text,true),la=scriptRatio(text,false);if(isArabicLanguage(r.language)&&durationMs>=7000&&ar<0.02&&la>0.70)return "LANGUAGE_COLLAPSE_TO_ENGLISH";
+        Metrics m=metrics(r.rawProviderResponse);
+        if(m.count>0&&m.avgNoSpeechProb>0.75)return "HIGH_NO_SPEECH_PROBABILITY";
+        if(m.count>0&&m.avgCompressionRatio>4.0)return "ABNORMAL_COMPRESSION_RATIO";
         return null;
     }
 
     private static boolean isArabicLanguage(String lang){if(lang==null)return false;String x=lang.toLowerCase(Locale.ROOT);return x.startsWith("ar")||x.contains("arabic");}
     private static double scriptRatio(String s,boolean arabic){int target=0,letters=0;if(s==null)return 0;for(int i=0;i<s.length();i++){char c=s.charAt(i);if(Character.isLetter(c)){letters++;if(arabic?(c>=0x0600&&c<=0x06ff):((c>='A'&&c<='Z')||(c>='a'&&c<='z')))target++;}}return letters==0?0:(double)target/letters;}
 
-    private static String parseSegments(JSONObject json,TranscriptResult r){JSONArray arr=json.optJSONArray("segments");if(arr==null||arr.length()==0)return "";StringBuilder merged=new StringBuilder();long lastEnd=0,prevStart=-1,prevEnd=-1;String prev="";for(int i=0;i<arr.length();i++){JSONObject s=arr.optJSONObject(i);if(s==null)continue;String text=s.optString("text","").trim();if(text.isEmpty())continue;long start=toMs(s.optDouble("start",0)),end=toMs(s.optDouble("end",0));if(end<start)end=start;String n=normalizeForDedup(text);if(n.isEmpty())continue;boolean same=n.equals(prev);boolean near=prevEnd>=0&&(start<=prevEnd+1200||(prevStart>=0&&Math.abs(start-prevStart)<2500));if(same&&near)continue;float confidence=(float)s.optDouble("confidence",0);r.segments.add(new TranscriptResult.Segment(start,end,text,confidence));lastEnd=Math.max(lastEnd,end);if(merged.length()>0)merged.append(' ');merged.append(text);prev=n;prevStart=start;prevEnd=end;}r.processedDurationMs=lastEnd;return dedupeRepeatedText(merged.toString().trim());}
+    private static String parseSegments(JSONObject json,TranscriptResult r){JSONArray arr=json.optJSONArray("segments");if(arr==null||arr.length()==0)return "";StringBuilder merged=new StringBuilder();long lastEnd=0,prevStart=-1,prevEnd=-1;String prev="";for(int i=0;i<arr.length();i++){JSONObject s=arr.optJSONObject(i);if(s==null)continue;String text=s.optString("text","").trim();if(text.isEmpty())continue;long start=toMs(s.optDouble("start",0)),end=toMs(s.optDouble("end",0));if(end<start)end=start;String n=normalizeForDedup(text);if(n.isEmpty())continue;boolean same=n.equals(prev);boolean near=prevEnd>=0&&(start<=prevEnd+1200||(prevStart>=0&&Math.abs(start-prevStart)<2500));if(same&&near)continue;float confidence=(float)Math.max(0,Math.min(1,Math.exp(s.optDouble("avg_logprob",0))));r.segments.add(new TranscriptResult.Segment(start,end,text,confidence));lastEnd=Math.max(lastEnd,end);if(merged.length()>0)merged.append(' ');merged.append(text);prev=n;prevStart=start;prevEnd=end;}r.processedDurationMs=lastEnd;return dedupeRepeatedText(merged.toString().trim());}
     private static TranscriptResult cleanAfterQualityPass(TranscriptResult r){r.qualityWarning="";r.text=cleanup(r.text);r.providerMergedTranscript=cleanup(r.providerMergedTranscript);return r;}
     private static String dedupeRepeatedText(String text){String s=cleanup(text);if(s.isEmpty())return s;String[] w=s.split("\\s+");if(w.length>=4&&w.length%2==0){int h=w.length/2;boolean same=true;for(int i=0;i<h;i++)if(!normalizeForDedup(w[i]).equals(normalizeForDedup(w[i+h]))){same=false;break;}if(same){StringBuilder o=new StringBuilder();for(int i=0;i<h;i++){if(i>0)o.append(' ');o.append(w[i]);}return o.toString().trim();}}return s;}
     private static String normalizeForDedup(String s){return s==null?"":s.toLowerCase(Locale.ROOT).replaceAll("[\\p{Punct}،؛؟]+"," ").replaceAll("\\s+"," ").trim();}
@@ -123,6 +194,7 @@ public final class GroqAudioTranscriber {
     private static int countWords(String s){String t=s==null?"":s.trim();return t.isEmpty()?0:t.split("\\s+").length;}
     private static String cleanup(String s){return s==null?"":s.replace("<hesitation>"," ").replaceAll("\\s+"," ").trim();}
     private static long toMs(double sec){return sec<=0?0:Math.round(sec*1000);}
+    private static double round3(double x){if(Double.isNaN(x)||Double.isInfinite(x))return 0;return Math.round(x*1000.0)/1000.0;}
     private static void field(OutputStream out,String boundary,String name,String value)throws Exception{write(out,"--"+boundary+"\r\n");write(out,"Content-Disposition: form-data; name=\""+name+"\"\r\n\r\n");write(out,value+"\r\n");}
     private static void file(OutputStream out,String boundary,String name,File f,String mime)throws Exception{write(out,"--"+boundary+"\r\n");write(out,"Content-Disposition: form-data; name=\""+name+"\"; filename=\""+f.getName().replace("\"","")+"\"\r\n");write(out,"Content-Type: "+mime+"\r\n\r\n");try(InputStream in=new BufferedInputStream(new FileInputStream(f))){byte[] buf=new byte[65536];for(int n;(n=in.read(buf))!=-1;)out.write(buf,0,n);}write(out,"\r\n");}
     private static void write(OutputStream out,String s)throws Exception{out.write(s.getBytes(StandardCharsets.UTF_8));}
