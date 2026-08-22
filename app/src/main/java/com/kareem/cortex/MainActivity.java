@@ -18,13 +18,13 @@ public class MainActivity extends Activity {
     static final int REQ_MIC=77,REQ_IMPORT_AUDIO=78;
     VaultDb db;LinearLayout list;EditText search;TextView count;Handler handler=new Handler(Looper.getMainLooper());Runnable pendingSearch,recordTick;
     AudioCapture recorder=new AudioCapture();File recordingFile;AlertDialog recordingDialog;long recordingStarted;
-    int bg=Color.rgb(16,17,20),panel=Color.rgb(24,26,31),text=Color.rgb(243,244,246),muted=Color.rgb(165,168,176),accent=Color.rgb(143,169,255),danger=Color.rgb(255,139,139);
+    int bg=Color.rgb(16,17,20),panel=Color.rgb(24,26,31),text=Color.rgb(243,244,246),muted=Color.rgb(165,168,176),accent=Color.rgb(232,177,72),danger=Color.rgb(255,139,139);
 
     @Override public void onCreate(Bundle b){super.onCreate(b);db=new VaultDb(this);buildUi();int imported=new ShareImporter(this,db).importIntent(getIntent());refresh("");queue();new Thread(()->{try{SemanticIndex.ensureIndexed(db,80);}catch(Exception ignored){}}).start();if(imported>0)Toast.makeText(this,"Saved to Cortex",Toast.LENGTH_SHORT).show();}
     @Override protected void onNewIntent(android.content.Intent i){super.onNewIntent(i);setIntent(i);int n=new ShareImporter(this,db).importIntent(i);refresh(search.getText().toString());queue();if(n>0)Toast.makeText(this,"Saved to Cortex",Toast.LENGTH_SHORT).show();}
     @Override protected void onDestroy(){super.onDestroy();if(recorder.isRunning())try{File f=recorder.stop();if(f!=null)f.delete();}catch(Exception ignored){} }
 
-    TextView tv(String s,int sp,int c){TextView v=new TextView(this);v.setText(s);v.setTextSize(sp);v.setTextColor(c);return v;}int dp(int x){return(int)(x*getResources().getDisplayMetrics().density+.5f);}void pad(View v,int a){v.setPadding(dp(a),dp(a),dp(a),dp(a));}
+    TextView tv(String s,int sp,int c){TextView v=new TextView(this);v.setTextSize(sp);v.setTextColor(c);CortexTextUi.setReadable(v,s);return v;}int dp(int x){return(int)(x*getResources().getDisplayMetrics().density+.5f);}void pad(View v,int a){v.setPadding(dp(a),dp(a),dp(a),dp(a));}
     Button smallButton(String label){Button b=new Button(this);b.setText(label);b.setTextSize(10);b.setTextColor(text);b.setBackgroundColor(panel);return b;}
 
     void buildUi(){
@@ -45,8 +45,8 @@ public class MainActivity extends Activity {
     EditText field(String hint,int lines){EditText e=new EditText(this);e.setHint(hint);e.setMinLines(lines);e.setGravity(Gravity.TOP);return e;}
 
     void showAsrSettingsDialog(){
-        String[] rows={"Groq Whisper Large v3 — "+(GroqKeyStore.has(this)?"configured":"missing"),"Gemini 2.5 Flash — "+(GeminiKeyStore.has(this)?"configured":"missing")};
-        new AlertDialog.Builder(this).setTitle("ASR provider settings").setMessage("Cortex can benchmark Groq and Gemini on the same recording. Keys are encrypted with Android Keystore.").setItems(rows,(d,w)->{if(w==0)showGroqKeyDialog(false);else showGeminiKeyDialog();}).setNegativeButton("Close",null).show();
+        String[] rows={"Groq Whisper Large v3 — "+(GroqKeyStore.has(this)?"configured":"missing"),"Gemini 3.6 Flash — "+(GeminiKeyStore.has(this)?"configured":"missing")};
+        new AlertDialog.Builder(this).setTitle("ASR provider settings").setMessage("Cortex uses Gemini first and keeps Groq available as a fallback. Keys are encrypted with Android Keystore.").setItems(rows,(d,w)->{if(w==0)showGroqKeyDialog(false);else showGeminiKeyDialog();}).setNegativeButton("Close",null).show();
     }
 
     void showGroqKeyDialog(boolean continueToRecord){
@@ -57,7 +57,7 @@ public class MainActivity extends Activity {
 
     void showGeminiKeyDialog(){
         EditText e=new EditText(this);e.setHint("Paste Gemini API key");e.setSingleLine(true);e.setInputType(InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_VARIATION_PASSWORD);pad(e,12);
-        boolean configured=GeminiKeyStore.has(this);AlertDialog.Builder b=new AlertDialog.Builder(this).setTitle(configured?"Gemini transcription key":"Enable Gemini transcription").setMessage("Cortex encrypts this key with Android Keystore and sends the same audio to Gemini 2.5 Flash for side-by-side ASR benchmarking.").setView(e).setNegativeButton("Cancel",null).setPositiveButton(configured?"Replace key":"Save",null);if(configured)b.setNeutralButton("Remove key",null);AlertDialog d=b.create();
+        boolean configured=GeminiKeyStore.has(this);AlertDialog.Builder b=new AlertDialog.Builder(this).setTitle(configured?"Gemini transcription key":"Enable Gemini transcription").setMessage("Cortex encrypts this key with Android Keystore and sends audio to Gemini 3.6 Flash for transcription.").setView(e).setNegativeButton("Cancel",null).setPositiveButton(configured?"Replace key":"Save",null);if(configured)b.setNeutralButton("Remove key",null);AlertDialog d=b.create();
         d.setOnShowListener(x->{d.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->{String key=e.getText().toString().trim();if(key.isEmpty()){e.setError("API key required");return;}try{GeminiKeyStore.save(this,key);d.dismiss();Toast.makeText(this,"Gemini transcription enabled",Toast.LENGTH_SHORT).show();}catch(Exception ex){Toast.makeText(this,"Could not save Gemini key: "+ex.getMessage(),Toast.LENGTH_LONG).show();}});if(configured)d.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener(v->{GeminiKeyStore.clear(this);d.dismiss();Toast.makeText(this,"Gemini key removed",Toast.LENGTH_SHORT).show();});});d.show();
     }
 
