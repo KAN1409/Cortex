@@ -1,0 +1,115 @@
+package com.kareem.cortex;
+
+import android.app.*;
+import android.content.*;
+import android.graphics.Color;
+import android.graphics.drawable.GradientDrawable;
+import android.os.Bundle;
+import android.view.*;
+import android.widget.*;
+import java.util.*;
+
+public class PremiumHomeActivity extends Activity {
+    VaultDb db;
+    LinearLayout feed,heroActions;
+    TextView attentionCount,memoryCount;
+    int bg=Color.rgb(11,12,14),surface=Color.rgb(24,26,30),surface2=Color.rgb(31,33,38),text=Color.rgb(245,244,240),muted=Color.rgb(156,159,168),accent=Color.rgb(232,177,72),danger=Color.rgb(246,124,118),ok=Color.rgb(120,205,150),border=Color.rgb(47,50,57);
+
+    int dp(int x){return(int)(x*getResources().getDisplayMetrics().density+.5f);}    
+    TextView plain(String s,int sp,int c){TextView v=new TextView(this);v.setText(s);v.setTextSize(sp);v.setTextColor(c);CortexTextUi.setPlain(v,s);return v;}
+    TextView readable(String s,int sp,int c){TextView v=new TextView(this);v.setTextSize(sp);v.setTextColor(c);CortexTextUi.setReadable(v,s);return v;}
+    GradientDrawable rounded(int fill,int stroke,int radius){GradientDrawable g=new GradientDrawable();g.setColor(fill);g.setCornerRadius(dp(radius));g.setStroke(dp(1),stroke);return g;}
+
+    @Override public void onCreate(Bundle b){super.onCreate(b);db=new VaultDb(this);FeatureStore.ensure(db);build();refresh();}
+    @Override protected void onResume(){super.onResume();if(db!=null)refresh();}
+
+    void build(){
+        LinearLayout root=new LinearLayout(this);root.setOrientation(LinearLayout.VERTICAL);root.setBackgroundColor(bg);root.setPadding(dp(18),dp(16),dp(18),0);
+
+        LinearLayout top=new LinearLayout(this);top.setOrientation(LinearLayout.HORIZONTAL);top.setGravity(Gravity.CENTER_VERTICAL);
+        LinearLayout brand=new LinearLayout(this);brand.setOrientation(LinearLayout.VERTICAL);
+        TextView title=plain("CORTEX",28,text);title.setTypeface(null,1);brand.addView(title);
+        TextView sub=plain("Your second brain, surfaced at the right time.",13,muted);brand.addView(sub);
+        top.addView(brand,new LinearLayout.LayoutParams(0,-2,1));
+        TextView more=plain("⋯",28,text);more.setGravity(Gravity.CENTER);more.setBackground(rounded(surface,border,18));more.setOnClickListener(v->startActivity(new Intent(this,FeatureHubActivity.class)));top.addView(more,new LinearLayout.LayoutParams(dp(48),dp(48)));root.addView(top);
+
+        LinearLayout hero=new LinearLayout(this);hero.setOrientation(LinearLayout.VERTICAL);hero.setPadding(dp(18),dp(18),dp(18),dp(16));hero.setBackground(rounded(surface,border,24));
+        LinearLayout heroTop=new LinearLayout(this);heroTop.setOrientation(LinearLayout.HORIZONTAL);heroTop.setGravity(Gravity.CENTER_VERTICAL);
+        TextView eyebrow=plain("TODAY",11,accent);eyebrow.setTypeface(null,1);heroTop.addView(eyebrow,new LinearLayout.LayoutParams(0,-2,1));
+        attentionCount=plain("",11,danger);attentionCount.setTypeface(null,1);heroTop.addView(attentionCount);hero.addView(heroTop);
+        TextView heroTitle=plain("What needs you now",22,text);heroTitle.setTypeface(null,1);heroTitle.setPadding(0,dp(5),0,0);hero.addView(heroTitle);
+        TextView heroBody=plain("Cortex ranks urgent tasks, due items, waiting outcomes and forgotten follow-ups.",13,muted);heroBody.setPadding(0,dp(5),0,dp(14));hero.addView(heroBody);
+        heroActions=new LinearLayout(this);heroActions.setOrientation(LinearLayout.HORIZONTAL);hero.addView(heroActions);
+        root.addView(hero,new LinearLayout.LayoutParams(-1,-2));
+
+        TextView quick=plain("QUICK ACCESS",11,muted);quick.setTypeface(null,1);quick.setPadding(0,dp(18),0,dp(9));root.addView(quick);
+        LinearLayout quickRow=new LinearLayout(this);quickRow.setOrientation(LinearLayout.HORIZONTAL);
+        addQuick(quickRow,"●","Capture",()->startActivity(new Intent(this,MainActivity.class)),0);
+        addQuick(quickRow,"✦","Ask",()->startActivity(new Intent(this,BrainActivity.class)),8);
+        addQuick(quickRow,"✓","Inbox",()->openSmart("needs"),8);
+        root.addView(quickRow);
+
+        LinearLayout sectionHead=new LinearLayout(this);sectionHead.setOrientation(LinearLayout.HORIZONTAL);sectionHead.setGravity(Gravity.CENTER_VERTICAL);sectionHead.setPadding(0,dp(18),0,dp(8));
+        TextView latest=plain("RECENT MEMORY",11,muted);latest.setTypeface(null,1);sectionHead.addView(latest,new LinearLayout.LayoutParams(0,-2,1));
+        memoryCount=plain("",11,muted);sectionHead.addView(memoryCount);root.addView(sectionHead);
+
+        ScrollView sv=new ScrollView(this);sv.setFillViewport(true);feed=new LinearLayout(this);feed.setOrientation(LinearLayout.VERTICAL);sv.addView(feed);root.addView(sv,new LinearLayout.LayoutParams(-1,0,1));
+
+        LinearLayout bottom=new LinearLayout(this);bottom.setOrientation(LinearLayout.HORIZONTAL);bottom.setPadding(0,dp(8),0,dp(10));
+        addNav(bottom,"⌂\nHome",true,()->{});
+        addNav(bottom,"▤\nInbox",false,()->openSmart("inbox"));
+        addNav(bottom,"✦\nAsk",false,()->startActivity(new Intent(this,BrainActivity.class)));
+        addNav(bottom,"＋\nCapture",false,()->startActivity(new Intent(this,MainActivity.class)));
+        addNav(bottom,"⋯\nMore",false,()->startActivity(new Intent(this,FeatureHubActivity.class)));
+        root.addView(bottom,new LinearLayout.LayoutParams(-1,dp(66)));
+        setContentView(root);
+    }
+
+    void refresh(){
+        ArrayList<FeatureStore.InboxEntry> needs=FeatureStore.needs(db,20);
+        int total=db.lexicalSearch("",10000).size();
+        attentionCount.setText(needs.size()+" need attention");
+        memoryCount.setText(total+" memories");
+        heroActions.removeAllViews();
+        if(needs.isEmpty()){
+            addHeroChip("All clear",ok,()->openSmart("needs"));
+            addHeroChip("Open Inbox",accent,()->openSmart("inbox"));
+        }else{
+            FeatureStore.InboxEntry top=needs.get(0);
+            addHeroChip(FeatureStore.priorityLabel(top.score),top.score>=100?danger:accent,()->openSmart("needs"));
+            addHeroChip(needs.size()+" items",accent,()->openSmart("needs"));
+        }
+
+        feed.removeAllViews();
+        ArrayList<KnowledgeItem> items=db.lexicalSearch("",8);
+        if(items.isEmpty()){
+            LinearLayout empty=new LinearLayout(this);empty.setOrientation(LinearLayout.VERTICAL);empty.setGravity(Gravity.CENTER);empty.setPadding(dp(20),dp(44),dp(20),dp(44));
+            TextView e=plain("Your Cortex is empty",18,text);e.setTypeface(null,1);e.setGravity(Gravity.CENTER);empty.addView(e);
+            TextView b=plain("Capture a thought, recording, screenshot or file to start building your second brain.",13,muted);b.setGravity(Gravity.CENTER);b.setTextAlignment(View.TEXT_ALIGNMENT_CENTER);b.setPadding(0,dp(6),0,0);empty.addView(b);feed.addView(empty);return;
+        }
+        for(KnowledgeItem k:items)addMemory(k);
+    }
+
+    void addHeroChip(String label,int color,Runnable action){TextView c=plain(label,11,color);c.setGravity(Gravity.CENTER);c.setPadding(dp(14),0,dp(14),0);c.setBackground(rounded(Color.argb(34,Color.red(color),Color.green(color),Color.blue(color)),Color.argb(120,Color.red(color),Color.green(color),Color.blue(color)),999));c.setOnClickListener(v->action.run());LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-2,dp(34));p.setMargins(0,0,dp(8),0);heroActions.addView(c,p);}
+
+    void addQuick(LinearLayout row,String icon,String label,Runnable action,int left){LinearLayout box=new LinearLayout(this);box.setOrientation(LinearLayout.VERTICAL);box.setGravity(Gravity.CENTER);box.setPadding(dp(8),dp(12),dp(8),dp(10));box.setBackground(rounded(surface,border,20));TextView i=plain(icon,22,accent);i.setGravity(Gravity.CENTER);box.addView(i);TextView l=plain(label,11,text);l.setGravity(Gravity.CENTER);l.setPadding(0,dp(4),0,0);box.addView(l);box.setOnClickListener(v->action.run());LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,dp(92),1);p.setMargins(dp(left),0,0,0);row.addView(box,p);}
+
+    void addNav(LinearLayout row,String label,boolean selected,Runnable action){TextView n=plain(label,10,selected?accent:muted);n.setGravity(Gravity.CENTER);if(selected)n.setTypeface(null,1);n.setOnClickListener(v->action.run());row.addView(n,new LinearLayout.LayoutParams(0,-1,1));}
+
+    void addMemory(KnowledgeItem k){
+        LinearLayout card=new LinearLayout(this);card.setOrientation(LinearLayout.VERTICAL);card.setPadding(dp(15),dp(14),dp(15),dp(14));card.setBackground(rounded(surface,border,20));card.setOnClickListener(v->startActivity(new Intent(this,MainActivity.class)));
+        LinearLayout top=new LinearLayout(this);top.setOrientation(LinearLayout.HORIZONTAL);top.setGravity(Gravity.TOP);
+        String typeIcon="AUDIO".equals(k.type)?"●":"IMAGE".equals(k.type)||"SCREENSHOT".equals(k.type)?"▧":"•";
+        TextView icon=plain(typeIcon,14,accent);icon.setGravity(Gravity.TOP|Gravity.CENTER_HORIZONTAL);top.addView(icon,new LinearLayout.LayoutParams(dp(28),dp(28)));
+        TextView t=readable(cleanTitle(k.title),16,text);t.setTypeface(null,1);t.setMaxLines(2);t.setEllipsize(android.text.TextUtils.TruncateAt.END);top.addView(t,new LinearLayout.LayoutParams(0,-2,1));card.addView(top);
+        TextView meta=plain(friendly(k.type)+"  •  "+age(k.createdAt),11,muted);meta.setPadding(dp(28),dp(4),0,0);card.addView(meta);
+        String p=!empty(k.summary)?k.summary:(!empty(k.extractedText)?k.extractedText:k.rawText);if(!empty(p)){if(p.length()>180)p=p.substring(0,180)+"…";TextView body=readable(p,13,text);body.setAlpha(.9f);body.setPadding(dp(28),dp(10),0,0);body.setMaxLines(3);body.setEllipsize(android.text.TextUtils.TruncateAt.END);card.addView(body);}        
+        LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);lp.setMargins(0,0,0,dp(10));feed.addView(card,lp);
+    }
+
+    void openSmart(String mode){Intent i=new Intent(this,SmartInboxActivity.class);i.putExtra("mode",mode);startActivity(i);}
+    String cleanTitle(String s){if(s==null||s.trim().isEmpty())return "Memory";String x=s.trim();if(x.regionMatches(true,0,"Voice:",0,6))x=x.substring(6).trim();return x;}
+    String friendly(String s){if("AUDIO".equals(s))return "Voice";if("IMAGE".equals(s)||"SCREENSHOT".equals(s))return "Image";return s==null?"Memory":s;}
+    String age(long ms){long d=Math.max(0,System.currentTimeMillis()-ms);long m=d/(60*1000);if(m<1)return "now";if(m<60)return m+"m";long h=m/60;if(h<24)return h+"h";return (h/24)+"d";}
+    boolean empty(String s){return s==null||s.trim().isEmpty();}
+}
