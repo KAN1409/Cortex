@@ -17,10 +17,10 @@ public class CodeSwitchPipelineTest {
     }
 
     @Test public void firstSegmentTimestampExcludesVadPreRoll(){
-        WavSpeechChunker.Chunk chunk=new WavSpeechChunker.Chunk(new java.io.File("unused.wav"),1_720L,15_560L);
+        WavSpeechChunker.Chunk chunk=new WavSpeechChunker.Chunk(new java.io.File("unused.wav"),1_220L,15_560L);
         assertEquals(2_220L,WavSpeechChunker.restoreAbsoluteSegmentStart(chunk,0L,true));
-        assertEquals(2_020L,WavSpeechChunker.restoreAbsoluteSegmentStart(chunk,300L,true));
-        assertEquals(1_720L,WavSpeechChunker.restoreAbsoluteSegmentStart(chunk,0L,false));
+        assertEquals(1_520L,WavSpeechChunker.restoreAbsoluteSegmentStart(chunk,300L,true));
+        assertEquals(1_220L,WavSpeechChunker.restoreAbsoluteSegmentStart(chunk,0L,false));
     }
 
     @Test public void longNoteRetriesOnlyWhenPrimaryReallyMissedTail(){
@@ -81,9 +81,28 @@ public class CodeSwitchPipelineTest {
         ArrayList<long[]> ranges=WavSpeechChunker.detectRanges(audio,rate);
         assertEquals("nearby speech islands should be merged before ASR",1,ranges.size());
         long onset=ranges.get(0)[0],end=ranges.get(0)[1];
-        assertTrue("speech onset must not collapse to 00:00",onset>=1500);
-        assertTrue("500ms pre-roll should keep onset close to ~1.7s",onset<=1900);
+        assertTrue("speech onset must not collapse to 00:00",onset>=1000);
+        assertTrue("1000ms pre-roll should keep onset close to ~1.2s",onset<=1400);
         assertTrue("lower-energy final island must survive VAD",end>=9000);
+    }
+
+    @Test public void oneSecondPreRollKeepsWeakLeadingTechnicalAudio(){
+        int rate=16000;
+        short[] audio=new short[5*rate];
+        tone(audio,rate,0.40,1.20,180,310); // audible but deliberately below the VAD threshold
+        tone(audio,rate,1.38,3.80,5200,210); // confidently detected body of the utterance
+        ArrayList<long[]> ranges=WavSpeechChunker.detectRanges(audio,rate);
+        assertEquals(1,ranges.size());
+        long onset=ranges.get(0)[0];
+        assertTrue("pre-roll must include the weak leading phrase",onset<=400);
+        assertTrue("timestamp should remain near the real recording onset",onset>=300);
+    }
+
+    @Test public void egyptianNormalizationFixesOnlyNarrowKnownForms(){
+        String out=CodeSwitchCandidateSelector.normalizeEgyptianOutput(
+                "اسمه أبراهيم model، وبرضه العربي اللي هو وجود فيها");
+        assertEquals("اسمه إبراهيم model، وبرضه العربي اللي هو موجود فيها",out);
+        assertTrue(out.contains("model"));
     }
 
     @Test public void englishRescueFractionsIgnoreMixedArabicArticleToken(){
