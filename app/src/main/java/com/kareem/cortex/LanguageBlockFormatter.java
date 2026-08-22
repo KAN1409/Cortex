@@ -6,14 +6,12 @@ public final class LanguageBlockFormatter {
     private LanguageBlockFormatter(){}
 
     // Display-only formatter. Raw transcript text is never changed in storage.
-    // Short code-switched spans stay inline and are wrapped in Unicode directional
-    // isolates; longer language switches get their own compact line. We use a
-    // single line break (not a blank paragraph) so mixed Arabic/English remains
-    // readable without the huge vertical gaps of the old formatter.
+    // Short code-switched spans stay inline with Unicode directional isolation and
+    // Android is allowed to wrap the sentence naturally. Only a genuinely long
+    // opposite-language span gets a deliberate compact line break.
     private static final char LRI='\u2066';
     private static final char RLI='\u2067';
     private static final char PDI='\u2069';
-    private static final int MAX_LINE=46;
     private static final int LONG_SWITCH_WORDS=5;
     private static final int LONG_SWITCH_CHARS=34;
 
@@ -21,13 +19,6 @@ public final class LanguageBlockFormatter {
         int dir; // 1 Arabic, 2 Latin, 0 neutral
         String text;
         Run(int d,String t){dir=d;text=t;}
-    }
-
-    private static final class Unit {
-        String display;
-        int visible;
-        boolean separate;
-        Unit(String d,int v,boolean s){display=d;visible=v;separate=s;}
     }
 
     public static String format(String input){
@@ -48,44 +39,29 @@ public final class LanguageBlockFormatter {
     private static String formatParagraph(String p){
         int dominant=dominantDirection(p);
         if(dominant==0)return compactWords(p);
-        ArrayList<Run> runs=runs(p);
-        ArrayList<Unit> units=new ArrayList<>();
+        ArrayList<Run> rs=runs(p);
+        StringBuilder out=new StringBuilder();
+        StringBuilder line=new StringBuilder();
 
-        for(Run r:runs){
+        for(Run r:rs){
             if(r.text==null||r.text.trim().isEmpty())continue;
-            String clean=r.text.trim();
+            String clean=compactWords(r.text);
             boolean opposite=r.dir!=0&&r.dir!=dominant;
-            int words=wordCount(clean);
-            boolean longSwitch=opposite&&(words>=LONG_SWITCH_WORDS||visibleLength(clean)>LONG_SWITCH_CHARS);
+            boolean longSwitch=opposite&&(wordCount(clean)>=LONG_SWITCH_WORDS||visibleLength(clean)>LONG_SWITCH_CHARS);
+            String piece=isolate(clean,r.dir);
 
             if(longSwitch){
-                units.add(new Unit(isolate(clean,r.dir),visibleLength(clean),true));
-            }else if(opposite){
-                // Keep compact terms such as "chest CT", "proposal" or "follow up"
-                // attached to the surrounding Arabic/English clause.
-                units.add(new Unit(isolate(clean,r.dir),visibleLength(clean),false));
+                flush(out,line);
+                if(out.length()>0&&out.charAt(out.length()-1)!='\n')out.append('\n');
+                out.append(piece);
+                out.append('\n');
             }else{
-                for(String w:clean.split("\\s+"))if(!w.isEmpty())units.add(new Unit(w,visibleLength(w),false));
+                if(line.length()>0)line.append(' ');
+                line.append(piece);
             }
-        }
-
-        StringBuilder out=new StringBuilder(),line=new StringBuilder();
-        int lineLen=0;
-        for(Unit u:units){
-            if(u.separate){
-                flush(out,line);lineLen=0;
-                if(out.length()>0)out.append('\n');
-                out.append(u.display);
-                continue;
-            }
-            int needed=(lineLen==0?0:1)+u.visible;
-            if(lineLen>0&&lineLen+needed>MAX_LINE){
-                flush(out,line);lineLen=0;
-            }
-            if(line.length()>0){line.append(' ');lineLen++;}
-            line.append(u.display);lineLen+=u.visible;
         }
         flush(out,line);
+        while(out.length()>0&&out.charAt(out.length()-1)=='\n')out.setLength(out.length()-1);
         return out.toString().trim();
     }
 
@@ -119,7 +95,7 @@ public final class LanguageBlockFormatter {
     private static String compactWords(String s){return s.replaceAll("\\s+"," ").trim();}
     private static int wordCount(String s){String x=s.trim();return x.isEmpty()?0:x.split("\\s+").length;}
     private static int visibleLength(String s){int n=0;for(int i=0;i<s.length();i++){char c=s.charAt(i);if(c!=LRI&&c!=RLI&&c!=PDI)n++;}return n;}
-    private static void flush(StringBuilder out,StringBuilder line){if(line.length()==0)return;if(out.length()>0)out.append('\n');out.append(line.toString().trim());line.setLength(0);}
+    private static void flush(StringBuilder out,StringBuilder line){if(line.length()==0)return;if(out.length()>0&&out.charAt(out.length()-1)!='\n')out.append('\n');out.append(line.toString().trim());line.setLength(0);}
 
     private static int direction(String s){
         int ar=0,la=0;
