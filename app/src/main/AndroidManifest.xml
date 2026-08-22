@@ -2,6 +2,8 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.READ_CALENDAR" />
+    <uses-permission android:name="android.permission.READ_CONTACTS" />
 
     <application android:theme="@style/AppTheme" android:label="Cortex" android:allowBackup="true">
         <provider
@@ -14,19 +16,15 @@
                 android:resource="@xml/feedback_file_paths" />
         </provider>
 
-        <activity android:name=".BrainActivity" android:exported="true">
+        <activity android:name=".FeatureHubActivity" android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
 
-        <activity android:name=".GeminiSettingsActivity" android:exported="true" android:label="Cortex Gemini Setup">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
-        </activity>
+        <activity android:name=".BrainActivity" android:exported="false" />
+        <activity android:name=".GeminiSettingsActivity" android:exported="false" android:label="Cortex Gemini Setup" />
 
         <activity android:name=".MainActivity" android:exported="true">
             <intent-filter>
@@ -40,5 +38,15 @@
                 <data android:mimeType="*/*" />
             </intent-filter>
         </activity>
+
+        <service
+            android:name=".NotificationCaptureService"
+            android:label="Cortex Notification Memory"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
     </application>
 </manifest>
