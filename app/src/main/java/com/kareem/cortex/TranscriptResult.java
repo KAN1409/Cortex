@@ -4,10 +4,30 @@ import java.util.*;
 
 public class TranscriptResult {
     public static class Segment {
-        public long startMs,endMs; public String text; public float confidence;
-        public Segment(long s,long e,String t,float c){startMs=s;endMs=e;text=t;confidence=c;}
+        public long startMs,endMs;
+        public String text;
+        public float confidence;
+
+        public Segment(long s,long e,String t,float c){
+            startMs=s;
+            endMs=e;
+            text=t==null?"":t;
+            confidence=c;
+        }
     }
-    public String text="",language="",engine="android_speech",version="1";
+
+    public String text="";
+    public String language="";
+    public String engine="android_speech";
+    public String version="1";
+
     public long durationMs=0;
+    public long processedDurationMs=0;
+    public double coverage=0.0;
+
+    public String providerMergedTranscript="";
+    public String qualityWarning="";
+    public String rawProviderResponse="";
+
     public final ArrayList<Segment> segments=new ArrayList<>();
 }
