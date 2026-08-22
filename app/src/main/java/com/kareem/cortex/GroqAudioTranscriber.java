@@ -15,7 +15,7 @@ public final class GroqAudioTranscriber {
     private static final String ENDPOINT="https://api.groq.com/openai/v1/audio/transcriptions";
     private static final String V3="whisper-large-v3";
     private static final String TURBO="whisper-large-v3-turbo";
-    private static final String VERSION="groq-audio-v4-candidate-benchmark";
+    private static final String VERSION="groq-audio-v5-candidate-benchmark-api-fix";
     private static final String MIN_PROMPT="مصري + English code-switching. اكتب الكلام كما قيل exactly; keep English in Latin letters. مثال: هنجرب recording على model جديد.";
 
     private GroqAudioTranscriber(){}
@@ -81,7 +81,7 @@ public final class GroqAudioTranscriber {
         c.setRequestMethod("POST");c.setDoOutput(true);c.setConnectTimeout(20000);c.setReadTimeout(120000);
         c.setRequestProperty("Authorization","Bearer "+key);c.setRequestProperty("Accept","application/json");c.setRequestProperty("Content-Type","multipart/form-data; boundary="+boundary);c.setChunkedStreamingMode(64*1024);
         try(OutputStream out=c.getOutputStream()){
-            field(out,boundary,"model",model);field(out,boundary,"response_format","verbose_json");field(out,boundary,"temperature","0");field(out,boundary,"task","transcribe");field(out,boundary,"timestamp_granularities[]","segment");
+            field(out,boundary,"model",model);field(out,boundary,"response_format","verbose_json");field(out,boundary,"temperature","0");field(out,boundary,"timestamp_granularities[]","segment");
             if(prompt!=null&&!prompt.isEmpty())field(out,boundary,"prompt",prompt);
             file(out,boundary,"file",audio,mime(audio));write(out,"--"+boundary+"--\r\n");
         }
