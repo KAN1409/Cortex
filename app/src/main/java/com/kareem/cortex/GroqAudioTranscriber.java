@@ -28,7 +28,7 @@ public final class GroqAudioTranscriber {
 
     private static final String ENDPOINT="https://api.groq.com/openai/v1/audio/transcriptions";
     private static final String MODEL="whisper-large-v3";
-    private static final String VERSION="groq-audio-v1";
+    private static final String VERSION="groq-audio-v2";
 
     private GroqAudioTranscriber(){}
 
@@ -113,7 +113,7 @@ public final class GroqAudioTranscriber {
         String topLevel=json.optString("text","").trim();
         String merged=parseSegments(json,r);
         r.providerMergedTranscript=merged;
-        r.text=!merged.isEmpty()?merged:topLevel;
+        r.text=!merged.isEmpty()?merged:dedupeRepeatedText(topLevel);
         if(r.text.isEmpty())throw new IOException("Groq returned an empty transcript");
 
         if(r.processedDurationMs>0&&r.durationMs>0){
@@ -128,7 +128,11 @@ public final class GroqAudioTranscriber {
         JSONArray arr=json.optJSONArray("segments");
         if(arr==null||arr.length()==0)return "";
         StringBuilder merged=new StringBuilder();
-        long lastEnd=0;
+        long lastUniqueEnd=0;
+        String previousNormalized="";
+        long previousStart=-1;
+        long previousEnd=-1;
+
         for(int i=0;i<arr.length();i++){
             JSONObject s=arr.optJSONObject(i);
             if(s==null)continue;
@@ -137,14 +141,26 @@ public final class GroqAudioTranscriber {
             long start=toMs(s.optDouble("start",0));
             long end=toMs(s.optDouble("end",0));
             if(end<start)end=start;
+            String normalized=normalizeForDedup(text);
+            if(normalized.isEmpty())continue;
+
+            boolean sameAsPrevious=normalized.equals(previousNormalized);
+            boolean nearOrOverlapping=previousEnd>=0 && (start<=previousEnd+1200 || (previousStart>=0&&Math.abs(start-previousStart)<2500));
+            if(sameAsPrevious && nearOrOverlapping){
+                continue;
+            }
+
             float confidence=(float)s.optDouble("confidence",0);
             r.segments.add(new TranscriptResult.Segment(start,end,text,confidence));
-            lastEnd=Math.max(lastEnd,end);
+            lastUniqueEnd=Math.max(lastUniqueEnd,end);
             if(merged.length()>0)merged.append(' ');
             merged.append(text);
+            previousNormalized=normalized;
+            previousStart=start;
+            previousEnd=end;
         }
-        r.processedDurationMs=lastEnd;
-        return merged.toString().trim();
+        r.processedDurationMs=lastUniqueEnd;
+        return dedupeRepeatedText(merged.toString().trim());
     }
 
     private static String qualityWarning(TranscriptResult r,File audio){
@@ -155,15 +171,18 @@ public final class GroqAudioTranscriber {
         int words=countWords(text);
         long durationMs=r.durationMs>0?r.durationMs:duration(audio);
         long durationSec=Math.max(1,Math.round(durationMs/1000.0));
-        if(durationSec>=8&&words<Math.max(4,durationSec/2)){
+        if(durationSec>=8&&words<Math.max(4,(int)Math.ceil(durationSec/2.5))){
             return "Groq transcript failed completeness checks: "+words+" words for "+durationSec+" seconds";
         }
 
         if(r.processedDurationMs>0&&durationMs>0){
             double coverage=(double)r.processedDurationMs/(double)durationMs;
             r.coverage=Math.min(1.0,coverage);
-            if(durationMs>=8000&&coverage<0.60){
-                return String.format(Locale.US,"Groq transcript truncated: %.0f%% timestamp coverage",coverage*100.0);
+            if(durationMs>=7000&&coverage<0.70){
+                return String.format(Locale.US,"Groq transcript truncated: %.0f%% unique timestamp coverage",coverage*100.0);
+            }
+            if(durationMs>=7000 && durationMs-r.processedDurationMs>1800){
+                return "Groq transcript ended "+Math.round((durationMs-r.processedDurationMs)/1000.0)+"s before the audio ended";
             }
         }
         return null;
@@ -174,6 +193,33 @@ public final class GroqAudioTranscriber {
         r.text=cleanup(r.text);
         r.providerMergedTranscript=cleanup(r.providerMergedTranscript);
         return r;
+    }
+
+    private static String dedupeRepeatedText(String text){
+        String s=cleanup(text);
+        if(s.isEmpty())return s;
+        String[] words=s.split("\\s+");
+        if(words.length>=4 && words.length%2==0){
+            int half=words.length/2;
+            boolean same=true;
+            for(int i=0;i<half;i++){
+                if(!normalizeForDedup(words[i]).equals(normalizeForDedup(words[i+half]))){same=false;break;}
+            }
+            if(same){
+                StringBuilder out=new StringBuilder();
+                for(int i=0;i<half;i++){if(i>0)out.append(' ');out.append(words[i]);}
+                return out.toString().trim();
+            }
+        }
+        return s;
+    }
+
+    private static String normalizeForDedup(String s){
+        if(s==null)return "";
+        return s.toLowerCase(Locale.ROOT)
+                .replaceAll("[\\p{Punct}،؛؟]+"," ")
+                .replaceAll("\\s+"," ")
+                .trim();
     }
 
     private static boolean isTransient(Exception e){
