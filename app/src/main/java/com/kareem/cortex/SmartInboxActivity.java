@@ -81,7 +81,7 @@ public class SmartInboxActivity extends Activity {
         addReasonChips(c,e);
 
         ArrayList<String> acts=FeatureStore.openActions(db,e.item.id);
-        String p=preview(e.item);if(p.length()>acts.isEmpty()?300:190)p=p.substring(0,acts.isEmpty()?300:190)+"…";
+        String p=preview(e.item);int maxPreview=acts.isEmpty()?300:190;if(p.length()>maxPreview)p=p.substring(0,maxPreview)+"…";
         if(!empty(p)){
             TextView body=tv(p,14,text);body.setPadding(0,dp(11),0,0);c.addView(body);
         }
