@@ -23,6 +23,13 @@
             </intent-filter>
         </activity>
 
+        <activity android:name=".AsrSettingsActivity" android:exported="true" android:label="Cortex ASR Setup">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
         <activity android:name=".BrainActivity" android:exported="false" />
         <activity android:name=".GeminiSettingsActivity" android:exported="false" android:label="Cortex Gemini Setup" />
 
