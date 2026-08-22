@@ -16,12 +16,14 @@
                 android:resource="@xml/feedback_file_paths" />
         </provider>
 
-        <activity android:name=".FeatureHubActivity" android:exported="true">
+        <activity android:name=".PremiumHomeActivity" android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <activity android:name=".FeatureHubActivity" android:exported="false" />
 
         <activity android:name=".AsrSettingsActivity" android:exported="true" android:label="Cortex ASR Setup">
             <intent-filter>
