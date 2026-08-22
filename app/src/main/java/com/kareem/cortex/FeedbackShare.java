@@ -29,7 +29,7 @@ public final class FeedbackShare {
             Toast.makeText(context,"Original audio file is missing",Toast.LENGTH_LONG).show();
             return;
         }
-        String prompt=buildPrompt(item,audio,transcript,rating,feedback);
+        String prompt=buildPrompt(context,item,audio,transcript,rating,feedback);
         try{
             Uri uri=FileProvider.getUriForFile(context,context.getPackageName()+".feedback.files",audio);
             Intent send=new Intent(Intent.ACTION_SEND);
@@ -60,18 +60,26 @@ public final class FeedbackShare {
         }
     }
 
-    private static String buildPrompt(KnowledgeItem item,File audio,String transcript,int rating,String feedback){
+    private static String buildPrompt(Context context,KnowledgeItem item,File audio,String transcript,int rating,String feedback){
         String current=clean(transcript);
         if(current.isEmpty())current="[no accepted transcript]";
         String diagnostic=clean(feedback);
+        String storedAudioInfo="";
+        if(item!=null){
+            try{storedAudioInfo=AudioStore.info(new VaultDb(context),item.id);}catch(Exception ignored){}
+        }
         StringBuilder s=new StringBuilder();
         s.append("CORTEX_TRANSCRIPTION_FEEDBACK_V1\n\n");
         s.append("I am attaching the original WAV recorded by Cortex. Diagnose the transcription quality using the audio itself.\n\n");
         s.append("CURRENT CORTEX RESULT:\n").append(current).append("\n\n");
         s.append("AUDIO / ENGINE INFO:\n");
-        s.append("Duration: ").append(formatDuration(durationMs(audio))).append("\n");
-        s.append("Language: auto\n");
-        s.append("Engine: ").append(inferEngine(diagnostic)).append("\n");
+        if(!storedAudioInfo.isEmpty()){
+            s.append(storedAudioInfo).append("\n");
+        }else{
+            s.append("Duration: ").append(formatDuration(durationMs(audio))).append("\n");
+            s.append("Language: auto\n");
+            s.append("Engine: ").append(inferEngine(diagnostic)).append("\n");
+        }
         s.append("File bytes: ").append(audio.length()).append("\n");
         if(item!=null)s.append("Status: ").append(clean(item.status)).append("\n");
         if(!diagnostic.isEmpty())s.append("Diagnostics: ").append(diagnostic).append("\n");
@@ -89,7 +97,7 @@ public final class FeedbackShare {
 
     private static String inferEngine(String diagnostic){
         String x=diagnostic==null?"":diagnostic.toLowerCase(Locale.US);
-        if(x.contains("groq"))return "groq";
+        if(x.contains("whisper-large-v3")||x.contains("groq"))return "groq/whisper-large-v3";
         if(x.contains("cohere"))return "cohere";
         if(x.contains("android fallback")||x.contains("speech recognition"))return "android_speech/fallback";
         return "unknown";
