@@ -15,7 +15,7 @@ import java.util.Locale;
 
 public final class GeminiAudioTranscriber {
     public interface Callback{void ok(TranscriptResult r);void fail(Exception e);}
-    private static final String MODEL="gemini-2.5-flash";
+    private static final String MODEL="gemini-3.6-flash";
     private static final String PROMPT="Transcribe this audio verbatim. Speech may switch between Egyptian Arabic and English. Preserve Egyptian Arabic as spoken, preserve every spoken English word in Latin letters, and do not translate, summarize, paraphrase, or convert Egyptian Arabic to Modern Standard Arabic. Return only the transcript text.";
     private GeminiAudioTranscriber(){}
 
@@ -43,7 +43,7 @@ public final class GeminiAudioTranscriber {
         JSONObject root=new JSONObject(body);String text=extractText(root).trim();
         text=text.replaceAll("^```(?:text)?\\s*"," ").replaceAll("```$"," ").replaceAll("\\s+"," ").trim();
         if(text.isEmpty())throw new IOException("Gemini returned an empty transcript");
-        TranscriptResult r=new TranscriptResult();r.text=text;r.rawTranscript=text;r.providerMergedTranscript=text;r.engine=MODEL+"+audio";r.version="gemini-audio-v1";r.durationMs=duration(audio);r.processedDurationMs=0;r.coverage=0;r.language=detectLanguage(text);r.rawProviderResponse=body;return r;
+        TranscriptResult r=new TranscriptResult();r.text=text;r.rawTranscript=text;r.providerMergedTranscript=text;r.engine=MODEL+"+audio";r.version="gemini-audio-v2";r.durationMs=duration(audio);r.processedDurationMs=0;r.coverage=0;r.language=detectLanguage(text);r.rawProviderResponse=body;return r;
     }
 
     private static String extractText(JSONObject root){
