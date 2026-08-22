@@ -27,20 +27,21 @@ public class FeatureHubActivity extends Activity {
     void build(){
         LinearLayout root=new LinearLayout(this);root.setOrientation(LinearLayout.VERTICAL);root.setBackgroundColor(bg);pad(root,16);
         TextView title=tv("CORTEX",28,text);title.setTypeface(null,1);root.addView(title);root.addView(tv("Your second brain • capture → understand → recall → follow up",14,muted));
-        LinearLayout top=new LinearLayout(this);top.setOrientation(LinearLayout.HORIZONTAL);top.setPadding(0,dp(12),0,0);Button brain=button("BRAIN"),capture=button("CAPTURE"),inbox=button("INBOX"),brief=button("BRIEF");addEq(top,brain,0);addEq(top,capture,6);addEq(top,inbox,6);addEq(top,brief,6);root.addView(top);
+        LinearLayout top=new LinearLayout(this);top.setOrientation(LinearLayout.HORIZONTAL);top.setPadding(0,dp(12),0,0);Button brain=button("BRAIN"),capture=button("CAPTURE"),inbox=button("INBOX"),needs=button("NEEDS");addEq(top,brain,0);addEq(top,capture,6);addEq(top,inbox,6);addEq(top,needs,6);root.addView(top);
         status=tv("",12,muted);status.setPadding(0,dp(10),0,dp(8));root.addView(status);
         ScrollView sv=new ScrollView(this);feed=new LinearLayout(this);feed.setOrientation(LinearLayout.VERTICAL);sv.addView(feed);root.addView(sv,new LinearLayout.LayoutParams(-1,0,1));setContentView(root);
-        brain.setOnClickListener(v->startActivity(new Intent(this,BrainActivity.class)));capture.setOnClickListener(v->startActivity(new Intent(this,MainActivity.class)));inbox.setOnClickListener(v->showInbox());brief.setOnClickListener(v->showBriefChoice());
+        brain.setOnClickListener(v->startActivity(new Intent(this,BrainActivity.class)));capture.setOnClickListener(v->startActivity(new Intent(this,MainActivity.class)));inbox.setOnClickListener(v->openSmart("inbox"));needs.setOnClickListener(v->openSmart("needs"));
     }
+    void openSmart(String mode){Intent i=new Intent(this,SmartInboxActivity.class);i.putExtra("mode",mode);startActivity(i);}
     void addEq(LinearLayout r,View v,int m){LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,dp(46),1);p.setMargins(dp(m),0,0,0);r.addView(v,p);}
 
     void refresh(){
-        int items=db.lexicalSearch("",10000).size(),loops=SecondBrainEngine.openLoops(db,1000).size(),inbox=FeatureStore.inbox(db,200).size();status.setText(items+" memories  •  "+loops+" open loops  •  "+inbox+" inbox");feed.removeAllViews();
+        int items=db.lexicalSearch("",10000).size(),loops=SecondBrainEngine.openLoops(db,1000).size(),inbox=FeatureStore.inbox(db,200).size(),needs=FeatureStore.needsCount(db);status.setText(items+" memories  •  "+needs+" need attention  •  "+loops+" open loops  •  "+inbox+" inbox");feed.removeAllViews();
         section("20-FEATURE CORTEX");
         addFeature(1,"Universal Capture","Text, links, files, screenshots, images, audio, Android share sheet and imports.",()->startActivity(new Intent(this,MainActivity.class)));
         addFeature(2,"Automatic Understanding","OCR, transcription, summaries, tags, entities, actions and semantic indexing.",()->startActivity(new Intent(this,MainActivity.class)));
         addFeature(3,"Ask Cortex","Grounded answers from your saved memory with source memories.",()->startActivity(new Intent(this,BrainActivity.class)));
-        addFeature(4,"Follow-up Brain / Needs Attention","Open loops, failed items, waiting states and resurfacing.",()->startActivity(new Intent(this,BrainActivity.class)));
+        addFeature(4,"Follow-up Brain / Needs Attention","Ranked attention queue for failures, open actions, waiting outcomes, stale items and follow-ups.",()->openSmart("needs"));
         addFeature(5,"Reminders & Dates","Schedule reminders from open loops and keep the source memory attached.",()->startActivity(new Intent(this,BrainActivity.class)));
         addFeature(6,"Timeline / Daily Memory","Chronological memory timeline across all captured sources.",()->startActivity(new Intent(this,BrainActivity.class)));
         addFeature(7,"Notification Memory","Collect allowed Android notifications into Cortex with sensitive tagging.",this::notificationMemory);
@@ -49,7 +50,7 @@ public class FeatureHubActivity extends Activity {
         addFeature(10,"Prompt / AI Result Library","Store prompt + input + result + rating bundles.",()->startActivity(new Intent(this,MainActivity.class)));
         addFeature(11,"Screenshot & Image Intelligence","Local OCR and structured vision fields for shared images.",()->startActivity(new Intent(this,MainActivity.class)));
         addFeature(12,"Memory Connections","Semantic related memories, graph nodes and explicit relations.",()->startActivity(new Intent(this,BrainActivity.class)));
-        addFeature(13,"Smart Inbox","Auto-bucket new memories into Action, Project, Person, Decision, Waiting or Reference.",this::showInbox);
+        addFeature(13,"Smart Inbox","Auto-prioritized inbox with Action, Waiting, Decision, Project, Person, Reference and Needs Attention buckets.",()->openSmart("inbox"));
         addFeature(14,"Memory-like Search","Hybrid lexical + semantic recall without needing exact wording.",()->startActivity(new Intent(this,MainActivity.class)));
         addFeature(15,"Daily / Weekly Brief","What happened, what needs attention and what is still open.",this::showBriefChoice);
         addFeature(16,"Corrections = Learning","Correct stored text and optionally teach Cortex exact future display replacements.",this::showCorrections);
@@ -62,12 +63,7 @@ public class FeatureHubActivity extends Activity {
     void section(String s){TextView h=tv(s,11,accent);h.setTypeface(null,1);h.setPadding(0,dp(10),0,dp(7));feed.addView(h);}
     void addFeature(int n,String title,String body,Runnable action){LinearLayout c=new LinearLayout(this);c.setOrientation(LinearLayout.VERTICAL);c.setBackgroundResource(R.drawable.rounded_panel);pad(c,12);c.setClickable(true);c.setOnClickListener(v->action.run());TextView t=tv(n+". "+title,15,text);t.setTypeface(null,1);c.addView(t);TextView b=tv(body,12,muted);b.setPadding(0,dp(4),0,0);c.addView(b);TextView live=tv("● LIVE",10,ok);live.setPadding(0,dp(6),0,0);c.addView(live);LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,-2);p.setMargins(0,0,0,dp(8));feed.addView(c,p);}
 
-    void showInbox(){
-        ArrayList<FeatureStore.InboxEntry> xs=FeatureStore.inbox(db,100);ScrollView sv=new ScrollView(this);LinearLayout box=new LinearLayout(this);box.setOrientation(LinearLayout.VERTICAL);pad(box,14);sv.addView(box);
-        if(xs.isEmpty())box.addView(tv("Inbox clear. New captures will appear here until reviewed.",14,muted));
-        for(FeatureStore.InboxEntry e:xs){LinearLayout c=new LinearLayout(this);c.setOrientation(LinearLayout.VERTICAL);c.setBackgroundResource(R.drawable.rounded_panel);pad(c,11);TextView t=tv((e.pinned?"★ ":"")+e.item.title,14,text);t.setTypeface(null,1);c.addView(t);c.addView(tv(e.bucket+"  •  "+e.item.category+"  •  "+fmt(e.item.createdAt),11,muted));String p=!empty(e.item.summary)?e.item.summary:(!empty(e.item.extractedText)?e.item.extractedText:e.item.rawText);if(p==null)p="";if(p.length()>260)p=p.substring(0,260)+"…";c.addView(tv(LanguageBlockFormatter.format(p),12,text));LinearLayout r=new LinearLayout(this);r.setOrientation(LinearLayout.HORIZONTAL);Button review=button("REVIEWED"),pin=button(e.pinned?"UNPIN":"PIN");r.addView(review,new LinearLayout.LayoutParams(0,dp(40),1));LinearLayout.LayoutParams q=new LinearLayout.LayoutParams(0,dp(40),1);q.setMargins(dp(6),0,0,0);r.addView(pin,q);review.setOnClickListener(v->{FeatureStore.review(db,e.item.id,true);Toast.makeText(this,"Removed from inbox",Toast.LENGTH_SHORT).show();showInbox();});pin.setOnClickListener(v->{FeatureStore.pin(db,e.item.id,!e.pinned);Toast.makeText(this,e.pinned?"Unpinned":"Pinned",Toast.LENGTH_SHORT).show();showInbox();});c.addView(r);LinearLayout.LayoutParams cp=new LinearLayout.LayoutParams(-1,-2);cp.setMargins(0,0,0,dp(8));box.addView(c,cp);}
-        new AlertDialog.Builder(this).setTitle("Smart Inbox • "+xs.size()).setView(sv).setNegativeButton("Close",null).show();
-    }
+    void showInbox(){openSmart("inbox");}
 
     void showBriefChoice(){String[] x={"Daily brief — last 24 hours","Weekly brief — last 7 days"};new AlertDialog.Builder(this).setTitle("Cortex Brief").setItems(x,(d,w)->showBrief(w==0?BriefEngine.daily(db):BriefEngine.weekly(db))).setNegativeButton("Close",null).show();}
     void showBrief(String body){TextView t=tv(LanguageBlockFormatter.format(body),14,text);t.setPadding(dp(14),dp(8),dp(14),dp(8));t.setTextIsSelectable(true);new AlertDialog.Builder(this).setTitle("Memory Brief").setView(t).setNegativeButton("Close",null).setPositiveButton("COPY",(d,w)->{ClipboardManager cm=(ClipboardManager)getSystemService(CLIPBOARD_SERVICE);cm.setPrimaryClip(ClipData.newPlainText("Cortex brief",body));Toast.makeText(this,"Brief copied",Toast.LENGTH_SHORT).show();}).show();}
