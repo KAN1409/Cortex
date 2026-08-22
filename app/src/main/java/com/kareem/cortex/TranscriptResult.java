@@ -25,6 +25,7 @@ public class TranscriptResult {
     public long processedDurationMs=0;
     public double coverage=0.0;
 
+    public String rawTranscript="";
     public String providerMergedTranscript="";
     public String qualityWarning="";
     public String rawProviderResponse="";
