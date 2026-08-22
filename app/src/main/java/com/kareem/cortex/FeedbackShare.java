@@ -18,6 +18,11 @@ public final class FeedbackShare {
     private static final String CHATGPT_PACKAGE="com.openai.chatgpt";
     private FeedbackShare(){}
 
+    public static void send(Context context,KnowledgeItem item,File audio,String feedback){
+        String transcript=item==null?"":item.extractedText;
+        send(context,item,audio,transcript,0,feedback);
+    }
+
     public static void send(Context context,KnowledgeItem item,File audio,String transcript,int rating,String feedback){
         if(context==null)return;
         if(audio==null||!audio.exists()){
