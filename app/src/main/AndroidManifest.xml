@@ -30,6 +30,7 @@
             </intent-filter>
         </activity>
 
+        <activity android:name=".SmartInboxActivity" android:exported="false" />
         <activity android:name=".BrainActivity" android:exported="false" />
         <activity android:name=".GeminiSettingsActivity" android:exported="false" android:label="Cortex Gemini Setup" />
 
