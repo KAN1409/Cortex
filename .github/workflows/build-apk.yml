@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build-debug-apk:
@@ -32,17 +32,23 @@ jobs:
       - name: Build debug APK
         run: gradle :app:assembleDebug --stacktrace
 
-      - name: Prepare APK artifact
+      - name: Prepare APK
         shell: bash
         run: |
           mkdir -p dist
           cp app/build/outputs/apk/debug/app-debug.apk dist/Cortex-v1.0.0-debug.apk
           sha256sum dist/Cortex-v1.0.0-debug.apk > dist/Cortex-v1.0.0-debug.sha256
 
-      - name: Upload Cortex APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: Cortex-v1.0.0-debug
-          path: dist/
-          if-no-files-found: error
-          retention-days: 30
+      - name: Publish latest APK release
+        if: github.event_name != 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          gh release delete cortex-latest --cleanup-tag -y || true
+          gh release create cortex-latest \
+            dist/Cortex-v1.0.0-debug.apk \
+            dist/Cortex-v1.0.0-debug.sha256 \
+            --title "Cortex latest debug APK" \
+            --notes "Latest Cortex debug build with direct Cohere Arabic-English code-switching transcription." \
+            --latest
