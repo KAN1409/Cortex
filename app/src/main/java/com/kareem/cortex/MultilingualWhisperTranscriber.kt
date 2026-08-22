@@ -14,10 +14,10 @@ import java.util.Locale
 /**
  * Cortex local ASR for Egyptian Arabic <-> English code-switching.
  *
- * v1.0.18:
- * - Notes up to 28 seconds use exactly one VAD-trimmed, prompted multilingual
- *   beam-5 pass. Greedy decoding could collapse a clear code-switch note into
- *   a short hallucinated fragment even when the complete audio reached Whisper.
+ * v1.0.23:
+ * - Notes up to 28 seconds use one prompted multilingual pass with a 1000 ms
+ *   acoustic pre-roll so quiet leading technical tokens survive VAD. The decoder remains
+ *   multilingual beam-5; translate is disabled.
  * - Short notes never run span rescue or tail retry, so language context cannot reset
  *   and a second pass cannot duplicate or corrupt a correct ending.
  * - Longer notes retain span-local rescue and only retry a genuinely missing tail.
@@ -68,11 +68,11 @@ class MultilingualWhisperTranscriber private constructor() {
                         val out = TranscriptResult()
                         out.language = "ar-EG+en-codeswitch-auto"
                         out.engine = if (shortPrimaryOnly) {
-                            "whisper_cpp_local_codeswitch_${LocalAsrModelStore.profileId(app)}_full_prompt_beam5_primary_only"
+                            "whisper_cpp_local_codeswitch_${LocalAsrModelStore.profileId(app)}_full_prompt_beam5_primary_only_preroll1000"
                         } else {
                             "whisper_cpp_local_codeswitch_${LocalAsrModelStore.profileId(app)}_context_prompt_beam5_span_rescue_guarded_tail"
                         }
-                        out.version = "13"
+                        out.version = "14"
                         out.durationMs = fullDuration
                         val recordingParts = ArrayList<String>()
 
@@ -188,7 +188,7 @@ class MultilingualWhisperTranscriber private constructor() {
                         out.text = CodeSwitchCandidateSelector.joinVerbatim(*recordingParts.toTypedArray())
                         if (out.text.isEmpty()) throw IllegalStateException("Code-switch ASR returned an empty transcript")
                         val readyDetail = if (shortPrimaryOnly) {
-                            "Single prompted multilingual beam-5 pass completed; rescue and tail retry disabled"
+                            "Single prompted multilingual beam-5 pass completed with 1000 ms onset pre-roll; rescue and tail retry disabled"
                         } else {
                             "Prompted multilingual beam-5 decode + guarded span/tail recovery completed"
                         }
