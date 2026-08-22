@@ -11,40 +11,25 @@ public final class AudioAnalyzer {
         try{
             if(item.attachmentPath==null||item.attachmentPath.isEmpty())throw new IllegalArgumentException("Missing audio file");
             File f=new File(item.attachmentPath);if(!f.exists())throw new IllegalArgumentException("Audio file not found");
-            if(CohereKeyStore.has(ctx)){
-                CohereAudioTranscriber.transcribe(ctx,f,new CohereAudioTranscriber.Callback(){
-                    public void ok(TranscriptResult t){
-                        String warning=acceptabilityWarning(t);
-                        if(warning==null)finish(t,cb);
-                        else cb.fail(retryable("Cohere returned an incomplete transcript: "+warning,null));
-                    }
-                    public void fail(Exception cloudError){
-                        SystemAudioTranscriber.transcribe(ctx,f,new SystemAudioTranscriber.Callback(){
-                            public void ok(TranscriptResult t){
-                                String warning=acceptabilityWarning(t);
-                                if(warning!=null){
-                                    cb.fail(retryable("Cohere failed: "+message(cloudError)+" | Android fallback returned an incomplete transcript: "+warning,cloudError));
-                                    return;
-                                }
-                                t.engine="cohere_failed+"+t.engine;
-                                finish(t,cb);
-                            }
-                            public void fail(Exception localError){
-                                cb.fail(retryable("Cohere failed: "+message(cloudError)+" | Android fallback failed: "+message(localError),localError));
-                            }
-                        });
-                    }
-                });
-            }else{
-                SystemAudioTranscriber.transcribe(ctx,f,new SystemAudioTranscriber.Callback(){
-                    public void ok(TranscriptResult t){
-                        String warning=acceptabilityWarning(t);
-                        if(warning==null)finish(t,cb);
-                        else cb.fail(retryable("Android fallback returned an incomplete transcript: "+warning,null));
-                    }
-                    public void fail(Exception e){cb.fail(retryable(message(e),e));}
-                });
+            if(!GroqKeyStore.has(ctx)){
+                cb.fail(retryable("Groq API key not configured",null));
+                return;
             }
+
+            GroqAudioTranscriber.transcribe(ctx,f,new GroqAudioTranscriber.Callback(){
+                public void ok(TranscriptResult t){
+                    String warning=acceptabilityWarning(t);
+                    if(warning==null){
+                        finish(t,cb);
+                    }else{
+                        cb.fail(retryable("Groq returned an incomplete transcript: "+warning,null));
+                    }
+                }
+
+                public void fail(Exception groqError){
+                    cb.fail(retryable("Groq failed: "+message(groqError),groqError));
+                }
+            });
         }catch(Exception e){cb.fail(e);}
     }
 
