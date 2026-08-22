@@ -53,14 +53,14 @@ public final class AudioAnalyzer {
             try{root=new JSONObject(groq.rawProviderResponse);}catch(Exception e){root=new JSONObject();}
             JSONArray arr=root.optJSONArray("candidates");if(arr==null){arr=new JSONArray();root.put("candidates",arr);}
             if(gemini!=null){
-                JSONObject j=new JSONObject();j.put("label","gemini_2_5_flash");j.put("provider","gemini");j.put("status","ok");j.put("engine",gemini.engine);j.put("language",gemini.language);j.put("score",round1(geminiBenchmarkScore(gemini)));j.put("warning",acceptabilityWarning(gemini)==null?"":acceptabilityWarning(gemini));j.put("coverage",0);j.put("coverage_note","Gemini generateContent does not return ASR segment timestamps; full audio was supplied");j.put("arabic_ratio",round3(scriptRatio(gemini.text,true)));j.put("latin_ratio",round3(scriptRatio(gemini.text,false)));j.put("text",gemini.text);j.put("raw_text",gemini.rawTranscript);arr.put(j);
+                JSONObject j=new JSONObject();j.put("label","gemini_3_6_flash");j.put("provider","gemini");j.put("status","ok");j.put("engine",gemini.engine);j.put("language",gemini.language);j.put("score",round1(geminiBenchmarkScore(gemini)));j.put("warning",acceptabilityWarning(gemini)==null?"":acceptabilityWarning(gemini));j.put("coverage",0);j.put("coverage_note","Gemini generateContent does not return ASR segment timestamps; full audio was supplied");j.put("arabic_ratio",round3(scriptRatio(gemini.text,true)));j.put("latin_ratio",round3(scriptRatio(gemini.text,false)));j.put("text",gemini.text);j.put("raw_text",gemini.rawTranscript);arr.put(j);
                 root.put("gemini_status","ok");root.put("gemini_raw_provider",new JSONObject(gemini.rawProviderResponse));
             }else if(geminiError!=null){
                 boolean missing="NOT_CONFIGURED".equals(geminiError);
-                JSONObject j=new JSONObject();j.put("label","gemini_2_5_flash");j.put("provider","gemini");j.put("status",missing?"not_configured":"failed");j.put("score",-1000);j.put("coverage",0);j.put("arabic_ratio",0);j.put("latin_ratio",0);j.put("warning",missing?"Gemini API key not configured":geminiError);arr.put(j);
+                JSONObject j=new JSONObject();j.put("label","gemini_3_6_flash");j.put("provider","gemini");j.put("status",missing?"not_configured":"failed");j.put("score",-1000);j.put("coverage",0);j.put("arabic_ratio",0);j.put("latin_ratio",0);j.put("warning",missing?"Gemini API key not configured":geminiError);arr.put(j);
                 root.put("gemini_status",missing?"not_configured":"failed");root.put("gemini_error",missing?"Gemini API key not configured":geminiError);
             }
-            root.put("benchmark_mode","Groq Whisper candidates + Gemini 2.5 Flash side-by-side; Groq winner remains selected in v25 unless Groq fails");
+            root.put("benchmark_mode","Groq Whisper candidates + Gemini 3.6 Flash side-by-side; Groq winner remains selected in v26 unless Groq fails");
             groq.rawProviderResponse=root.toString();
         }catch(Exception ignored){}
     }
