@@ -153,11 +153,13 @@ public final class CodeSwitchCandidateSelector {
         return norm(out.toString());
     }
 
-    /** Tiny dialect spelling normalization; never translates or changes scripts. */
+    /** Narrow Egyptian spelling/grammar repair; never translates or rewrites Latin tokens. */
     public static String normalizeEgyptianOutput(String text){
         String out=norm(text);
         out=out.replaceAll("(?<![\\p{L}\\p{M}])أعوزين(?![\\p{L}\\p{M}])","عاوزين");
         out=out.replaceAll("(?<![\\p{L}\\p{M}])أعوز(?![\\p{L}\\p{M}])","عاوز");
+        out=out.replaceAll("(?<![\\p{L}\\p{M}])أبراهيم(?![\\p{L}\\p{M}])","إبراهيم");
+        out=out.replaceAll("(?<![\\p{L}\\p{M}])اللي هو وجود فيها(?![\\p{L}\\p{M}])","اللي هو موجود فيها");
         return norm(out);
     }
 
