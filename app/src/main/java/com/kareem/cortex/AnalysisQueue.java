@@ -20,5 +20,14 @@ public final class AnalysisQueue {
         }
     }
     private static void finish(VaultDb db,long id,AnalysisResult r,Runnable changed){db.applyAnalysis(id,r);if(changed!=null)changed.run();}
-    private static void fail(VaultDb db,long id,Exception e,Runnable changed){db.markFailed(id,e==null?"Unknown error":e.getMessage());if(changed!=null)changed.run();}
+    private static void fail(VaultDb db,long id,Exception e,Runnable changed){
+        String message=e==null?"Unknown error":e.getMessage();
+        if(message!=null&&message.startsWith("RETRYABLE:")){
+            String clean=message.substring("RETRYABLE:".length()).trim();
+            db.markFailedRetryable(id,clean.isEmpty()?"Retryable analysis failure":clean);
+        }else{
+            db.markFailed(id,message);
+        }
+        if(changed!=null)changed.run();
+    }
 }
