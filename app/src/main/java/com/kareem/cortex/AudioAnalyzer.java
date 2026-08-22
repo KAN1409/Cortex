@@ -17,7 +17,7 @@ public final class AudioAnalyzer {
             boolean groq=GroqKeyStore.has(ctx),gemini=GeminiKeyStore.has(ctx);
             if(!groq&&!gemini){cb.fail(retryable("No ASR provider configured. Add Gemini and/or Groq API key",null));return;}
 
-            // Production v27: Gemini 3.6 Flash is primary. Groq is fallback only.
+            // Production v27+: Gemini 3.6 Flash is primary. Groq is fallback only.
             if(gemini){
                 GeminiAudioTranscriber.transcribe(ctx,f,new GeminiAudioTranscriber.Callback(){
                     public void ok(TranscriptResult g){
@@ -105,10 +105,15 @@ public final class AudioAnalyzer {
     private static void finish(TranscriptResult t,Callback cb){
         try{
             String warning=acceptabilityWarning(t);if(warning!=null){cb.fail(retryable("Transcript rejected before local analysis: "+warning,null));return;}
-            String clean=t.text==null?"":t.text.replaceAll("\\s+"," ").trim();if(clean.isEmpty()){cb.fail(retryable("Transcript rejected before local analysis: empty transcript",null));return;}t.text=clean;
+            String clean=MixedBidiText.stripControls(t.text==null?"":t.text).replaceAll("\\s+"," ").trim();if(clean.isEmpty()){cb.fail(retryable("Transcript rejected before local analysis: empty transcript",null));return;}t.text=clean;
+
+            // Analyze/index the untouched lexical transcript. Apply BiDi controls only to display-facing fields.
             AnalysisResult r=LocalAnalyzer.analyze(t.text,"text/plain");
-            r.extractedText=t.text;r.engine=t.engine+"+local_analysis";r.version=t.version;r.category="Voice & Audio";r.tags="voice,audio,transcript,"+AutoClassifier.tags(t.text,"Voice & Audio");r.title="Voice: "+AutoClassifier.title(t.text,"text/plain");
-            for(TranscriptResult.Segment s:t.segments)r.transcriptSegments.add(new AnalysisResult.TranscriptSegment(s.startMs,s.endMs,s.text,s.confidence));
+            r.extractedText=MixedBidiText.forDisplay(t.text);
+            r.summary=MixedBidiText.forDisplay(r.summary);
+            r.engine=t.engine+"+local_analysis";r.version=t.version;r.category="Voice & Audio";r.tags="voice,audio,transcript,"+AutoClassifier.tags(t.text,"Voice & Audio");
+            r.title=MixedBidiText.forDisplay("Voice: "+AutoClassifier.title(t.text,"text/plain"));
+            for(TranscriptResult.Segment s:t.segments)r.transcriptSegments.add(new AnalysisResult.TranscriptSegment(s.startMs,s.endMs,MixedBidiText.forDisplay(s.text),s.confidence));
             r.audioLanguage=t.language;r.audioDurationMs=t.durationMs;r.audioProcessedDurationMs=t.processedDurationMs;r.audioCoverage=t.coverage;r.audioRawTranscript=t.rawTranscript;r.audioProviderMergedTranscript=t.providerMergedTranscript;r.audioRawProviderResponse=t.rawProviderResponse;cb.ok(r);
         }catch(Exception e){cb.fail(e);}
     }
