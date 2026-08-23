@@ -23,13 +23,21 @@ public final class CognitiveStore {
         return id;
     }
 
-    public static void feedback(VaultDb db,String targetType,long targetId,String eventType,String valueJson,String policyVersion){
-        if(targetId<=0||empty(targetType)||empty(eventType))return;ensure(db);ContentValues v=new ContentValues();v.put("target_type",targetType);v.put("target_id",targetId);v.put("event_type",eventType);v.put("value_json",n(valueJson));v.put("policy_version",n(policyVersion));v.put("created_at",System.currentTimeMillis());db.getWritableDatabase().insert("feedback_events",null,v);
+    /** Hot routing fields stay typed/indexed; metadata_json remains flexible provenance. */
+    public static void setDerivedRouting(VaultDb db,long derivedId,String sourceKey,long threadId,long anchorSignalId,String candidateKind){
+        if(db==null||derivedId<=0)return;ensure(db);ContentValues v=new ContentValues();v.put("source_key",n(sourceKey));v.put("thread_id",Math.max(0,threadId));v.put("anchor_signal_id",Math.max(0,anchorSignalId));v.put("candidate_kind",n(candidateKind).toUpperCase());v.put("updated_at",System.currentTimeMillis());db.getWritableDatabase().update("derived_items",v,"id=?",new String[]{String.valueOf(derivedId)});
     }
 
-    public static String schemaRevision(VaultDb db){
-        ensure(db);Cursor c=db.getReadableDatabase().query("schema_meta",new String[]{"value"},"key='cognitive_schema'",null,null,null,null,"1");String x=c.moveToFirst()?c.getString(0):"";c.close();return x==null?"":x;
+    public static void feedback(VaultDb db,String targetType,long targetId,String eventType,String valueJson,String policyVersion){
+        if(targetId<=0||empty(targetType)||empty(eventType))return;ensure(db);String source="",candidate="";
+        if("derived".equalsIgnoreCase(targetType)){
+            Cursor c=db.getReadableDatabase().query("derived_items",new String[]{"source_key","candidate_kind","kind"},"id=?",new String[]{String.valueOf(targetId)},null,null,null,"1");
+            if(c.moveToFirst()){source=n(c.getString(0));candidate=n(c.getString(1));if(candidate.isEmpty()&&"REVIEW".equalsIgnoreCase(n(c.getString(2))))candidate="UNKNOWN";}c.close();
+        }
+        ContentValues v=new ContentValues();v.put("target_type",targetType);v.put("target_id",targetId);v.put("event_type",eventType);v.put("value_json",n(valueJson));v.put("policy_version",n(policyVersion));v.put("source_key",source);v.put("candidate_kind",candidate.toUpperCase());v.put("scope_key",source+"|"+candidate.toUpperCase());v.put("created_at",System.currentTimeMillis());db.getWritableDatabase().insert("feedback_events",null,v);
     }
+
+    public static String schemaRevision(VaultDb db){ensure(db);Cursor c=db.getReadableDatabase().query("schema_meta",new String[]{"value"},"key='cognitive_schema'",null,null,null,null,"1");String x=c.moveToFirst()?c.getString(0):"";c.close();return x==null?"":x;}
 
     private static String friendly(String kind){String x=n(kind).toLowerCase().replace('_',' ');return x.isEmpty()?"Derived intelligence":Character.toUpperCase(x.charAt(0))+x.substring(1);}
     private static boolean empty(String s){return s==null||s.trim().isEmpty();}
