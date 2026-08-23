@@ -12,13 +12,18 @@ public final class VisionInterpreter {
 
     public static AnalysisResult interpret(KnowledgeItem item,String latin,String arabic,String arabicStatus){
         String merged=mergeText(latin,arabic);AnalysisResult r=LocalAnalyzer.analyze(merged,"text/plain");
+        // OCR text is evidence, not user intent. Never turn imperative/UI words in a folder screenshot
+        // into a personal task automatically. User teaching or a later high-confidence reasoning layer
+        // may explicitly promote evidence into an action.
+        r.actions.clear();
         String n=norm(merged);String type=classify(n,merged);double confidence=confidence(type,n,merged);
-        r.extractedText=merged;r.visionType=type;r.visionConfidence=confidence;r.engine="cortex_vision_local+mlkit+tesseract_ar";r.version="2";
+        r.extractedText=merged;r.visionType=type;r.visionConfidence=confidence;r.engine="cortex_vision_local+mlkit+tesseract_ar";r.version="3";
 
         int ar=countArabic(merged),lat=countLatin(merged);String lang=ar>0&&lat>0?"Arabic + Latin":(ar>0?"Arabic":(lat>0?"Latin":"No text"));
         r.visionFields.add(new AnalysisResult.VisionField("Content type",friendly(type),confidence));
         r.visionFields.add(new AnalysisResult.VisionField("Detected text",lang,0.95));
         r.visionFields.add(new AnalysisResult.VisionField("Arabic OCR",arabicStatus==null?"":arabicStatus,0.9));
+        r.visionFields.add(new AnalysisResult.VisionField("Personal action extraction","Gated • OCR kept as reference until user/AI confirmation",1.0));
         addDimensions(item,r);
 
         String app=detectApp(n);if(!app.isEmpty())r.visionFields.add(new AnalysisResult.VisionField("App / source",app,0.9));
@@ -34,45 +39,18 @@ public final class VisionInterpreter {
 
     private static void applyPresentation(AnalysisResult r,String type,String text,String app,String total,ArrayList<String> amounts,String title,String lang){
         switch(type){
-            case "CHAT_SCREEN":
-                r.category="Chats";r.tags=tags(r.tags,"vision,chat,screenshot");
-                r.title=(app.isEmpty()?"Chat":app+" chat")+": "+safeTitle(title);
-                r.summary="Chat screenshot"+(app.isEmpty()?"":" from "+app)+" with "+lineCount(text)+" text lines; "+lang+" text captured.";break;
-            case "SETTINGS_SCREEN":
-                r.category="Settings";r.tags=tags(r.tags,"vision,settings,screenshot");r.title="Settings: "+safeTitle(title);
-                r.summary="Settings screen captured and indexed; "+lang+" text is searchable and related settings terms were extracted.";break;
-            case "RECEIPT":
-                r.category="Receipts";r.tags=tags(r.tags,"vision,receipt,invoice,screenshot");r.title="Receipt: "+safeTitle(title);
-                r.summary="Receipt / invoice screenshot"+(!total.isEmpty()?" — "+clip(total,90):(!amounts.isEmpty()?" — amount "+amounts.get(0):""))+". "+lang+" text captured.";break;
-            case "PRODUCT_PAGE":
-                r.category="Products";r.tags=tags(r.tags,"vision,product,shopping,screenshot");r.title="Product: "+safeTitle(title);
-                r.summary="Product page screenshot"+(!amounts.isEmpty()?" with price clue "+amounts.get(0):"")+"; searchable product details were extracted.";break;
-            case "AI_CONVERSATION":
-                r.category="AI Captures";r.tags=tags(r.tags,"vision,ai,prompt,result,screenshot");r.title=(app.isEmpty()?"AI capture":app+" capture")+": "+safeTitle(title);
-                r.summary="AI conversation/result screenshot"+(app.isEmpty()?"":" from "+app)+"; prompt/result text is now searchable and semantically indexed.";break;
-            case "DOCUMENT":
-                r.category="Documents";r.tags=tags(r.tags,"vision,document,screenshot");r.title="Document: "+safeTitle(title);
-                r.summary="Document screenshot with "+lineCount(text)+" text lines; text, entities and document clues were extracted.";break;
-            case "WEBPAGE":
-                r.category="Web & Research";r.tags=tags(r.tags,"vision,web,research,screenshot");r.title="Web: "+safeTitle(title);
-                r.summary="Web/research screenshot captured; visible text is searchable and semantically indexed.";break;
-            default:
-                r.category="Screenshots & Images";r.tags=tags(r.tags,"vision,screenshot,image");r.title="Screenshot: "+safeTitle(title);
-                r.summary=text.trim().isEmpty()?"Image stored. No readable text was detected.":"Screenshot understood locally; "+lang+" text and visual context clues were indexed.";
+            case "CHAT_SCREEN":r.category="Chats";r.tags=tags(r.tags,"vision,chat,screenshot");r.title=(app.isEmpty()?"Chat":app+" chat")+": "+safeTitle(title);r.summary="Chat screenshot"+(app.isEmpty()?"":" from "+app)+" with "+lineCount(text)+" text lines; "+lang+" text captured.";break;
+            case "SETTINGS_SCREEN":r.category="Settings";r.tags=tags(r.tags,"vision,settings,screenshot");r.title="Settings: "+safeTitle(title);r.summary="Settings screen captured and indexed; "+lang+" text is searchable and related settings terms were extracted.";break;
+            case "RECEIPT":r.category="Receipts";r.tags=tags(r.tags,"vision,receipt,invoice,screenshot");r.title="Receipt: "+safeTitle(title);r.summary="Receipt / invoice screenshot"+(!total.isEmpty()?" — "+clip(total,90):(!amounts.isEmpty()?" — amount "+amounts.get(0):""))+". "+lang+" text captured.";break;
+            case "PRODUCT_PAGE":r.category="Products";r.tags=tags(r.tags,"vision,product,shopping,screenshot");r.title="Product: "+safeTitle(title);r.summary="Product page screenshot"+(!amounts.isEmpty()?" with price clue "+amounts.get(0):"")+"; searchable product details were extracted.";break;
+            case "AI_CONVERSATION":r.category="AI Captures";r.tags=tags(r.tags,"vision,ai,prompt,result,screenshot");r.title=(app.isEmpty()?"AI capture":app+" capture")+": "+safeTitle(title);r.summary="AI conversation/result screenshot"+(app.isEmpty()?"":" from "+app)+"; prompt/result text is now searchable and semantically indexed.";break;
+            case "DOCUMENT":r.category="Documents";r.tags=tags(r.tags,"vision,document,screenshot");r.title="Document: "+safeTitle(title);r.summary="Document screenshot with "+lineCount(text)+" text lines; text, entities and document clues were extracted.";break;
+            case "WEBPAGE":r.category="Web & Research";r.tags=tags(r.tags,"vision,web,research,screenshot");r.title="Web: "+safeTitle(title);r.summary="Web/research screenshot captured; visible text is searchable and semantically indexed.";break;
+            default:r.category="Screenshots & Images";r.tags=tags(r.tags,"vision,screenshot,image");r.title="Screenshot: "+safeTitle(title);r.summary=text.trim().isEmpty()?"Image stored. No readable text was detected.":"Screenshot understood locally; "+lang+" text and visual context clues were indexed.";
         }
     }
 
-    private static String classify(String n,String raw){
-        LinkedHashMap<String,Integer>s=new LinkedHashMap<>();
-        s.put("CHAT_SCREEN",score(n,new String[]{"whatsapp","telegram","messenger","message","typing","online","last seen","رسالة","رسائل","متصل","يكتب","واتساب","تليجرام"}));
-        s.put("SETTINGS_SCREEN",score(n,new String[]{"settings","permission","permissions","notification","notifications","battery","display","bluetooth","wifi","wi-fi","enabled","disabled","الإعدادات","إعدادات","الأذونات","الإشعارات","البطارية","الشاشة","بلوتوث","تفعيل","تعطيل"}));
-        s.put("RECEIPT",score(n,new String[]{"receipt","invoice","subtotal","grand total","amount due","tax","vat","cash","card","فاتورة","إيصال","الإجمالي","اجمالي","ضريبة","نقدي","بطاقة"})+(money(raw).size()>=2?4:0));
-        s.put("PRODUCT_PAGE",score(n,new String[]{"add to cart","buy now","price","size","colour","color","reviews","rating","in stock","أضف للسلة","اشتر الآن","شراء الآن","السعر","مقاس","اللون","تقييم","متوفر"})+(money(raw).size()>0?2:0));
-        s.put("AI_CONVERSATION",score(n,new String[]{"chatgpt","gemini","claude","copilot","regenerate","prompt","assistant","model","ask chatgpt","جيميني","كلود","برومبت","إعادة إنشاء"}));
-        s.put("WEBPAGE",score(n,new String[]{"http://","https://","www.","chrome","browser","search results","بحث google","نتائج البحث"}));
-        s.put("DOCUMENT",score(n,new String[]{"document","report","subject","page ","reference","dear ","sincerely","تقرير","الموضوع","صفحة","مرجع","السيد","التاريخ"})+(raw.length()>900?3:0));
-        String best="GENERAL_SCREENSHOT";int max=2;for(Map.Entry<String,Integer>e:s.entrySet())if(e.getValue()>max){max=e.getValue();best=e.getKey();}return best;
-    }
+    private static String classify(String n,String raw){LinkedHashMap<String,Integer>s=new LinkedHashMap<>();s.put("CHAT_SCREEN",score(n,new String[]{"whatsapp","telegram","messenger","message","typing","online","last seen","رسالة","رسائل","متصل","يكتب","واتساب","تليجرام"}));s.put("SETTINGS_SCREEN",score(n,new String[]{"settings","permission","permissions","notification","notifications","battery","display","bluetooth","wifi","wi-fi","enabled","disabled","الإعدادات","إعدادات","الأذونات","الإشعارات","البطارية","الشاشة","بلوتوث","تفعيل","تعطيل"}));s.put("RECEIPT",score(n,new String[]{"receipt","invoice","subtotal","grand total","amount due","tax","vat","cash","card","فاتورة","إيصال","الإجمالي","اجمالي","ضريبة","نقدي","بطاقة"})+(money(raw).size()>=2?4:0));s.put("PRODUCT_PAGE",score(n,new String[]{"add to cart","buy now","price","size","colour","color","reviews","rating","in stock","أضف للسلة","اشتر الآن","شراء الآن","السعر","مقاس","اللون","تقييم","متوفر"})+(money(raw).size()>0?2:0));s.put("AI_CONVERSATION",score(n,new String[]{"chatgpt","gemini","claude","copilot","regenerate","prompt","assistant","model","ask chatgpt","جيميني","كلود","برومبت","إعادة إنشاء"}));s.put("WEBPAGE",score(n,new String[]{"http://","https://","www.","chrome","browser","search results","بحث google","نتائج البحث"}));s.put("DOCUMENT",score(n,new String[]{"document","report","subject","page ","reference","dear ","sincerely","تقرير","الموضوع","صفحة","مرجع","السيد","التاريخ"})+(raw.length()>900?3:0));String best="GENERAL_SCREENSHOT";int max=2;for(Map.Entry<String,Integer>e:s.entrySet())if(e.getValue()>max){max=e.getValue();best=e.getKey();}return best;}
     private static double confidence(String type,String n,String raw){if("GENERAL_SCREENSHOT".equals(type))return raw.trim().isEmpty()?0.45:0.62;int x=score(n,new String[]{friendly(type).toLowerCase(Locale.ROOT)});double base=0.78+Math.min(0.17,(raw.length()/6000.0));return Math.min(0.96,base+x*0.01);}
     private static int score(String n,String[] keys){int x=0;for(String k:keys)if(n.contains(norm(k)))x+=2;return x;}
     private static String detectApp(String n){if(n.contains("whatsapp")||n.contains("واتساب"))return"WhatsApp";if(n.contains("telegram")||n.contains("تليجرام"))return"Telegram";if(n.contains("chatgpt"))return"ChatGPT";if(n.contains("gemini")||n.contains("جيميني"))return"Gemini";if(n.contains("claude")||n.contains("كلود"))return"Claude";if(n.contains("copilot"))return"Copilot";if(n.contains("instagram"))return"Instagram";if(n.contains("facebook"))return"Facebook";return"";}
