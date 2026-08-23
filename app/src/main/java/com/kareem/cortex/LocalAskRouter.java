@@ -39,7 +39,7 @@ public final class LocalAskRouter {
             try{InteractionTelemetry.log(db,"Brain","ask_cortex","complete",0,total,"grounded-fast",g.sources.size()+" grounded source(s)",new JSONObject().put("job_id",job).put("source_count",g.sources.size()).put("retrieval_ms",retrieval));}catch(Exception ignored){}
             return new Result(job,g,g.answer,"grounded-fast","","your_data",0,0,0,total,retrieval,0,0,0,false);
         }catch(Throwable t){
-            String err=t.getClass().getSimpleName()+(t.getMessage()==null?"":": "+t.getMessage());AiJobStore.fail(db,job,err,"Grounded retrieval failed");emit(progress,job,"Failed",100);throw t;
+            long total=SystemClock.elapsedRealtime()-wall;String err=t.getClass().getSimpleName()+(t.getMessage()==null?"":": "+t.getMessage());AiJobStore.fail(db,job,err,"Grounded retrieval failed");emit(progress,job,"Could not search Cortex",100);GroundedAnswer g=failedGrounding(question);return new Result(job,g,g.answer,"failed",err,"your_data",0,0,0,total,0,0,0,0,false);
         }
     }
 
@@ -56,7 +56,7 @@ public final class LocalAskRouter {
             AiJobStore.progress(db,job,"Searching your Cortex","retrieval",18,"Retrieving relevant durable memory");emit(progress,job,"Searching your Cortex",18);
             long rt=SystemClock.elapsedRealtime();g=SecondBrainEngine.ask(db,question);retrieval=SystemClock.elapsedRealtime()-rt;AiJobStore.linkSources(db,job,g);
             try{InteractionTelemetry.log(db,"Brain","ask_cortex","retrieval_complete",0,retrieval,"ok",g.sources.size()+" grounded source(s)",new JSONObject().put("job_id",job).put("source_count",g.sources.size()).put("open_loops",g.openLoops.size()).put("decisions",g.decisions.size()));}catch(Exception ignored){}
-        }catch(Throwable t){String err=t.getClass().getSimpleName()+(t.getMessage()==null?"":": "+t.getMessage());AiJobStore.fail(db,job,err,"Retrieval failed");emit(progress,job,"Failed",100);throw t;}
+        }catch(Throwable t){long total=SystemClock.elapsedRealtime()-wall;String err=t.getClass().getSimpleName()+(t.getMessage()==null?"":": "+t.getMessage());AiJobStore.fail(db,job,err,"Retrieval failed");emit(progress,job,"Could not search Cortex",100);g=failedGrounding(question);return new Result(job,g,g.answer,"failed",err,"your_data",0,0,0,total,0,0,0,0,false);}
 
         if(!LocalModelManager.installed(ctx)){
             long total=SystemClock.elapsedRealtime()-wall;String err="Local Qwen runtime is not ready";AiJobStore.progress(db,job,"Using grounded fallback","fallback",82,err);emit(progress,job,"Using grounded fallback",82);AiJobStore.complete(db,job,answerJson(g.answer,"deterministic-grounded","your_data",g.sources.size(),total).toString(),"Answer ready",err);emit(progress,job,"Answer ready",100);return new Result(job,g,g.answer,"deterministic-grounded",err,"your_data",0,0,0,total,retrieval,0,0,0,false);
@@ -84,6 +84,7 @@ public final class LocalAskRouter {
         }
     }
 
+    private static GroundedAnswer failedGrounding(String q){return new GroundedAnswer(q,"I couldn't search your Cortex data right now.",0,new ArrayList<SemanticHit>(),new ArrayList<String>(),new ArrayList<String>());}
     private static long createJob(VaultDb db,String kind,String q,String mode){try{return AiJobStore.create(db,kind,mode,new JSONObject().put("question",q).toString(),70);}catch(Exception e){return AiJobStore.create(db,kind,mode,"{}",70);}}
     private static void emit(Progress p,long id,String label,int percent){if(p!=null)try{p.stage(id,label,percent);}catch(Throwable ignored){}}
     private static JSONObject answerJson(String answer,String provider,String mode,int sources,long total){JSONObject o=new JSONObject();try{o.put("answer",answer==null?"":answer);o.put("provider",provider);o.put("source_mode",mode);o.put("source_count",sources);o.put("total_ms",total);}catch(Exception ignored){}return o;}
