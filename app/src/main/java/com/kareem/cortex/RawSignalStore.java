@@ -21,6 +21,7 @@ public final class RawSignalStore {
         ContentValues v=new ContentValues();v.put("kind",signal.kind);v.put("source",signal.source);v.put("title",signal.title);v.put("body",signal.body);v.put("metadata_json",signal.metadataJson);v.put("fingerprint",fp);v.put("content_hash",contentHash);v.put("state","filtered");v.put("disposition",decision.disposition.name());v.put("importance",decision.importance);v.put("confidence",fastConfidence(decision));v.put("policy_version",FAST_POLICY);v.put("filter_engine","deterministic_fast_gate");v.put("reason",decision.reason);v.put("occurred_at",signal.occurredAt>0?signal.occurredAt:now);v.put("retention_until",retention);v.put("created_at",now);v.put("updated_at",now);
         long signalId=db.getWritableDatabase().insert("raw_signals",null,v);if(signalId<=0)return signalId;
         long threadId=SignalThreadStore.attach(db,signalId,signal);
+        if(threadId>0)ThreadRelevanceEngine.onSignal(db,threadId,signalId);
         if(decision.durable())promote(db,signalId,threadId,signal,decision);
         return signalId;
     }
