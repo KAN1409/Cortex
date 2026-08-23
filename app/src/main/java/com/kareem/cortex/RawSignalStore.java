@@ -43,6 +43,7 @@ public final class RawSignalStore {
     }
 
     public static long promotedItemId(VaultDb db,long signalId){ensure(db);Cursor c=db.getReadableDatabase().query("raw_signals",new String[]{"promoted_item_id"},"id=?",new String[]{String.valueOf(signalId)},null,null,null,"1");long id=c.moveToFirst()?c.getLong(0):0;c.close();return id;}
+    public static long threadId(VaultDb db,long signalId){ensure(db);Cursor c=db.getReadableDatabase().query("raw_signals",new String[]{"thread_id"},"id=?",new String[]{String.valueOf(signalId)},null,null,null,"1");long id=c.moveToFirst()?c.getLong(0):0;c.close();return id;}
 
     /** Expired raw context can be removed only when no unresolved derived/review item still depends on it. */
     public static void cleanup(VaultDb db){
