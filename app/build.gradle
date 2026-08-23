@@ -9,9 +9,33 @@ if (!cortexDebugKeystore.exists() && cortexDebugKeystoreB64.exists()) {
     cortexDebugKeystore.bytes = java.util.Base64.getDecoder().decode(cortexDebugKeystoreB64.text.trim())
 }
 
+def generatedOcrAssets = file("$buildDir/generated/cortexOcrAssets")
+def arabicOcrModel = file("$generatedOcrAssets/tessdata/ara.traineddata")
+tasks.register('prepareArabicOcrModel') {
+    outputs.file(arabicOcrModel)
+    doLast {
+        if (!arabicOcrModel.exists() || arabicOcrModel.length() < 500000) {
+            arabicOcrModel.parentFile.mkdirs()
+            def tmp = file(arabicOcrModel.absolutePath + '.part')
+            if (tmp.exists()) tmp.delete()
+            new URL('https://raw.githubusercontent.com/tesseract-ocr/tessdata_fast/4.1.0/ara.traineddata').withInputStream { input ->
+                tmp.withOutputStream { output -> output << input }
+            }
+            if (tmp.length() < 500000) throw new GradleException('Arabic OCR model download was incomplete')
+            if (arabicOcrModel.exists()) arabicOcrModel.delete()
+            if (!tmp.renameTo(arabicOcrModel)) {
+                arabicOcrModel.bytes = tmp.bytes
+                tmp.delete()
+            }
+        }
+    }
+}
+
 android {
     namespace 'com.kareem.cortex'
     compileSdk 35
+
+    sourceSets { main { assets.srcDir generatedOcrAssets } }
 
     signingConfigs {
         debug {
@@ -26,8 +50,8 @@ android {
         applicationId 'com.kareem.cortex'
         minSdk 26
         targetSdk 35
-        versionCode 40
-        versionName '1.0.0-v40'
+        versionCode 41
+        versionName '1.0.0-v41'
     }
 
     buildTypes {
@@ -39,6 +63,8 @@ android {
         targetCompatibility JavaVersion.VERSION_17
     }
 }
+
+preBuild.dependsOn tasks.named('prepareArabicOcrModel')
 
 dependencies {
     implementation 'com.google.mlkit:text-recognition:16.0.1'
