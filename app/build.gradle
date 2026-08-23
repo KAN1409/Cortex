@@ -26,14 +26,12 @@ android {
         applicationId 'com.kareem.cortex'
         minSdk 26
         targetSdk 35
-        versionCode 37
-        versionName '1.0.0-v37'
+        versionCode 38
+        versionName '1.0.0-v38'
     }
 
     buildTypes {
-        debug {
-            signingConfig signingConfigs.debug
-        }
+        debug { signingConfig signingConfigs.debug }
     }
 
     compileOptions {
@@ -46,4 +44,5 @@ dependencies {
     implementation 'com.google.mlkit:text-recognition:16.0.1'
     implementation 'cz.adaptech.tesseract4android:tesseract4android:4.9.0'
     implementation 'androidx.work:work-runtime:2.11.2'
+    implementation 'androidx.documentfile:documentfile:1.1.0'
 }
