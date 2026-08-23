@@ -2,7 +2,7 @@ package com.kareem.cortex;
 
 import android.app.Application;
 
-/** Lightweight process bootstrap for the cognitive data foundation. */
+/** Lightweight process bootstrap for cognitive storage + production environment readiness. */
 public class CortexApp extends Application {
     @Override public void onCreate(){
         super.onCreate();
@@ -11,11 +11,12 @@ public class CortexApp extends Application {
             try{
                 db=new VaultDb(this);
                 CognitiveSchema.ensure(db.getWritableDatabase());
+                EnvironmentPreflight.run(this);
             }catch(Throwable ignored){
             }finally{
                 if(db!=null)try{db.close();}catch(Throwable ignored){}
             }
-        },"cortex-schema-bootstrap");
+        },"cortex-bootstrap");
         t.setPriority(Thread.NORM_PRIORITY-1);
         t.start();
     }
