@@ -28,10 +28,14 @@ public final class OcrAnalyzer {
     }
 
     private static void finish(Context ctx,KnowledgeItem item,File f,String latin,String latinStatus,Callback cb){
-        ArabicOcr.recognize(ctx,f,(arabic,arabicStatus)->{
+        ArabicOcr.recognizeDetailed(ctx,f,latin,result->{
             try{
-                AnalysisResult r=VisionInterpreter.interpret(item,latin,arabic,arabicStatus);
+                AnalysisResult r=VisionInterpreter.interpret(item,latin,result.text,result.status);
                 if(latinStatus!=null&&!latinStatus.isEmpty())r.visionFields.add(new AnalysisResult.VisionField("Latin OCR",latinStatus,0.7));
+                if(!result.rawText.isEmpty()){
+                    String gate=result.accepted?"accepted":"rejected";
+                    r.visionFields.add(new AnalysisResult.VisionField("Arabic evidence gate",gate+" • "+result.gateReason,result.accepted?0.95:1.0));
+                }
                 cb.ok(r);
             }catch(Exception e){cb.fail(e);}
         });
