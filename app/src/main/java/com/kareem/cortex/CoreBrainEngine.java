@@ -6,11 +6,7 @@ import android.database.sqlite.SQLiteDatabase;
 import java.util.*;
 import java.util.regex.*;
 
-/**
- * Shared structured-memory layer for Cortex v37.
- * One analyzed memory feeds Search, Ask, Needs, Timeline, People, Projects,
- * Packs, Briefs and proactive resurfacing from the same normalized facets.
- */
+/** Shared structured-memory layer. Raw screenshot OCR stays evidence until the user teaches Cortex what matters. */
 public final class CoreBrainEngine {
     private CoreBrainEngine(){}
 
@@ -36,26 +32,37 @@ public final class CoreBrainEngine {
 
     public static void afterAnalysis(VaultDb db,long itemId){
         ensure(db);KnowledgeItem k=db.getById(itemId);if(k==null)return;
-        SQLiteDatabase s=db.getWritableDatabase();long now=System.currentTimeMillis();
-        s.delete("memory_facets","item_id=?",new String[]{String.valueOf(itemId)});
+        SQLiteDatabase s=db.getWritableDatabase();long now=System.currentTimeMillis();boolean folderShot=isFolderScreenshot(k);boolean taught=folderShot&&hasUserPriority(s,itemId);
+        // Preserve explicit user teaching. Everything else is derived and may be rebuilt.
+        s.delete("memory_facets",folderShot?"item_id=? AND facet_type<>'USER_PRIORITY'":"item_id=?",new String[]{String.valueOf(itemId)});
         s.delete("context_pack_items","item_id=?",new String[]{String.valueOf(itemId)});
-        // Rebuild auto-relations for this source only; explicit example relations are preserved.
         s.delete("relations","from_item_id=? AND relation IN ('related','same_person','same_project','continuation')",new String[]{String.valueOf(itemId)});
 
         LinkedHashMap<String,Facet> facets=new LinkedHashMap<>();
-        Cursor e=s.query("entities",new String[]{"kind","value","confidence"},"item_id=?",new String[]{String.valueOf(itemId)},null,null,null);
-        while(e.moveToNext())add(facets,e.getString(0),e.getString(1),e.getDouble(2));e.close();
+        if(!folderShot||taught){
+            Cursor e=s.query("entities",new String[]{"kind","value","confidence"},"item_id=?",new String[]{String.valueOf(itemId)},null,null,null);
+            while(e.moveToNext()){
+                String kind=e.getString(0),value=e.getString(1);double conf=e.getDouble(2);
+                if(!folderShot||(conf>=.92&&safeEntity(value)))add(facets,kind,value,conf);
+            }e.close();
+        }
 
         String text=allText(k);
-        scanPeople(facets,text);scanProjects(facets,text);scanTemporal(facets,text);scanState(facets,text);
-        for(String tag:nz(k.tags).split(",")){String x=tag.trim();if(x.length()>2&&x.length()<60)add(facets,"TOPIC",x,.62);}
+        if(!folderShot){
+            scanPeople(facets,text);scanProjects(facets,text);scanTemporal(facets,text);scanState(facets,text);
+            for(String tag:nz(k.tags).split(",")){String x=tag.trim();if(x.length()>2&&x.length()<60)add(facets,"TOPIC",x,.62);}
+        }else if(taught){
+            // A taught screenshot may contribute its stable content class, but never raw OCR regex guesses.
+            String cat=nz(k.category).trim();if(cat.length()>2&&cat.length()<60)add(facets,"TOPIC",cat,.86);
+        }
 
         for(Facet f:facets.values()){
             ContentValues v=new ContentValues();v.put("item_id",itemId);v.put("facet_type",f.type);v.put("facet_value",f.value);v.put("normalized",f.normalized);v.put("confidence",f.confidence);v.put("created_at",now);s.insert("memory_facets",null,v);
             if("PERSON".equals(f.type)||"PROJECT".equals(f.type)||"TOPIC".equals(f.type))attachPack(s,itemId,f,now);
         }
 
-        // Semantic relation candidates, with stronger labels when a person/project overlaps.
+        // Screenshot evidence remains searchable/embeddable, but does not auto-create graph relations from OCR noise.
+        if(folderShot)return;
         try{
             ArrayList<SemanticHit> hits=SemanticIndex.related(db,k,8);
             for(SemanticHit h:hits){if(h.item.id==itemId||h.score<0.16)continue;String relation="related";double conf=Math.min(.98,Math.max(.2,h.score));
@@ -71,6 +78,10 @@ public final class CoreBrainEngine {
     public static ArrayList<String> packLabels(VaultDb db,String type,int limit){
         ensure(db);ArrayList<String> out=new ArrayList<>();String sel=type==null?null:"pack_type=?";String[] a=type==null?null:new String[]{type};Cursor c=db.getReadableDatabase().query("context_packs",new String[]{"label"},sel,a,null,null,"updated_at DESC",String.valueOf(limit));while(c.moveToNext())out.add(c.getString(0));c.close();return out;
     }
+
+    private static boolean isFolderScreenshot(KnowledgeItem k){return ("SCREENSHOT".equals(k.type)||"IMAGE".equals(k.type))&&"screenshot-folder".equals(k.source);}
+    private static boolean hasUserPriority(SQLiteDatabase s,long itemId){Cursor c=s.rawQuery("SELECT 1 FROM memory_facets WHERE item_id=? AND facet_type='USER_PRIORITY' LIMIT 1",new String[]{String.valueOf(itemId)});boolean yes=c.moveToFirst();c.close();return yes;}
+    private static boolean safeEntity(String v){if(v==null)return false;String x=v.trim();if(x.length()<2||x.length()>80)return false;int letters=0,bad=0;for(int i=0;i<x.length();i++){char ch=x.charAt(i);if(Character.isLetter(ch))letters++;else if(!Character.isDigit(ch)&&!Character.isWhitespace(ch)&&"._@+-/".indexOf(ch)<0)bad++;}return letters>=2&&bad<=2;}
 
     private static void attachPack(SQLiteDatabase s,long itemId,Facet f,long now){
         String packType="PERSON".equals(f.type)?"Person":"PROJECT".equals(f.type)?"Project":"Topic";ContentValues p=new ContentValues();p.put("pack_type",packType);p.put("label",f.value);p.put("normalized",packType+"|"+f.normalized);p.put("updated_at",now);s.insertWithOnConflict("context_packs",null,p,SQLiteDatabase.CONFLICT_IGNORE);s.update("context_packs",p,"normalized=?",new String[]{packType+"|"+f.normalized});Cursor c=s.query("context_packs",new String[]{"id"},"normalized=?",new String[]{packType+"|"+f.normalized},null,null,null,"1");long id=c.moveToFirst()?c.getLong(0):0;c.close();if(id>0){ContentValues x=new ContentValues();x.put("pack_id",id);x.put("item_id",itemId);x.put("confidence",f.confidence);x.put("created_at",now);s.insertWithOnConflict("context_pack_items",null,x,SQLiteDatabase.CONFLICT_REPLACE);}}
