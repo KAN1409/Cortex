@@ -34,7 +34,6 @@ public final class MasterRelevanceFilter {
         public boolean reviewable(){return disposition==Disposition.REVIEW&&!candidateKind.isEmpty();}
     }
 
-    /** Canonical policy for the eventual model adjudicator. Keep this centralized and versioned. */
     public static final String MASTER_PROMPT =
         "You are Cortex Relevance Governor, the single filtering boundary between RAW SIGNALS and the user's durable personal intelligence.\n"+
         "Your job is NOT to summarize everything. Decide what deserves IGNORE, CONTEXT, REVIEW, MEMORY, ACTION, WAITING or DECISION.\n\n"+
@@ -64,9 +63,8 @@ public final class MasterRelevanceFilter {
 
     private MasterRelevanceFilter(){}
 
-    /** Cheap first-stage filter. Ambiguous signals remain CONTEXT for grouped adjudication. */
     public static Decision evaluateFast(Signal s){
-        String text=low(s.text()),src=low(s.source);
+        String text=ruleNorm(s.text()),src=low(s.source);
         if(text.isEmpty())return d(Disposition.IGNORE,0,"empty signal");
         if(secret(text))return d(Disposition.CONTEXT,25,"sensitive one-time credential; short-lived context only");
         if(deviceNoise(text,src,s.ongoing))return d(Disposition.IGNORE,3,"ephemeral device/system state");
@@ -82,46 +80,62 @@ public final class MasterRelevanceFilter {
         return d(Disposition.CONTEXT,28,"ambiguous raw signal; defer to master grouped filter");
     }
 
+    public static Decision evaluateThread(String text){return evaluateThread(text,text);}
+
     /**
-     * First production thread policy. High-confidence language is promoted; concrete
-     * but ambiguous responsibility becomes REVIEW. Everything else stays CONTEXT.
+     * The newest message anchors a new durable event. Recent context can strengthen an
+     * ambiguous interpretation, but historical text alone is downgraded to REVIEW so an
+     * old request is not recreated whenever a later message arrives.
      */
-    public static Decision evaluateThread(String text){
-        String t=low(text);if(t.isEmpty())return d(Disposition.CONTEXT,25,"empty or unusable thread text");
-        if(secret(t))return d(Disposition.CONTEXT,25,"sensitive credential; never derive durable intelligence");
+    public static Decision evaluateThread(String latestText,String recentContext){
+        String latest=ruleNorm(latestText);if(latest.isEmpty())return d(Disposition.CONTEXT,25,"empty or unusable thread text");
+        if(secret(latest))return d(Disposition.CONTEXT,25,"sensitive credential; never derive durable intelligence");
+        Decision direct=evaluateRuleText(latest);
+        if(direct.disposition!=Disposition.CONTEXT)return direct;
 
-        if(has(t,"ممكن تبعت","ممكن تبعتلي","ابعتلي","ابعت لي","محتاج منك","محتاجك تبعت","لو سمحت ابعت","متنساش تبعت","please send","can you send","could you send","need you to send","please review","can you review","could you review","please confirm","can you confirm"))
-            return new Decision(Disposition.ACTION,68,"explicit incoming request directed to the user","",0.90);
-        if(has(t,"هبعتلك","هابعتلك","هبعتهولك","هراجع وارجعلك","هراجع و أرد عليك","هرد عليك","هرجعلك","هكلمك لما","i'll send you","i will send you","i'll get back to you","i will get back to you","i'll reply","i will reply"))
-            return new Decision(Disposition.WAITING,64,"explicit commitment from the other party","",0.88);
-        if(has(t,"تمت الموافقة","تمت الموافقه","تم الرفض","موافق على","approved","has been approved","rejected","has been rejected"))
-            return new Decision(Disposition.DECISION,66,"explicit approval or rejection in the thread","",0.87);
-
-        if(has(t,"لازم يتبعت","لازم تبعت","المفروض تبعت","يفضل تبعت","لما تقدر ابعت","when you can send","we need the drawing","we need the file","needs your review","needs your approval","محتاج مراجعتك","محتاج موافقتك"))
-            return review("ACTION",52,"possible user responsibility, but direction/ownership is not explicit enough",0.64);
-        if(has(t,"هحاول ابعت","هحاول أبعت","مفروض ابعتلك","المفروض يرد","مفروض يرد","should get back to you","should reply","probably send you","expect a reply"))
-            return review("WAITING",50,"possible external commitment or expected response, but not firm enough",0.62);
-        if(has(t,"غالبا هنمشي على","غالباً هنمشي على","مبدئيا موافق","مبدئيًا موافق","probably approved","likely approved","tentatively approved"))
-            return review("DECISION",51,"possible decision, but wording is tentative",0.61);
-
-        return d(Disposition.CONTEXT,34,"ordinary thread context; no durable interpretation yet");
+        String context=ruleNorm(recentContext);
+        if(!context.isEmpty()&&!context.equals(latest)){
+            Decision historical=evaluateRuleText(context);
+            if(historical.durable())return review(historical.disposition.name(),Math.max(45,historical.importance-10),"recent thread context suggests "+historical.disposition.name().toLowerCase(Locale.ROOT)+", but the newest message alone does not establish a new durable event",Math.min(0.67,historical.confidence));
+            if(historical.reviewable())return new Decision(Disposition.REVIEW,historical.importance,"recent thread context: "+historical.reason,historical.candidateKind,Math.min(0.64,historical.confidence));
+        }
+        return d(Disposition.CONTEXT,34,"ordinary thread context; no new durable interpretation yet");
     }
 
+    private static Decision evaluateRuleText(String t){
+        if(has(t,"ممكن تبعت","ممكن تبعتلي","ابعتلي","ابعت لي","محتاج منك","محتاجك تبعت","لو سمحت ابعت","متنساش تبعت","please send","can you send","could you send","need you to send","please review","can you review","could you review","please confirm","can you confirm"))
+            return new Decision(Disposition.ACTION,68,"explicit incoming request directed to the user","",0.90);
+        if(has(t,"هبعتلك","هابعتلك","هبعتهولك","هراجع وارجعلك","هراجع و ارد عليك","هرد عليك","هرجعلك","هكلمك لما","i'll send you","i will send you","i'll get back to you","i will get back to you","i'll reply","i will reply"))
+            return new Decision(Disposition.WAITING,64,"explicit commitment from the other party","",0.88);
+        if(has(t,"تمت الموافقه","تم الرفض","موافق علي","approved","has been approved","rejected","has been rejected"))
+            return new Decision(Disposition.DECISION,66,"explicit approval or rejection in the thread","",0.87);
+        if(has(t,"لازم يتبعت","لازم تبعت","المفروض تبعت","يفضل تبعت","لما تقدر ابعت","when you can send","we need the drawing","we need the file","needs your review","needs your approval","محتاج مراجعتك","محتاج موافقتك"))
+            return review("ACTION",52,"possible user responsibility, but direction/ownership is not explicit enough",0.64);
+        if(has(t,"هحاول ابعت","مفروض ابعتلك","المفروض يرد","مفروض يرد","should get back to you","should reply","probably send you","expect a reply"))
+            return review("WAITING",50,"possible external commitment or expected response, but not firm enough",0.62);
+        if(has(t,"غالبا هنمشي علي","مبدئيا موافق","probably approved","likely approved","tentatively approved"))
+            return review("DECISION",51,"possible decision, but wording is tentative",0.61);
+        return d(Disposition.CONTEXT,34,"ordinary thread context");
+    }
+
+    /** Arabic/English normalization for deterministic matching only. */
+    public static String ruleNorm(String s){return LocalSemanticEmbedder.norm(s);}
+
     private static boolean deviceNoise(String t,String src,boolean ongoing){
-        if(has(t,"charging","until full","time to full","battery level","battery saver","fully charged","الشحن","البطارية"))return true;
+        if(has(t,"charging","until full","time to full","battery level","battery saver","fully charged","الشحن","البطاريه"))return true;
         if(has(t,"usb debugging","android system","vpn is active","connected to wifi","wi-fi connected","bluetooth connected","syncing","running in the background","is running in background"))return true;
         return src.contains("systemui")&&(ongoing||has(t,"battery","charging","usb","hotspot"));
     }
     private static boolean mediaNoise(String t,String src,boolean ongoing){return ongoing&&(has(t,"pause","playing","now playing","media output")||src.contains("spotify")||src.contains("youtube.music"));}
-    private static boolean secret(String t){return has(t,"otp","one-time password","one time password","verification code","cvv","pin code","رمز التحقق","كود التحقق","كلمة السر");}
-    private static boolean security(String t){return has(t,"security alert","new sign-in","new login","password changed","password was changed","device signed in","unusual activity","محاولة تسجيل دخول","تسجيل دخول جديد","تنبيه أمان");}
-    private static boolean payment(String t){return has(t,"payment received","payment sent","transaction","purchase","card charged","transfer received","transfer sent","تم خصم","تم تحويل","عملية شراء","تحويل بنكي");}
-    private static boolean appointment(String t){return has(t,"appointment","booking confirmed","reservation confirmed","meeting confirmed","موعدك","تم تأكيد الحجز","الحجز مؤكد");}
-    private static boolean delivery(String t){return has(t,"delivered","out for delivery","ready for pickup","order cancelled","order canceled","تم التوصيل","خرج للتوصيل","جاهز للاستلام","تم إلغاء الطلب");}
-    private static boolean missedCall(String t){return has(t,"missed call","مكالمة فائتة");}
+    private static boolean secret(String t){return has(t,"otp","one-time password","one time password","verification code","cvv","pin code","رمز التحقق","كود التحقق","كلمه السر");}
+    private static boolean security(String t){return has(t,"security alert","new sign-in","new login","password changed","password was changed","device signed in","unusual activity","محاوله تسجيل دخول","تسجيل دخول جديد","تنبيه امان");}
+    private static boolean payment(String t){return has(t,"payment received","payment sent","transaction","purchase","card charged","transfer received","transfer sent","تم خصم","تم تحويل","عمليه شراء","تحويل بنكي");}
+    private static boolean appointment(String t){return has(t,"appointment","booking confirmed","reservation confirmed","meeting confirmed","موعدك","تم تاكيد الحجز","الحجز موكد");}
+    private static boolean delivery(String t){return has(t,"delivered","out for delivery","ready for pickup","order cancelled","order canceled","تم التوصيل","خرج للتوصيل","جاهز للاستلام","تم الغاء الطلب");}
+    private static boolean missedCall(String t){return has(t,"missed call","مكالمه فايته","مكالمه فائته");}
     private static boolean isMessagingSource(String s){return has(s,"whatsapp","telegram","messenger","signal","messages","sms");}
     private static boolean isMailSource(String s){return has(s,"gmail","outlook","mail");}
-    private static boolean has(String s,String... xs){for(String x:xs)if(s.contains(x))return true;return false;}
+    private static boolean has(String s,String... xs){for(String x:xs)if(s.contains(ruleNorm(x)))return true;return false;}
     private static String low(String s){return n(s).toLowerCase(Locale.ROOT);}
     private static String n(String s){return s==null?"":s.trim();}
     private static double defaultConfidence(Disposition d){if(d==Disposition.IGNORE)return 0.98;if(d==Disposition.MEMORY)return 0.82;if(d==Disposition.ACTION)return 0.90;if(d==Disposition.WAITING)return 0.88;if(d==Disposition.DECISION)return 0.87;if(d==Disposition.REVIEW)return 0.62;return 0.55;}
