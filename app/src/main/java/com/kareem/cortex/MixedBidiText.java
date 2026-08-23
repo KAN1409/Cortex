@@ -1,72 +1,55 @@
 package com.kareem.cortex;
 
+import androidx.core.text.BidiFormatter;
+import androidx.core.text.TextDirectionHeuristicsCompat;
+
 /**
- * Display-only Unicode BiDi formatter for Arabic/English code-switched text.
- *
- * It does not translate, reorder, or replace any spoken words. It only inserts
- * Unicode isolation controls so Android renders mixed RTL/LTR runs in a stable,
- * readable order when lines wrap.
+ * Single display-only Unicode BiDi boundary for Arabic/English code-switched text.
+ * Stored text stays plain Unicode. Directional controls are inserted only when a TextView renders it.
  */
 public final class MixedBidiText {
-    private static final char LRI='\u2066';
-    private static final char RLI='\u2067';
-    private static final char PDI='\u2069';
-    private static final int NONE=0, AR=1, LATIN=2;
-
     private MixedBidiText(){}
 
-    public static String forDisplay(String input){
-        if(input==null||input.isEmpty())return input==null?"":input;
-        String clean=stripControls(input);
-        String[] lines=clean.split("\\n",-1);
+    /** Format each line independently so one English technical line cannot flip an Arabic paragraph. */
+    public static CharSequence format(String input){
+        if(input==null||input.isEmpty())return "";
+        String clean=stripControls(input).replace("\r\n","\n").replace('\r','\n');
+        String[] lines=clean.split("\n",-1);
         StringBuilder out=new StringBuilder(clean.length()+24);
         for(int i=0;i<lines.length;i++){
             if(i>0)out.append('\n');
-            out.append(formatLine(lines[i]));
+            String line=lines[i];
+            if(line.isEmpty())continue;
+            boolean rtl=isArabicDominant(line);
+            BidiFormatter formatter=BidiFormatter.getInstance(rtl);
+            out.append(formatter.unicodeWrap(line,rtl?TextDirectionHeuristicsCompat.RTL:TextDirectionHeuristicsCompat.LTR,true));
+        }
+        return out;
+    }
+
+    /** Backward-compatible name used by older UI code. */
+    public static String forDisplay(String input){return format(input).toString();}
+
+    /** Never persist display controls; also cleans legacy records that already contain them. */
+    public static String stripControls(String s){
+        if(s==null||s.isEmpty())return s==null?"":s;
+        StringBuilder out=new StringBuilder(s.length());
+        for(int i=0;i<s.length();i++){
+            char c=s.charAt(i);
+            if(c=='\u200E'||c=='\u200F'||(c>='\u202A'&&c<='\u202E')||(c>='\u2066'&&c<='\u2069'))continue;
+            out.append(c);
         }
         return out.toString();
     }
 
-    public static String stripControls(String s){
-        if(s==null||s.isEmpty())return s==null?"":s;
-        return s.replace("\u2066","").replace("\u2067","").replace("\u2068","").replace("\u2069","")
-                .replace("\u200E","").replace("\u200F","");
+    public static boolean isArabicDominant(String text){
+        if(text==null||text.isEmpty())return false;
+        int ar=0,latin=0;for(int i=0;i<text.length();){int cp=text.codePointAt(i);i+=Character.charCount(cp);Character.UnicodeScript sc=Character.UnicodeScript.of(cp);if(sc==Character.UnicodeScript.ARABIC)ar++;else if(sc==Character.UnicodeScript.LATIN)latin++;}
+        if(ar==latin&&ar>0)return firstStrongArabic(text);
+        return ar>0&&ar>latin;
     }
 
-    private static String formatLine(String line){
-        if(line==null||line.isEmpty())return line==null?"":line;
-        int ar=0,latin=0;
-        for(int i=0;i<line.length();){int cp=line.codePointAt(i);i+=Character.charCount(cp);int d=script(cp);if(d==AR)ar++;else if(d==LATIN)latin++;}
-        if(ar==0||latin==0)return line;
-
-        int base=ar>=latin?AR:LATIN;
-        StringBuilder result=new StringBuilder(line.length()+16);
-        result.append(base==AR?RLI:LRI);
-
-        StringBuilder run=new StringBuilder();
-        int runDir=NONE;
-        for(int i=0;i<line.length();){
-            int cp=line.codePointAt(i);i+=Character.charCount(cp);
-            int d=script(cp);
-            if(d!=NONE&&runDir!=NONE&&d!=runDir){appendRun(result,run,runDir,base);run.setLength(0);}
-            if(d!=NONE)runDir=d;
-            run.appendCodePoint(cp);
-        }
-        appendRun(result,run,runDir,base);
-        result.append(PDI);
-        return result.toString();
-    }
-
-    private static void appendRun(StringBuilder out,StringBuilder run,int dir,int base){
-        if(run.length()==0)return;
-        if(dir==NONE||dir==base){out.append(run);return;}
-        out.append(dir==AR?RLI:LRI).append(run).append(PDI);
-    }
-
-    private static int script(int cp){
-        Character.UnicodeScript s=Character.UnicodeScript.of(cp);
-        if(s==Character.UnicodeScript.ARABIC)return AR;
-        if(s==Character.UnicodeScript.LATIN)return LATIN;
-        return NONE;
+    private static boolean firstStrongArabic(String s){
+        for(int i=0;i<s.length();){int cp=s.codePointAt(i);i+=Character.charCount(cp);Character.UnicodeScript sc=Character.UnicodeScript.of(cp);if(sc==Character.UnicodeScript.ARABIC)return true;if(sc==Character.UnicodeScript.LATIN)return false;}return false;
     }
 }
