@@ -2,11 +2,13 @@ package com.kareem.cortex;
 
 import android.content.Context;
 import android.graphics.*;
+import android.os.SystemClock;
 import android.util.Base64;
 import org.json.*;
 import java.io.*;
 import java.net.*;
 import java.nio.charset.StandardCharsets;
+import java.util.Locale;
 
 /** Strong visual understanding path. OCR is supporting evidence, not the primary task. */
 public final class GeminiVisionAnalyzer {
@@ -27,10 +29,22 @@ public final class GeminiVisionAnalyzer {
         "Do not invent text that is not visible. Do not make every image actionable: if it is transient/low value, say so. Prefer 2-5 genuinely useful actions.";
     private GeminiVisionAnalyzer(){}
 
+    static final class Prepared {byte[] bytes;int width,height,maxSide;Prepared(byte[] b,int w,int h,int m){bytes=b;width=w;height=h;maxSide=m;}}
+    static final class VisionException extends IOException {final boolean retryable;VisionException(String m,boolean r){super(m);retryable=r;}}
+
     public static JSONObject analyze(Context context,KnowledgeItem item)throws Exception{
         File image=new File(item.attachmentPath==null?"":item.attachmentPath);if(!image.exists())throw new FileNotFoundException("Archived screenshot is missing");
         String key=GeminiKeyStore.get(context);if(key.isEmpty())throw new IllegalStateException("Gemini API key not configured");
-        byte[] jpeg=prepare(image);String b64=Base64.encodeToString(jpeg,Base64.NO_WRAP);
+        Prepared p=prepare(image,item);VisionException last=null;
+        for(int attempt=1;attempt<=2;attempt++){
+            try{return requestOnce(key,p,attempt);}
+            catch(VisionException e){last=e;if(attempt>=2||!e.retryable)throw e;try{Thread.sleep(850);}catch(InterruptedException ie){Thread.currentThread().interrupt();throw e;}}
+        }
+        throw last==null?new IOException("Vision analysis failed without diagnostic detail"):last;
+    }
+
+    private static JSONObject requestOnce(String key,Prepared p,int attempt)throws Exception{
+        long started=SystemClock.elapsedRealtime();String b64=Base64.encodeToString(p.bytes,Base64.NO_WRAP);
         JSONObject inline=new JSONObject().put("mimeType","image/jpeg").put("data",b64);
         JSONArray parts=new JSONArray().put(new JSONObject().put("text",PROMPT)).put(new JSONObject().put("inlineData",inline));
         JSONArray contents=new JSONArray().put(new JSONObject().put("role","user").put("parts",parts));
@@ -39,14 +53,40 @@ public final class GeminiVisionAnalyzer {
         String endpoint="https://generativelanguage.googleapis.com/v1beta/models/"+MODEL+":generateContent?key="+URLEncoder.encode(key,"UTF-8");
         HttpURLConnection c=(HttpURLConnection)new URL(endpoint).openConnection();c.setRequestMethod("POST");c.setDoOutput(true);c.setConnectTimeout(20000);c.setReadTimeout(120000);c.setRequestProperty("Content-Type","application/json");c.setRequestProperty("Accept","application/json");
         try(OutputStream out=c.getOutputStream()){out.write(req.toString().getBytes(StandardCharsets.UTF_8));}
-        int code=c.getResponseCode();String body=read(code>=200&&code<300?c.getInputStream():c.getErrorStream());c.disconnect();if(code<200||code>=300)throw new IOException("Gemini Vision HTTP "+code+": "+compact(body));
-        JSONObject envelope=new JSONObject(body);String text=extractText(envelope).trim();text=text.replaceFirst("^```(?:json)?\\s*","").replaceFirst("\\s*```$","").trim();if(text.isEmpty())throw new IOException("Vision model returned no analysis");
-        JSONObject root=new JSONObject(text);normalize(root);root.put("_provider",MODEL+"+vision-v47");return root;
+        int code=c.getResponseCode();String body=read(code>=200&&code<300?c.getInputStream():c.getErrorStream());c.disconnect();long latency=SystemClock.elapsedRealtime()-started;
+        if(code<200||code>=300){boolean retry=code==408||code==429||code>=500;throw new VisionException("Gemini Vision HTTP "+code+" • attempt="+attempt+" • latency="+latency+"ms • "+compact(body),retry);}
+
+        JSONObject envelope=new JSONObject(body);String finish=finishReason(envelope),block=blockReason(envelope);String text=extractText(envelope).trim();
+        text=text.replaceFirst("^```(?:json)?\\s*","").replaceFirst("\\s*```$","").trim();
+        if(text.isEmpty()){
+            boolean blocked=!block.isEmpty()||"SAFETY".equalsIgnoreCase(finish)||"BLOCKLIST".equalsIgnoreCase(finish)||"PROHIBITED_CONTENT".equalsIgnoreCase(finish);
+            throw new VisionException("Vision model returned no analysis • http=200 • attempt="+attempt+" • latency="+latency+"ms • finishReason="+empty(finish,"unknown")+" • blockReason="+empty(block,"none")+" • candidates="+candidateCount(envelope),!blocked);
+        }
+        JSONObject root;
+        try{root=new JSONObject(text);}catch(JSONException e){throw new VisionException("Vision returned invalid JSON • attempt="+attempt+" • latency="+latency+"ms • finishReason="+empty(finish,"unknown")+" • prefix="+compact(text),attempt<2);}
+        normalize(root);root.put("_provider",MODEL+"+vision-v49");
+        JSONObject d=new JSONObject();d.put("attempt",attempt);d.put("latency_ms",latency);d.put("http_code",200);d.put("finish_reason",finish);d.put("block_reason",block);d.put("candidate_count",candidateCount(envelope));d.put("prepared_jpeg_bytes",p.bytes.length);d.put("prepared_width",p.width);d.put("prepared_height",p.height);d.put("detail_target_max_side",p.maxSide);root.put("_diagnostics",d);
+        return root;
     }
 
     private static void normalize(JSONObject r)throws Exception{if(!r.has("content_type"))r.put("content_type","other");if(!r.has("description"))r.put("description","");if(!r.has("visible_text"))r.put("visible_text","");if(!r.has("objects"))r.put("objects",new JSONArray());if(!r.has("facts"))r.put("facts",new JSONArray());if(!r.has("related_topics"))r.put("related_topics",new JSONArray());if(!r.has("suggested_actions"))r.put("suggested_actions",new JSONArray());if(!r.has("search_query"))r.put("search_query","");if(!r.has("recreation_prompt"))r.put("recreation_prompt","");if(!r.has("usefulness"))r.put("usefulness",new JSONObject().put("score",0).put("why",""));}
-    private static byte[] prepare(File f)throws Exception{BitmapFactory.Options o=new BitmapFactory.Options();o.inJustDecodeBounds=true;BitmapFactory.decodeFile(f.getAbsolutePath(),o);int max=Math.max(o.outWidth,o.outHeight);int sample=1;while(max/sample>1800)sample*=2;BitmapFactory.Options d=new BitmapFactory.Options();d.inSampleSize=Math.max(1,sample);Bitmap b=BitmapFactory.decodeFile(f.getAbsolutePath(),d);if(b==null)throw new IOException("Could not decode screenshot");int w=b.getWidth(),h=b.getHeight();float scale=Math.min(1f,1800f/Math.max(w,h));Bitmap x=b;if(scale<0.999f){x=Bitmap.createScaledBitmap(b,Math.max(1,Math.round(w*scale)),Math.max(1,Math.round(h*scale)),true);if(x!=b)b.recycle();}ByteArrayOutputStream out=new ByteArrayOutputStream();x.compress(Bitmap.CompressFormat.JPEG,88,out);x.recycle();return out.toByteArray();}
+
+    private static Prepared prepare(File f,KnowledgeItem item)throws Exception{
+        BitmapFactory.Options o=new BitmapFactory.Options();o.inJustDecodeBounds=true;BitmapFactory.decodeFile(f.getAbsolutePath(),o);if(o.outWidth<=0||o.outHeight<=0)throw new IOException("Could not read screenshot dimensions");
+        String hints=(nz(item.category)+" "+nz(item.tags)+" "+nz(item.title)).toLowerCase(Locale.ROOT);boolean textHeavy=nz(item.extractedText).length()>350||containsAny(hints,"document","receipt","settings","chat","web","research","product","prompt","email","terminal","code");
+        int target=textHeavy?3000:1800;int max=Math.max(o.outWidth,o.outHeight);int sample=1;while(max/sample>target*2)sample*=2;
+        BitmapFactory.Options d=new BitmapFactory.Options();d.inSampleSize=Math.max(1,sample);Bitmap b=BitmapFactory.decodeFile(f.getAbsolutePath(),d);if(b==null)throw new IOException("Could not decode screenshot");
+        int w=b.getWidth(),h=b.getHeight();float scale=Math.min(1f,target/(float)Math.max(w,h));Bitmap x=b;if(scale<0.999f){x=Bitmap.createScaledBitmap(b,Math.max(1,Math.round(w*scale)),Math.max(1,Math.round(h*scale)),true);if(x!=b)b.recycle();}
+        ByteArrayOutputStream out=new ByteArrayOutputStream();x.compress(Bitmap.CompressFormat.JPEG,textHeavy?92:88,out);int fw=x.getWidth(),fh=x.getHeight();x.recycle();return new Prepared(out.toByteArray(),fw,fh,target);
+    }
+
     private static String extractText(JSONObject root){JSONArray cs=root.optJSONArray("candidates");if(cs==null||cs.length()==0)return"";JSONObject c=cs.optJSONObject(0);if(c==null)return"";JSONObject content=c.optJSONObject("content");if(content==null)return"";JSONArray p=content.optJSONArray("parts");if(p==null)return"";StringBuilder b=new StringBuilder();for(int i=0;i<p.length();i++){JSONObject q=p.optJSONObject(i);if(q!=null&&!q.optString("text","").isEmpty())b.append(q.optString("text","")).append('\n');}return b.toString();}
+    private static String finishReason(JSONObject root){JSONArray cs=root.optJSONArray("candidates");JSONObject c=cs!=null&&cs.length()>0?cs.optJSONObject(0):null;return c==null?"":c.optString("finishReason","");}
+    private static String blockReason(JSONObject root){JSONObject p=root.optJSONObject("promptFeedback");return p==null?"":p.optString("blockReason","");}
+    private static int candidateCount(JSONObject root){JSONArray a=root.optJSONArray("candidates");return a==null?0:a.length();}
     private static String read(InputStream in)throws Exception{if(in==null)return"";try(InputStream x=in;ByteArrayOutputStream b=new ByteArrayOutputStream()){byte[] buf=new byte[8192];for(int n;(n=x.read(buf))!=-1;)b.write(buf,0,n);return b.toString("UTF-8");}}
     private static String compact(String s){if(s==null)return"";String x=s.replaceAll("\\s+"," ").trim();return x.length()>500?x.substring(0,500)+"…":x;}
+    private static String empty(String s,String f){return s==null||s.trim().isEmpty()?f:s.trim();}
+    private static String nz(String s){return s==null?"":s;}
+    private static boolean containsAny(String n,String...xs){for(String x:xs)if(n.contains(x))return true;return false;}
 }
