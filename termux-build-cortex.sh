@@ -3,7 +3,7 @@ set -euo pipefail
 
 REPO_DIR="${CORTEX_REPO_DIR:-$HOME/Cortex}"
 APK_SRC="$REPO_DIR/app/build/outputs/apk/debug/app-debug.apk"
-APK_OUT="/sdcard/Download/Cortex-v44-debug.apk"
+APK_OUT="/sdcard/Download/Cortex-v45-debug.apk"
 
 log(){ printf '\n==> %s\n' "$*"; }
 fail(){ printf '\nERROR: %s\n' "$*" >&2; exit 1; }
@@ -47,8 +47,6 @@ if [ -z "${JAVA_HOME:-}" ]; then
   export JAVA_HOME="$(dirname "$(dirname "$JBIN")")"
 fi
 
-# Android Gradle Plugin downloads a desktop x86_64 AAPT2 by default. On the phone
-# we must force the Termux-native arm64 binary.
 mkdir -p "$HOME/.gradle"
 AAPT_PROP="android.aapt2FromMavenOverride=$PREFIX/bin/aapt2"
 touch "$HOME/.gradle/gradle.properties"
@@ -61,7 +59,7 @@ fi
 log "Java: $(java -version 2>&1 | head -n 1)"
 log "Android SDK: $ANDROID_HOME"
 log "AAPT2: $(aapt2 version 2>&1 | head -n 1)"
-log "Building Cortex v44"
+log "Building Cortex v45"
 
 if [ -x ./gradlew ]; then
   ./gradlew :app:assembleDebug --stacktrace
