@@ -14,9 +14,10 @@ public final class LocalAskRouter {
         public final String answer,provider,error;
         public final float tokensPerSecond;
         public final int tokensGenerated;
-        public final long durationMs,retrievalMs,promptBuildMs,modelLoadMs,generationMs;
+        /** durationMs is the local-model call only; totalMs includes retrieval + prompt + model. */
+        public final long durationMs,totalMs,retrievalMs,promptBuildMs,modelLoadMs,generationMs;
         public final boolean cacheHit;
-        Result(GroundedAnswer g,String a,String p,String e,float tps,int tokens,long total,long retrieval,long prompt,long load,long generation,boolean hit){grounded=g;answer=a;provider=p;error=e==null?"":e;tokensPerSecond=tps;tokensGenerated=tokens;durationMs=total;retrievalMs=retrieval;promptBuildMs=prompt;modelLoadMs=load;generationMs=generation;cacheHit=hit;}
+        Result(GroundedAnswer g,String a,String p,String e,float tps,int tokens,long modelDuration,long total,long retrieval,long prompt,long load,long generation,boolean hit){grounded=g;answer=a;provider=p;error=e==null?"":e;tokensPerSecond=tps;tokensGenerated=tokens;durationMs=modelDuration;totalMs=total;retrievalMs=retrieval;promptBuildMs=prompt;modelLoadMs=load;generationMs=generation;cacheHit=hit;}
     }
 
     public static Result ask(Context ctx,VaultDb db,String question){
@@ -24,18 +25,18 @@ public final class LocalAskRouter {
         long rt=SystemClock.elapsedRealtime();GroundedAnswer g=SecondBrainEngine.ask(db,question);long retrieval=SystemClock.elapsedRealtime()-rt;
         try{InteractionTelemetry.log(db,"Brain","ask_cortex","retrieval_complete",0,retrieval,"ok",g.sources.size()+" grounded source(s)",new JSONObject().put("source_count",g.sources.size()).put("open_loops",g.openLoops.size()).put("decisions",g.decisions.size()));}catch(Exception ignored){}
         if(!LocalModelManager.installed(ctx)){
-            long total=SystemClock.elapsedRealtime()-wall;InteractionTelemetry.log(db,"Brain","ask_cortex","complete",0,total,"fallback","Local Qwen not ready; deterministic grounded answer used",null);return new Result(g,g.answer,"deterministic-grounded","Local Qwen runtime is not ready",0,0,total,retrieval,0,0,0,false);
+            long total=SystemClock.elapsedRealtime()-wall;InteractionTelemetry.log(db,"Brain","ask_cortex","complete",0,total,"fallback","Local Qwen not ready; deterministic grounded answer used",null);return new Result(g,g.answer,"deterministic-grounded","Local Qwen runtime is not ready",0,0,0,total,retrieval,0,0,0,false);
         }
         try{
             long pt=SystemClock.elapsedRealtime();String prompt=buildPrompt(question,g);String system="You are Cortex, a private second-brain assistant. Answer ONLY from the supplied memory evidence. Never invent facts. Preserve Egyptian Arabic and English code-switching naturally when present. If evidence is insufficient, say that clearly. Be concise but useful. Do not reveal chain-of-thought. /no_think";long promptMs=SystemClock.elapsedRealtime()-pt;
             LocalLlmBridge.CompletionResult r=LocalLlmBridge.completeCached(LocalModelManager.modelFile(ctx).getAbsolutePath(),prompt,system,320);
             String text=clean(r.getText());long total=SystemClock.elapsedRealtime()-wall;
-            JSONObject perf=new JSONObject().put("total_ms",total).put("retrieval_ms",retrieval).put("prompt_build_ms",promptMs).put("model_load_ms",r.getModelLoadMs()).put("generation_ms",r.getGenerationMs()).put("cache_hit",r.getCacheHit()).put("tokens",r.getTokensGenerated()).put("tokens_per_second",r.getTokensPerSecond()).put("source_count",g.sources.size());
+            JSONObject perf=new JSONObject().put("total_ms",total).put("retrieval_ms",retrieval).put("prompt_build_ms",promptMs).put("model_call_ms",r.getDurationMs()).put("model_load_ms",r.getModelLoadMs()).put("generation_ms",r.getGenerationMs()).put("cache_hit",r.getCacheHit()).put("tokens",r.getTokensGenerated()).put("tokens_per_second",r.getTokensPerSecond()).put("source_count",g.sources.size());
             InteractionTelemetry.log(db,"Brain","ask_cortex","model_complete",0,r.getDurationMs(),"ok",r.getCacheHit()?"Warm local Qwen completion":"Cold local Qwen completion",perf);
-            if(text.isEmpty()){InteractionTelemetry.log(db,"Brain","ask_cortex","complete",0,total,"fallback","Local Qwen returned empty text",perf);return new Result(g,g.answer,"deterministic-grounded","Local Qwen returned empty text",r.getTokensPerSecond(),r.getTokensGenerated(),total,retrieval,promptMs,r.getModelLoadMs(),r.getGenerationMs(),r.getCacheHit());}
-            InteractionTelemetry.log(db,"Brain","ask_cortex","complete",0,total,"ok","Ask Cortex answer ready",perf);return new Result(g,text,"local-qwen","",r.getTokensPerSecond(),r.getTokensGenerated(),total,retrieval,promptMs,r.getModelLoadMs(),r.getGenerationMs(),r.getCacheHit());
+            if(text.isEmpty()){InteractionTelemetry.log(db,"Brain","ask_cortex","complete",0,total,"fallback","Local Qwen returned empty text",perf);return new Result(g,g.answer,"deterministic-grounded","Local Qwen returned empty text",r.getTokensPerSecond(),r.getTokensGenerated(),r.getDurationMs(),total,retrieval,promptMs,r.getModelLoadMs(),r.getGenerationMs(),r.getCacheHit());}
+            InteractionTelemetry.log(db,"Brain","ask_cortex","complete",0,total,"ok","Ask Cortex answer ready",perf);return new Result(g,text,"local-qwen","",r.getTokensPerSecond(),r.getTokensGenerated(),r.getDurationMs(),total,retrieval,promptMs,r.getModelLoadMs(),r.getGenerationMs(),r.getCacheHit());
         }catch(Throwable t){
-            long total=SystemClock.elapsedRealtime()-wall;String err="Local Qwen failed: "+t.getClass().getSimpleName()+(t.getMessage()==null?"":": "+t.getMessage());InteractionTelemetry.log(db,"Brain","ask_cortex","complete",0,total,"fallback",err,null);return new Result(g,g.answer,"deterministic-grounded",err,0,0,total,retrieval,0,0,0,false);
+            long total=SystemClock.elapsedRealtime()-wall;String err="Local Qwen failed: "+t.getClass().getSimpleName()+(t.getMessage()==null?"":": "+t.getMessage());InteractionTelemetry.log(db,"Brain","ask_cortex","complete",0,total,"fallback",err,null);return new Result(g,g.answer,"deterministic-grounded",err,0,0,0,total,retrieval,0,0,0,false);
         }
     }
 
