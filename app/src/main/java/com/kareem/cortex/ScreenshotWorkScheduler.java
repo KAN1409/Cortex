@@ -4,7 +4,7 @@ import android.content.Context;
 import androidx.work.*;
 import java.util.concurrent.TimeUnit;
 
-/** Durable single-file screenshot OCR queue. WorkManager restarts it after process death/reboot. */
+/** Durable fast screenshot OCR queue. Deep three-pass enrichment runs separately while charging. */
 public final class ScreenshotWorkScheduler {
     static final String UNIQUE="cortex-screenshot-analysis";
     private ScreenshotWorkScheduler(){}
@@ -19,7 +19,10 @@ public final class ScreenshotWorkScheduler {
     }
 
     public static void kick(Context c){
-        WorkManager.getInstance(c.getApplicationContext()).enqueueUniqueWork(UNIQUE,ExistingWorkPolicy.KEEP,request());
+        Context app=c.getApplicationContext();
+        WorkManager.getInstance(app).enqueueUniqueWork(UNIQUE,ExistingWorkPolicy.KEEP,request());
+        ScreenshotDeepOcrScheduler.enablePeriodic(app);
+        ScreenshotDeepOcrScheduler.kick(app);
     }
 
     static void continueChain(Context c){
