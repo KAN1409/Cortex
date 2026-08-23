@@ -35,23 +35,23 @@ public final class ScreenshotIngestor {
                 if(!out.exists()||out.length()<=0)throw new IOException("Screenshot vault verification failed");
                 String title=f.getName()==null?"Screenshot":f.getName();
                 long id=db.insert("SCREENSHOT","screenshot-folder",title,"","Screenshots & Images","screenshot,auto_import",out.getAbsolutePath(),fp,"{\"source_uri\":\""+escape(f.getUri().toString())+"\",\"source_modified\":"+f.lastModified()+",\"source_bytes\":"+f.length()+"}");
-                if(id<0){duplicates++;/* Never delete out here: an existing DB row may already reference this deterministic vault file. */}
+                if(id<0){duplicates++;}
                 else if(id>0)imported++;
             }catch(Exception e){failed++;if(tmp!=null&&tmp.exists())tmp.delete();}
         }
-        if(imported>0)AnalysisQueue.kick(ctx,db,null);return new Result(imported,duplicates,failed,images.size());
+        if(imported>0)ScreenshotWorkScheduler.kick(ctx);return new Result(imported,duplicates,failed,images.size());
     }
 
     public static int repairMissingAttachments(Context ctx,VaultDb db,int max){
         Uri tree=tree(ctx);if(tree==null)return 0;DocumentFile root=DocumentFile.fromTreeUri(ctx,tree);if(root==null||!root.exists())return 0;
         HashMap<String,DocumentFile> byUri=new HashMap<>();ArrayList<DocumentFile> files=new ArrayList<>();collect(root,files,0);for(DocumentFile f:files)byUri.put(f.getUri().toString(),f);
-        int repaired=0,checked=0;for(KnowledgeItem k:db.lexicalSearch("",2000)){
+        int repaired=0,checked=0;for(KnowledgeItem k:db.lexicalSearch("",5000)){
             if(checked++>=Math.max(1,max))break;if(!"SCREENSHOT".equals(k.type)||!"screenshot-folder".equals(k.source))continue;
             File target=k.attachmentPath==null?null:new File(k.attachmentPath);if(target!=null&&target.exists()&&target.length()>0)continue;
             String sourceUri=jsonValue(k.metadataJson,"source_uri");DocumentFile src=byUri.get(sourceUri);if(src==null)continue;
             try{File dir=new File(ctx.getFilesDir(),"screenshot_vault");if(!dir.exists())dir.mkdirs();File out=target!=null?target:new File(dir,k.fingerprint.substring(5,21)+extension(src.getName(),src.getType()));File tmp=new File(out.getAbsolutePath()+".repair");if(tmp.exists())tmp.delete();copy(ctx,src.getUri(),tmp);if(tmp.length()<=0)throw new IOException("empty repair");if(out.exists())out.delete();if(!tmp.renameTo(out)){copyFile(tmp,out);tmp.delete();}if(out.exists()&&out.length()>0){db.retry(k.id);repaired++;}}catch(Exception ignored){}
         }
-        if(repaired>0)AnalysisQueue.kick(ctx,db,null);return repaired;
+        if(repaired>0)ScreenshotWorkScheduler.kick(ctx);return repaired;
     }
 
     private static long findFingerprint(VaultDb db,String fp){android.database.Cursor c=db.getReadableDatabase().query("knowledge_items",new String[]{"id"},"fingerprint=?",new String[]{fp},null,null,null,"1");long id=c.moveToFirst()?c.getLong(0):0;c.close();return id;}
