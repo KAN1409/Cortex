@@ -8,122 +8,48 @@ import org.json.JSONObject;
 import java.util.*;
 import java.util.concurrent.*;
 
-/**
- * Debounced local-model adjudicator for real communication threads.
- *
- * It is deliberately downstream of deterministic noise/relevance rules. Qwen is never invoked
- * for every notification; the newest signal wins and the thread is evaluated once after a short
- * quiet period. Strong model decisions may resolve ambiguity. Uncertain results remain REVIEW.
- */
+/** Debounced local-model adjudicator downstream of deterministic relevance rules. */
 public final class ThreadModelAdjudicator {
-    public static final String POLICY="thread_model_adjudicator_001";
+    public static final String POLICY="thread_model_adjudicator_002";
     private static final long QUIET_MS=1500L;
     private static final double AUTO_PROMOTE_CONFIDENCE=0.88;
     private static final ScheduledExecutorService EXEC=Executors.newSingleThreadScheduledExecutor();
     private static final ConcurrentHashMap<Long,Long> LATEST=new ConcurrentHashMap<>();
     private ThreadModelAdjudicator(){}
 
-    public static void enqueue(Context context,long threadId,long signalId){
-        if(context==null||threadId<=0||signalId<=0)return;
-        Context app=context.getApplicationContext();LATEST.put(threadId,signalId);
-        EXEC.schedule(()->{
-            Long newest=LATEST.get(threadId);if(newest==null||newest.longValue()!=signalId)return;
-            if(!LATEST.remove(threadId,newest))return;
-            adjudicate(app,threadId,signalId);
-        },QUIET_MS,TimeUnit.MILLISECONDS);
-    }
+    public static void enqueue(Context context,long threadId,long signalId){if(context==null||threadId<=0||signalId<=0)return;Context app=context.getApplicationContext();LATEST.put(threadId,signalId);EXEC.schedule(()->{Long newest=LATEST.get(threadId);if(newest==null||newest.longValue()!=signalId)return;if(!LATEST.remove(threadId,newest))return;adjudicate(app,threadId,signalId);},QUIET_MS,TimeUnit.MILLISECONDS);}
 
     private static void adjudicate(Context ctx,long threadId,long signalId){
-        if(!LocalModelManager.installed(ctx))return;
-        VaultDb db=new VaultDb(ctx);long jobId=0,modelRunId=0;
+        if(!LocalModelManager.installed(ctx))return;VaultDb db=new VaultDb(ctx);long jobId=0,modelRunId=0;
         try{
-            CognitiveStore.ensure(db);ThreadSnapshot t=load(db,threadId,signalId);if(t==null||t.messages.isEmpty())return;
-            if(!("communication".equals(t.kind)||"email".equals(t.kind)))return;
-            if(t.latestState.startsWith("derived")||"promoted".equals(t.latestState))return;
-            if(sensitive(t.contextText))return;
-
-            JSONObject input=new JSONObject();input.put("thread_id",threadId);input.put("latest_signal_id",signalId);input.put("source",t.source);input.put("message_count",t.messages.size());input.put("context_hash",Fingerprint.text(t.contextText));
-            jobId=AiJobStore.create(db,"relevance_adjudication","your_data",input.toString(),35);
-            AiJobStore.start(db,jobId,"Understanding thread","Preparing recent conversation context");
-            AiJobStore.progress(db,jobId,"Selecting local model","local_model",25,LocalModelManager.MODEL_NAME);
-
-            String system="You are Cortex Relevance Adjudicator. Classify a private communication thread conservatively. Never invent responsibility, promises, decisions, people or dates. ACTION means the user clearly needs to do something. WAITING means another person/system clearly owes the user something. DECISION means a meaningful approval/rejection/choice is established. REVIEW means one of those is plausible but ambiguous. CONTEXT means no durable interpretation yet. Output JSON only. Do not reveal chain-of-thought. /no_think";
-            String prompt=buildPrompt(t);
-            AiJobStore.progress(db,jobId,"Evaluating meaning","generating",50,"Checking responsibility, commitments and decisions");
-            long started=System.currentTimeMillis();LocalLlmBridge.CompletionResult r=LocalLlmBridge.completeCached(LocalModelManager.modelFile(ctx).getAbsolutePath(),prompt,system,180);long latency=System.currentTimeMillis()-started;
-            MasterRelevanceFilter.Decision parsed=parse(r.getText());
-            MasterRelevanceFilter.Decision learned=AdaptiveRelevanceLearning.adapt(db,t.source,parsed);
-            JSONObject modelOut=decisionJson(learned);modelOut.put("raw_model_text",clip(r.getText(),900));
-            modelRunId=AiJobStore.modelRun(db,jobId,1,"relevance_adjudicator","local",LocalModelManager.MODEL_NAME,"thread_relevance","complete",Fingerprint.text(prompt),latency,0,r.getTokensGenerated(),learned.confidence,modelOut.toString(),"");
-
-            AiJobStore.progress(db,jobId,"Applying confidence policy","quality_gate",78,"Keeping uncertain interpretations in Review");
-            ReviewQueueStore.Item existing=ReviewQueueStore.pendingForSignal(db,signalId);long derivedId=0,reviewId=existing==null?0:existing.id;
-
-            if(learned.durable()&&learned.confidence>=AUTO_PROMOTE_CONFIDENCE){
-                if(existing!=null)derivedId=ReviewQueueStore.promoteByModel(db,existing.id,learned,modelRunId);
-                else derivedId=createDerived(db,t,learned,modelRunId);
-                if(derivedId>0)markSignal(db,signalId,"derived_model",learned);
-            }else if(learned.reviewable()||(learned.durable()&&learned.confidence>=0.60)){
-                String candidate=learned.reviewable()?learned.candidateKind:learned.disposition.name();
-                if(existing==null){
-                    reviewId=ReviewQueueStore.enqueue(db,candidate,t.title,t.contextText,learned.confidence,learned.importance,threadId,signalId,"model adjudication: "+learned.reason,t.source);
-                    if(reviewId>0)for(long id:t.signalIds)CognitiveStore.link(db,CognitiveTypes.ObjectType.RAW_SIGNAL,id,CognitiveTypes.ObjectType.DERIVED,reviewId,CognitiveTypes.Relation.SUPPORTS,1.0,"{\"model_run_id\":"+modelRunId+"}");
-                }
-                if(reviewId>0)markSignal(db,signalId,"review_model",learned);
-            }else if(existing==null){
-                markSignal(db,signalId,"context_model_checked",learned);
-            }
-
-            JSONObject out=decisionJson(learned);out.put("model_run_id",modelRunId);out.put("derived_id",derivedId);out.put("review_id",reviewId);out.put("message_count",t.messages.size());
-            AiJobStore.complete(db,jobId,out.toString(),"Adjudication complete",derivedId>0?"High-confidence intelligence derived":(reviewId>0?"Kept for Review":"Kept as context"));
-        }catch(Throwable e){
-            String err=e.getClass().getSimpleName()+(e.getMessage()==null?"":": "+e.getMessage());
-            try{if(jobId>0&&modelRunId<=0)AiJobStore.modelRun(db,jobId,1,"relevance_adjudicator","local",LocalModelManager.MODEL_NAME,"thread_relevance","failed","",0,0,0,0,"",err);if(jobId>0)AiJobStore.fail(db,jobId,err,"Local relevance adjudication failed safely");}catch(Throwable ignored){}
+            CognitiveStore.ensure(db);ThreadSnapshot t=load(db,threadId,signalId);if(t==null||t.messages.isEmpty())return;if(!("communication".equals(t.kind)||"email".equals(t.kind)))return;if(t.latestState.startsWith("derived")||"promoted".equals(t.latestState))return;if(sensitive(t.contextText))return;
+            JSONObject input=new JSONObject();input.put("thread_id",threadId);input.put("latest_signal_id",signalId);input.put("source",t.source);input.put("message_count",t.messages.size());input.put("context_hash",Fingerprint.text(t.contextText));jobId=AiJobStore.create(db,"relevance_adjudication","your_data",input.toString(),35);AiJobStore.start(db,jobId,"Understanding thread","Preparing recent conversation context");AiJobStore.progress(db,jobId,"Selecting local model","local_model",25,LocalModelManager.MODEL_NAME);
+            String system="You are Cortex Relevance Adjudicator. Classify a private communication thread conservatively. Never invent responsibility, promises, decisions, people or dates. ACTION means the user clearly needs to do something. WAITING means another person/system clearly owes the user something. DECISION means a meaningful approval/rejection/choice is established. REVIEW means one of those is plausible but ambiguous. CONTEXT means no durable interpretation yet. Output JSON only. Do not reveal chain-of-thought. /no_think";String prompt=buildPrompt(t);AiJobStore.progress(db,jobId,"Evaluating meaning","generating",50,"Checking responsibility, commitments and decisions");
+            long started=System.currentTimeMillis();LocalLlmBridge.CompletionResult r=LocalLlmBridge.completeCached(LocalModelManager.modelFile(ctx).getAbsolutePath(),prompt,system,180);long latency=System.currentTimeMillis()-started;MasterRelevanceFilter.Decision parsed=parse(r.getText());MasterRelevanceFilter.Decision learned=AdaptiveRelevanceLearning.adapt(db,t.source,parsed);JSONObject modelOut=decisionJson(learned);modelOut.put("raw_model_text",clip(r.getText(),900));modelRunId=AiJobStore.modelRun(db,jobId,1,"relevance_adjudicator","local",LocalModelManager.MODEL_NAME,"thread_relevance","complete",Fingerprint.text(prompt),latency,0,r.getTokensGenerated(),learned.confidence,modelOut.toString(),"");
+            RelevanceEvaluationStore.model(db,signalId,modelRunId,learned);DiagnosticsLog.info(db,"ThreadModelAdjudicator","model_complete","ok",0,threadId,signalId,jobId,modelRunId,latency,new JSONObject().put("disposition",learned.disposition.name()).put("confidence",learned.confidence));
+            AiJobStore.progress(db,jobId,"Applying confidence policy","quality_gate",78,"Keeping uncertain interpretations in Review");ReviewQueueStore.Item existing=ReviewQueueStore.pendingForSignal(db,signalId);long derivedId=0,reviewId=existing==null?0:existing.id;
+            if(learned.durable()&&learned.confidence>=AUTO_PROMOTE_CONFIDENCE){if(existing!=null)derivedId=ReviewQueueStore.promoteByModel(db,existing.id,learned,modelRunId);else derivedId=createDerived(db,t,learned,modelRunId);if(derivedId>0)markSignal(db,signalId,"derived_model",learned);RelevanceEvaluationStore.finalDecision(db,signalId,"local_model",learned,reviewId);}
+            else if(learned.reviewable()||(learned.durable()&&learned.confidence>=0.60)){String candidate=learned.reviewable()?learned.candidateKind:learned.disposition.name();if(existing==null){reviewId=ReviewQueueStore.enqueue(db,candidate,t.title,t.contextText,learned.confidence,learned.importance,threadId,signalId,"model adjudication: "+learned.reason,t.source);if(reviewId>0)for(long id:t.signalIds)CognitiveStore.link(db,CognitiveTypes.ObjectType.RAW_SIGNAL,id,CognitiveTypes.ObjectType.DERIVED,reviewId,CognitiveTypes.Relation.SUPPORTS,1.0,"{\"model_run_id\":"+modelRunId+"}");}if(reviewId>0)markSignal(db,signalId,"review_model",learned);MasterRelevanceFilter.Decision reviewDecision=learned.reviewable()?learned:new MasterRelevanceFilter.Decision(MasterRelevanceFilter.Disposition.REVIEW,learned.importance,"model result below auto-promotion threshold",candidate,learned.confidence);RelevanceEvaluationStore.finalDecision(db,signalId,"review",reviewDecision,reviewId);}
+            else if(existing==null){markSignal(db,signalId,"context_model_checked",learned);RelevanceEvaluationStore.finalDecision(db,signalId,"local_model",learned,0);}
+            JSONObject out=decisionJson(learned);out.put("model_run_id",modelRunId);out.put("derived_id",derivedId);out.put("review_id",reviewId);out.put("message_count",t.messages.size());AiJobStore.complete(db,jobId,out.toString(),"Adjudication complete",derivedId>0?"High-confidence intelligence derived":(reviewId>0?"Kept for Review":"Kept as context"));
+        }catch(Throwable e){String err=e.getClass().getSimpleName()+(e.getMessage()==null?"":": "+e.getMessage());try{if(jobId>0&&modelRunId<=0)AiJobStore.modelRun(db,jobId,1,"relevance_adjudicator","local",LocalModelManager.MODEL_NAME,"thread_relevance","failed","",0,0,0,0,"",err);if(jobId>0)AiJobStore.fail(db,jobId,err,"Local relevance adjudication failed safely");DiagnosticsLog.error(db,"ThreadModelAdjudicator","adjudicate",e,"MODEL_ADJUDICATION",0,threadId,signalId,jobId,modelRunId,null);}catch(Throwable ignored){}
         }finally{try{db.close();}catch(Throwable ignored){}}
     }
 
     private static long createDerived(VaultDb db,ThreadSnapshot t,MasterRelevanceFilter.Decision d,long modelRunId){
-        try{
-            JSONObject meta=new JSONObject();meta.put("policy_version",POLICY);meta.put("model_run_id",modelRunId);meta.put("thread_id",t.threadId);meta.put("latest_signal_id",t.latestSignalId);meta.put("source",t.source);meta.put("reason",d.reason);meta.put("confidence",d.confidence);JSONArray ids=new JSONArray();for(long id:t.signalIds)ids.put(id);meta.put("supporting_signal_ids",ids);
-            String kind=d.disposition.name();String title=(t.title.isEmpty()?"Thread":t.title)+" · "+friendly(kind);String fp=Fingerprint.text("model-thread-derived|"+kind+"|"+t.threadId+"|"+Fingerprint.text(t.contextText));
-            long id=CognitiveStore.addDerived(db,kind,title,t.contextText,"open",d.confidence,d.importance,fp,meta.toString());
-            if(id>0){CognitiveStore.link(db,CognitiveTypes.ObjectType.THREAD,t.threadId,CognitiveTypes.ObjectType.DERIVED,id,"produced",d.confidence,meta.toString());for(long signal:t.signalIds)CognitiveStore.link(db,CognitiveTypes.ObjectType.RAW_SIGNAL,signal,CognitiveTypes.ObjectType.DERIVED,id,CognitiveTypes.Relation.SUPPORTS,1.0,"{\"model_run_id\":"+modelRunId+"}");}
-            return id;
-        }catch(Exception e){return 0;}
+        try{JSONObject meta=new JSONObject();meta.put("policy_version",POLICY);meta.put("model_run_id",modelRunId);meta.put("thread_id",t.threadId);meta.put("latest_signal_id",t.latestSignalId);meta.put("source",t.source);meta.put("reason",d.reason);meta.put("confidence",d.confidence);JSONArray ids=new JSONArray();for(long id:t.signalIds)ids.put(id);meta.put("supporting_signal_ids",ids);String kind=d.disposition.name(),title=(t.title.isEmpty()?"Thread":t.title)+" · "+friendly(kind),fp=Fingerprint.text("model-thread-derived|"+kind+"|"+t.threadId+"|"+Fingerprint.text(t.contextText));long id=CognitiveStore.addDerived(db,kind,title,t.contextText,"open",d.confidence,d.importance,fp,meta.toString());if(id>0){CognitiveStore.setDerivedRouting(db,id,t.source,t.threadId,t.latestSignalId,kind);CognitiveStore.link(db,CognitiveTypes.ObjectType.THREAD,t.threadId,CognitiveTypes.ObjectType.DERIVED,id,"produced",d.confidence,meta.toString());for(long signal:t.signalIds)CognitiveStore.link(db,CognitiveTypes.ObjectType.RAW_SIGNAL,signal,CognitiveTypes.ObjectType.DERIVED,id,CognitiveTypes.Relation.SUPPORTS,1.0,"{\"model_run_id\":"+modelRunId+"}");}return id;}catch(Exception e){DiagnosticsLog.error(db,"ThreadModelAdjudicator","create_derived",e,"MODEL_DERIVED_CREATE",0,t.threadId,t.latestSignalId,0,modelRunId,null);return 0;}
     }
 
-    private static String buildPrompt(ThreadSnapshot t){
-        StringBuilder s=new StringBuilder();s.append("SOURCE: ").append(t.source).append("\nTHREAD: ").append(t.title).append("\n\nRECENT RECEIVED CONTEXT:\n").append(t.contextText).append("\n\nReturn exactly one JSON object with this schema:\n");
-        s.append("{\"disposition\":\"ACTION|WAITING|DECISION|REVIEW|CONTEXT\",\"candidate_kind\":\"ACTION|WAITING|DECISION|\",\"confidence\":0.0,\"importance\":0,\"reason\":\"short evidence-based reason\"}\n");
-        s.append("Rules: If responsibility is unclear, use REVIEW. If there is no concrete action/waiting/decision, use CONTEXT. candidate_kind is required only for REVIEW. confidence is 0 to 1. importance is 0 to 100. JSON only. /no_think");return s.toString();
-    }
+    private static String buildPrompt(ThreadSnapshot t){StringBuilder s=new StringBuilder();s.append("SOURCE: ").append(t.source).append("\nTHREAD: ").append(t.title).append("\n\nRECENT RECEIVED CONTEXT:\n").append(t.contextText).append("\n\nReturn exactly one JSON object with this schema:\n");s.append("{\"disposition\":\"ACTION|WAITING|DECISION|REVIEW|CONTEXT\",\"candidate_kind\":\"ACTION|WAITING|DECISION|\",\"confidence\":0.0,\"importance\":0,\"reason\":\"short evidence-based reason\"}\n");s.append("Rules: If responsibility is unclear, use REVIEW. If there is no concrete action/waiting/decision, use CONTEXT. candidate_kind is required only for REVIEW. confidence is 0 to 1. importance is 0 to 100. JSON only. /no_think");return s.toString();}
+    private static MasterRelevanceFilter.Decision parse(String raw){try{String json=extractJson(raw);JSONObject o=new JSONObject(json);String disposition=n(o.optString("disposition","")).toUpperCase(Locale.ROOT),candidate=n(o.optString("candidate_kind","")).toUpperCase(Locale.ROOT);double confidence=o.optDouble("confidence",0.5);if(confidence>1&&confidence<=100)confidence/=100.0;confidence=Math.max(0,Math.min(1,confidence));int importance=Math.max(0,Math.min(100,o.optInt("importance",40)));String reason=clip(o.optString("reason","model adjudication"),240);MasterRelevanceFilter.Disposition d;try{d=MasterRelevanceFilter.Disposition.valueOf(disposition);}catch(Exception e){d=MasterRelevanceFilter.Disposition.CONTEXT;}if(d==MasterRelevanceFilter.Disposition.REVIEW&&!("ACTION".equals(candidate)||"WAITING".equals(candidate)||"DECISION".equals(candidate)))return new MasterRelevanceFilter.Decision(MasterRelevanceFilter.Disposition.CONTEXT,34,"invalid review candidate from model","",0.45);if(!(d==MasterRelevanceFilter.Disposition.ACTION||d==MasterRelevanceFilter.Disposition.WAITING||d==MasterRelevanceFilter.Disposition.DECISION||d==MasterRelevanceFilter.Disposition.REVIEW||d==MasterRelevanceFilter.Disposition.CONTEXT))d=MasterRelevanceFilter.Disposition.CONTEXT;return new MasterRelevanceFilter.Decision(d,importance,reason,d==MasterRelevanceFilter.Disposition.REVIEW?candidate:"",confidence);}catch(Exception e){return new MasterRelevanceFilter.Decision(MasterRelevanceFilter.Disposition.CONTEXT,30,"model output was not valid adjudication JSON","",0.35);}}
 
-    private static MasterRelevanceFilter.Decision parse(String raw){
-        try{
-            String json=extractJson(raw);JSONObject o=new JSONObject(json);String disposition=n(o.optString("disposition","")).toUpperCase(Locale.ROOT);String candidate=n(o.optString("candidate_kind","")).toUpperCase(Locale.ROOT);double confidence=o.optDouble("confidence",0.5);if(confidence>1&&confidence<=100)confidence/=100.0;confidence=Math.max(0,Math.min(1,confidence));int importance=Math.max(0,Math.min(100,o.optInt("importance",40)));String reason=clip(o.optString("reason","model adjudication"),240);
-            MasterRelevanceFilter.Disposition d;try{d=MasterRelevanceFilter.Disposition.valueOf(disposition);}catch(Exception e){d=MasterRelevanceFilter.Disposition.CONTEXT;}
-            if(d==MasterRelevanceFilter.Disposition.REVIEW&&!("ACTION".equals(candidate)||"WAITING".equals(candidate)||"DECISION".equals(candidate)))return new MasterRelevanceFilter.Decision(MasterRelevanceFilter.Disposition.CONTEXT,34,"invalid review candidate from model","",0.45);
-            if(!(d==MasterRelevanceFilter.Disposition.ACTION||d==MasterRelevanceFilter.Disposition.WAITING||d==MasterRelevanceFilter.Disposition.DECISION||d==MasterRelevanceFilter.Disposition.REVIEW||d==MasterRelevanceFilter.Disposition.CONTEXT))d=MasterRelevanceFilter.Disposition.CONTEXT;
-            return new MasterRelevanceFilter.Decision(d,importance,reason,d==MasterRelevanceFilter.Disposition.REVIEW?candidate:"",confidence);
-        }catch(Exception e){return new MasterRelevanceFilter.Decision(MasterRelevanceFilter.Disposition.CONTEXT,30,"model output was not valid adjudication JSON","",0.35);}
-    }
-
-    private static ThreadSnapshot load(VaultDb db,long threadId,long latestSignalId){
-        Cursor tc=db.getReadableDatabase().query("signal_threads",new String[]{"kind","source","title"},"id=?",new String[]{String.valueOf(threadId)},null,null,null,"1");if(!tc.moveToFirst()){tc.close();return null;}String kind=n(tc.getString(0)),source=n(tc.getString(1)),title=n(tc.getString(2));tc.close();
-        Cursor state=db.getReadableDatabase().query("raw_signals",new String[]{"state"},"id=?",new String[]{String.valueOf(latestSignalId)},null,null,null,"1");String latestState=state.moveToFirst()?n(state.getString(0)):"";state.close();
-        Cursor c=db.getReadableDatabase().query("raw_signals",new String[]{"id","title","body"},"thread_id=?",new String[]{String.valueOf(threadId)},null,null,"occurred_at DESC","8");ArrayList<Long> ids=new ArrayList<>();ArrayList<String> messages=new ArrayList<>();while(c.moveToNext()){ids.add(c.getLong(0));String h=n(c.getString(1)),b=n(c.getString(2));messages.add((h.isEmpty()?"":h+": ")+b);}c.close();Collections.reverse(ids);Collections.reverse(messages);StringBuilder context=new StringBuilder();for(int i=0;i<messages.size();i++){String m=clip(messages.get(i),650);if(!m.isEmpty())context.append('[').append(i+1).append("] ").append(m).append('\n');}return new ThreadSnapshot(threadId,latestSignalId,kind,source,title,latestState,ids,messages,context.toString().trim());
-    }
-
-    private static void markSignal(VaultDb db,long signalId,String state,MasterRelevanceFilter.Decision d){try{ContentValues v=new ContentValues();v.put("state",state);v.put("disposition",d.disposition.name());v.put("confidence",d.confidence);v.put("importance",d.importance);v.put("filter_engine","local_model_adjudicator");v.put("policy_version",POLICY);v.put("reason",d.reason);v.put("updated_at",System.currentTimeMillis());db.getWritableDatabase().update("raw_signals",v,"id=?",new String[]{String.valueOf(signalId)});}catch(Throwable ignored){}}
+    private static ThreadSnapshot load(VaultDb db,long threadId,long latestSignalId){Cursor tc=db.getReadableDatabase().query("signal_threads",new String[]{"kind","source","title"},"id=?",new String[]{String.valueOf(threadId)},null,null,null,"1");if(!tc.moveToFirst()){tc.close();return null;}String kind=n(tc.getString(0)),source=n(tc.getString(1)),title=n(tc.getString(2));tc.close();Cursor state=db.getReadableDatabase().query("raw_signals",new String[]{"state"},"id=?",new String[]{String.valueOf(latestSignalId)},null,null,null,"1");String latestState=state.moveToFirst()?n(state.getString(0)):"";state.close();Cursor c=db.getReadableDatabase().query("raw_signals",new String[]{"id","title","body"},"thread_id=?",new String[]{String.valueOf(threadId)},null,null,"occurred_at DESC","8");ArrayList<Long> ids=new ArrayList<>();ArrayList<String> messages=new ArrayList<>();while(c.moveToNext()){ids.add(c.getLong(0));String h=n(c.getString(1)),b=n(c.getString(2));messages.add((h.isEmpty()?"":h+": ")+b);}c.close();Collections.reverse(ids);Collections.reverse(messages);StringBuilder context=new StringBuilder();for(int i=0;i<messages.size();i++){String m=clip(messages.get(i),650);if(!m.isEmpty())context.append('[').append(i+1).append("] ").append(m).append('\n');}return new ThreadSnapshot(threadId,latestSignalId,kind,source,title,latestState,ids,messages,context.toString().trim());}
+    private static void markSignal(VaultDb db,long signalId,String state,MasterRelevanceFilter.Decision d){try{ContentValues v=new ContentValues();v.put("state",state);v.put("disposition",d.disposition.name());v.put("confidence",d.confidence);v.put("importance",d.importance);v.put("filter_engine","local_model_adjudicator");v.put("policy_version",POLICY);v.put("reason",d.reason);v.put("updated_at",System.currentTimeMillis());db.getWritableDatabase().update("raw_signals",v,"id=?",new String[]{String.valueOf(signalId)});}catch(Throwable e){DiagnosticsLog.error(db,"ThreadModelAdjudicator","mark_signal",e,"MODEL_SIGNAL_MARK",0,0,signalId,0,0,null);}}
     private static JSONObject decisionJson(MasterRelevanceFilter.Decision d){JSONObject o=new JSONObject();try{o.put("disposition",d.disposition.name());o.put("candidate_kind",d.candidateKind);o.put("confidence",d.confidence);o.put("importance",d.importance);o.put("reason",d.reason);o.put("learning_version",AdaptiveRelevanceLearning.VERSION);o.put("policy_version",POLICY);}catch(Exception ignored){}return o;}
     private static String extractJson(String s){String x=n(s).replace("```json","").replace("```","").trim();int a=x.indexOf('{'),b=x.lastIndexOf('}');return a>=0&&b>a?x.substring(a,b+1):x;}
     private static boolean sensitive(String s){String x=n(s).toLowerCase(Locale.ROOT);return has(x,"otp","one-time password","one time password","verification code","cvv","pin code","رمز التحقق","كود التحقق","كلمة السر");}
     private static boolean has(String s,String... xs){for(String x:xs)if(s.contains(x))return true;return false;}
     private static String friendly(String kind){if("ACTION".equals(kind))return"Action";if("WAITING".equals(kind))return"Waiting";if("DECISION".equals(kind))return"Decision";return"Update";}
     private static String clip(String s,int max){String x=n(s);return x.length()<=max?x:x.substring(0,max)+"…";}private static String n(String s){return s==null?"":s.trim();}
-
-    private static final class ThreadSnapshot {
-        final long threadId,latestSignalId;final String kind,source,title,latestState,contextText;final ArrayList<Long> signalIds;final ArrayList<String> messages;
-        ThreadSnapshot(long threadId,long latestSignalId,String kind,String source,String title,String latestState,ArrayList<Long> ids,ArrayList<String> messages,String context){this.threadId=threadId;this.latestSignalId=latestSignalId;this.kind=kind;this.source=source;this.title=title;this.latestState=latestState;this.signalIds=ids;this.messages=messages;this.contextText=context;}
-    }
+    private static final class ThreadSnapshot {final long threadId,latestSignalId;final String kind,source,title,latestState,contextText;final ArrayList<Long> signalIds;final ArrayList<String> messages;ThreadSnapshot(long threadId,long latestSignalId,String kind,String source,String title,String latestState,ArrayList<Long> ids,ArrayList<String> messages,String context){this.threadId=threadId;this.latestSignalId=latestSignalId;this.kind=kind;this.source=source;this.title=title;this.latestState=latestState;this.signalIds=ids;this.messages=messages;this.contextText=context;}}
 }
