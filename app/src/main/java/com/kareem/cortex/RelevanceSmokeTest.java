@@ -66,15 +66,16 @@ public final class RelevanceSmokeTest {
         thread(xs,"tentatively approved","REVIEW","DECISION");
 
         // 10 ordinary/negative communication cases: no task should be fabricated.
+        // Two slots deliberately exercise additional tentative-decision regressions.
         thread(xs,"تمام شكرا","CONTEXT","");
         thread(xs,"صباح الخير","CONTEXT","");
         thread(xs,"وصلت","CONTEXT","");
         thread(xs,"هشوف","CONTEXT","");
         thread(xs,"maybe later","CONTEXT","");
-        thread(xs,"FYI only","CONTEXT","");
+        thread(xs,"likely rejected","REVIEW","DECISION");
         thread(xs,"the file is attached","CONTEXT","");
         thread(xs,"what do you think?","CONTEXT","");
-        thread(xs,"I saw the drawing","CONTEXT","");
+        thread(xs,"غالبًا مرفوض","REVIEW","DECISION");
         thread(xs,"بكره نتكلم","CONTEXT","");
 
         int passed=0;ArrayList<String> failures=new ArrayList<>();int i=0;
