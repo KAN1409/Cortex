@@ -12,22 +12,14 @@ public final class AnalysisQueue {
         if("SCREENSHOT".equals(item.type)||"IMAGE".equals(item.type)){
             OcrAnalyzer.analyze(ctx,item,new OcrAnalyzer.Callback(){public void ok(AnalysisResult r){finish(db,item.id,r,changed);next(ctx,db,changed);}public void fail(Exception e){AnalysisQueue.fail(db,item.id,e,changed);next(ctx,db,changed);}});
         }else if("AUDIO".equals(item.type)){
-            AudioAnalyzer.analyze(ctx,item,new AudioAnalyzer.Callback(){public void ok(AnalysisResult r){db.applyAnalysis(item.id,r);AudioStore.save(db,item.id,r);if(changed!=null)changed.run();next(ctx,db,changed);}public void fail(Exception e){AnalysisQueue.fail(db,item.id,e,changed);next(ctx,db,changed);}});
+            AudioAnalyzer.analyze(ctx,item,new AudioAnalyzer.Callback(){public void ok(AnalysisResult r){db.applyAnalysis(item.id,r);AudioStore.save(db,item.id,r);post(db,item.id);if(changed!=null)changed.run();next(ctx,db,changed);}public void fail(Exception e){AnalysisQueue.fail(db,item.id,e,changed);next(ctx,db,changed);}});
         }else if("FILE".equals(item.type)){
             try{finish(db,item.id,AttachmentAnalyzer.analyze(item),changed);}catch(Exception e){AnalysisQueue.fail(db,item.id,e,changed);}next(ctx,db,changed);
         }else{
-            try{AnalysisResult r=LocalAnalyzer.analyze(item.rawText,"text/plain");db.applyAnalysis(item.id,r);}catch(Exception e){db.markFailed(item.id,e.getMessage());}if(changed!=null)changed.run();next(ctx,db,changed);
+            try{AnalysisResult r=LocalAnalyzer.analyze(item.rawText,"text/plain");db.applyAnalysis(item.id,r);post(db,item.id);}catch(Exception e){db.markFailed(item.id,e.getMessage());}if(changed!=null)changed.run();next(ctx,db,changed);
         }
     }
-    private static void finish(VaultDb db,long id,AnalysisResult r,Runnable changed){db.applyAnalysis(id,r);if(changed!=null)changed.run();}
-    private static void fail(VaultDb db,long id,Exception e,Runnable changed){
-        String message=e==null?"Unknown error":e.getMessage();
-        if(message!=null&&message.startsWith("RETRYABLE:")){
-            String clean=message.substring("RETRYABLE:".length()).trim();
-            db.markFailedRetryable(id,clean.isEmpty()?"Retryable analysis failure":clean);
-        }else{
-            db.markFailed(id,message);
-        }
-        if(changed!=null)changed.run();
-    }
+    private static void finish(VaultDb db,long id,AnalysisResult r,Runnable changed){db.applyAnalysis(id,r);post(db,id);if(changed!=null)changed.run();}
+    private static void post(VaultDb db,long id){try{CoreBrainEngine.afterAnalysis(db,id);}catch(Exception ignored){}}
+    private static void fail(VaultDb db,long id,Exception e,Runnable changed){String message=e==null?"Unknown error":e.getMessage();if(message!=null&&message.startsWith("RETRYABLE:")){String clean=message.substring("RETRYABLE:".length()).trim();db.markFailedRetryable(id,clean.isEmpty()?"Retryable analysis failure":clean);}else db.markFailed(id,message);if(changed!=null)changed.run();}
 }
