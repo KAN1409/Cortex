@@ -14,6 +14,7 @@
             <meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/feedback_file_paths" />
         </provider>
         <activity android:name=".PremiumHomeActivity" android:exported="true"><intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter></activity>
+        <activity android:name=".AskCortexActivity" android:exported="false" android:windowSoftInputMode="adjustResize" />
         <activity android:name=".FeatureHubActivity" android:exported="false" />
         <activity android:name=".EnvironmentActivity" android:exported="false" />
         <activity android:name=".CortexStatusActivity" android:exported="false" />
