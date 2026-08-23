@@ -34,12 +34,9 @@ public final class RawSignalStore {
             JSONObject meta=new JSONObject();meta.put("raw_signal_id",signalId);meta.put("source",s.source);meta.put("occurred_at",s.occurredAt);meta.put("relevance_disposition",d.disposition.name());meta.put("importance",d.importance);meta.put("filter_reason",d.reason);if(!s.metadataJson.isEmpty())meta.put("source_metadata",new JSONObject(s.metadataJson));
             String title=s.title.isEmpty()?friendlyTitle(s):s.title;String tags="signal,"+s.kind.toLowerCase()+",importance_"+d.importance;
             long itemId=db.insert(typeFor(s),s.source,title,s.body,categoryFor(s,d),tags,"",Fingerprint.text("promoted-signal|"+signalId),meta.toString());
-            if(itemId>0){ContentValues u=new ContentValues();u.put("promoted_item_id",itemId);u.put("state","promoted");u.put("retention_until",0);u.put("updated_at",System.currentTimeMillis());db.getWritableDatabase().update("raw_signals",u,"id=?",new String[]{String.valueOf(signalId)});AnalysisQueue.kick(nullSafeContext(db),db,null);}
+            if(itemId>0){ContentValues u=new ContentValues();u.put("promoted_item_id",itemId);u.put("state","promoted");u.put("retention_until",0);u.put("updated_at",System.currentTimeMillis());db.getWritableDatabase().update("raw_signals",u,"id=?",new String[]{String.valueOf(signalId)});}
         }catch(Throwable ignored){}
     }
-
-    /** AnalysisQueue needs a Context; VaultDb carries no public Context, so callers should kick separately. */
-    private static android.content.Context nullSafeContext(VaultDb db){return null;}
 
     public static long promotedItemId(VaultDb db,long signalId){ensure(db);Cursor c=db.getReadableDatabase().query("raw_signals",new String[]{"promoted_item_id"},"id=?",new String[]{String.valueOf(signalId)},null,null,null,"1");long id=c.moveToFirst()?c.getLong(0):0;c.close();return id;}
 
