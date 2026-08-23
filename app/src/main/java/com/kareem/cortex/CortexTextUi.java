@@ -10,7 +10,7 @@ public final class CortexTextUi {
 
     public static boolean isArabicDominant(String text){return MixedBidiText.isArabicDominant(MixedBidiText.stripControls(text==null?"":text));}
 
-    public static CharSequence readable(String raw){return MixedBidiText.format(raw==null?"":raw);}
+    public static String readable(String raw){return MixedBidiText.format(raw==null?"":raw).toString();}
 
     public static void setReadable(TextView view,String raw){
         if(view==null)return;
