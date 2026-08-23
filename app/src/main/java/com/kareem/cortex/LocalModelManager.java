@@ -13,7 +13,6 @@ public final class LocalModelManager {
     public static final String MODEL_NAME="Qwen3-4B Q4_K_M";
     public static final String MODEL_FILE="Qwen3-4B-Q4_K_M.gguf";
     public static final String MODEL_URL="https://huggingface.co/Qwen/Qwen3-4B-GGUF/resolve/main/Qwen3-4B-Q4_K_M.gguf?download=true";
-    // Current SHA-256 published for the official Qwen/Qwen3-4B-GGUF Q4_K_M file.
     public static final String SHA256="7485fe6f11af29433bc51cab58009521f205840f5b4ae3a32fa7f92e8534fdf5";
     static final String PREF="cortex_local_model";
     static final String K_STATE="transfer_state",K_DONE="transfer_done",K_TOTAL="transfer_total",K_SPEED="transfer_speed",K_ERROR="transfer_error",K_HTTP="transfer_http",K_URL="transfer_url",K_RANGE="transfer_range",K_RETRY="transfer_retry",K_PROGRESS_AT="transfer_progress_at",K_VERIFIED="verified_sha",K_LEGACY_ID="download_id";
@@ -23,7 +22,7 @@ public final class LocalModelManager {
     public static File partFile(Context c){File f=modelFile(c);return new File(f.getParentFile(),MODEL_FILE+".part");}
     public static boolean filePresent(Context c){File f=modelFile(c);return f.exists()&&f.length()>2_000_000_000L;}
     public static boolean verified(Context c){return SHA256.equalsIgnoreCase(p(c).getString(K_VERIFIED,""))&&filePresent(c);}
-    public static boolean runtimeInstalled(Context c){return false;}
+    public static boolean runtimeInstalled(Context c){return LocalLlmRuntime.ready(c);}
     public static boolean installed(Context c){return verified(c)&&runtimeInstalled(c);}
     public static long size(Context c){File f=modelFile(c);return f.exists()?f.length():0;}
     public static long partialSize(Context c){File f=partFile(c);return f.exists()?f.length():0;}
@@ -32,6 +31,7 @@ public final class LocalModelManager {
         clearLegacyDownload(c);
         if(verified(c))return;
         File finalFile=modelFile(c);if(finalFile.exists()&&finalFile.length()<2_000_000_000L)finalFile.delete();
+        LocalLlmRuntime.invalidate(c);
         setState(c,"connecting",partialSize(c),Math.max(0,p(c).getLong(K_TOTAL,0)),0,"",0,MODEL_URL,false,0);
         Intent i=new Intent(c,LocalModelDownloadService.class).setAction(LocalModelDownloadService.ACTION_START);
         if(Build.VERSION.SDK_INT>=26)c.startForegroundService(i);else c.startService(i);
@@ -51,7 +51,7 @@ public final class LocalModelManager {
             return new Verification(true,"Model asset verified",actual);
         }catch(Exception e){return failVerify(c,"Verification failed: "+e.getClass().getSimpleName(),"");}
     }
-    private static Verification failVerify(Context c,String m,String sha){p(c).edit().remove(K_VERIFIED).putString(K_STATE,"verification_failed").putString(K_ERROR,m).apply();return new Verification(false,m,sha);}
+    private static Verification failVerify(Context c,String m,String sha){LocalLlmRuntime.invalidate(c);p(c).edit().remove(K_VERIFIED).putString(K_STATE,"verification_failed").putString(K_ERROR,m).apply();return new Verification(false,m,sha);}
     private static boolean ggufHeader(File f)throws Exception{try(InputStream in=new FileInputStream(f)){byte[] h=new byte[4];return in.read(h)==4&&h[0]=='G'&&h[1]=='G'&&h[2]=='U'&&h[3]=='F';}}
     private static String sha256(File f)throws Exception{MessageDigest d=MessageDigest.getInstance("SHA-256");try(InputStream in=new BufferedInputStream(new FileInputStream(f),4*1024*1024)){byte[] b=new byte[4*1024*1024];int n;while((n=in.read(b))>0)d.update(b,0,n);}StringBuilder s=new StringBuilder();for(byte x:d.digest())s.append(String.format(Locale.US,"%02x",x));return s.toString();}
 
@@ -67,10 +67,10 @@ public final class LocalModelManager {
 
     static void setState(Context c,String state,long done,long total,long speed,String error,int http,String url,boolean ranges,int retry){SharedPreferences.Editor e=p(c).edit().putString(K_STATE,state).putLong(K_DONE,done).putLong(K_TOTAL,total).putLong(K_SPEED,speed).putString(K_ERROR,error==null?"":error).putInt(K_HTTP,http).putString(K_URL,url==null?MODEL_URL:url).putBoolean(K_RANGE,ranges).putInt(K_RETRY,retry);if(done>0)e.putLong(K_PROGRESS_AT,System.currentTimeMillis());e.apply();}
     static String transferState(Context c){return p(c).getString(K_STATE,"");}
-    static void clearVerified(Context c){p(c).edit().remove(K_VERIFIED).apply();}
+    static void clearVerified(Context c){p(c).edit().remove(K_VERIFIED).apply();LocalLlmRuntime.invalidate(c);}
     static SharedPreferences p(Context c){return c.getSharedPreferences(PREF,Context.MODE_PRIVATE);}
     static void clearLegacyDownload(Context c){long id=p(c).getLong(K_LEGACY_ID,-1);if(id>=0)try{((DownloadManager)c.getSystemService(Context.DOWNLOAD_SERVICE)).remove(id);}catch(Exception ignored){}p(c).edit().remove(K_LEGACY_ID).apply();}
-    public static void remove(Context c){cancelDownload(c);File f=modelFile(c),part=partFile(c);if(f.exists())f.delete();if(part.exists())part.delete();p(c).edit().clear().apply();}
+    public static void remove(Context c){cancelDownload(c);File f=modelFile(c),part=partFile(c);if(f.exists())f.delete();if(part.exists())part.delete();p(c).edit().clear().apply();LocalLlmRuntime.invalidate(c);}
     public static String human(long b){if(b<=0)return"0 B";double g=b/1073741824.0;if(g>=1)return String.format(Locale.US,"%.2f GB",g);double m=b/1048576.0;if(m>=1)return String.format(Locale.US,"%.1f MB",m);return String.format(Locale.US,"%.0f KB",b/1024.0);}
 
     public static final class Status{public final String label,state,detail,currentUrl;public final int percent,httpStatus,retryCount;public final long done,total,speedBytesPerSec,lastProgressAt,partialBytes;public final boolean verified,failed,rangeSupported;Status(String l,int p,long d,long t,boolean v,boolean f,String st,String x,int http,String url,int retry,boolean range,long speed,long at,long part){label=l;percent=p;done=d;total=t;verified=v;failed=f;state=st;detail=x==null?"":x;httpStatus=http;currentUrl=url==null?"":url;retryCount=retry;rangeSupported=range;speedBytesPerSec=speed;lastProgressAt=at;partialBytes=part;}}
