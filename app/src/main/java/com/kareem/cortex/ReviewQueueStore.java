@@ -10,7 +10,7 @@ import java.util.ArrayList;
  * not memories. User decisions become feedback and may promote a confirmed derived item.
  */
 public final class ReviewQueueStore {
-    public static final String POLICY="review_queue_001";
+    public static final String POLICY="review_queue_002";
     private ReviewQueueStore(){}
 
     public static final class Item {
@@ -45,6 +45,10 @@ public final class ReviewQueueStore {
         while(c.moveToNext())out.add(from(c));c.close();return out;
     }
 
+    public static Item pendingForSignal(VaultDb db,long signalId){
+        if(signalId<=0)return null;for(Item x:pending(db,100))if(x.signalId==signalId)return x;return null;
+    }
+
     public static long confirm(VaultDb db,long reviewId){
         Item item=get(db,reviewId);if(item==null||!"pending".equals(item.state))return 0;String candidate=validCandidate(item.candidateKind);if(candidate.isEmpty())return 0;
         try{
@@ -52,10 +56,25 @@ public final class ReviewQueueStore {
             String fp=Fingerprint.text("review-confirmed|"+reviewId+"|"+candidate);
             long derived=CognitiveStore.addDerived(db,candidate,confirmedTitle(item.title,candidate),item.body,"open",Math.max(0.90,item.confidence),Math.max(55,item.importance),fp,meta.toString());
             if(derived<=0)return 0;
-            CognitiveStore.link(db,CognitiveTypes.ObjectType.DERIVED,reviewId,CognitiveTypes.ObjectType.DERIVED,derived,"confirmed_as",1.0,meta.toString());
-            if(item.threadId>0)CognitiveStore.link(db,CognitiveTypes.ObjectType.THREAD,item.threadId,CognitiveTypes.ObjectType.DERIVED,derived,"produced",1.0,"");
-            if(item.signalId>0)CognitiveStore.link(db,CognitiveTypes.ObjectType.RAW_SIGNAL,item.signalId,CognitiveTypes.ObjectType.DERIVED,derived,CognitiveTypes.Relation.SUPPORTS,1.0,"");
+            linkConfirmed(db,item,reviewId,derived,meta.toString());
             resolve(db,reviewId,"confirmed");CognitiveStore.feedback(db,CognitiveTypes.ObjectType.DERIVED,reviewId,"confirm","{\"candidate_kind\":\""+candidate+"\"}",POLICY);return derived;
+        }catch(Exception ignored){return 0;}
+    }
+
+    /**
+     * A model may resolve a pending review only when it reaches the caller's high-confidence
+     * threshold. This is not recorded as user feedback, so the learning engine cannot train on
+     * its own guesses.
+     */
+    public static long promoteByModel(VaultDb db,long reviewId,MasterRelevanceFilter.Decision d,long modelRunId){
+        Item item=get(db,reviewId);if(item==null||!"pending".equals(item.state)||d==null||!d.durable())return 0;
+        String candidate=validCandidate(d.disposition.name());if(candidate.isEmpty())return 0;
+        try{
+            JSONObject meta=new JSONObject();meta.put("adjudicated_from_review",reviewId);meta.put("review_policy",POLICY);meta.put("thread_id",item.threadId);meta.put("raw_signal_id",item.signalId);meta.put("model_run_id",modelRunId);meta.put("model_confidence",d.confidence);meta.put("model_reason",d.reason);meta.put("user_confirmed",false);
+            String fp=Fingerprint.text("model-adjudicated|"+reviewId+"|"+candidate);
+            long derived=CognitiveStore.addDerived(db,candidate,confirmedTitle(item.title,candidate),item.body,"open",d.confidence,Math.max(item.importance,d.importance),fp,meta.toString());
+            if(derived<=0)return 0;
+            linkConfirmed(db,item,reviewId,derived,meta.toString());resolve(db,reviewId,"adjudicated");return derived;
         }catch(Exception ignored){return 0;}
     }
 
@@ -64,6 +83,11 @@ public final class ReviewQueueStore {
     public static boolean notImportant(VaultDb db,long reviewId){return resolveWithFeedback(db,reviewId,"dismissed","not_important","{}");}
     public static boolean ignoreSimilar(VaultDb db,long reviewId){return resolveWithFeedback(db,reviewId,"dismissed","ignore_similar","{\"scope\":\"future_similar\"}");}
 
+    private static void linkConfirmed(VaultDb db,Item item,long reviewId,long derived,String meta){
+        CognitiveStore.link(db,CognitiveTypes.ObjectType.DERIVED,reviewId,CognitiveTypes.ObjectType.DERIVED,derived,"confirmed_as",1.0,meta);
+        if(item.threadId>0)CognitiveStore.link(db,CognitiveTypes.ObjectType.THREAD,item.threadId,CognitiveTypes.ObjectType.DERIVED,derived,"produced",1.0,"");
+        if(item.signalId>0)CognitiveStore.link(db,CognitiveTypes.ObjectType.RAW_SIGNAL,item.signalId,CognitiveTypes.ObjectType.DERIVED,derived,CognitiveTypes.Relation.SUPPORTS,1.0,"");
+    }
     private static boolean resolveWithFeedback(VaultDb db,long id,String state,String event,String value){Item x=get(db,id);if(x==null||!"pending".equals(x.state))return false;resolve(db,id,state);CognitiveStore.feedback(db,CognitiveTypes.ObjectType.DERIVED,id,event,value,POLICY);return true;}
     private static void resolve(VaultDb db,long id,String state){long now=System.currentTimeMillis();ContentValues v=new ContentValues();v.put("state",state);v.put("resolved_at",now);v.put("updated_at",now);db.getWritableDatabase().update("derived_items",v,"id=? AND kind='REVIEW'",new String[]{String.valueOf(id)});}
 
