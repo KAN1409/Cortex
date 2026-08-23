@@ -3,7 +3,7 @@ set -euo pipefail
 
 REPO_DIR="${CORTEX_REPO_DIR:-$HOME/Cortex}"
 APK_SRC="$REPO_DIR/app/build/outputs/apk/debug/app-debug.apk"
-APK_OUT="/sdcard/Download/Cortex-v49-debug.apk"
+APK_OUT="/sdcard/Download/Cortex-v50-debug.apk"
 
 log(){ printf '\n==> %s\n' "$*"; }
 fail(){ printf '\nERROR: %s\n' "$*" >&2; exit 1; }
@@ -40,7 +40,7 @@ if grep -q '^android.aapt2FromMavenOverride=' "$HOME/.gradle/gradle.properties";
 log "Java: $(java -version 2>&1 | head -n 1)"
 log "Android SDK: $ANDROID_HOME"
 log "AAPT2: $(aapt2 version 2>&1 | head -n 1)"
-log "Building Cortex v49"
+log "Building Cortex v50"
 if [ -x ./gradlew ]; then ./gradlew :app:assembleDebug --stacktrace; else gradle :app:assembleDebug --stacktrace; fi
 [ -f "$APK_SRC" ] || fail "Build finished but APK was not found at $APK_SRC"
 log "Copying APK to Downloads"
