@@ -13,21 +13,27 @@ import android.database.sqlite.SQLiteDatabase;
 public final class CognitiveSchema {
     public static final int DB_VERSION = 5;
     public static final String REVISION = "cognitive_001";
+    private static volatile boolean ready;
 
     private CognitiveSchema(){}
 
     public static void ensure(SQLiteDatabase db){
-        createMeta(db);
-        createRawSignals(db);
-        createThreads(db);
-        createDerivedItems(db);
-        createEntityGraph(db);
-        createSourceLinks(db);
-        createFeedback(db);
-        createAiJobs(db);
-        createModelRuns(db);
-        migrateLegacyEntities(db);
-        db.execSQL("INSERT OR REPLACE INTO schema_meta(key,value,updated_at) VALUES('cognitive_schema','"+REVISION+"',strftime('%s','now')*1000)");
+        if(ready)return;
+        synchronized(CognitiveSchema.class){
+            if(ready)return;
+            createMeta(db);
+            createRawSignals(db);
+            createThreads(db);
+            createDerivedItems(db);
+            createEntityGraph(db);
+            createSourceLinks(db);
+            createFeedback(db);
+            createAiJobs(db);
+            createModelRuns(db);
+            migrateLegacyEntities(db);
+            db.execSQL("INSERT OR REPLACE INTO schema_meta(key,value,updated_at) VALUES('cognitive_schema','"+REVISION+"',strftime('%s','now')*1000)");
+            ready=true;
+        }
     }
 
     private static void createMeta(SQLiteDatabase db){
