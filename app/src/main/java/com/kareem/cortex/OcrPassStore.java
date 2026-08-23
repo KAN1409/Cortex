@@ -7,7 +7,7 @@ import java.util.*;
 
 /** Stores every OCR pass so raw evidence survives even when the chosen final text changes. */
 public final class OcrPassStore {
-    public static final int PIPELINE_VERSION=5;
+    public static final int PIPELINE_VERSION=6;
     private OcrPassStore(){}
 
     public static void ensure(VaultDb db){
