@@ -25,7 +25,7 @@ public final class LocalAskRouter {
             LocalLlmBridge.CompletionResult r=LocalLlmBridge.completeOnce(LocalModelManager.modelFile(ctx).getAbsolutePath(),prompt,system,320);
             String text=clean(r.getText());
             if(text.isEmpty())return new Result(g,g.answer,"deterministic-grounded","Local Qwen returned empty text",r.getTokensPerSecond(),r.getTokensGenerated(),r.getDurationMs());
-            return new Result(g,text,"local-qwen","","".isEmpty()?r.getTokensPerSecond():r.getTokensPerSecond(),r.getTokensGenerated(),r.getDurationMs());
+            return new Result(g,text,"local-qwen","",r.getTokensPerSecond(),r.getTokensGenerated(),r.getDurationMs());
         }catch(Throwable t){
             return new Result(g,g.answer,"deterministic-grounded","Local Qwen failed: "+t.getClass().getSimpleName()+(t.getMessage()==null?"":": "+t.getMessage()),0,0,0);
         }
