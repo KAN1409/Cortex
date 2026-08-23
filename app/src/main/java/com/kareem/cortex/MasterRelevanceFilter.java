@@ -26,8 +26,10 @@ public final class MasterRelevanceFilter {
         public final Disposition disposition;
         public final int importance;
         public final String reason,candidateKind;
-        public Decision(Disposition disposition,int importance,String reason){this(disposition,importance,reason,"");}
-        public Decision(Disposition disposition,int importance,String reason,String candidateKind){this.disposition=disposition;this.importance=importance;this.reason=n(reason);this.candidateKind=n(candidateKind).toUpperCase(Locale.ROOT);}
+        public final double confidence;
+        public Decision(Disposition disposition,int importance,String reason){this(disposition,importance,reason,"",defaultConfidence(disposition));}
+        public Decision(Disposition disposition,int importance,String reason,String candidateKind){this(disposition,importance,reason,candidateKind,defaultConfidence(disposition));}
+        public Decision(Disposition disposition,int importance,String reason,String candidateKind,double confidence){this.disposition=disposition;this.importance=importance;this.reason=n(reason);this.candidateKind=n(candidateKind).toUpperCase(Locale.ROOT);this.confidence=Math.max(0,Math.min(1,confidence));}
         public boolean durable(){return disposition==Disposition.MEMORY||disposition==Disposition.ACTION||disposition==Disposition.WAITING||disposition==Disposition.DECISION;}
         public boolean reviewable(){return disposition==Disposition.REVIEW&&!candidateKind.isEmpty();}
     }
@@ -89,18 +91,18 @@ public final class MasterRelevanceFilter {
         if(secret(t))return d(Disposition.CONTEXT,25,"sensitive credential; never derive durable intelligence");
 
         if(has(t,"ممكن تبعت","ممكن تبعتلي","ابعتلي","ابعت لي","محتاج منك","محتاجك تبعت","لو سمحت ابعت","متنساش تبعت","please send","can you send","could you send","need you to send","please review","can you review","could you review","please confirm","can you confirm"))
-            return d(Disposition.ACTION,68,"explicit incoming request directed to the user");
+            return new Decision(Disposition.ACTION,68,"explicit incoming request directed to the user","",0.90);
         if(has(t,"هبعتلك","هابعتلك","هبعتهولك","هراجع وارجعلك","هراجع و أرد عليك","هرد عليك","هرجعلك","هكلمك لما","i'll send you","i will send you","i'll get back to you","i will get back to you","i'll reply","i will reply"))
-            return d(Disposition.WAITING,64,"explicit commitment from the other party");
+            return new Decision(Disposition.WAITING,64,"explicit commitment from the other party","",0.88);
         if(has(t,"تمت الموافقة","تمت الموافقه","تم الرفض","موافق على","approved","has been approved","rejected","has been rejected"))
-            return d(Disposition.DECISION,66,"explicit approval or rejection in the thread");
+            return new Decision(Disposition.DECISION,66,"explicit approval or rejection in the thread","",0.87);
 
         if(has(t,"لازم يتبعت","لازم تبعت","المفروض تبعت","يفضل تبعت","لما تقدر ابعت","when you can send","we need the drawing","we need the file","needs your review","needs your approval","محتاج مراجعتك","محتاج موافقتك"))
-            return review("ACTION",52,"possible user responsibility, but direction/ownership is not explicit enough");
+            return review("ACTION",52,"possible user responsibility, but direction/ownership is not explicit enough",0.64);
         if(has(t,"هحاول ابعت","هحاول أبعت","مفروض ابعتلك","المفروض يرد","مفروض يرد","should get back to you","should reply","probably send you","expect a reply"))
-            return review("WAITING",50,"possible external commitment or expected response, but not firm enough");
+            return review("WAITING",50,"possible external commitment or expected response, but not firm enough",0.62);
         if(has(t,"غالبا هنمشي على","غالباً هنمشي على","مبدئيا موافق","مبدئيًا موافق","probably approved","likely approved","tentatively approved"))
-            return review("DECISION",51,"possible decision, but wording is tentative");
+            return review("DECISION",51,"possible decision, but wording is tentative",0.61);
 
         return d(Disposition.CONTEXT,34,"ordinary thread context; no durable interpretation yet");
     }
@@ -122,6 +124,7 @@ public final class MasterRelevanceFilter {
     private static boolean has(String s,String... xs){for(String x:xs)if(s.contains(x))return true;return false;}
     private static String low(String s){return n(s).toLowerCase(Locale.ROOT);}
     private static String n(String s){return s==null?"":s.trim();}
+    private static double defaultConfidence(Disposition d){if(d==Disposition.IGNORE)return 0.98;if(d==Disposition.MEMORY)return 0.82;if(d==Disposition.ACTION)return 0.90;if(d==Disposition.WAITING)return 0.88;if(d==Disposition.DECISION)return 0.87;if(d==Disposition.REVIEW)return 0.62;return 0.55;}
     private static Decision d(Disposition x,int score,String reason){return new Decision(x,score,reason);}
-    private static Decision review(String candidate,int score,String reason){return new Decision(Disposition.REVIEW,score,reason,candidate);}
+    private static Decision review(String candidate,int score,String reason,double confidence){return new Decision(Disposition.REVIEW,score,reason,candidate,confidence);}
 }
