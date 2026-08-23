@@ -6,12 +6,12 @@ import org.json.JSONObject;
 /**
  * Conservative v1 learner over explicit Review Queue feedback.
  *
- * It deliberately does not train a model or mutate prompts after one click. Instead it
- * aggregates repeated user decisions for the same source + candidate kind and only then
- * adjusts the deterministic relevance boundary.
+ * Ordinary confirm/dismiss feedback needs repetition before changing policy. The explicit
+ * "ignore similar" command is intentionally stronger and applies immediately for the same
+ * source + candidate kind.
  */
 public final class AdaptiveRelevanceLearning {
-    public static final String VERSION="relevance_learning_001";
+    public static final String VERSION="relevance_learning_002";
     private static final int MAX_EVENTS=500;
     private AdaptiveRelevanceLearning(){}
 
@@ -24,7 +24,7 @@ public final class AdaptiveRelevanceLearning {
         }
         public boolean enough(){return total>=4;}
         public boolean strongPositive(){return total>=5&&confirmRate>=0.80;}
-        public boolean strongNegative(){return (total>=4&&confirmRate<=0.20)||ignoreSimilar>=2;}
+        public boolean strongNegative(){return total>=4&&confirmRate<=0.20;}
         public String summary(){return total+" feedback • "+confirms+" confirm • "+rejects+" reject"+(ignoreSimilar>0?" • "+ignoreSimilar+" ignore-similar":"");}
     }
 
@@ -38,6 +38,11 @@ public final class AdaptiveRelevanceLearning {
         String candidate=d.reviewable()?d.candidateKind:(d.durable()?d.disposition.name():"");
         if(candidate.isEmpty())return d;
         Profile p=profile(db,source,candidate);
+
+        if(p.ignoreSimilar>0){
+            if(d.reviewable())return new MasterRelevanceFilter.Decision(MasterRelevanceFilter.Disposition.CONTEXT,Math.min(35,d.importance),"explicit ignore-similar preference for this source and candidate kind","",0.92);
+            if(d.durable())return new MasterRelevanceFilter.Decision(MasterRelevanceFilter.Disposition.REVIEW,Math.max(45,d.importance),"explicit ignore-similar preference conflicts with this durable guess • confirmation required",candidate,Math.min(0.60,d.confidence));
+        }
         if(!p.enough())return d;
 
         if(d.reviewable()&&p.strongPositive()){
@@ -51,8 +56,6 @@ public final class AdaptiveRelevanceLearning {
             return new MasterRelevanceFilter.Decision(MasterRelevanceFilter.Disposition.CONTEXT,Math.min(39,d.importance),"learned from repeated rejected similar reviews • "+p.summary(),"",0.78);
         }
         if(d.durable()&&p.strongNegative()){
-            // A deterministic high-confidence phrase can still be wrong for this source/user.
-            // Route it through Review rather than silently suppressing it.
             return new MasterRelevanceFilter.Decision(MasterRelevanceFilter.Disposition.REVIEW,Math.max(48,d.importance),"historically rejected similar "+candidate.toLowerCase()+" items • confirmation required",candidate,Math.min(0.69,d.confidence));
         }
         return d;
