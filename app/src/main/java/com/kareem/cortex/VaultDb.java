@@ -7,9 +7,9 @@ import java.util.*;
 
 public class VaultDb extends SQLiteOpenHelper {
     private static final String DB="cortex.db";
-    public VaultDb(Context c){ super(c,DB,null,4); }
+    public VaultDb(Context c){ super(c,DB,null,CognitiveSchema.DB_VERSION); }
 
-    @Override public void onCreate(SQLiteDatabase db){ createV4(db); }
+    @Override public void onCreate(SQLiteDatabase db){ createV4(db);CognitiveSchema.ensure(db); }
     private void createV4(SQLiteDatabase db){
         db.execSQL("CREATE TABLE knowledge_items(id INTEGER PRIMARY KEY AUTOINCREMENT,type TEXT NOT NULL,source TEXT,title TEXT NOT NULL,raw_text TEXT,extracted_text TEXT,summary TEXT,category TEXT,tags TEXT,attachment_path TEXT,status TEXT DEFAULT 'queued',fingerprint TEXT,analysis_error TEXT,metadata_json TEXT,created_at INTEGER NOT NULL,updated_at INTEGER NOT NULL)");
         db.execSQL("CREATE INDEX idx_ki_created ON knowledge_items(created_at DESC)");db.execSQL("CREATE INDEX idx_ki_category ON knowledge_items(category)");db.execSQL("CREATE INDEX idx_ki_status ON knowledge_items(status)");db.execSQL("CREATE INDEX idx_ki_fingerprint ON knowledge_items(fingerprint)");
@@ -43,6 +43,7 @@ public class VaultDb extends SQLiteOpenHelper {
             createVisionTables(db);
             db.execSQL("UPDATE knowledge_items SET status='queued',analysis_error='' WHERE type IN ('SCREENSHOT','IMAGE') AND status='analyzed'");
         }
+        if(oldV<5)CognitiveSchema.ensure(db);
     }
 
     public long insert(String type,String source,String title,String raw,String category,String tags,String attachment,String fingerprint,String metadata){
