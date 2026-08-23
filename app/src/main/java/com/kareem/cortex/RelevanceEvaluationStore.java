@@ -15,7 +15,7 @@ import java.util.Locale;
  * Audit labels written here are evaluation-only: they do not enter AdaptiveRelevanceLearning.
  */
 public final class RelevanceEvaluationStore {
-    public static final String VERSION="relevance_eval_002";
+    public static final String VERSION="relevance_eval_003";
     private RelevanceEvaluationStore(){}
 
     public static final class EvalCase {
@@ -73,12 +73,13 @@ public final class RelevanceEvaluationStore {
     private static Comparison compareLayers(VaultDb db){
         Comparison q=new Comparison();Cursor c=db.getReadableDatabase().query("relevance_evaluations",new String[]{"det_disposition","det_candidate","learned_disposition","learned_candidate","model_disposition","model_candidate","model_confidence","final_disposition","final_candidate","user_verdict","user_candidate"},"user_verdict='audit_label' OR user_verdict='confirm'",null,null,null,null);
         while(c.moveToNext()){
-            String truth=n(c.getString(10)).toUpperCase(Locale.ROOT);if(truth.isEmpty())continue;q.truth++;
-            boolean det=truth.equals(semantic(c.getString(0),c.getString(1)));boolean learned=truth.equals(semantic(c.getString(2),c.getString(3)));String md=n(c.getString(4));boolean hasModel=!md.isEmpty(),model=hasModel&&truth.equals(semantic(md,c.getString(5)));boolean fin=truth.equals(semantic(c.getString(7),c.getString(8)));if(!det&&learned)q.adaptiveHelp++;if(det&&!learned)q.adaptiveHarm++;if(hasModel&&model&&!learned)q.modelHelp++;if(hasModel&&!model&&learned)q.modelHarm++;if(fin)q.finalCorrect++;
+            String verdict=n(c.getString(9)),truth=n(c.getString(10)).toUpperCase(Locale.ROOT);if(truth.isEmpty())continue;boolean exact="audit_label".equals(verdict);q.truth++;
+            boolean det=matches(c.getString(0),c.getString(1),truth,exact);boolean learned=matches(c.getString(2),c.getString(3),truth,exact);String md=n(c.getString(4));boolean hasModel=!md.isEmpty(),model=hasModel&&matches(md,c.getString(5),truth,exact);boolean fin=matches(c.getString(7),c.getString(8),truth,exact);if(!det&&learned)q.adaptiveHelp++;if(det&&!learned)q.adaptiveHarm++;if(hasModel&&model&&!learned)q.modelHelp++;if(hasModel&&!model&&learned)q.modelHarm++;if(fin)q.finalCorrect++;
             if(hasModel){double conf=c.getDouble(6);if(conf>=0.80){q.highTotal++;if(model)q.highCorrect++;}else if(conf>=0.60){q.midTotal++;if(model)q.midCorrect++;}else{q.lowTotal++;if(model)q.lowCorrect++;}}
         }c.close();return q;
     }
 
+    private static boolean matches(String disposition,String candidate,String truth,boolean exactDisposition){String d=n(disposition).toUpperCase(Locale.ROOT);return exactDisposition?truth.equals(d):truth.equals(semantic(d,candidate));}
     private static long semanticDisagreements(VaultDb db){long n=0;Cursor c=db.getReadableDatabase().query("relevance_evaluations",new String[]{"learned_disposition","learned_candidate","model_disposition","model_candidate"},"COALESCE(model_disposition,'')<>''",null,null,null,null);while(c.moveToNext())if(!semantic(c.getString(0),c.getString(1)).equals(semantic(c.getString(2),c.getString(3))))n++;c.close();return n;}
 
     /** A thread episode containing a >48h internal gap indicates a boundary failure. */
