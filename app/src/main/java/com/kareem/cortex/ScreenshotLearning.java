@@ -41,19 +41,24 @@ public final class ScreenshotLearning {
     }
 
     public static void record(VaultDb db,long itemId,String type,String[] options,boolean[] checked){
-        ensure(db);SQLiteDatabase s=db.getWritableDatabase();long now=System.currentTimeMillis();
-        s.delete("screenshot_intents","item_id=?",new String[]{String.valueOf(itemId)});
-        CoreBrainEngine.ensure(db);s.delete("memory_facets","item_id=? AND facet_type='USER_PRIORITY'",new String[]{String.valueOf(itemId)});
-        for(int i=0;i<options.length;i++)if(checked[i]){
-            ContentValues v=new ContentValues();v.put("item_id",itemId);v.put("intent",options[i]);v.put("selected",1);v.put("created_at",now);s.insertWithOnConflict("screenshot_intents",null,v,SQLiteDatabase.CONFLICT_REPLACE);
-            Cursor c=s.query("screenshot_preferences",new String[]{"selected_count"},"content_type=? AND intent=?",new String[]{nz(type),options[i]},null,null,null,"1");int count=c.moveToFirst()?c.getInt(0):0;c.close();ContentValues p=new ContentValues();p.put("content_type",nz(type));p.put("intent",options[i]);p.put("selected_count",count+1);p.put("updated_at",now);s.insertWithOnConflict("screenshot_preferences",null,p,SQLiteDatabase.CONFLICT_REPLACE);
-            ContentValues f=new ContentValues();f.put("item_id",itemId);f.put("facet_type","USER_PRIORITY");f.put("facet_value",options[i]);f.put("normalized",LocalSemanticEmbedder.norm(options[i]));f.put("confidence",1.0);f.put("created_at",now);s.insert("memory_facets",null,f);
-        }
+        ensure(db);CoreBrainEngine.ensure(db);SQLiteDatabase s=db.getWritableDatabase();long now=System.currentTimeMillis();String ct=nz(type);
+        HashSet<String> before=new HashSet<>(selected(db,itemId));HashSet<String> after=new HashSet<>();for(int i=0;i<options.length;i++)if(checked[i])after.add(options[i]);
+        s.beginTransaction();try{
+            s.delete("screenshot_intents","item_id=?",new String[]{String.valueOf(itemId)});
+            s.delete("memory_facets","item_id=? AND facet_type='USER_PRIORITY'",new String[]{String.valueOf(itemId)});
+            for(String intent:after){ContentValues v=new ContentValues();v.put("item_id",itemId);v.put("intent",intent);v.put("selected",1);v.put("created_at",now);s.insertWithOnConflict("screenshot_intents",null,v,SQLiteDatabase.CONFLICT_REPLACE);ContentValues f=new ContentValues();f.put("item_id",itemId);f.put("facet_type","USER_PRIORITY");f.put("facet_value",intent);f.put("normalized",LocalSemanticEmbedder.norm(intent));f.put("confidence",1.0);f.put("created_at",now);s.insert("memory_facets",null,f);}
+            LinkedHashSet<String> touched=new LinkedHashSet<>();touched.addAll(before);touched.addAll(after);for(String intent:touched){int delta=(after.contains(intent)?1:0)-(before.contains(intent)?1:0);if(delta==0)continue;Cursor c=s.query("screenshot_preferences",new String[]{"selected_count"},"content_type=? AND intent=?",new String[]{ct,intent},null,null,null,"1");int count=c.moveToFirst()?c.getInt(0):0;c.close();count=Math.max(0,count+delta);ContentValues p=new ContentValues();p.put("content_type",ct);p.put("intent",intent);p.put("selected_count",count);p.put("updated_at",now);s.insertWithOnConflict("screenshot_preferences",null,p,SQLiteDatabase.CONFLICT_REPLACE);}
+            s.setTransactionSuccessful();
+        }finally{s.endTransaction();}
+        // Rebuild only controlled, taught screenshot facets; raw OCR is never promoted automatically.
+        try{CoreBrainEngine.afterAnalysis(db,itemId);}catch(Exception ignored){}
     }
 
     public static ArrayList<String> selected(VaultDb db,long itemId){
         ensure(db);ArrayList<String> out=new ArrayList<>();Cursor c=db.getReadableDatabase().query("screenshot_intents",new String[]{"intent"},"item_id=? AND selected=1",new String[]{String.valueOf(itemId)},null,null,"created_at ASC");while(c.moveToNext())out.add(c.getString(0));c.close();return out;
     }
 
+    public static int taughtCount(VaultDb db){ensure(db);Cursor c=db.getReadableDatabase().rawQuery("SELECT COUNT(DISTINCT item_id) FROM screenshot_intents WHERE selected=1",null);int n=c.moveToFirst()?c.getInt(0):0;c.close();return n;}
+    public static int learnedPreferenceCount(VaultDb db){ensure(db);Cursor c=db.getReadableDatabase().rawQuery("SELECT COUNT(*) FROM screenshot_preferences WHERE selected_count>=2",null);int n=c.moveToFirst()?c.getInt(0):0;c.close();return n;}
     private static String nz(String s){return s==null?"":s;}
 }
