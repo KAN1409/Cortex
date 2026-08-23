@@ -3,6 +3,7 @@ package com.kareem.cortex;
 import android.app.*;
 import android.content.*;
 import android.database.Cursor;
+import android.graphics.Color;
 import android.os.Bundle;
 import android.view.*;
 import android.widget.*;
