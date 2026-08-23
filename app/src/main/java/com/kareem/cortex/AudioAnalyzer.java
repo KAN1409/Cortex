@@ -63,7 +63,8 @@ public final class AudioAnalyzer {
             r.extractedText=corrected.trim();
             r.summary=MixedBidiText.stripControls(r.summary).trim();
             r.engine=t.engine+"+local_analysis";r.version=t.version;r.category="Voice & Audio";r.tags="voice,audio,transcript,"+AutoClassifier.tags(t.text,"Voice & Audio");
-            r.title=MixedBidiText.stripControls("Voice: "+AutoClassifier.title(t.text,"text/plain"));
+            // Item type already says Voice in the UI; do not inject an English prefix into a mixed RTL title.
+            r.title=MixedBidiText.stripControls(AutoClassifier.title(t.text,"text/plain")).trim();
             for(TranscriptResult.Segment s:t.segments)r.transcriptSegments.add(new AnalysisResult.TranscriptSegment(s.startMs,s.endMs,MixedBidiText.stripControls(s.text),s.confidence));
             r.audioLanguage=t.language;r.audioDurationMs=t.durationMs;r.audioProcessedDurationMs=t.processedDurationMs;r.audioCoverage=t.coverage;r.audioRawTranscript=MixedBidiText.stripControls(t.rawTranscript);r.audioProviderMergedTranscript=MixedBidiText.stripControls(t.providerMergedTranscript);r.audioRawProviderResponse=t.rawProviderResponse;cb.ok(r);
         }catch(Exception e){cb.fail(e);}
