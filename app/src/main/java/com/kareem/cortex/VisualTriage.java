@@ -53,7 +53,7 @@ public final class VisualTriage {
 
         // Private communications and account/profile screens are local-only by default.
         boolean chatShape=n.contains("message")&&CHAT_TIME.matcher(t).find();
-        boolean privateChat=containsAny(n,"whatsapp","telegram","messenger","signal","direct message","dm ","chat screen","chats","message seller","رسالة","محادثة")||chatShape;
+        boolean privateChat=containsAny(n,"whatsapp","telegram","messenger","signal","direct message","dm ","chat screen","chats","رسالة","محادثة")||chatShape;
         boolean mail=containsAny(n,"gmail","outlook","inbox","compose","email account","mail.google.com");
         boolean accountScreen=containsAny(n,"my account","account settings","two-factor authentication","passkeys","mobile number","birthday","username","partner connections") && (EMAIL.matcher(t).find()||PHONE.matcher(t).find());
         if(privateChat)return block(r,88,"private_conversation","Private conversation detected; cloud vision requires explicit user override");
