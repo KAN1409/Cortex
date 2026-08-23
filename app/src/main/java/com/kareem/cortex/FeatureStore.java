@@ -7,100 +7,36 @@ import java.util.*;
 
 public final class FeatureStore {
     public static class InboxEntry {
-        public final KnowledgeItem item;
-        public final String bucket;
-        public final boolean pinned;
-        public final boolean reviewed;
-        public final int score;
-        public final String reason;
-        public final long snoozedUntil;
+        public final KnowledgeItem item;public final String bucket;public final boolean pinned,reviewed;public final int score;public final String reason;public final long snoozedUntil;
         InboxEntry(KnowledgeItem i,String b,boolean p,boolean r,int s,String why,long snooze){item=i;bucket=b;pinned=p;reviewed=r;score=s;reason=why;snoozedUntil=snooze;}
     }
     private static class State {String bucket="Reference";boolean reviewed,pinned,manual,dismissed;long snoozedUntil,updatedAt;}
     private static class Assessment {int score;String reason="";}
     private FeatureStore(){}
 
-    public static void ensure(VaultDb db){
-        SQLiteDatabase s=db.getWritableDatabase();
-        s.execSQL("CREATE TABLE IF NOT EXISTS smart_inbox(item_id INTEGER PRIMARY KEY,bucket TEXT NOT NULL,reviewed INTEGER DEFAULT 0,pinned INTEGER DEFAULT 0,updated_at INTEGER NOT NULL)");
-        addColumn(s,"smart_inbox","snoozed_until","INTEGER DEFAULT 0");
-        addColumn(s,"smart_inbox","manual_bucket","INTEGER DEFAULT 0");
-        addColumn(s,"smart_inbox","attention_dismissed","INTEGER DEFAULT 0");
-        s.execSQL("CREATE INDEX IF NOT EXISTS idx_smart_inbox_state ON smart_inbox(reviewed,pinned,snoozed_until)");
-        s.execSQL("CREATE TABLE IF NOT EXISTS correction_rules(id INTEGER PRIMARY KEY AUTOINCREMENT,item_id INTEGER,field TEXT,original_text TEXT,corrected_text TEXT,apply_future INTEGER DEFAULT 1,created_at INTEGER NOT NULL)");
-        s.execSQL("CREATE INDEX IF NOT EXISTS idx_correction_field ON correction_rules(field,created_at DESC)");
-        s.execSQL("CREATE TABLE IF NOT EXISTS integration_log(id INTEGER PRIMARY KEY AUTOINCREMENT,source TEXT,status TEXT,detail TEXT,created_at INTEGER NOT NULL)");
-    }
+    public static void ensure(VaultDb db){SQLiteDatabase s=db.getWritableDatabase();s.execSQL("CREATE TABLE IF NOT EXISTS smart_inbox(item_id INTEGER PRIMARY KEY,bucket TEXT NOT NULL,reviewed INTEGER DEFAULT 0,pinned INTEGER DEFAULT 0,updated_at INTEGER NOT NULL)");addColumn(s,"smart_inbox","snoozed_until","INTEGER DEFAULT 0");addColumn(s,"smart_inbox","manual_bucket","INTEGER DEFAULT 0");addColumn(s,"smart_inbox","attention_dismissed","INTEGER DEFAULT 0");s.execSQL("CREATE INDEX IF NOT EXISTS idx_smart_inbox_state ON smart_inbox(reviewed,pinned,snoozed_until)");s.execSQL("CREATE TABLE IF NOT EXISTS correction_rules(id INTEGER PRIMARY KEY AUTOINCREMENT,item_id INTEGER,field TEXT,original_text TEXT,corrected_text TEXT,apply_future INTEGER DEFAULT 1,created_at INTEGER NOT NULL)");s.execSQL("CREATE INDEX IF NOT EXISTS idx_correction_field ON correction_rules(field,created_at DESC)");s.execSQL("CREATE TABLE IF NOT EXISTS integration_log(id INTEGER PRIMARY KEY AUTOINCREMENT,source TEXT,status TEXT,detail TEXT,created_at INTEGER NOT NULL)");}
+    private static void addColumn(SQLiteDatabase s,String table,String name,String spec){Cursor c=s.rawQuery("PRAGMA table_info("+table+")",null);boolean found=false;while(c.moveToNext())if(name.equals(c.getString(c.getColumnIndexOrThrow("name")))){found=true;break;}c.close();if(!found)s.execSQL("ALTER TABLE "+table+" ADD COLUMN "+name+" "+spec);}
 
-    private static void addColumn(SQLiteDatabase s,String table,String name,String spec){
-        Cursor c=s.rawQuery("PRAGMA table_info("+table+")",null);boolean found=false;while(c.moveToNext())if(name.equals(c.getString(c.getColumnIndexOrThrow("name")))){found=true;break;}c.close();if(!found)s.execSQL("ALTER TABLE "+table+" ADD COLUMN "+name+" "+spec);
-    }
+    public static ArrayList<InboxEntry> inbox(VaultDb db,int limit){ensure(db);ArrayList<InboxEntry> out=new ArrayList<>();long now=System.currentTimeMillis();for(KnowledgeItem k:db.lexicalSearch("",Math.max(limit*5,500))){State st=sync(db,k);if(st.snoozedUntil>now&&!st.pinned)continue;if(quietScreenshot(db,k,st))continue;Assessment a=assess(db,k,st);if(!st.reviewed||st.pinned){out.add(new InboxEntry(k,st.bucket,st.pinned,st.reviewed,a.score,a.reason,st.snoozedUntil));if(out.size()>=limit)break;}}out.sort((a,b)->{int p=Boolean.compare(b.pinned,a.pinned);if(p!=0)return p;int s=Integer.compare(b.score,a.score);if(s!=0)return s;return Long.compare(b.item.createdAt,a.item.createdAt);});return out;}
 
-    public static ArrayList<InboxEntry> inbox(VaultDb db,int limit){
-        ensure(db);ArrayList<InboxEntry> out=new ArrayList<>();long now=System.currentTimeMillis();
-        for(KnowledgeItem k:db.lexicalSearch("",Math.max(limit*5,250))){
-            State st=sync(db,k);if(st.snoozedUntil>now&&!st.pinned)continue;Assessment a=assess(db,k,st);
-            if(!st.reviewed||st.pinned){out.add(new InboxEntry(k,st.bucket,st.pinned,st.reviewed,a.score,a.reason,st.snoozedUntil));if(out.size()>=limit)break;}
-        }
-        out.sort((a,b)->{int p=Boolean.compare(b.pinned,a.pinned);if(p!=0)return p;int s=Integer.compare(b.score,a.score);if(s!=0)return s;return Long.compare(b.item.createdAt,a.item.createdAt);});
-        return out;
-    }
-
-    public static ArrayList<InboxEntry> needs(VaultDb db,int limit){
-        ensure(db);ArrayList<InboxEntry> out=new ArrayList<>();long now=System.currentTimeMillis();
-        for(KnowledgeItem k:db.lexicalSearch("",Math.max(limit*8,400))){
-            State st=sync(db,k);if(st.snoozedUntil>now&&!st.pinned)continue;Assessment a=assess(db,k,st);
-            boolean hard="failed_retryable".equals(k.status)||"analysis_failed".equals(k.status)||openActionCount(db,k.id)>0;
-            if((a.score>=35&&!st.dismissed)||hard||st.pinned)out.add(new InboxEntry(k,st.bucket,st.pinned,st.reviewed,a.score,a.reason,st.snoozedUntil));
-        }
-        out.sort((a,b)->{int s=Integer.compare(b.score,a.score);if(s!=0)return s;int p=Boolean.compare(b.pinned,a.pinned);if(p!=0)return p;return Long.compare(b.item.updatedAt,a.item.updatedAt);});
-        if(out.size()>limit)return new ArrayList<>(out.subList(0,limit));return out;
-    }
+    public static ArrayList<InboxEntry> needs(VaultDb db,int limit){ensure(db);ArrayList<InboxEntry> out=new ArrayList<>();long now=System.currentTimeMillis();for(KnowledgeItem k:db.lexicalSearch("",Math.max(limit*8,800))){State st=sync(db,k);if(st.snoozedUntil>now&&!st.pinned)continue;if(quietScreenshot(db,k,st))continue;Assessment a=assess(db,k,st);boolean technicalFail=("failed_retryable".equals(k.status)||"analysis_failed".equals(k.status));boolean hard=(!isAutoScreenshot(k)&&technicalFail)||openActionCount(db,k.id)>0;if((a.score>=35&&!st.dismissed)||hard||st.pinned)out.add(new InboxEntry(k,st.bucket,st.pinned,st.reviewed,a.score,a.reason,st.snoozedUntil));}out.sort((a,b)->{int s=Integer.compare(b.score,a.score);if(s!=0)return s;int p=Boolean.compare(b.pinned,a.pinned);if(p!=0)return p;return Long.compare(b.item.updatedAt,a.item.updatedAt);});if(out.size()>limit)return new ArrayList<>(out.subList(0,limit));return out;}
 
     public static int needsCount(VaultDb db){return needs(db,500).size();}
     public static int openActionCount(VaultDb db,long itemId){Cursor c=db.getReadableDatabase().rawQuery("SELECT COUNT(*) FROM actions WHERE item_id=? AND status='open'",new String[]{String.valueOf(itemId)});int n=c.moveToFirst()?c.getInt(0):0;c.close();return n;}
-    public static ArrayList<String> openActions(VaultDb db,long itemId){ArrayList<String> out=new ArrayList<>();Cursor c=db.getReadableDatabase().query("actions",new String[]{"action_text","due_text"},"item_id=? AND status='open'",new String[]{String.valueOf(itemId)},null,null,"id ASC");while(c.moveToNext()){String a=nz(c.getString(0)),d=nz(c.getString(1));out.add(a+(d.isEmpty()?"":"  •  due: "+d));}c.close();return out;}
+    public static ArrayList<String> openActions(VaultDb db,long itemId){ArrayList<String> out=new ArrayList<>();Cursor c=db.getReadableDatabase().query("actions",new String[]{"action_text","due_text"},"item_id=? AND status='open'",new String[]{String.valueOf(itemId)},null,null,"id ASC");while(c.moveToNext()){String a=nz(c.getString(0)),d=nz(c.getString(1));if(!d.isEmpty())d=TemporalResolver.displayStored(d);out.add(a+(d.isEmpty()?"":"  •  due: "+d));}c.close();return out;}
 
-    private static State sync(VaultDb db,KnowledgeItem k){
-        ensure(db);SQLiteDatabase s=db.getWritableDatabase();State st=read(s,k.id);long now=System.currentTimeMillis();
-        if(st==null){st=new State();st.bucket=autoBucket(db,k);ContentValues v=new ContentValues();v.put("item_id",k.id);v.put("bucket",st.bucket);v.put("reviewed",0);v.put("pinned",0);v.put("snoozed_until",0);v.put("manual_bucket",0);v.put("attention_dismissed",0);v.put("updated_at",now);s.insert("smart_inbox",null,v);st.updatedAt=now;return st;}
-        boolean changed=false;if(!st.manual){String auto=autoBucket(db,k);if(!auto.equals(st.bucket)){st.bucket=auto;changed=true;}}
-        if(k.updatedAt>st.updatedAt+500){st.dismissed=false;changed=true;}
-        if(changed){ContentValues v=new ContentValues();v.put("bucket",st.bucket);v.put("attention_dismissed",st.dismissed?1:0);v.put("updated_at",now);s.update("smart_inbox",v,"item_id=?",new String[]{String.valueOf(k.id)});st.updatedAt=now;}
-        return st;
-    }
+    private static boolean isAutoScreenshot(KnowledgeItem k){return k!=null&&("SCREENSHOT".equals(k.type)||"IMAGE".equals(k.type))&&"screenshot-folder".equals(k.source);}
+    private static boolean meaningfulScreenshot(VaultDb db,KnowledgeItem k){if(openActionCount(db,k.id)>0)return true;String t=text(k);return hasAny(t,"waiting for","awaiting","مستني","منتظر","في انتظار","follow up","follow-up","متابعة","due","موعد","لازم","قررنا","اتفقنا","decision");}
+    private static boolean quietScreenshot(VaultDb db,KnowledgeItem k,State st){return isAutoScreenshot(k)&&!st.pinned&&!st.manual&&!meaningfulScreenshot(db,k);}
 
+    private static State sync(VaultDb db,KnowledgeItem k){ensure(db);SQLiteDatabase s=db.getWritableDatabase();State st=read(s,k.id);long now=System.currentTimeMillis();if(st==null){st=new State();st.bucket=autoBucket(db,k);ContentValues v=new ContentValues();v.put("item_id",k.id);v.put("bucket",st.bucket);v.put("reviewed",isAutoScreenshot(k)?1:0);v.put("pinned",0);v.put("snoozed_until",0);v.put("manual_bucket",0);v.put("attention_dismissed",isAutoScreenshot(k)?1:0);v.put("updated_at",now);s.insert("smart_inbox",null,v);st.reviewed=isAutoScreenshot(k);st.dismissed=isAutoScreenshot(k);st.updatedAt=now;return st;}boolean changed=false;if(!st.manual){String auto=autoBucket(db,k);if(!auto.equals(st.bucket)){st.bucket=auto;changed=true;}}if(k.updatedAt>st.updatedAt+500){st.dismissed=isAutoScreenshot(k)&&!meaningfulScreenshot(db,k);if(isAutoScreenshot(k)&&!meaningfulScreenshot(db,k))st.reviewed=true;changed=true;}if(changed){ContentValues v=new ContentValues();v.put("bucket",st.bucket);v.put("reviewed",st.reviewed?1:0);v.put("attention_dismissed",st.dismissed?1:0);v.put("updated_at",now);s.update("smart_inbox",v,"item_id=?",new String[]{String.valueOf(k.id)});st.updatedAt=now;}return st;}
     private static State read(SQLiteDatabase s,long id){Cursor c=s.query("smart_inbox",new String[]{"bucket","reviewed","pinned","snoozed_until","manual_bucket","attention_dismissed","updated_at"},"item_id=?",new String[]{String.valueOf(id)},null,null,null,"1");if(!c.moveToFirst()){c.close();return null;}State st=new State();st.bucket=nz(c.getString(0));st.reviewed=c.getInt(1)!=0;st.pinned=c.getInt(2)!=0;st.snoozedUntil=c.getLong(3);st.manual=c.getInt(4)!=0;st.dismissed=c.getInt(5)!=0;st.updatedAt=c.getLong(6);c.close();return st;}
 
-    private static Assessment assess(VaultDb db,KnowledgeItem k,State st){
-        Assessment a=new Assessment();ArrayList<String> reasons=new ArrayList<>();String t=text(k);int open=openActionCount(db,k.id);
-        if("failed_retryable".equals(k.status)||"analysis_failed".equals(k.status)){a.score+=120;reasons.add("Analysis/transcription failed");}
-        if(open>0){a.score+=70+Math.min(20,open*5);reasons.add(open+" open action"+(open==1?"":"s"));if(hasDue(db,k.id)){a.score+=15;reasons.add("has a due date");}}
-        if("Needs attention".equals(st.bucket)){a.score+=80;reasons.add("needs attention");}
-        if("Waiting".equals(st.bucket)||hasAny(t,"waiting for","waiting on","awaiting","pending result","مستني","مستنى","منتظر","في انتظار","نتيجة لسه","لسه النتيجة","لما يرد","مستني رد")){a.score+=55;reasons.add("waiting for an outcome");}
-        if("Action".equals(st.bucket)){a.score+=35;if(open==0)reasons.add("action-like memory");}
-        if(hasAny(t,"follow up","follow-up","check back","need to revisit","راجع الموضوع","متابعة","هتابع","نرجع له","ارجعله","ارجع لها")){a.score+=35;reasons.add("follow-up signal");}
-        if("Decision".equals(st.bucket)&&hasAny(t,"pending","not decided","لسه مقررناش","لسه ما قررناش","قرار مؤجل")){a.score+=40;reasons.add("decision still open");}
-        if(st.pinned){a.score+=25;reasons.add("pinned");}
-        long age=System.currentTimeMillis()-k.createdAt;if(!st.reviewed&&age>3L*24*60*60*1000){a.score+=35;reasons.add("unreviewed for 3+ days");}else if(!st.reviewed&&age>24L*60*60*1000){a.score+=15;}
-        a.reason=join(reasons);return a;
-    }
-
+    private static Assessment assess(VaultDb db,KnowledgeItem k,State st){Assessment a=new Assessment();ArrayList<String> reasons=new ArrayList<>();String t=text(k);int open=openActionCount(db,k.id);if(("failed_retryable".equals(k.status)||"analysis_failed".equals(k.status))&&!isAutoScreenshot(k)){a.score+=120;reasons.add("Analysis/transcription failed");}if(open>0){a.score+=70+Math.min(20,open*5);reasons.add(open+" open action"+(open==1?"":"s"));if(hasDue(db,k.id)){a.score+=15;reasons.add("has a due date");}}if("Needs attention".equals(st.bucket)&&!isAutoScreenshot(k)){a.score+=80;reasons.add("needs attention");}if("Waiting".equals(st.bucket)||hasAny(t,"waiting for","waiting on","awaiting","pending result","مستني","مستنى","منتظر","في انتظار","نتيجة لسه","لسه النتيجة","لما يرد","مستني رد")){a.score+=55;reasons.add("waiting for an outcome");}if("Action".equals(st.bucket)){a.score+=35;if(open==0)reasons.add("action-like memory");}if(hasAny(t,"follow up","follow-up","check back","need to revisit","راجع الموضوع","متابعة","هتابع","نرجع له","ارجعله","ارجع لها")){a.score+=35;reasons.add("follow-up signal");}if("Decision".equals(st.bucket)&&hasAny(t,"pending","not decided","لسه مقررناش","لسه ما قررناش","قرار مؤجل")){a.score+=40;reasons.add("decision still open");}if(st.pinned){a.score+=25;reasons.add("pinned");}long age=System.currentTimeMillis()-k.createdAt;if(!isAutoScreenshot(k)){if(!st.reviewed&&age>3L*24*60*60*1000){a.score+=35;reasons.add("unreviewed for 3+ days");}else if(!st.reviewed&&age>24L*60*60*1000)a.score+=15;}a.reason=join(reasons);return a;}
     private static boolean hasDue(VaultDb db,long id){Cursor c=db.getReadableDatabase().rawQuery("SELECT 1 FROM actions WHERE item_id=? AND status='open' AND due_text IS NOT NULL AND TRIM(due_text)<>'' LIMIT 1",new String[]{String.valueOf(id)});boolean yes=c.moveToFirst();c.close();return yes;}
-
     public static String priorityLabel(int score){if(score>=100)return "URGENT";if(score>=70)return "HIGH";if(score>=45)return "MEDIUM";return "LOW";}
 
-    public static String autoBucket(VaultDb db,KnowledgeItem k){
-        if("failed_retryable".equals(k.status)||"analysis_failed".equals(k.status))return "Needs attention";
-        if(openActionCount(db,k.id)>0)return "Action";
-        String cat=nz(k.category).toLowerCase(Locale.US),tags=nz(k.tags).toLowerCase(Locale.US),type=nz(k.type),t=text(k);
-        if(hasAny(t,"waiting for","waiting on","awaiting","مستني","مستنى","منتظر","في انتظار","مستني رد" )||tags.contains("waiting"))return "Waiting";
-        if(tags.contains("decision")||hasAny(t,"decided","قررنا","اتفقنا","قرار","اعتمدنا"))return "Decision";
-        if(cat.contains("project")||tags.contains("project"))return "Project";
-        if(cat.contains("people")||tags.contains("person")||tags.contains("contact"))return "Person";
-        if("AI_PROMPT".equals(type)||"AI_RESULT".equals(type))return "Reference";
-        return "Reference";
-    }
+    public static String autoBucket(VaultDb db,KnowledgeItem k){if(("failed_retryable".equals(k.status)||"analysis_failed".equals(k.status))&&!isAutoScreenshot(k))return "Needs attention";if(openActionCount(db,k.id)>0)return "Action";String cat=nz(k.category).toLowerCase(Locale.US),tags=nz(k.tags).toLowerCase(Locale.US),type=nz(k.type),t=text(k);if(hasAny(t,"waiting for","waiting on","awaiting","مستني","مستنى","منتظر","في انتظار","مستني رد")||tags.contains("waiting"))return "Waiting";if(tags.contains("decision")||hasAny(t,"decided","قررنا","اتفقنا","قرار","اعتمدنا"))return "Decision";if(cat.contains("project")||tags.contains("project"))return "Project";if(cat.contains("people")||tags.contains("person")||tags.contains("contact"))return "Person";return "Reference";}
 
     public static void review(VaultDb db,long itemId,boolean reviewed){ensure(db);ensureRow(db,itemId);ContentValues v=new ContentValues();v.put("reviewed",reviewed?1:0);v.put("updated_at",System.currentTimeMillis());db.getWritableDatabase().update("smart_inbox",v,"item_id=?",new String[]{String.valueOf(itemId)});}
     public static void pin(VaultDb db,long itemId,boolean pinned){ensure(db);ensureRow(db,itemId);ContentValues v=new ContentValues();v.put("pinned",pinned?1:0);v.put("updated_at",System.currentTimeMillis());db.getWritableDatabase().update("smart_inbox",v,"item_id=?",new String[]{String.valueOf(itemId)});}
@@ -109,18 +45,10 @@ public final class FeatureStore {
     public static void setBucket(VaultDb db,long itemId,String bucket){ensure(db);ensureRow(db,itemId);ContentValues v=new ContentValues();v.put("bucket",bucket);v.put("manual_bucket",1);v.put("reviewed",0);v.put("attention_dismissed",0);v.put("updated_at",System.currentTimeMillis());db.getWritableDatabase().update("smart_inbox",v,"item_id=?",new String[]{String.valueOf(itemId)});}
     public static void markDone(VaultDb db,long itemId){ensure(db);ContentValues a=new ContentValues();a.put("status","done");db.getWritableDatabase().update("actions",a,"item_id=? AND status='open'",new String[]{String.valueOf(itemId)});ContentValues v=new ContentValues();v.put("reviewed",1);v.put("attention_dismissed",1);v.put("snoozed_until",0);v.put("updated_at",System.currentTimeMillis());ensureRow(db,itemId);db.getWritableDatabase().update("smart_inbox",v,"item_id=?",new String[]{String.valueOf(itemId)});}
     public static void resetAttention(VaultDb db,long itemId){ensure(db);ensureRow(db,itemId);ContentValues v=new ContentValues();v.put("reviewed",0);v.put("attention_dismissed",0);v.put("snoozed_until",0);v.put("updated_at",System.currentTimeMillis());db.getWritableDatabase().update("smart_inbox",v,"item_id=?",new String[]{String.valueOf(itemId)});}
-
     private static void ensureRow(VaultDb db,long id){KnowledgeItem k=db.getById(id);if(k!=null)sync(db,k);}
 
-    public static void saveCorrection(VaultDb db,long itemId,String field,String original,String corrected,boolean future){
-        ensure(db);ContentValues v=new ContentValues();v.put("item_id",itemId);v.put("field",field);v.put("original_text",original==null?"":original);v.put("corrected_text",corrected==null?"":corrected);v.put("apply_future",future?1:0);v.put("created_at",System.currentTimeMillis());db.getWritableDatabase().insert("correction_rules",null,v);
-    }
-
-    public static ArrayList<String[]> futureCorrections(VaultDb db,String field){
-        ensure(db);ArrayList<String[]> out=new ArrayList<>();Cursor c=db.getReadableDatabase().query("correction_rules",new String[]{"original_text","corrected_text"},"field=? AND apply_future=1",new String[]{field},null,null,"created_at DESC","100");
-        while(c.moveToNext()){String a=c.getString(0),b=c.getString(1);if(a!=null&&b!=null&&!a.trim().isEmpty()&&!a.equals(b))out.add(new String[]{a,b});}c.close();return out;
-    }
-
+    public static void saveCorrection(VaultDb db,long itemId,String field,String original,String corrected,boolean future){ensure(db);ContentValues v=new ContentValues();v.put("item_id",itemId);v.put("field",field);v.put("original_text",original==null?"":original);v.put("corrected_text",corrected==null?"":corrected);v.put("apply_future",future?1:0);v.put("created_at",System.currentTimeMillis());db.getWritableDatabase().insert("correction_rules",null,v);}
+    public static ArrayList<String[]> futureCorrections(VaultDb db,String field){ensure(db);ArrayList<String[]> out=new ArrayList<>();Cursor c=db.getReadableDatabase().query("correction_rules",new String[]{"original_text","corrected_text"},"field=? AND apply_future=1",new String[]{field},null,null,"created_at DESC","100");while(c.moveToNext()){String a=c.getString(0),b=c.getString(1);if(a!=null&&b!=null&&!a.trim().isEmpty()&&!a.equals(b))out.add(new String[]{a,b});}c.close();return out;}
     public static void logIntegration(VaultDb db,String source,String status,String detail){ensure(db);ContentValues v=new ContentValues();v.put("source",source);v.put("status",status);v.put("detail",detail);v.put("created_at",System.currentTimeMillis());db.getWritableDatabase().insert("integration_log",null,v);}
 
     private static String text(KnowledgeItem k){return (nz(k.title)+" "+nz(k.summary)+" "+nz(k.extractedText)+" "+nz(k.rawText)+" "+nz(k.tags)).toLowerCase(Locale.US);}
