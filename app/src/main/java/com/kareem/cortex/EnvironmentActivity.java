@@ -1,0 +1,29 @@
+package com.kareem.cortex;
+
+import android.app.*;
+import android.content.*;
+import android.graphics.Color;
+import android.graphics.drawable.GradientDrawable;
+import android.net.Uri;
+import android.os.Bundle;
+import android.view.*;
+import android.widget.*;
+
+public class EnvironmentActivity extends Activity {
+    static final int REQ_TREE=701;
+    VaultDb db;LinearLayout box;TextView modelState,folderState,ocrState,providerState;int bg=Color.rgb(11,12,14),surface=Color.rgb(24,26,30),text=Color.rgb(245,244,240),muted=Color.rgb(156,159,168),accent=Color.rgb(232,177,72),ok=Color.rgb(120,205,150),border=Color.rgb(47,50,57);
+    int dp(int x){return(int)(x*getResources().getDisplayMetrics().density+.5f);}TextView tv(String s,int sp,int c){TextView v=new TextView(this);v.setTextSize(sp);v.setTextColor(c);CortexTextUi.setPlain(v,s);return v;}GradientDrawable round(int fill,int stroke,int r){GradientDrawable g=new GradientDrawable();g.setColor(fill);g.setCornerRadius(dp(r));g.setStroke(dp(1),stroke);return g;}
+    @Override public void onCreate(Bundle b){super.onCreate(b);db=new VaultDb(this);build();refresh();}
+    @Override protected void onResume(){super.onResume();if(db!=null)refresh();}
+    void build(){ScrollView sv=new ScrollView(this);box=new LinearLayout(this);box.setOrientation(LinearLayout.VERTICAL);box.setPadding(dp(18),dp(18),dp(18),dp(28));box.setBackgroundColor(bg);sv.addView(box);TextView h=tv("CORTEX ENVIRONMENT",26,text);h.setTypeface(null,1);box.addView(h);TextView sub=tv("Prepare the phone for local AI, screenshot OCR and private-first reasoning.",13,muted);sub.setPadding(0,dp(4),0,dp(18));box.addView(sub);
+        modelState=statusCard("LOCAL BRAIN","Qwen3-4B Q4_K_M • GGUF • ~2.5 GB");Button download=button("DOWNLOAD MODEL");download.setOnClickListener(v->{try{LocalModelManager.startDownload(this);Toast.makeText(this,"Model download queued on Wi-Fi",Toast.LENGTH_LONG).show();refresh();}catch(Exception e){Toast.makeText(this,e.getMessage(),Toast.LENGTH_LONG).show();}});box.addView(download,lp());Button remove=button("REMOVE LOCAL MODEL");remove.setOnClickListener(v->{LocalModelManager.remove(this);refresh();});box.addView(remove,lp());
+        folderState=statusCard("SCREENSHOT SOURCE","Choose the folder Samsung saves screenshots into.");Button choose=button("CONNECT SCREENSHOT FOLDER");choose.setOnClickListener(v->chooseTree());box.addView(choose,lp());Button scan=button("SCAN NEW SCREENSHOTS");scan.setOnClickListener(v->scan());box.addView(scan,lp());
+        ocrState=statusCard("OCR PIPELINE","ML Kit Latin + Tesseract Arabic → structured screenshot memory");providerState=statusCard("CLOUD FALLBACK","Gemini audio provider remains available; local reasoning runtime is prepared separately.");
+        TextView note=tv("Local model download is the model asset layer. Native llama.cpp inference will be attached behind the same Cortex reasoning interface next; the model file will not need to be downloaded again.",12,muted);note.setPadding(dp(2),dp(12),dp(2),0);box.addView(note);setContentView(sv);}
+    TextView statusCard(String title,String sub){LinearLayout c=new LinearLayout(this);c.setOrientation(LinearLayout.VERTICAL);c.setPadding(dp(16),dp(14),dp(16),dp(14));c.setBackground(round(surface,border,20));TextView h=tv(title,11,accent);h.setTypeface(null,1);c.addView(h);TextView s=tv(sub,13,text);s.setPadding(0,dp(6),0,0);c.addView(s);TextView state=tv("",12,muted);state.setPadding(0,dp(8),0,0);c.addView(state);LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,-2);p.setMargins(0,0,0,dp(10));box.addView(c,p);return state;}
+    Button button(String s){Button b=new Button(this);b.setText(s);b.setTextSize(11);b.setTextColor(text);b.setAllCaps(false);b.setBackground(round(surface,border,16));return b;}LinearLayout.LayoutParams lp(){LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,dp(48));p.setMargins(0,0,0,dp(9));return p;}
+    void refresh(){LocalModelManager.Status s=LocalModelManager.status(this);String detail=s.label;if(s.percent>0)detail+=" • "+s.percent+"%";if(s.done>0)detail+=" • "+LocalModelManager.human(s.done)+(s.total>0?" / "+LocalModelManager.human(s.total):"");if(LocalModelManager.installed(this))detail+=" • ready on storage";modelState.setText(detail);folderState.setText(ScreenshotIngestor.tree(this)==null?"Not connected":"Connected • "+ScreenshotIngestor.treeLabel(this));ocrState.setText("Ready • image captures are OCR-analyzed automatically after import");providerState.setText((GeminiKeyStore.has(this)?"Gemini configured":"Gemini not configured")+" • "+(GroqKeyStore.has(this)?"Groq fallback configured":"Groq fallback not configured"));}
+    void chooseTree(){Intent i=new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);startActivityForResult(i,REQ_TREE);}
+    @Override protected void onActivityResult(int req,int result,Intent data){super.onActivityResult(req,result,data);if(req==REQ_TREE&&result==RESULT_OK&&data!=null&&data.getData()!=null){Uri u=data.getData();try{getContentResolver().takePersistableUriPermission(u,Intent.FLAG_GRANT_READ_URI_PERMISSION);}catch(Exception ignored){}ScreenshotIngestor.saveTree(this,u);refresh();scan();}}
+    void scan(){if(ScreenshotIngestor.tree(this)==null){Toast.makeText(this,"Connect the screenshot folder first",Toast.LENGTH_LONG).show();return;}Toast.makeText(this,"Scanning screenshots…",Toast.LENGTH_SHORT).show();new Thread(()->{try{ScreenshotIngestor.Result r=ScreenshotIngestor.scan(this,db,300);runOnUiThread(()->Toast.makeText(this,"Imported "+r.imported+" • duplicates "+r.duplicates+(r.failed>0?" • failed "+r.failed:""),Toast.LENGTH_LONG).show());}catch(Exception e){runOnUiThread(()->Toast.makeText(this,"Scan failed: "+e.getMessage(),Toast.LENGTH_LONG).show());}}).start();}
+}
