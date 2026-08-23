@@ -24,7 +24,8 @@ public class NotificationCaptureService extends NotificationListenerService {
 
             JSONObject meta=new JSONObject();meta.put("package",pkg);meta.put("posted_at",sbn.getPostTime());meta.put("notification_id",sbn.getId());meta.put("ongoing",ongoing);if(sbn.getKey()!=null)meta.put("notification_key",sbn.getKey());if(sbn.getGroupKey()!=null)meta.put("group_key",sbn.getGroupKey());if(n.category!=null)meta.put("category",n.category);
             MasterRelevanceFilter.Signal signal=new MasterRelevanceFilter.Signal("notification",pkg,title,body,meta.toString(),sbn.getPostTime(),ongoing);
-            VaultDb db=new VaultDb(this);long signalId=RawSignalStore.capture(db,signal);long itemId=signalId>0?RawSignalStore.promotedItemId(db,signalId):0;
+            VaultDb db=new VaultDb(this);long signalId=RawSignalStore.capture(db,signal);long itemId=signalId>0?RawSignalStore.promotedItemId(db,signalId):0;long threadId=signalId>0?RawSignalStore.threadId(db,signalId):0;
+            if(threadId>0)ThreadModelAdjudicator.enqueue(this,threadId,signalId);
             if(itemId>0)AnalysisQueue.kick(this,db,null);else db.close();
         }catch(Throwable ignored){}
     }
