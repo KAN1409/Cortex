@@ -15,6 +15,7 @@ public final class VisualTriage {
     private static final Pattern LONG_ID=Pattern.compile("(?<!\\d)\\d{12,20}(?!\\d)");
     private static final Pattern EMAIL=Pattern.compile("(?i)\\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\\.[A-Z]{2,}\\b");
     private static final Pattern PHONE=Pattern.compile("(?<!\\d)(?:\\+?20|0)?1[0125][ -]?\\d{8}(?!\\d)");
+    private static final Pattern CHAT_TIME=Pattern.compile("(?i)\\b\\d{1,2}:\\d{2}\\s*(?:am|pm)?\\b");
 
     public static final class Result {
         public int valueScore;
@@ -51,7 +52,8 @@ public final class VisualTriage {
             return block(r,95,government?"government_document":"financial_or_identity","Government/financial/identity information detected locally");
 
         // Private communications and account/profile screens are local-only by default.
-        boolean privateChat=containsAny(n,"whatsapp","telegram","messenger","signal","direct message","dm ","chat screen","chats","message seller","رسالة","محادثة");
+        boolean chatShape=n.contains("message")&&CHAT_TIME.matcher(t).find();
+        boolean privateChat=containsAny(n,"whatsapp","telegram","messenger","signal","direct message","dm ","chat screen","chats","message seller","رسالة","محادثة")||chatShape;
         boolean mail=containsAny(n,"gmail","outlook","inbox","compose","email account","mail.google.com");
         boolean accountScreen=containsAny(n,"my account","account settings","two-factor authentication","passkeys","mobile number","birthday","username","partner connections") && (EMAIL.matcher(t).find()||PHONE.matcher(t).find());
         if(privateChat)return block(r,88,"private_conversation","Private conversation detected; cloud vision requires explicit user override");
