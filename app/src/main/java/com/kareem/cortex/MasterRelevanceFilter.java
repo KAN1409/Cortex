@@ -107,6 +107,8 @@ public final class MasterRelevanceFilter {
             return new Decision(Disposition.ACTION,68,"explicit incoming request directed to the user","",0.90);
         if(has(t,"هبعتلك","هابعتلك","هبعتهولك","هراجع وارجعلك","هراجع و ارد عليك","هرد عليك","هرجعلك","هكلمك لما","i'll send you","i will send you","i'll get back to you","i will get back to you","i'll reply","i will reply"))
             return new Decision(Disposition.WAITING,64,"explicit commitment from the other party","",0.88);
+        if(tentativeDecision(t))
+            return review("DECISION",51,"possible decision, but wording is tentative",0.61);
         if(has(t,"تمت الموافقه","تم الرفض","موافق علي","approved","has been approved","rejected","has been rejected"))
             return new Decision(Disposition.DECISION,66,"explicit approval or rejection in the thread","",0.87);
         if(has(t,"لازم يتبعت","لازم تبعت","المفروض تبعت","يفضل تبعت","لما تقدر ابعت","when you can send","we need the drawing","we need the file","needs your review","needs your approval","محتاج مراجعتك","محتاج موافقتك"))
@@ -116,6 +118,13 @@ public final class MasterRelevanceFilter {
         if(has(t,"غالبا هنمشي علي","مبدئيا موافق","probably approved","likely approved","tentatively approved"))
             return review("DECISION",51,"possible decision, but wording is tentative",0.61);
         return d(Disposition.CONTEXT,34,"ordinary thread context");
+    }
+
+    /** A decision word qualified by uncertainty must never auto-promote as durable. */
+    private static boolean tentativeDecision(String t){
+        boolean decisionWord=has(t,"approved","rejected","approval","rejection","موافق","موافقه","الموافقه","مرفوض","رفض");
+        if(!decisionWord)return false;
+        return has(t,"probably","likely","tentatively","provisionally","possibly","maybe approved","maybe rejected","seems approved","seems rejected","appears approved","appears rejected","مبدئيا","غالبا","علي الاغلب","على الاغلب","يبدو","شكله","احتمال");
     }
 
     /** Arabic/English normalization for deterministic matching only. */
