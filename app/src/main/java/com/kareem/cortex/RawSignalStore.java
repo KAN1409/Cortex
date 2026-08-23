@@ -20,21 +20,22 @@ public final class RawSignalStore {
         long now=System.currentTimeMillis();long retention=retentionUntil(now,decision.disposition);
         ContentValues v=new ContentValues();v.put("kind",signal.kind);v.put("source",signal.source);v.put("title",signal.title);v.put("body",signal.body);v.put("metadata_json",signal.metadataJson);v.put("fingerprint",fp);v.put("content_hash",contentHash);v.put("state","filtered");v.put("disposition",decision.disposition.name());v.put("importance",decision.importance);v.put("confidence",fastConfidence(decision));v.put("policy_version",FAST_POLICY);v.put("filter_engine","deterministic_fast_gate");v.put("reason",decision.reason);v.put("occurred_at",signal.occurredAt>0?signal.occurredAt:now);v.put("retention_until",retention);v.put("created_at",now);v.put("updated_at",now);
         long signalId=db.getWritableDatabase().insert("raw_signals",null,v);if(signalId<=0)return signalId;
-        if(decision.durable())promote(db,signalId,signal,decision);
+        long threadId=SignalThreadStore.attach(db,signalId,signal);
+        if(decision.durable())promote(db,signalId,threadId,signal,decision);
         return signalId;
     }
 
-    private static void promote(VaultDb db,long signalId,MasterRelevanceFilter.Signal s,MasterRelevanceFilter.Decision d){
+    private static void promote(VaultDb db,long signalId,long threadId,MasterRelevanceFilter.Signal s,MasterRelevanceFilter.Decision d){
         try{
-            JSONObject meta=new JSONObject();meta.put("raw_signal_id",signalId);meta.put("source",s.source);meta.put("occurred_at",s.occurredAt);meta.put("relevance_disposition",d.disposition.name());meta.put("importance",d.importance);meta.put("filter_reason",d.reason);meta.put("policy_version",FAST_POLICY);if(!s.metadataJson.isEmpty())meta.put("source_metadata",new JSONObject(s.metadataJson));
+            JSONObject meta=new JSONObject();meta.put("raw_signal_id",signalId);if(threadId>0)meta.put("thread_id",threadId);meta.put("source",s.source);meta.put("occurred_at",s.occurredAt);meta.put("relevance_disposition",d.disposition.name());meta.put("importance",d.importance);meta.put("filter_reason",d.reason);meta.put("policy_version",FAST_POLICY);if(!s.metadataJson.isEmpty())meta.put("source_metadata",new JSONObject(s.metadataJson));
             String title=s.title.isEmpty()?friendlyTitle(s):s.title;String tags="signal,"+s.kind.toLowerCase()+",importance_"+d.importance;
             long itemId=db.insert(typeFor(s),s.source,title,s.body,categoryFor(s,d),tags,"",Fingerprint.text("promoted-signal|"+signalId),meta.toString());
             if(itemId>0){
                 ContentValues u=new ContentValues();u.put("promoted_item_id",itemId);u.put("state","promoted");u.put("retention_until",0);u.put("updated_at",System.currentTimeMillis());db.getWritableDatabase().update("raw_signals",u,"id=?",new String[]{String.valueOf(signalId)});
-                CognitiveStore.link(db,"raw_signal",signalId,"memory",itemId,"promoted_to",1.0,"{\"policy\":\""+FAST_POLICY+"\"}");
+                CognitiveStore.link(db,"raw_signal",signalId,"memory",itemId,"promoted_to",1.0,"{\"policy\":\""+FAST_POLICY+"\"}");if(threadId>0)CognitiveStore.link(db,"memory",itemId,"thread",threadId,"from_thread",1.0,"");
                 if(d.disposition==MasterRelevanceFilter.Disposition.ACTION||d.disposition==MasterRelevanceFilter.Disposition.WAITING||d.disposition==MasterRelevanceFilter.Disposition.DECISION){
                     long derived=CognitiveStore.addDerived(db,d.disposition.name(),title,s.body,"open",fastConfidence(d),d.importance,Fingerprint.text("derived|"+d.disposition.name()+"|"+signalId),meta.toString());
-                    if(derived>0){CognitiveStore.link(db,"raw_signal",signalId,"derived",derived,"supports",1.0,"");CognitiveStore.link(db,"derived",derived,"memory",itemId,"grounded_by",1.0,"");}
+                    if(derived>0){CognitiveStore.link(db,"raw_signal",signalId,"derived",derived,"supports",1.0,"");CognitiveStore.link(db,"derived",derived,"memory",itemId,"grounded_by",1.0,"");if(threadId>0)CognitiveStore.link(db,"derived",derived,"thread",threadId,"derived_from_thread",1.0,"");}
                 }
             }
         }catch(Throwable ignored){}
