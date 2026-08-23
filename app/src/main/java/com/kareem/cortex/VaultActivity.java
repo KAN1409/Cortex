@@ -2,6 +2,7 @@ package com.kareem.cortex;
 
 import android.app.*;
 import android.content.*;
+import android.database.Cursor;
 import android.graphics.*;
 import android.os.Bundle;
 import android.text.*;
