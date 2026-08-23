@@ -27,6 +27,7 @@
 
         <activity android:name=".FeatureHubActivity" android:exported="false" />
         <activity android:name=".EnvironmentActivity" android:exported="false" />
+        <activity android:name=".CortexStatusActivity" android:exported="false" />
         <activity android:name=".OcrTestActivity" android:exported="false" />
         <activity android:name=".VaultActivity" android:exported="false" />
 
