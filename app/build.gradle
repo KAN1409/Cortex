@@ -1,4 +1,7 @@
-plugins { id 'com.android.application' }
+plugins {
+    id 'com.android.application'
+    id 'org.jetbrains.kotlin.android'
+}
 
 // Cortex test builds use one stable debug signing identity so installing a new
 // APK upgrades the existing app instead of forcing an uninstall that wipes the
@@ -50,8 +53,8 @@ android {
         applicationId 'com.kareem.cortex'
         minSdk 26
         targetSdk 35
-        versionCode 42
-        versionName '1.0.0-v42'
+        versionCode 43
+        versionName '1.0.0-v43'
     }
 
     buildTypes {
@@ -62,6 +65,11 @@ android {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
     }
+    kotlinOptions { jvmTarget = '17' }
+
+    packagingOptions {
+        jniLibs { useLegacyPackaging = true }
+    }
 }
 
 preBuild.dependsOn tasks.named('prepareArabicOcrModel')
@@ -71,4 +79,6 @@ dependencies {
     implementation 'cz.adaptech.tesseract4android:tesseract4android:4.9.0'
     implementation 'androidx.work:work-runtime:2.11.2'
     implementation 'androidx.documentfile:documentfile:1.1.0'
+    implementation 'dev.ffmpegkit-maintained:llama-android:0.1.1'
+    implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0'
 }
