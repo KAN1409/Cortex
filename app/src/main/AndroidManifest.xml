@@ -13,20 +13,30 @@
         <provider android:name="androidx.core.content.FileProvider" android:authorities="${applicationId}.feedback.files" android:exported="false" android:grantUriPermissions="true">
             <meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/feedback_file_paths" />
         </provider>
-        <activity android:name=".PremiumHomeActivity" android:exported="true"><intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter></activity>
+
+        <activity android:name=".PremiumHomeActivity" android:exported="true">
+            <intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter>
+        </activity>
+        <activity android:name=".SmartInboxActivity" android:exported="false" />
+        <activity android:name=".VaultActivity" android:exported="false" />
         <activity android:name=".AskCortexActivity" android:exported="false" android:windowSoftInputMode="adjustResize" />
+        <activity android:name=".SettingsActivity" android:exported="false" />
+        <activity android:name=".CaptureActivity" android:exported="true">
+            <intent-filter><action android:name="android.intent.action.SEND" /><category android:name="android.intent.category.DEFAULT" /><data android:mimeType="*/*" /></intent-filter>
+            <intent-filter><action android:name="android.intent.action.SEND_MULTIPLE" /><category android:name="android.intent.category.DEFAULT" /><data android:mimeType="*/*" /></intent-filter>
+        </activity>
+
         <activity android:name=".FeatureHubActivity" android:exported="false" />
         <activity android:name=".EnvironmentActivity" android:exported="false" />
         <activity android:name=".CortexStatusActivity" android:exported="false" />
         <activity android:name=".CortexAuditActivity" android:exported="false" />
         <activity android:name=".VisualIntelligenceActivity" android:exported="false" />
         <activity android:name=".OcrTestActivity" android:exported="false" />
-        <activity android:name=".VaultActivity" android:exported="false" />
-        <activity android:name=".AsrSettingsActivity" android:exported="true" android:label="Cortex ASR Setup"><intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter></activity>
-        <activity android:name=".SmartInboxActivity" android:exported="false" />
+        <activity android:name=".AsrSettingsActivity" android:exported="false" android:label="Cortex ASR Setup" />
         <activity android:name=".BrainActivity" android:exported="false" />
         <activity android:name=".GeminiSettingsActivity" android:exported="false" android:label="Cortex Gemini Setup" />
-        <activity android:name=".MainActivity" android:exported="true"><intent-filter><action android:name="android.intent.action.SEND" /><category android:name="android.intent.category.DEFAULT" /><data android:mimeType="*/*" /></intent-filter><intent-filter><action android:name="android.intent.action.SEND_MULTIPLE" /><category android:name="android.intent.category.DEFAULT" /><data android:mimeType="*/*" /></intent-filter></activity>
+        <activity android:name=".MainActivity" android:exported="false" />
+
         <service android:name=".LocalModelDownloadService" android:exported="false" android:foregroundServiceType="dataSync" />
         <service android:name=".NotificationCaptureService" android:label="Cortex Notification Memory" android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE" android:exported="true"><intent-filter><action android:name="android.service.notification.NotificationListenerService" /></intent-filter></service>
     </application>
