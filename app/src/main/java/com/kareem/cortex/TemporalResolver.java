@@ -18,14 +18,20 @@ public final class TemporalResolver {
         s.execSQL("CREATE INDEX IF NOT EXISTS idx_action_temporal_item ON action_temporal(item_id)");
     }
 
+    public static void backfill(VaultDb db,int limit){
+        ensure(db);Cursor c=db.getReadableDatabase().rawQuery("SELECT DISTINCT a.item_id FROM actions a LEFT JOIN action_temporal t ON t.action_id=a.id WHERE a.status='open' AND a.due_text IS NOT NULL AND TRIM(a.due_text)<>'' AND (t.action_id IS NULL OR a.due_text LIKE '%بكر%' OR lower(a.due_text) LIKE '%tomorrow%' OR lower(a.due_text) LIKE '%today%') ORDER BY a.id DESC LIMIT ?",new String[]{String.valueOf(Math.max(1,limit))});ArrayList<Long> ids=new ArrayList<>();while(c.moveToNext())ids.add(c.getLong(0));c.close();for(long id:ids)afterAnalysis(db,id);
+    }
+
     public static void afterAnalysis(VaultDb db,long itemId){
         ensure(db);KnowledgeItem k=db.getById(itemId);if(k==null)return;
         SQLiteDatabase s=db.getWritableDatabase();
         Cursor c=s.query("actions",new String[]{"id","due_text"},"item_id=?",new String[]{String.valueOf(itemId)},null,null,"id ASC");
         while(c.moveToNext()){
             long actionId=c.getLong(0);String raw=nz(c.getString(1)).trim();if(raw.isEmpty())continue;
-            Resolved r=resolve(raw,k.createdAt);if(r==null)continue;
-            ContentValues t=new ContentValues();t.put("action_id",actionId);t.put("item_id",itemId);t.put("raw_expression",raw);t.put("resolved_at",r.when);t.put("has_time",r.hasTime?1:0);t.put("timezone",TimeZone.getDefault().getID());t.put("resolved_at_created",System.currentTimeMillis());s.insertWithOnConflict("action_temporal",null,t,SQLiteDatabase.CONFLICT_REPLACE);
+            Cursor old=s.query("action_temporal",new String[]{"raw_expression"},"action_id=?",new String[]{String.valueOf(actionId)},null,null,null,"1");String original=old.moveToFirst()?nz(old.getString(0)):raw;old.close();
+            if(parseCanonical(raw)!=null&&!original.equals(raw))continue;
+            Resolved r=resolve(original,k.createdAt);if(r==null)continue;
+            ContentValues t=new ContentValues();t.put("action_id",actionId);t.put("item_id",itemId);t.put("raw_expression",original);t.put("resolved_at",r.when);t.put("has_time",r.hasTime?1:0);t.put("timezone",TimeZone.getDefault().getID());t.put("resolved_at_created",System.currentTimeMillis());s.insertWithOnConflict("action_temporal",null,t,SQLiteDatabase.CONFLICT_REPLACE);
             ContentValues a=new ContentValues();a.put("due_text",canonical(r.when,r.hasTime));s.update("actions",a,"id=?",new String[]{String.valueOf(actionId)});
         }
         c.close();
@@ -62,7 +68,6 @@ public final class TemporalResolver {
         Matcher m=Pattern.compile("(?i)(?:الساعة\\s*)?([01]?\\d|2[0-3])(?::([0-5]\\d))?\\s*(am|pm|ص|م)?").matcher(raw);
         while(m.find()){
             int h=Integer.parseInt(m.group(1));int min=m.group(2)==null?0:Integer.parseInt(m.group(2));String ap=m.group(3);String around=m.group();
-            // Reject numbers that are clearly just a date fragment.
             if(around.length()<=2 && raw.matches(".*\\d[/-]\\d.*"))continue;
             if(ap!=null){if(("pm".equalsIgnoreCase(ap)||"م".equals(ap))&&h<12)h+=12;if(("am".equalsIgnoreCase(ap)||"ص".equals(ap))&&h==12)h=0;}
             else if(has(n,"بالليل","المساء","مساء","evening","tonight")&&h<12)h+=12;
@@ -71,9 +76,7 @@ public final class TemporalResolver {
         return new TimeResult(12,0,false);
     }
 
-    private static Integer weekday(String n){
-        if(has(n,"sunday","الأحد","الاحد"))return Calendar.SUNDAY;if(has(n,"monday","الاثنين","الإثنين","الاتنين"))return Calendar.MONDAY;if(has(n,"tuesday","الثلاثاء"))return Calendar.TUESDAY;if(has(n,"wednesday","الأربعاء","الاربعاء"))return Calendar.WEDNESDAY;if(has(n,"thursday","الخميس"))return Calendar.THURSDAY;if(has(n,"friday","الجمعة"))return Calendar.FRIDAY;if(has(n,"saturday","السبت"))return Calendar.SATURDAY;return null;
-    }
+    private static Integer weekday(String n){if(has(n,"sunday","الأحد","الاحد"))return Calendar.SUNDAY;if(has(n,"monday","الاثنين","الإثنين","الاتنين"))return Calendar.MONDAY;if(has(n,"tuesday","الثلاثاء"))return Calendar.TUESDAY;if(has(n,"wednesday","الأربعاء","الاربعاء"))return Calendar.WEDNESDAY;if(has(n,"thursday","الخميس"))return Calendar.THURSDAY;if(has(n,"friday","الجمعة"))return Calendar.FRIDAY;if(has(n,"saturday","السبت"))return Calendar.SATURDAY;return null;}
     private static Date parseLooseDate(String s,Date anchor){String[] f={"dd/MM/yyyy","d/M/yyyy","dd-MM-yyyy","d-M-yyyy","yyyy-MM-dd"};for(String x:f)try{SimpleDateFormat d=new SimpleDateFormat(x,Locale.US);d.setLenient(false);Matcher m=Pattern.compile(x.startsWith("yyyy")?"\\d{4}-\\d{1,2}-\\d{1,2}":"\\d{1,2}[/\\-]\\d{1,2}(?:[/\\-]\\d{4})?").matcher(s);if(m.find()){String v=m.group();if(!v.matches(".*\\d{4}.*")&&!x.startsWith("yyyy"))v=v+(x.contains("/")?"/":"-")+new SimpleDateFormat("yyyy",Locale.US).format(anchor);return d.parse(v);}}catch(Exception ignored){}return null;}
     private static Date parseCanonical(String s){for(String f:new String[]{DATE_TIME,DATE})try{SimpleDateFormat d=new SimpleDateFormat(f,Locale.US);d.setLenient(false);return d.parse(s);}catch(Exception ignored){}return null;}
     private static String canonical(long ms,boolean time){return new SimpleDateFormat(time?DATE_TIME:DATE,Locale.US).format(new Date(ms));}
