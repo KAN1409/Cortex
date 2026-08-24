@@ -4,6 +4,8 @@ set -euo pipefail
 REPO_DIR="${CORTEX_REPO_DIR:-$HOME/Cortex}"
 APK_SRC="$REPO_DIR/app/build/outputs/apk/debug/app-debug.apk"
 APK_OUT="/sdcard/Download/Cortex-v50-debug.apk"
+BUILD_LOG="$REPO_DIR/termux-build-last.log"
+BUILD_LOG_OUT="/sdcard/Download/Cortex-build-last.log"
 
 log(){ printf '\n==> %s\n' "$*"; }
 fail(){ printf '\nERROR: %s\n' "$*" >&2; exit 1; }
@@ -41,10 +43,28 @@ log "Java: $(java -version 2>&1 | head -n 1)"
 log "Android SDK: $ANDROID_HOME"
 log "AAPT2: $(aapt2 version 2>&1 | head -n 1)"
 log "Building Cortex v50"
-if [ -x ./gradlew ]; then ./gradlew :app:assembleDebug --stacktrace; else gradle :app:assembleDebug --stacktrace; fi
+rm -f "$BUILD_LOG"
+set +e
+if [ -x ./gradlew ]; then
+  ./gradlew :app:assembleDebug --stacktrace --console=plain 2>&1 | tee "$BUILD_LOG"
+  BUILD_RC=${PIPESTATUS[0]}
+else
+  gradle :app:assembleDebug --stacktrace --console=plain 2>&1 | tee "$BUILD_LOG"
+  BUILD_RC=${PIPESTATUS[0]}
+fi
+set -e
+mkdir -p /sdcard/Download
+cp -f "$BUILD_LOG" "$BUILD_LOG_OUT" 2>/dev/null || true
+if [ "$BUILD_RC" -ne 0 ]; then
+  printf '\n================ CORTEX BUILD ERROR SUMMARY ================\n' >&2
+  grep -n -E '(^|[[:space:]])error:|FAILURE:|Execution failed for task|What went wrong:|Caused by:|cannot find symbol|method .* cannot be applied|incompatible types|package .* does not exist' "$BUILD_LOG" 2>/dev/null | tail -n 100 >&2 || true
+  printf '=============================================================\n' >&2
+  printf 'Full log: %s\n' "$BUILD_LOG_OUT" >&2
+  exit "$BUILD_RC"
+fi
+
 [ -f "$APK_SRC" ] || fail "Build finished but APK was not found at $APK_SRC"
 log "Copying APK to Downloads"
-mkdir -p /sdcard/Download
 cp -f "$APK_SRC" "$APK_OUT"
 sha256sum "$APK_OUT" | tee "$APK_OUT.sha256"
 log "Build complete"
