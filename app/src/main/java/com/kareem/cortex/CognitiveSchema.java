@@ -12,7 +12,7 @@ import org.json.JSONObject;
  */
 public final class CognitiveSchema {
     public static final int DB_VERSION = 6;
-    public static final String REVISION = "cognitive_002";
+    public static final String REVISION = "cognitive_003";
     private static volatile boolean ready;
 
     private CognitiveSchema(){}
@@ -55,8 +55,8 @@ public final class CognitiveSchema {
 
     private static void createDerivedItems(SQLiteDatabase db){
         db.execSQL("CREATE TABLE IF NOT EXISTS derived_items(id INTEGER PRIMARY KEY AUTOINCREMENT,kind TEXT NOT NULL,title TEXT NOT NULL,body TEXT,state TEXT DEFAULT 'open',confidence REAL DEFAULT 0,importance INTEGER DEFAULT 0,fingerprint TEXT,metadata_json TEXT,created_at INTEGER NOT NULL,updated_at INTEGER NOT NULL,resolved_at INTEGER DEFAULT 0)");
-        addColumn(db,"derived_items","source_key","TEXT DEFAULT ''");addColumn(db,"derived_items","thread_id","INTEGER DEFAULT 0");addColumn(db,"derived_items","anchor_signal_id","INTEGER DEFAULT 0");addColumn(db,"derived_items","candidate_kind","TEXT DEFAULT ''");
-        db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS idx_derived_fingerprint ON derived_items(fingerprint) WHERE fingerprint IS NOT NULL AND fingerprint<>''");db.execSQL("CREATE INDEX IF NOT EXISTS idx_derived_kind_state ON derived_items(kind,state,importance DESC,updated_at DESC)");db.execSQL("CREATE INDEX IF NOT EXISTS idx_derived_recent ON derived_items(updated_at DESC)");db.execSQL("CREATE INDEX IF NOT EXISTS idx_derived_review_route ON derived_items(kind,state,candidate_kind,source_key,thread_id,updated_at DESC)");db.execSQL("CREATE INDEX IF NOT EXISTS idx_derived_anchor ON derived_items(anchor_signal_id,kind,state)");
+        addColumn(db,"derived_items","source_key","TEXT DEFAULT ''");addColumn(db,"derived_items","thread_id","INTEGER DEFAULT 0");addColumn(db,"derived_items","anchor_signal_id","INTEGER DEFAULT 0");addColumn(db,"derived_items","candidate_kind","TEXT DEFAULT ''");addColumn(db,"derived_items","semantic_key","TEXT DEFAULT ''");
+        db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS idx_derived_fingerprint ON derived_items(fingerprint) WHERE fingerprint IS NOT NULL AND fingerprint<>''");db.execSQL("CREATE INDEX IF NOT EXISTS idx_derived_kind_state ON derived_items(kind,state,importance DESC,updated_at DESC)");db.execSQL("CREATE INDEX IF NOT EXISTS idx_derived_recent ON derived_items(updated_at DESC)");db.execSQL("CREATE INDEX IF NOT EXISTS idx_derived_review_route ON derived_items(kind,state,candidate_kind,source_key,thread_id,updated_at DESC)");db.execSQL("CREATE INDEX IF NOT EXISTS idx_derived_anchor ON derived_items(anchor_signal_id,kind,state)");db.execSQL("CREATE INDEX IF NOT EXISTS idx_derived_semantic ON derived_items(thread_id,kind,state,semantic_key,updated_at DESC)");
     }
 
     private static void createEntityGraph(SQLiteDatabase db){
