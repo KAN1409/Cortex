@@ -89,8 +89,7 @@ Implemented explicitly as `PRESERVE_REVIEW`.
 A local model disagreement cannot silently dismiss an existing human-review item.
 
 ### Duplicate durable intelligence
-Implemented in deterministic and model thread paths.
-Open derived intelligence is refreshed by `thread_id + kind` instead of creating a new ACTION/WAITING/DECISION for each added notification context.
+Initial implementation refreshed open derived intelligence by `thread_id + kind`. A second hostile review correctly identified that this could merge distinct obligations in one conversation. This was subsequently replaced with `thread_id + kind + semantic_key`; see the second review section below.
 
 ### Prompt injection / structure
 Implemented.
@@ -144,15 +143,119 @@ Fixed:
 - notification metadata `notification_kind=message` also forces communication classification
 - `notification_kind=email` can force email classification
 
-## Runtime validation required
-All changes above are code-complete only until the Android project compiles and the installed build is exercised on-device.
+---
 
-Required validation after compile:
-1. Burst two notifications in one thread during/around local-model inference; only newest applicable result may mutate state.
-2. Invalid JSON model output must not appear as CONTEXT in semantic evaluation.
-3. Model ACTION at confidence between Review floor and auto-promote must end as REVIEW(candidate=ACTION).
-4. Existing Review + model CONTEXT must remain Review.
-5. Persistence failure injection should leave no final durable semantic transition.
-6. Same-thread repeated obligation should refresh one open derived item, not create duplicates.
-7. Google Messages notification should be classified into a communication thread.
-8. Relevance evaluation failures/supersession must be visible as non-semantic execution status/model-run state.
+# Second hostile runtime review — disposition
+
+Date: 2026-08-24
+Scope: transaction helper behavior, queued-model staleness, durable-item identity, process death, and sensitive-context semantics.
+
+## 1. SQLite transaction creep / helper nesting
+
+### Literal nested-transaction claim
+Not reproduced in the verified implementation.
+`CognitiveStore` and `ReviewQueueStore` do not call `beginTransaction()` from helpers used inside adjudicator apply, so there was no hidden nested `beginTransaction()` crash path of the exact form described.
+
+### Failure-propagation concern
+Confirmed.
+Several Review helper paths could log/catch failures or perform unchecked routing/provenance writes and still allow callers to treat the operation as successful.
+
+Hardened:
+- `CognitiveStore.linkChecked(...)` verifies that a provenance relation either inserted or already exists.
+- `CognitiveStore.setDerivedRoutingChecked(...)` returns success/failure.
+- Review refresh now returns false if the row update or supporting link fails.
+- Review resolve returns a boolean and only resolves pending items.
+- model promotion / confirmation require successful routing, provenance links, and Review resolution.
+- model apply treats any helper failure as `APPLY_FAILED`, so the outer transaction does not become successful.
+- `RelevanceDecisionStatusStore.writeModel/writeFinal` are now pure transaction writers; schema/DDL checks happen before `beginTransaction()` rather than inside the final apply transaction.
+
+Invariant:
+> A helper may return an existing id for an idempotent success, but it may not swallow a persistence failure and present it as a successful state transition.
+
+## 2. MODEL_EXECUTOR queue backlog staleness
+
+The review concern was valid to verify, but the current Slot architecture already prevented the described stale queued run from mutating state:
+- `fire()` checks the Slot before queueing model work.
+- `adjudicate()` re-checks `stillCurrent(...)` immediately after entering the single-thread MODEL_EXECUTOR and before context loading or Qwen inference.
+- currentness requires the exact Slot object and matching generation.
+- DB latest signal must also match the Slot signal.
+- cleanup uses `SLOTS.remove(threadId, slot)`, so a stale finisher cannot remove a newer Slot.
+- post-Qwen and transaction-time freshness checks remain in place.
+
+Generation equality was made explicit in `isCurrent(...)` for audit clarity.
+
+## 3. Over-aggressive `threadId + kind` dedup
+
+Confirmed as a correctness bug.
+A conversation may contain several simultaneous ACTIONs, WAITING items, or decisions.
+
+Example:
+- `Send the Galala submittal`
+- later: `Call the marble supplier`
+
+Both belong to the same WhatsApp thread and both are ACTIONs, but they must remain separate obligations.
+
+Implemented:
+- added `derived_items.semantic_key` plus an indexed route for `(thread_id, kind, state, semantic_key)`.
+- added `DerivedSemanticIdentity`, a conservative lexical identity derived from the latest obligation-bearing evidence.
+- deterministic and model durable upserts now refresh only `thread + kind + semantic_key`.
+- Review dedup uses `thread + candidate kind + source + semantic_key` in the adjudicator path.
+- older broad Review lookup overloads remain for compatibility with legacy callers.
+- conservative matching intentionally prefers an occasional duplicate over merging two different obligations.
+
+### Recurrence after resolution
+A second edge case was found during implementation: a semantic fingerprint must not permanently prevent the same obligation from recurring after it was completed or expired.
+
+`CognitiveStore.addDerived(...)` now treats `open/pending` fingerprint collisions as idempotent active occurrences, while a collision against a resolved/inactive historical item archives the old fingerprint and allows a new active occurrence.
+
+## 4. Process death / RAM Slot loss
+
+Confirmed as an operational gap, but the proposed mitigation `reset raw signal to CONTEXT` was rejected because it would mutate semantic truth merely because Android killed the process.
+
+Implemented instead:
+- new `AdjudicationRecovery` scans stale `relevance_adjudication` jobs older than five minutes.
+- interrupted jobs are marked `PROCESS_INTERRUPTED`/failed operationally.
+- unfinished model runs are marked interrupted.
+- relevance `model_status` is set to `PROCESS_INTERRUPTED`.
+- the raw signal's deterministic/semantic baseline is preserved.
+- only if that signal is still the newest signal in the thread is it safely re-enqueued for local adjudication.
+- recovery runs at Cortex process bootstrap.
+- a unique periodic WorkManager recovery job runs as a belt-and-suspenders check.
+
+Invariant:
+> Process death is an execution failure, not semantic CONTEXT.
+
+## 5. Sensitive redaction distortions
+
+The review correctly noted that a placeholder can distort syntax.
+
+Hardened:
+- latest sensitive message still blocks model adjudication entirely.
+- older sensitive messages remain available only as explicit context markers.
+- structured prompt now sets `sensitive_redacted=true`.
+- redacted text is labeled `[SENSITIVE CONTENT REDACTED — CONTEXT ONLY]`.
+- system policy explicitly says a redacted message must never create ACTION, WAITING, or DECISION by itself.
+
+This preserves surrounding conversation continuity without allowing a broken redacted fragment to become durable intelligence.
+
+## Runtime validation required after the second review
+
+1. Compile current `main` successfully.
+2. Queue a stale model task behind another long Qwen run, then replace its Slot; stale queued work must not invoke Qwen or mutate state.
+3. Send two different ACTIONs in one communication thread; they must create two separate open derived items.
+4. Repeat the same ACTION while still open; it should refresh/support the same item.
+5. Resolve that ACTION, then repeat it later; a new active occurrence must be allowed.
+6. Force a Review routing/provenance persistence failure; final semantic state must remain uncommitted and execution status must become APPLY_FAILED.
+7. Simulate/process-kill a running relevance job; bootstrap/WorkManager must mark it PROCESS_INTERRUPTED and re-enqueue only if its signal is still newest.
+8. Older sensitive evidence must be marked context-only and must not independently create a durable result.
+9. Latest sensitive evidence must block model adjudication.
+
+## Build note
+
+This repository does not use a checked-in Gradle wrapper. The authoritative Termux build path remains:
+
+```bash
+bash ~/Cortex/termux-build-cortex.sh
+```
+
+Do not substitute `./gradlew assembleDebug` unless a wrapper is added later.
