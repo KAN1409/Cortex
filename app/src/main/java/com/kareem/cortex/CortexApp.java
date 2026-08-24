@@ -11,10 +11,13 @@ public class CortexApp extends Application {
             try{
                 db=new VaultDb(this);
                 CognitiveSchema.ensure(db.getWritableDatabase());
+                RelevanceDecisionStatusStore.ensure(db);
+                AdjudicationRecovery.run(this,db);
                 ContactSafetyMaintenance.run(db);
                 EntityGraphMaintenance.run(db);
                 IntentionalCognitiveBridge.backfill(db,250);
                 EnvironmentPreflight.run(this);
+                AdjudicationRecovery.schedule(this);
             }catch(Throwable ignored){
             }finally{
                 if(db!=null)try{db.close();}catch(Throwable ignored){}
