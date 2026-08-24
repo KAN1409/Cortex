@@ -30,20 +30,24 @@ public final class GeminiVisionAnalyzer {
     private GeminiVisionAnalyzer(){}
 
     static final class Prepared {byte[] bytes;int width,height,maxSide;Prepared(byte[] b,int w,int h,int m){bytes=b;width=w;height=h;maxSide=m;}}
-    static final class VisionException extends IOException {final boolean retryable;VisionException(String m,boolean r){super(m);retryable=r;}}
+    static final class VisionException extends IOException {
+        final boolean retryable;final int httpCode;final long retryAfterMs;
+        VisionException(String m,boolean r){this(m,r,0,0);}VisionException(String m,boolean r,int code,long wait){super(m);retryable=r;httpCode=code;retryAfterMs=Math.max(0,wait);}boolean rateLimited(){return httpCode==429||retryAfterMs>0;}
+    }
 
     public static JSONObject analyze(Context context,KnowledgeItem item)throws Exception{
         File image=new File(item.attachmentPath==null?"":item.attachmentPath);if(!image.exists())throw new FileNotFoundException("Archived screenshot is missing");
         String key=GeminiKeyStore.get(context);if(key.isEmpty())throw new IllegalStateException("Gemini API key not configured");
         Prepared p=prepare(image,item);VisionException last=null;
         for(int attempt=1;attempt<=2;attempt++){
-            try{return requestOnce(key,p,attempt);}
-            catch(VisionException e){last=e;if(attempt>=2||!e.retryable)throw e;try{Thread.sleep(850);}catch(InterruptedException ie){Thread.currentThread().interrupt();throw e;}}
+            try{return requestOnce(context,key,p,attempt);}
+            catch(VisionException e){last=e;if(attempt>=2||!e.retryable||e.rateLimited())throw e;try{Thread.sleep(850);}catch(InterruptedException ie){Thread.currentThread().interrupt();throw e;}}
         }
         throw last==null?new IOException("Vision analysis failed without diagnostic detail"):last;
     }
 
-    private static JSONObject requestOnce(String key,Prepared p,int attempt)throws Exception{
+    private static JSONObject requestOnce(Context context,String key,Prepared p,int attempt)throws Exception{
+        long gateWait=VisionRateLimitGate.beforeRequest(context);if(gateWait>0)throw new VisionException("Gemini Vision provider cooldown • retry_after_ms="+gateWait,false,429,gateWait);
         long started=SystemClock.elapsedRealtime();String b64=Base64.encodeToString(p.bytes,Base64.NO_WRAP);
         JSONObject inline=new JSONObject().put("mimeType","image/jpeg").put("data",b64);
         JSONArray parts=new JSONArray().put(new JSONObject().put("text",PROMPT)).put(new JSONObject().put("inlineData",inline));
@@ -54,17 +58,18 @@ public final class GeminiVisionAnalyzer {
         HttpURLConnection c=(HttpURLConnection)new URL(endpoint).openConnection();c.setRequestMethod("POST");c.setDoOutput(true);c.setConnectTimeout(20000);c.setReadTimeout(120000);c.setRequestProperty("Content-Type","application/json");c.setRequestProperty("Accept","application/json");
         try(OutputStream out=c.getOutputStream()){out.write(req.toString().getBytes(StandardCharsets.UTF_8));}
         int code=c.getResponseCode();String body=read(code>=200&&code<300?c.getInputStream():c.getErrorStream());c.disconnect();long latency=SystemClock.elapsedRealtime()-started;
-        if(code<200||code>=300){boolean retry=code==408||code==429||code>=500;throw new VisionException("Gemini Vision HTTP "+code+" • attempt="+attempt+" • latency="+latency+"ms • "+compact(body),retry);}
+        if(code<200||code>=300){if(code==429){long wait=VisionRateLimitGate.markProviderRateLimited(context,body);throw new VisionException("Gemini Vision HTTP 429 • cooldown="+wait+"ms • attempt="+attempt+" • latency="+latency+"ms • "+compact(body),false,429,wait);}boolean retry=code==408||code>=500;throw new VisionException("Gemini Vision HTTP "+code+" • attempt="+attempt+" • latency="+latency+"ms • "+compact(body),retry,code,0);}
+        VisionRateLimitGate.noteSuccess(context);
 
         JSONObject envelope=new JSONObject(body);String finish=finishReason(envelope),block=blockReason(envelope);String text=extractText(envelope).trim();
         text=text.replaceFirst("^```(?:json)?\\s*","").replaceFirst("\\s*```$","").trim();
         if(text.isEmpty()){
             boolean blocked=!block.isEmpty()||"SAFETY".equalsIgnoreCase(finish)||"BLOCKLIST".equalsIgnoreCase(finish)||"PROHIBITED_CONTENT".equalsIgnoreCase(finish);
-            throw new VisionException("Vision model returned no analysis • http=200 • attempt="+attempt+" • latency="+latency+"ms • finishReason="+empty(finish,"unknown")+" • blockReason="+empty(block,"none")+" • candidates="+candidateCount(envelope),!blocked);
+            throw new VisionException("Vision model returned no analysis • http=200 • attempt="+attempt+" • latency="+latency+"ms • finishReason="+empty(finish,"unknown")+" • blockReason="+empty(block,"none")+" • candidates="+candidateCount(envelope),!blocked,200,0);
         }
         JSONObject root;
-        try{root=new JSONObject(text);}catch(JSONException e){throw new VisionException("Vision returned invalid JSON • attempt="+attempt+" • latency="+latency+"ms • finishReason="+empty(finish,"unknown")+" • prefix="+compact(text),attempt<2);}
-        normalize(root);root.put("_provider",MODEL+"+vision-v49");
+        try{root=new JSONObject(text);}catch(JSONException e){throw new VisionException("Vision returned invalid JSON • attempt="+attempt+" • latency="+latency+"ms • finishReason="+empty(finish,"unknown")+" • prefix="+compact(text),attempt<2,200,0);}
+        normalize(root);root.put("_provider",MODEL+"+vision-v50");
         JSONObject d=new JSONObject();d.put("attempt",attempt);d.put("latency_ms",latency);d.put("http_code",200);d.put("finish_reason",finish);d.put("block_reason",block);d.put("candidate_count",candidateCount(envelope));d.put("prepared_jpeg_bytes",p.bytes.length);d.put("prepared_width",p.width);d.put("prepared_height",p.height);d.put("detail_target_max_side",p.maxSide);root.put("_diagnostics",d);
         return root;
     }
