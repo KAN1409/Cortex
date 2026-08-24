@@ -12,7 +12,7 @@ import android.widget.*;
 public class InputActivity extends Activity {
     int dp(int x){return CortexUi.dp(this,x);}
     @Override public void onCreate(Bundle b){super.onCreate(b);CortexUi.applyWindow(this);build();}
-    @Override protected void onResume(){super.onResume();}
+    @Override protected void onPostResume(){super.onPostResume();StartupMaintenance.schedule(this);}
 
     void build(){
         LinearLayout root=new LinearLayout(this);root.setOrientation(LinearLayout.VERTICAL);root.setBackgroundColor(CortexUi.BG);
