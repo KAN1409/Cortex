@@ -4,6 +4,7 @@ import android.app.*;
 import android.content.*;
 import android.graphics.Color;
 import android.os.Bundle;
+import android.provider.Settings;
 import android.view.*;
 import android.widget.*;
 
@@ -11,6 +12,7 @@ import android.widget.*;
 public class InputActivity extends Activity {
     int dp(int x){return CortexUi.dp(this,x);}
     @Override public void onCreate(Bundle b){super.onCreate(b);CortexUi.applyWindow(this);build();}
+    @Override protected void onResume(){super.onResume();}
 
     void build(){
         LinearLayout root=new LinearLayout(this);root.setOrientation(LinearLayout.VERTICAL);root.setBackgroundColor(CortexUi.BG);
@@ -21,7 +23,11 @@ public class InputActivity extends Activity {
         LinearLayout row1=new LinearLayout(this);row1.setOrientation(LinearLayout.HORIZONTAL);addTile(row1,"Voice","Speak naturally\nArabic + English","voice",0);addTile(row1,"Text / Paste","Notes, prompts, ideas\nor copied text","text",8);body.addView(row1,new LinearLayout.LayoutParams(-1,dp(132)));
         LinearLayout row2=new LinearLayout(this);row2.setOrientation(LinearLayout.HORIZONTAL);addTile(row2,"Photo","Take or import\nvisual evidence","photo",0);addTile(row2,"File","Documents, audio\nand attachments","file",8);LinearLayout.LayoutParams r2=new LinearLayout.LayoutParams(-1,dp(132));r2.setMargins(0,dp(8),0,0);body.addView(row2,r2);
 
-        LinearLayout share=CortexUi.card(this,20);share.setPadding(dp(16),dp(15),dp(16),dp(15));TextView st=CortexUi.plain(this,"From another app",14,CortexUi.TEXT);CortexUi.medium(st);share.addView(st);TextView sb=CortexUi.text(this,"Share text, links, screenshots, audio or files to Cortex. Shared items keep their origin metadata when Android provides it.",12,CortexUi.MUTED);sb.setPadding(0,dp(6),0,0);share.addView(sb);LinearLayout.LayoutParams sp=new LinearLayout.LayoutParams(-1,-2);sp.setMargins(0,dp(20),0,0);body.addView(share,sp);
+        body.addView(CortexUi.section(this,"Everywhere Cortex"));
+        LinearLayout screen=CortexUi.card(this,20);TextView et=CortexUi.plain(this,"Understand this screen",14,CortexUi.TEXT);CortexUi.medium(et);screen.addView(et);String status=CortexScreenAccessibilityService.connected()?"Ready · use the Understand screen Quick Settings tile from any app.":"One-time setup required. Enable Cortex Screen Understanding, then add the Understand screen Quick Settings tile.";TextView eb=CortexUi.text(this,status,12,CortexUi.MUTED);eb.setPadding(0,dp(6),0,0);screen.addView(eb);if(!CortexScreenAccessibilityService.connected()){TextView setup=CortexUi.action(this,"Enable screen understanding",CortexUi.ACCENT,true);LinearLayout.LayoutParams ep=new LinearLayout.LayoutParams(-1,dp(44));ep.setMargins(0,dp(12),0,0);screen.addView(setup,ep);setup.setOnClickListener(v->{try{startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS));}catch(Throwable ignored){}});}body.addView(screen);
+
+        LinearLayout share=CortexUi.card(this,20);share.setPadding(dp(16),dp(15),dp(16),dp(15));TextView st=CortexUi.plain(this,"From another app",14,CortexUi.TEXT);CortexUi.medium(st);share.addView(st);TextView sb=CortexUi.text(this,"Share text, links, screenshots, audio or files to Cortex. Shared items keep their origin metadata when Android provides it.",12,CortexUi.MUTED);sb.setPadding(0,dp(6),0,0);share.addView(sb);LinearLayout.LayoutParams sp=new LinearLayout.LayoutParams(-1,-2);sp.setMargins(0,dp(10),0,0);body.addView(share,sp);
+        LinearLayout voiceTile=CortexUi.card(this,20);TextView vt=CortexUi.plain(this,"Quick voice",14,CortexUi.TEXT);CortexUi.medium(vt);voiceTile.addView(vt);TextView vb=CortexUi.text(this,"Add the Cortex Voice Quick Settings tile for one-tap recording without navigating through the app.",12,CortexUi.MUTED);vb.setPadding(0,dp(6),0,0);voiceTile.addView(vb);LinearLayout.LayoutParams vp=new LinearLayout.LayoutParams(-1,-2);vp.setMargins(0,dp(10),0,0);body.addView(voiceTile,vp);
 
         CortexUi.addBottomNav(this,root,"input",null);setContentView(root);
     }
