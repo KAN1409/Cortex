@@ -26,7 +26,18 @@ public final class BrainRouter {
             AiJobStore.modelRun(db,job,1,"primary","cloud","gemini-3.6-flash",mode,"complete",Fingerprint.text(question+"|"+mode),x.durationMs,0,0,0.78,new JSONObject().put("source_count",grounded.sources.size()).put("withheld_local_only",Math.max(0,privateFound-grounded.sources.size())).toString(),"");
             AiJobStore.complete(db,job,out.toString(),"Answer ready",combined?detail:"External AI answer; no Cortex memory sent");emit(progress,job,"Answer ready",100);
             return new LocalAskRouter.Result(job,grounded,x.text,combined?"gemini-combined":"gemini-external","",mode,0,0,x.durationMs,total,retrieval,0,0,x.durationMs,false);
-        }catch(Throwable t){long total=SystemClock.elapsedRealtime()-wall;String err=t.getClass().getSimpleName()+(t.getMessage()==null?"":": "+t.getMessage());AiJobStore.fail(db,job,err,"External route unavailable");emit(progress,job,"External route unavailable",100);String answer=GeminiKeyStore.has(ctx)?"Brain couldn't reach the configured external AI right now. Your Cortex data was not changed.":"External AI isn't configured yet. Add a Gemini API key in Settings. Your Cortex data stays local unless you explicitly choose Combined mode.";return new LocalAskRouter.Result(job,grounded,answer,"failed",err,mode,0,0,0,total,retrieval,0,0,0,false);}
+        }catch(Throwable t){
+            long total=SystemClock.elapsedRealtime()-wall;String err=t.getClass().getSimpleName()+(t.getMessage()==null?"":": "+t.getMessage());AiJobStore.fail(db,job,err,"External route unavailable");
+            if(combined){
+                try{
+                    emit(progress,job,"External unavailable · using your Cortex",72);
+                    LocalAskRouter.Result local=LocalAskRouter.fast(ctx,db,question,progress);
+                    String answer="External AI is unavailable right now, so Brain answered from your Cortex data only.\n\n"+local.answer;
+                    return new LocalAskRouter.Result(local.jobId,local.grounded,answer,"combined-local-fallback",err,"combined",local.retrieveMs,local.embedMs,local.modelMs,SystemClock.elapsedRealtime()-wall,local.retrievalMs,local.promptBuildMs,local.tokensGenerated,local.generationMs,local.cacheHit);
+                }catch(Throwable fallbackError){err=err+" | local fallback: "+fallbackError.getClass().getSimpleName();}
+            }
+            emit(progress,job,"External route unavailable",100);String answer=GeminiKeyStore.has(ctx)?"Brain couldn't reach the configured external AI right now. Your Cortex data was not changed.":"External AI isn't configured yet. Add a Gemini API key in Settings. Your Cortex data stays local unless you explicitly choose Combined mode.";return new LocalAskRouter.Result(job,grounded,answer,"failed",err,mode,0,0,0,total,retrieval,0,0,0,false);
+        }
     }
 
     private static long createJob(VaultDb db,String q,String mode){try{return AiJobStore.create(db,"brain_"+mode,mode,new JSONObject().put("question",q).put("explicit_cloud_route",true).toString(),70);}catch(Exception e){return AiJobStore.create(db,"brain_"+mode,mode,"{}",70);}}
