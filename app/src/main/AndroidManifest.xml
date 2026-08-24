@@ -43,5 +43,6 @@
 
         <service android:name=".LocalModelDownloadService" android:exported="false" android:foregroundServiceType="dataSync" />
         <service android:name=".NotificationCaptureService" android:label="Cortex Notification Memory" android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE" android:exported="true"><intent-filter><action android:name="android.service.notification.NotificationListenerService" /></intent-filter></service>
+        <service android:name=".CortexQuickTileService" android:label="Cortex Voice" android:permission="android.permission.BIND_QUICK_SETTINGS_TILE" android:exported="true"><intent-filter><action android:name="android.service.quicksettings.action.QS_TILE" /></intent-filter></service>
     </application>
 </manifest>
