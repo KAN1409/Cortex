@@ -7,6 +7,7 @@ import java.util.*;
 
 /** Minimum AI spine: grounded retrieval first, optional local generation, persistent execution ledger. */
 public final class LocalAskRouter {
+    private static final int REFINEMENT_MAX_TOKENS=96;
     private LocalAskRouter(){}
 
     public interface Progress { void stage(long jobId,String label,int percent); }
@@ -61,26 +62,29 @@ public final class LocalAskRouter {
         if(!LocalModelManager.installed(ctx)){
             long total=SystemClock.elapsedRealtime()-wall;String err="Local Qwen runtime is not ready";AiJobStore.progress(db,job,"Using grounded fallback","fallback",82,err);emit(progress,job,"Using grounded fallback",82);AiJobStore.complete(db,job,answerJson(g.answer,"deterministic-grounded","your_data",g.sources.size(),total).toString(),"Answer ready",err);emit(progress,job,"Answer ready",100);return new Result(job,g,g.answer,"deterministic-grounded",err,"your_data",0,0,0,total,retrieval,0,0,0,false);
         }
+        if(g.sources.isEmpty()&&g.openLoops.isEmpty()&&g.decisions.isEmpty()){
+            long total=SystemClock.elapsedRealtime()-wall;String detail="No grounded evidence needs model refinement";AiJobStore.complete(db,job,answerJson(g.answer,"deterministic-grounded","your_data",0,total).toString(),"Answer ready",detail);emit(progress,job,"Answer ready",100);return new Result(job,g,g.answer,"deterministic-grounded",detail,"your_data",0,0,0,total,retrieval,0,0,0,false);
+        }
 
         String prompt="";long promptMs=0;
         try{
-            AiJobStore.progress(db,job,"Preparing grounded context","prompt",35,"Building the local model context");emit(progress,job,"Preparing grounded context",35);
-            long pt=SystemClock.elapsedRealtime();prompt=buildPrompt(question,g);String system="You are Cortex, a private cognitive intelligence assistant. Answer ONLY from the supplied memory evidence for this route. Never invent facts. Preserve Egyptian Arabic and English code-switching naturally when present. If evidence is insufficient, say that clearly. Be concise and useful. Do not reveal chain-of-thought. /no_think";promptMs=SystemClock.elapsedRealtime()-pt;
-            AiJobStore.progress(db,job,"Local model generating","generation",58,LocalModelManager.MODEL_NAME);emit(progress,job,"Local model generating",58);
-            long modelStarted=SystemClock.elapsedRealtime();LocalLlmBridge.CompletionResult r=LocalLlmBridge.completeCached(LocalModelManager.modelFile(ctx).getAbsolutePath(),prompt,system,180);long modelWall=SystemClock.elapsedRealtime()-modelStarted;
+            AiJobStore.progress(db,job,"Preparing grounded context","prompt",35,"Building a compact local model context");emit(progress,job,"Preparing grounded context",35);
+            long pt=SystemClock.elapsedRealtime();prompt=buildPrompt(question,g);String system="You are Cortex Brain. Improve the supplied grounded draft using only its evidence. Never invent facts. Preserve Egyptian Arabic/English code-switching. Be concise. No chain-of-thought. /no_think";promptMs=SystemClock.elapsedRealtime()-pt;
+            AiJobStore.progress(db,job,"Local model refining","generation",58,LocalModelManager.MODEL_NAME);emit(progress,job,"Local model refining",58);
+            long modelStarted=SystemClock.elapsedRealtime();LocalLlmBridge.CompletionResult r=LocalLlmBridge.completeCached(LocalModelManager.modelFile(ctx).getAbsolutePath(),prompt,system,REFINEMENT_MAX_TOKENS);long modelWall=SystemClock.elapsedRealtime()-modelStarted;
             String text=clean(r.getText());long total=SystemClock.elapsedRealtime()-wall;double confidence=confidence(g,text);
-            JSONObject modelOut=new JSONObject().put("text",text).put("tokens_per_second",r.getTokensPerSecond()).put("cache_hit",r.getCacheHit()).put("source_count",g.sources.size());
-            AiJobStore.modelRun(db,job,1,"primary","local",LocalModelManager.MODEL_NAME,"grounded_local","complete",Fingerprint.text(prompt),modelWall,0,r.getTokensGenerated(),confidence,modelOut.toString(),"");
-            JSONObject perf=new JSONObject().put("job_id",job).put("total_ms",total).put("retrieval_ms",retrieval).put("prompt_build_ms",promptMs).put("model_call_ms",r.getDurationMs()).put("model_load_ms",r.getModelLoadMs()).put("generation_ms",r.getGenerationMs()).put("cache_hit",r.getCacheHit()).put("tokens",r.getTokensGenerated()).put("tokens_per_second",r.getTokensPerSecond()).put("source_count",g.sources.size());
-            InteractionTelemetry.log(db,"Brain","ask_cortex","model_complete",0,r.getDurationMs(),"ok",r.getCacheHit()?"Warm local Qwen completion":"Cold local Qwen completion",perf);
+            JSONObject modelOut=new JSONObject().put("text",text).put("tokens_per_second",r.getTokensPerSecond()).put("cache_hit",r.getCacheHit()).put("source_count",g.sources.size()).put("max_tokens",REFINEMENT_MAX_TOKENS);
+            AiJobStore.modelRun(db,job,1,"refiner","local",LocalModelManager.MODEL_NAME,"grounded_local_compact","complete",Fingerprint.text(prompt),modelWall,0,r.getTokensGenerated(),confidence,modelOut.toString(),"");
+            JSONObject perf=new JSONObject().put("job_id",job).put("total_ms",total).put("retrieval_ms",retrieval).put("prompt_build_ms",promptMs).put("model_call_ms",r.getDurationMs()).put("model_load_ms",r.getModelLoadMs()).put("generation_ms",r.getGenerationMs()).put("cache_hit",r.getCacheHit()).put("tokens",r.getTokensGenerated()).put("tokens_per_second",r.getTokensPerSecond()).put("source_count",g.sources.size()).put("max_tokens",REFINEMENT_MAX_TOKENS);
+            InteractionTelemetry.log(db,"Brain","ask_cortex","model_complete",0,r.getDurationMs(),"ok",r.getCacheHit()?"Warm compact local refinement":"Cold compact local refinement",perf);
             AiJobStore.progress(db,job,"Checking result","quality_check",88,"Verifying the local answer is grounded");emit(progress,job,"Checking result",88);
             if(text.isEmpty()){
                 String err="Local Qwen returned empty text";AiJobStore.complete(db,job,answerJson(g.answer,"deterministic-grounded","your_data",g.sources.size(),total).toString(),"Grounded fallback ready",err);emit(progress,job,"Grounded fallback ready",100);return new Result(job,g,g.answer,"deterministic-grounded",err,"your_data",r.getTokensPerSecond(),r.getTokensGenerated(),r.getDurationMs(),total,retrieval,promptMs,r.getModelLoadMs(),r.getGenerationMs(),r.getCacheHit());
             }
-            AiJobStore.complete(db,job,answerJson(text,"local-qwen","your_data",g.sources.size(),total).put("confidence",confidence).toString(),"Answer ready","Local grounded refinement complete");emit(progress,job,"Answer ready",100);InteractionTelemetry.log(db,"Brain","ask_cortex","complete",0,total,"ok","Local refinement ready",perf);return new Result(job,g,text,"local-qwen","","your_data",r.getTokensPerSecond(),r.getTokensGenerated(),r.getDurationMs(),total,retrieval,promptMs,r.getModelLoadMs(),r.getGenerationMs(),r.getCacheHit());
+            AiJobStore.complete(db,job,answerJson(text,"local-qwen","your_data",g.sources.size(),total).put("confidence",confidence).toString(),"Answer ready","Compact local grounded refinement complete");emit(progress,job,"Answer ready",100);InteractionTelemetry.log(db,"Brain","ask_cortex","complete",0,total,"ok","Compact local refinement ready",perf);return new Result(job,g,text,"local-qwen","","your_data",r.getTokensPerSecond(),r.getTokensGenerated(),r.getDurationMs(),total,retrieval,promptMs,r.getModelLoadMs(),r.getGenerationMs(),r.getCacheHit());
         }catch(Throwable t){
             long total=SystemClock.elapsedRealtime()-wall;String err="Local Qwen failed: "+t.getClass().getSimpleName()+(t.getMessage()==null?"":": "+t.getMessage());
-            AiJobStore.modelRun(db,job,1,"primary","local",LocalModelManager.MODEL_NAME,"grounded_local","failed",Fingerprint.text(prompt),0,0,0,0,"",err);AiJobStore.progress(db,job,"Using grounded fallback","fallback",90,err);emit(progress,job,"Using grounded fallback",90);AiJobStore.complete(db,job,answerJson(g.answer,"deterministic-grounded","your_data",g.sources.size(),total).toString(),"Grounded fallback ready",err);emit(progress,job,"Grounded fallback ready",100);InteractionTelemetry.log(db,"Brain","ask_cortex","complete",0,total,"fallback",err,null);return new Result(job,g,g.answer,"deterministic-grounded",err,"your_data",0,0,0,total,retrieval,promptMs,0,0,false);
+            AiJobStore.modelRun(db,job,1,"refiner","local",LocalModelManager.MODEL_NAME,"grounded_local_compact","failed",Fingerprint.text(prompt),0,0,0,0,"",err);AiJobStore.progress(db,job,"Using grounded fallback","fallback",90,err);emit(progress,job,"Using grounded fallback",90);AiJobStore.complete(db,job,answerJson(g.answer,"deterministic-grounded","your_data",g.sources.size(),total).toString(),"Grounded fallback ready",err);emit(progress,job,"Grounded fallback ready",100);InteractionTelemetry.log(db,"Brain","ask_cortex","complete",0,total,"fallback",err,null);return new Result(job,g,g.answer,"deterministic-grounded",err,"your_data",0,0,0,total,retrieval,promptMs,0,0,false);
         }
     }
 
@@ -90,6 +94,12 @@ public final class LocalAskRouter {
     private static JSONObject answerJson(String answer,String provider,String mode,int sources,long total){JSONObject o=new JSONObject();try{o.put("answer",answer==null?"":answer);o.put("provider",provider);o.put("source_mode",mode);o.put("source_count",sources);o.put("total_ms",total);}catch(Exception ignored){}return o;}
     private static double confidence(GroundedAnswer g,String text){double c=g==null||g.sources.isEmpty()?0.45:Math.min(0.94,0.62+(Math.min(5,g.sources.size())*0.055));if(text==null||text.trim().isEmpty())c=Math.min(c,0.35);return c;}
 
-    static String buildPrompt(String q,GroundedAnswer g){StringBuilder s=new StringBuilder();s.append("USER QUESTION:\n").append(q).append("\n\nMEMORY EVIDENCE:\n");int n=Math.min(6,g.sources.size());for(int i=0;i<n;i++){KnowledgeItem k=g.sources.get(i).item;String body=!empty(k.summary)?k.summary:(!empty(k.extractedText)?k.extractedText:k.rawText);if(body==null)body="";body=body.replace('\u0000',' ').trim();if(body.length()>650)body=body.substring(0,650)+"…";s.append("[M").append(i+1).append("] ").append(k.title==null?"Memory":k.title).append("\n").append(body).append("\n\n");}if(!g.openLoops.isEmpty()){s.append("OPEN LOOPS:\n");for(String x:g.openLoops)s.append("- ").append(x).append('\n');s.append('\n');}if(!g.decisions.isEmpty()){s.append("DECISIONS:\n");for(String x:g.decisions)s.append("- ").append(x).append('\n');s.append('\n');}s.append("Answer using only that evidence. When useful, cite [M1], [M2], etc. /no_think");return s.toString();}
-    static String clean(String x){if(x==null)return"";String s=x.trim();return s.replaceAll("(?s)<think>.*?</think>","").trim();}static boolean empty(String s){return s==null||s.trim().isEmpty();}
+    static String buildPrompt(String q,GroundedAnswer g){
+        StringBuilder s=new StringBuilder();s.append("QUESTION:\n").append(clip(q,420)).append("\n\nGROUNDED DRAFT:\n").append(clip(g.answer,900)).append("\n\nEVIDENCE:\n");
+        int n=Math.min(4,g.sources.size());for(int i=0;i<n;i++){KnowledgeItem k=g.sources.get(i).item;String body=!empty(k.summary)?k.summary:(!empty(k.extractedText)?k.extractedText:k.rawText);body=clip(body==null?"":body.replace('\u0000',' ').trim(),420);s.append("[M").append(i+1).append("] ").append(clip(k.title==null?"Memory":k.title,90)).append("\n").append(body).append("\n\n");}
+        if(!g.openLoops.isEmpty()){s.append("OPEN LOOPS:\n");for(int i=0;i<Math.min(4,g.openLoops.size());i++)s.append("- ").append(clip(g.openLoops.get(i),220)).append('\n');s.append('\n');}
+        if(!g.decisions.isEmpty()){s.append("DECISIONS:\n");for(int i=0;i<Math.min(4,g.decisions.size());i++)s.append("- ").append(clip(g.decisions.get(i),220)).append('\n');s.append('\n');}
+        s.append("Rewrite the grounded draft to be clearer and more useful. Keep citations when present. Use no fact outside this prompt. /no_think");return s.toString();
+    }
+    static String clean(String x){if(x==null)return"";String s=x.trim();return s.replaceAll("(?s)<think>.*?</think>","").trim();}static boolean empty(String s){return s==null||s.trim().isEmpty();}static String clip(String s,int n){String x=s==null?"":s.replaceAll("\\s+"," ").trim();return x.length()<=n?x:x.substring(0,n)+"…";}
 }
