@@ -18,6 +18,13 @@ public final class AudioAnalyzer {
             boolean groq=GroqKeyStore.has(ctx),gemini=GeminiKeyStore.has(ctx);
             if(!groq&&!gemini){cb.fail(retryable("No ASR provider configured. Add Gemini and/or Groq API key",null));return;}
 
+            // Gemini inline audio duplicates the file in memory (raw + Base64 + JSON). Large files
+            // must use the streaming Groq path when available rather than risking a process OOM.
+            if(f.length()>GeminiAudioTranscriber.MAX_SAFE_INLINE_BYTES){
+                if(groq){runGroqFallback(ctx,f,cb,"Gemini skipped for mobile memory safety: large audio file");return;}
+                cb.fail(retryable("Audio is too large for safe Gemini inline transcription. Configure Groq for streaming transcription or capture a shorter segment",null));return;
+            }
+
             if(gemini){
                 GeminiAudioTranscriber.transcribe(ctx,f,new GeminiAudioTranscriber.Callback(){
                     public void ok(TranscriptResult g){markFullFileCoverage(g);String warning=acceptabilityWarning(g);if(warning==null){prepareGeminiPrimary(g,groq);finish(ctx,g,cb);}else if(groq)runGroqFallback(ctx,f,cb,"Gemini rejected: "+warning);else cb.fail(retryable("Gemini returned an incomplete transcript: "+warning,null));}
@@ -25,7 +32,7 @@ public final class AudioAnalyzer {
                 });return;
             }
             runGroqFallback(ctx,f,cb,"Gemini API key not configured");
-        }catch(Exception e){cb.fail(e);}
+        }catch(Throwable e){cb.fail(e instanceof Exception?(Exception)e:retryable("Audio analysis stopped safely: "+e.getClass().getSimpleName(),e));}
     }
 
     private static void runGroqFallback(Context ctx,File f,Callback cb,String geminiStatus){
@@ -59,14 +66,12 @@ public final class AudioAnalyzer {
             String clean=MixedBidiText.stripControls(t.text==null?"":t.text).replaceAll("\\s+"," ").trim();if(clean.isEmpty()){cb.fail(retryable("Transcript rejected before local analysis: empty transcript",null));return;}t.text=clean;
             AnalysisResult r=LocalAnalyzer.analyze(t.text,"text/plain");
             String corrected=MixedBidiText.stripControls(CorrectionEngine.apply(ctx,t.text));
-            // Storage stays canonical/plain. UI rendering is handled only by CortexTextUi/MixedBidiText.
             r.extractedText=corrected.trim();
             r.summary=MixedBidiText.stripControls(r.summary).trim();
             r.engine=t.engine+"+local_analysis";r.version=t.version;r.category="Voice & Audio";r.tags="voice,audio,transcript,"+AutoClassifier.tags(t.text,"Voice & Audio");
-            // Display-oriented title only; transcript evidence remains untouched/verbatim.
             r.title=VoiceTextPresentation.compactTitle(t.text);
             for(TranscriptResult.Segment s:t.segments)r.transcriptSegments.add(new AnalysisResult.TranscriptSegment(s.startMs,s.endMs,MixedBidiText.stripControls(s.text),s.confidence));
             r.audioLanguage=t.language;r.audioDurationMs=t.durationMs;r.audioProcessedDurationMs=t.processedDurationMs;r.audioCoverage=t.coverage;r.audioRawTranscript=MixedBidiText.stripControls(t.rawTranscript);r.audioProviderMergedTranscript=MixedBidiText.stripControls(t.providerMergedTranscript);r.audioRawProviderResponse=t.rawProviderResponse;cb.ok(r);
-        }catch(Exception e){cb.fail(e);}
+        }catch(Throwable e){cb.fail(e instanceof Exception?(Exception)e:retryable("Post-transcription analysis stopped safely: "+e.getClass().getSimpleName(),e));}
     }
 }
