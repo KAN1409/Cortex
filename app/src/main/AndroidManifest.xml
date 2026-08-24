@@ -30,6 +30,7 @@
             <intent-filter><action android:name="android.intent.action.SEND_MULTIPLE" /><category android:name="android.intent.category.DEFAULT" /><data android:mimeType="*/*" /></intent-filter>
         </activity>
 
+        <!-- Advanced / legacy diagnostic surfaces stay internal and are not top-level navigation. -->
         <activity android:name=".FeatureHubActivity" android:exported="false" />
         <activity android:name=".EnvironmentActivity" android:exported="false" />
         <activity android:name=".CortexStatusActivity" android:exported="false" />
@@ -44,5 +45,10 @@
         <service android:name=".LocalModelDownloadService" android:exported="false" android:foregroundServiceType="dataSync" />
         <service android:name=".NotificationCaptureService" android:label="Cortex Notification Memory" android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE" android:exported="true"><intent-filter><action android:name="android.service.notification.NotificationListenerService" /></intent-filter></service>
         <service android:name=".CortexQuickTileService" android:label="Cortex Voice" android:permission="android.permission.BIND_QUICK_SETTINGS_TILE" android:exported="true"><intent-filter><action android:name="android.service.quicksettings.action.QS_TILE" /></intent-filter></service>
+        <service android:name=".UnderstandScreenTileService" android:label="Understand screen" android:permission="android.permission.BIND_QUICK_SETTINGS_TILE" android:exported="true"><intent-filter><action android:name="android.service.quicksettings.action.QS_TILE" /></intent-filter></service>
+        <service android:name=".CortexScreenAccessibilityService" android:label="Cortex Screen Understanding" android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE" android:exported="true">
+            <intent-filter><action android:name="android.accessibilityservice.AccessibilityService" /></intent-filter>
+            <meta-data android:name="android.accessibilityservice" android:resource="@xml/cortex_screen_accessibility" />
+        </service>
     </application>
 </manifest>
