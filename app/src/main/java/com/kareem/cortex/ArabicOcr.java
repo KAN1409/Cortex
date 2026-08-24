@@ -2,7 +2,6 @@ package com.kareem.cortex;
 
 import android.content.Context;
 import android.graphics.Bitmap;
-import android.graphics.BitmapFactory;
 import com.googlecode.tesseract.android.TessBaseAPI;
 import java.io.*;
 import java.util.concurrent.ExecutorService;
@@ -42,8 +41,13 @@ public final class ArabicOcr {
             try{
                 File model=ensureBundledModel(app);
                 if(model==null||!model.exists()||model.length()<MIN_MODEL_BYTES){cb.done(failed("Arabic OCR model missing from app assets"));return;}
-                bmp=BitmapFactory.decodeFile(image.getAbsolutePath());
-                if(bmp==null){cb.done(failed("Arabic OCR could not decode image"));return;}
+
+                // Tesseract previously decoded the original photo at full resolution here. Modern
+                // phone images can exceed the app's safe heap/native-memory budget, causing a hard
+                // process crash before Java can report an exception. Always work on a bounded copy.
+                bmp=SafeImageDecoder.decode(image,2000,3_200_000L);
+                if(bmp==null){cb.done(failed("Arabic OCR could not decode image safely"));return;}
+
                 tess=new TessBaseAPI();
                 String dataPath=new File(app.getFilesDir(),"tesseract").getAbsolutePath();
                 if(!tess.init(dataPath,"ara")){cb.done(failed("Arabic OCR init failed"));return;}
@@ -57,11 +61,11 @@ public final class ArabicOcr {
                 else if(gate.accepted)status="Arabic OCR accepted • confidence "+confidence+"% • "+gate.compactMetrics();
                 else status="Arabic OCR rejected • confidence "+confidence+"% • "+gate.reason;
                 cb.done(new Result(raw,gate.accepted?raw:"",status,confidence,gate));
-            }catch(Exception e){
+            }catch(Throwable e){
                 cb.done(failed("Arabic OCR unavailable: "+e.getClass().getSimpleName()));
             }finally{
-                try{if(tess!=null)tess.recycle();}catch(Exception ignored){}
-                try{if(bmp!=null&&!bmp.isRecycled())bmp.recycle();}catch(Exception ignored){}
+                try{if(tess!=null)tess.recycle();}catch(Throwable ignored){}
+                try{if(bmp!=null&&!bmp.isRecycled())bmp.recycle();}catch(Throwable ignored){}
             }
         });
     }
