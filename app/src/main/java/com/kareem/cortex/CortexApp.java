@@ -11,6 +11,7 @@ public class CortexApp extends Application {
             try{
                 db=new VaultDb(this);
                 CognitiveSchema.ensure(db.getWritableDatabase());
+                ContactSafetyMaintenance.run(db);
                 EnvironmentPreflight.run(this);
             }catch(Throwable ignored){
             }finally{
