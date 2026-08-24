@@ -111,6 +111,26 @@ Review of the user-provided Gemini code suggestions against current `main`:
 
 Runtime/compile validation remains required for the implemented changes.
 
+## 2026-08-25 capture intelligence / Brief / People usability batch
+**Status:** IMPLEMENTED / PLANNED
+
+User testing showed that the installed product still felt like `transcription + OCR + storage` rather than a cognitive system. The following observations are now part of the PRIME contract:
+
+- Capture Text keyboard/IME must never cover the Capture action. **IMPLEMENTED** with explicit IME/system-bar inset handling in `CaptureActivity`.
+- Voice/Text/Photo/File capture must not end at `Saved to Cortex`. The user should immediately see processing and the resulting understanding. **IMPLEMENTED** through `CaptureResultActivity`, actual imported item ids, live polling, retry, `What Cortex understood`, optional extracted evidence, and contextual next actions.
+- Text/code input must not be "transcribed" or copied back as its own summary. Technical command blocks are classified as code/commands, receive a functional summary, and are not auto-promoted as personal tasks merely because command words such as `send`, `fix`, or `review` appear. **IMPLEMENTED** in `LocalAnalyzer`.
+- Brief must expose the user's latest intentional captures and their state (`Analyzing`, `Understood`, `Needs retry`) rather than hiding them while unrelated derived items appear. **IMPLEMENTED** in `PrimeBriefStore` / `PremiumHomeActivity`.
+- Brief items must explain why they surfaced. **IMPLEMENTED (first pass)** with source, confidence, semantic reason and timing; deeper original-evidence linking remains **PLANNED**.
+- People should prioritize useful real-world context over phone-normalization detail. **IMPLEMENTED (first pass)** by keeping identity hardening while surfacing recent non-contact-sync linked evidence.
+- `Open archive` from People/Projects must deep-link to the relevant evidence, not drop the user into a generic list. **IMPLEMENTED** as direct `item_id` navigation to the latest grounded evidence.
+- Brain Combined should not die when Gemini is unavailable if a safe local Cortex answer can still be produced. **IMPLEMENTED** with a Combined → local Cortex fallback while preserving the external failure in telemetry.
+- Raw OCR/transcript are evidence for Cortex, not the primary user result. Extracted evidence is now treated as optional on the post-capture result surface. **IMPLEMENTED (surface-level)**.
+- Visual Intelligence must move beyond OCR into image meaning, contextual interpretation and useful suggestions. OCR lexical accuracy for visually ambiguous media titles remains **PLANNED / requires visual-model validation**; a structural OCR score cannot prove that a plausible-looking word such as a song title was recognized correctly.
+- Mixed Arabic/English presentation still needs a stronger visual layout than generic BiDi handling in some screens. **PLANNED** for a dedicated mixed-run presentation component; stored evidence remains unchanged.
+- Product rule: **Never show extracted information when Cortex can show understanding instead; never stop at understanding when Cortex can offer a useful action.**
+
+Runtime validation is required for all items marked IMPLEMENTED in this batch.
+
 ## Rolling rule
 When a new user observation arrives:
 1. Record it here.
