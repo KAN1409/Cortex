@@ -6,7 +6,7 @@ import java.util.*;
 
 /** Bridges analyzed intentional captures into the unified derived graph without turning passive evidence into tasks. */
 public final class IntentionalCognitiveBridge {
-    public static final String POLICY="intentional_bridge_003";
+    public static final String POLICY="intentional_bridge_004";
     private static final double PROJECT_CANDIDATE_MIN_CONFIDENCE=.72;
     private IntentionalCognitiveBridge(){}
 
@@ -26,7 +26,6 @@ public final class IntentionalCognitiveBridge {
         if(passive(item))return;
         String text=bestText(item,r),norm=LocalSemanticEmbedder.norm(text);boolean intentional=intentional(item);
         try{
-            // Existing action parser is only promoted for explicit user-intent captures. Weak parses go through Review.
             if(intentional){for(AnalysisResult.Action a:r.actions){String action=n(a.text);if(action.isEmpty())continue;String actionNorm=LocalSemanticEmbedder.norm(action);if(strongAction(norm,actionNorm))add(db,item,CognitiveTypes.DerivedKind.ACTION,action,action,"open",.92,76);else review(db,item,CognitiveTypes.DerivedKind.ACTION,action,action,.62,56,"intentional capture contains an action-like clause but explicit commitment is uncertain");}}
 
             if(intentional&&hasAny(norm,"waiting for","waiting on","awaiting","مستني","مستنى","منتظر","في انتظار","لما يرد","لما ترد"))add(db,item,CognitiveTypes.DerivedKind.WAITING,titleFor(r,"Waiting"),clip(text,700),"open",.90,70);
@@ -36,8 +35,8 @@ public final class IntentionalCognitiveBridge {
             if(intentional&&hasAny(norm,"opportunity:","فرصه:","فرصة:","دي فرصه","دي فرصة"))add(db,item,CognitiveTypes.DerivedKind.OPPORTUNITY,titleFor(r,"Opportunity"),clip(text,700),"open",.94,66);
             if(intentional&&hasAny(norm,"hypothesis:","my hypothesis","فرضيه:","فرضية:","ممكن يكون السبب","i suspect that"))add(db,item,CognitiveTypes.DerivedKind.HYPOTHESIS,titleFor(r,"Hypothesis"),clip(text,700),"open",.82,54);
 
-            // Project detection is safe only as a candidate; ProjectCandidateStore requires explicit confirmation.
-            for(AnalysisResult.Entity e:r.entities){if(!"PROJECT".equalsIgnoreCase(n(e.kind))||e.confidence<PROJECT_CANDIDATE_MIN_CONFIDENCE)continue;String name=n(e.value);if(name.length()<3)continue;add(db,item,CognitiveTypes.DerivedKind.PROJECT_CANDIDATE,name,clip(text,700),"pending",Math.max(PROJECT_CANDIDATE_MIN_CONFIDENCE,e.confidence),60);}
+            // Inference can only create a candidate. The candidate itself must also look like a label, not a sentence fragment.
+            for(AnalysisResult.Entity e:r.entities){if(!"PROJECT".equalsIgnoreCase(n(e.kind))||e.confidence<PROJECT_CANDIDATE_MIN_CONFIDENCE)continue;String name=EntityQualityPolicy.cleanProjectName(e.value);if(!EntityQualityPolicy.plausibleProject(name))continue;add(db,item,CognitiveTypes.DerivedKind.PROJECT_CANDIDATE,name,clip(text,700),"pending",Math.max(PROJECT_CANDIDATE_MIN_CONFIDENCE,e.confidence),60);}
         }catch(Throwable e){DiagnosticsLog.error(db,"IntentionalCognitiveBridge","after_analysis",e,"INTENTIONAL_BRIDGE",item.id,0,0,0,0,null);}
     }
 
