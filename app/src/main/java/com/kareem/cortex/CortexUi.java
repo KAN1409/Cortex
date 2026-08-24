@@ -71,7 +71,7 @@ public final class CortexUi {
         addNav(a,bar,"focus","Focus",selected,SmartInboxActivity.class);
         addCapture(a,bar);
         addNav(a,bar,"vault","Vault",selected,VaultActivity.class);
-        addNav(a,bar,"ask","Ask",selected,AskCortexActivity.class);
+        addNav(a,bar,"ask","Brain",selected,AskCortexActivity.class);
         LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,dp(a,66));p.setMargins(dp(a,14),dp(a,7),dp(a,14),dp(a,10));root.addView(bar,p);fitSystemBars(a,root);
     }
 
