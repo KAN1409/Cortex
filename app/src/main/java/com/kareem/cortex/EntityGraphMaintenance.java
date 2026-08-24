@@ -10,7 +10,7 @@ import org.json.JSONObject;
  * A mention is not an identified person, and an inferred phrase is not a confirmed project.
  */
 public final class EntityGraphMaintenance {
-    public static final String VERSION="entity_graph_guard_003";
+    public static final String VERSION="entity_graph_guard_004";
     private EntityGraphMaintenance(){}
 
     public static void run(VaultDb db){
@@ -30,14 +30,14 @@ public final class EntityGraphMaintenance {
             while(c.moveToNext()){
                 long memoryId=c.getLong(0);String original=n(c.getString(1)),raw=n(c.getString(2)),meta=n(c.getString(3));JSONObject srcMeta;try{srcMeta=new JSONObject(meta);}catch(Exception e){srcMeta=new JSONObject();}long contactId=srcMeta.optLong("contact_id",0);String phone=phoneIdentity(meta,raw);if(contactId<=0&&phone.isEmpty())continue;
                 String name=cleanContactName(original);if(name.isEmpty())name=firstLine(raw);if(name.isEmpty())name="Contact";
-                String identityKind=contactId>0?"contact_id":"phone";String identityValue=contactId>0?String.valueOf(contactId):phone;String key="person|"+identityKind+"|"+identityValue;long entity=findEntity(s,key);boolean userRenamed=false;String oldMeta="";
+                String anchorKind=contactId>0?"contact_id":"phone";String identityValue=contactId>0?String.valueOf(contactId):phone;String key="person|"+anchorKind+"|"+identityValue;long entity=findEntity(s,key);boolean userRenamed=false;String oldMeta="";
                 if(entity>0){Cursor e=s.query("entity_nodes",new String[]{"metadata_json"},"id=?",new String[]{String.valueOf(entity)},null,null,null,"1");if(e.moveToFirst())oldMeta=n(e.getString(0));e.close();userRenamed=oldMeta.contains("\"user_renamed\":true");}
-                JSONObject em=new JSONObject();em.put("identity",identityKind);if(contactId>0)em.put("contact_id",contactId);if(!phone.isEmpty())em.put("phone_identity",phone);em.put("source","contacts_sync");em.put("guard",VERSION);if(userRenamed)em.put("user_renamed",true);
+                JSONObject em=new JSONObject();em.put("identity","phone");em.put("identity_anchor",anchorKind);if(contactId>0)em.put("contact_id",contactId);if(!phone.isEmpty())em.put("phone_identity",phone);em.put("source","contacts_sync");em.put("guard",VERSION);if(userRenamed)em.put("user_renamed",true);
                 if(entity<=0){ContentValues v=new ContentValues();v.put("kind","PERSON");v.put("canonical_name",name);v.put("normalized_key",key);v.put("status","active");v.put("metadata_json",em.toString());v.put("created_at",now);v.put("updated_at",now);entity=s.insertWithOnConflict("entity_nodes",null,v,SQLiteDatabase.CONFLICT_IGNORE);if(entity<=0)entity=findEntity(s,key);}
                 else{ContentValues v=new ContentValues();if(!userRenamed)v.put("canonical_name",name);v.put("status","active");v.put("metadata_json",em.toString());v.put("updated_at",now);s.update("entity_nodes",v,"id=?",new String[]{String.valueOf(entity)});}
                 if(entity<=0)continue;identified++;
                 addAlias(s,entity,"contacts_sync",original,1.0,now);if(!name.equals(original))addAlias(s,entity,"contacts_sync",name,1.0,now);if(!phone.isEmpty())addAlias(s,entity,"phone",phone,1.0,now);
-                ContentValues l=new ContentValues();l.put("from_type","memory");l.put("from_id",memoryId);l.put("to_type","entity");l.put("to_id",entity);l.put("relation","identified_as");l.put("confidence",1.0);l.put("metadata_json","{\"identity\":\""+identityKind+"\",\"guard\":\""+VERSION+"\"}");l.put("created_at",now);s.insertWithOnConflict("source_links",null,l,SQLiteDatabase.CONFLICT_IGNORE);
+                ContentValues l=new ContentValues();l.put("from_type","memory");l.put("from_id",memoryId);l.put("to_type","entity");l.put("to_id",entity);l.put("relation","identified_as");l.put("confidence",1.0);l.put("metadata_json","{\"identity\":\"phone\",\"anchor\":\""+anchorKind+"\",\"guard\":\""+VERSION+"\"}");l.put("created_at",now);s.insertWithOnConflict("source_links",null,l,SQLiteDatabase.CONFLICT_IGNORE);
             }c.close();
             s.setTransactionSuccessful();
         }catch(Throwable e){DiagnosticsLog.error(db,"EntityGraphMaintenance","run",e,"ENTITY_GRAPH_GUARD",0,0,0,0,0,null);}
