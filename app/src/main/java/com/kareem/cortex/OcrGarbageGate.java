@@ -1,16 +1,20 @@
 package com.kareem.cortex;
 
 import java.util.*;
+import java.util.regex.Pattern;
 
 /**
  * Single source of truth for OCR evidence quality.
- *
  * Raw OCR is always allowed to remain available to diagnostics. Only accepted evidence should be
  * merged into Cortex memory/search. The gate deliberately prefers an occasional Arabic false
  * negative over poisoning durable memory with wrong-script hallucinations.
  */
 public final class OcrGarbageGate {
     private static final String ALLOWED_PUNCT=",.;:!?()[]{}%$€£+-_/\\@#&'\"•→←=×…؛،؟";
+    private static final Pattern WS=Pattern.compile("\\s+");
+    private static final Pattern TOKEN_CLEAN=Pattern.compile("[^\\p{L}\\p{N}]");
+    private static final Pattern NEWLINE=Pattern.compile("\\r?\\n");
+    private static final Pattern ALNUM_OR_SPACE=Pattern.compile("[\\p{L}\\p{N} ]");
     private static final HashSet<String> COMMON_ARABIC=new HashSet<>(Arrays.asList(
             "من","في","على","عن","مع","الى","هو","هي","هذا","هذه","تم","لا","نعم","كان","كانت",
             "انا","انت","احنا","اللي","ده","دي","مش","عشان","بعد","قبل","يوم","اليوم","بكره",
@@ -40,19 +44,17 @@ public final class OcrGarbageGate {
             this.accepted=accepted;this.confidencePct=confidencePct;this.arabicShare=clamp(arabicShare);this.arabicWordShare=clamp(arabicWordShare);
             this.commonWordHits=Math.max(0,commonWordHits);this.reason=n(reason);this.quality=quality;
         }
-        public String compactMetrics(){
-            return "quality "+fmt(quality.score)+" • Arabic letters "+pct(arabicShare)+" • digits "+pct(quality.digitShare)+" • symbols "+pct(quality.symbolNoise);
-        }
+        public String compactMetrics(){return "quality "+fmt(quality.score)+" • Arabic letters "+pct(arabicShare)+" • digits "+pct(quality.digitShare)+" • symbols "+pct(quality.symbolNoise);}
     }
 
     /** General OCR candidate quality used by multipass selection and the OCR lab. */
     public static Quality assessText(String text){
         String x=n(text);if(x.isEmpty())return new Quality(0,0,0,0,0,0,0,"empty","empty");
         int letters=0,digits=0,weird=0;for(int i=0;i<x.length();i++){char c=x.charAt(i);if(Character.isLetter(c))letters++;else if(Character.isDigit(c))digits++;else if(!Character.isWhitespace(c)&&ALLOWED_PUNCT.indexOf(c)<0)weird++;}
-        String[] rawTokens=x.split("\\s+");int tokens=0,shortTokens=0;for(String raw:rawTokens){String t=raw.replaceAll("[^\\p{L}\\p{N}]","");if(t.isEmpty())continue;tokens++;if(t.length()<=2)shortTokens++;}
+        String[] rawTokens=WS.split(x);int tokens=0,shortTokens=0;for(String raw:rawTokens){String t=TOKEN_CLEAN.matcher(raw).replaceAll("");if(t.isEmpty())continue;tokens++;if(t.length()<=2)shortTokens++;}
         int nChars=Math.max(1,x.length()),alnum=Math.max(1,letters+digits);double symbolNoise=weird/(double)nChars,digitShare=digits/(double)alnum,shortShare=shortTokens/(double)Math.max(1,tokens),density=(letters+digits)/(double)nChars;
         double score=0.16+density*0.86+Math.min(0.16,letters/700.0)-Math.min(0.42,symbolNoise*2.6)-Math.min(0.12,Math.max(0,shortShare-0.55)*0.45);
-        int garbageLines=0;for(String line:x.split("\\r?\\n")){if(line.length()>5&&line.replaceAll("[\\p{L}\\p{N} ]","").length()>line.length()*0.35)garbageLines++;}score-=Math.min(0.25,garbageLines*0.025);score=clamp(score);
+        int garbageLines=0;for(String line:NEWLINE.split(x)){if(line.length()>5&&ALNUM_OR_SPACE.matcher(line).replaceAll("").length()>line.length()*0.35)garbageLines++;}score-=Math.min(0.25,garbageLines*0.025);score=clamp(score);
         String label,reason;if(score<0.38){label="gibberish-suspected";reason="low OCR structure quality";}else if(score<0.62){label="usable-uncertain";reason="usable but uncertain";}else{label="usable-candidate";reason="structurally usable candidate";}
         return new Quality(score,symbolNoise,digitShare,shortShare,letters,digits,tokens,label,reason);
     }
@@ -62,9 +64,8 @@ public final class OcrGarbageGate {
         String x=n(text);Quality q=assessText(x);int conf=confidencePct(confidence);if(x.isEmpty())return decision(false,conf,0,0,0,"no Arabic OCR text",q);
         int arabic=0,latin=0,letters=0;for(int i=0;i<x.length();i++){char c=x.charAt(i);if(Character.isLetter(c)){letters++;if(isArabic(c))arabic++;else if(isLatin(c))latin++;}}
         double arabicShare=arabic/(double)Math.max(1,letters);
-        int wordTokens=0,arabicWords=0,common=0;for(String raw:x.split("\\s+")){String t=raw.replaceAll("[^\\p{L}\\p{N}]","");if(t.isEmpty())continue;wordTokens++;int ar=0,alnum=0;for(int i=0;i<t.length();i++){char c=t.charAt(i);if(Character.isLetterOrDigit(c)){alnum++;if(isArabic(c))ar++;}}if(alnum>0&&ar/(double)alnum>=0.72&&ar>=2)arabicWords++;String norm=LocalSemanticEmbedder.norm(t);if(COMMON_ARABIC.contains(norm))common++;}
+        int wordTokens=0,arabicWords=0,common=0;for(String raw:WS.split(x)){String t=TOKEN_CLEAN.matcher(raw).replaceAll("");if(t.isEmpty())continue;wordTokens++;int ar=0,alnum=0;for(int i=0;i<t.length();i++){char c=t.charAt(i);if(Character.isLetterOrDigit(c)){alnum++;if(isArabic(c))ar++;}}if(alnum>0&&ar/(double)alnum>=0.72&&ar>=2)arabicWords++;String norm=LocalSemanticEmbedder.norm(t);if(COMMON_ARABIC.contains(norm))common++;}
         double arabicWordShare=arabicWords/(double)Math.max(1,wordTokens);int latinEvidenceLetters=countLatin(latinEvidence);
-
         if(arabic<2)return decision(false,conf,arabicShare,arabicWordShare,common,"no credible Arabic-script evidence",q);
         if(conf<42)return decision(false,conf,arabicShare,arabicWordShare,common,"low Tesseract confidence / wrong-script risk",q);
         if(arabicShare<0.35)return decision(false,conf,arabicShare,arabicWordShare,common,"Arabic script is too sparse for Arabic evidence",q);
@@ -79,7 +80,6 @@ public final class OcrGarbageGate {
     public static String qualityLabel(String text){return assessText(text).label;}
     public static double scoreCandidate(String text){return assessText(text).score;}
     public static String candidateReason(String text){return assessText(text).reason;}
-
     private static ArabicDecision decision(boolean ok,int conf,double share,double wordShare,int common,String reason,Quality q){return new ArabicDecision(ok,conf,share,wordShare,common,reason,q);}
     private static int confidencePct(double confidence){double c=confidence;if(c>=0&&c<=1)c*=100.0;return Math.max(0,Math.min(100,(int)Math.round(c)));}
     private static int countLatin(String s){int n=0;for(char c:n(s).toCharArray())if(isLatin(c))n++;return n;}
