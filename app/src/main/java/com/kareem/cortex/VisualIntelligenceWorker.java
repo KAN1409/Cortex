@@ -30,6 +30,7 @@ public class VisualIntelligenceWorker extends Worker {
                 }catch(Throwable e){String msg=e.getClass().getSimpleName()+": "+(e.getMessage()==null?"":e.getMessage());VisualInsightStore.saveState(db,k.id,e instanceof OutOfMemoryError?"rate_limited":"failed","safe",msg);VisualInsightStore.setWorker(ctx,"waiting",k.id,"Vision stopped safely",msg);done++;}
             }catch(Throwable e){String msg=e.getClass().getSimpleName()+": "+(e.getMessage()==null?"":e.getMessage());try{VisualInsightStore.saveState(db,k.id,"failed","safe",msg);VisualInsightStore.setWorker(ctx,"waiting",k.id,"Vision item failed safely",msg);}catch(Throwable ignored){}done++;}
         }
+        if(!GeminiKeyStore.has(ctx)){VisualInsightStore.setWorker(ctx,"waiting",0,"Waiting for vision provider","Configure Gemini to resume pending visual understanding. No retry loop is running.");return Result.success();}
         if(VisualInsightStore.countPendingSince(db,start)>0)VisualIntelligenceScheduler.continueChain(ctx);else VisualInsightStore.setWorker(ctx,"idle",0,"Caught up","New screenshots will be understood when useful, charging and online");return Result.success();
     }catch(Throwable e){try{VisualInsightStore.setWorker(ctx,"waiting",0,"Will retry",e.getMessage()==null?e.getClass().getSimpleName():e.getMessage());}catch(Throwable ignored){}return Result.retry();}finally{try{db.close();}catch(Throwable ignored){}}}
 }
