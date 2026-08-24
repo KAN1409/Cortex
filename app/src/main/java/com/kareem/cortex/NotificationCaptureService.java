@@ -7,25 +7,12 @@ import android.service.notification.NotificationListenerService;
 import android.service.notification.StatusBarNotification;
 import org.json.JSONObject;
 
-/** All allowed notifications enter the raw-signal layer first; only selected signals reach durable Cortex intelligence. */
+/** All allowed notifications enter the raw-signal layer first; relevant events are enriched before durable intelligence. */
 public class NotificationCaptureService extends NotificationListenerService {
-    @Override public void onNotificationPosted(StatusBarNotification sbn){
-        VaultDb db=null;
-        try{
-            if(sbn==null||sbn.getNotification()==null)return;if(getPackageName().equals(sbn.getPackageName()))return;if(!PrivacyPolicy.canCollect(this,"notifications"))return;
-            Notification n=sbn.getNotification();Bundle e=n.extras;String title=str(e.getCharSequence(Notification.EXTRA_TITLE)),text=str(e.getCharSequence(Notification.EXTRA_TEXT)),big=str(e.getCharSequence(Notification.EXTRA_BIG_TEXT));if(!big.isEmpty())text=big;if(title.isEmpty()&&text.isEmpty())return;String body=(title+(title.isEmpty()||text.isEmpty()?"":"\n")+text).trim();if(body.isEmpty())return;String pkg=sbn.getPackageName()==null?"":sbn.getPackageName();boolean ongoing=(n.flags&Notification.FLAG_ONGOING_EVENT)!=0;
+    @Override public void onNotificationPosted(StatusBarNotification sbn){VaultDb db=null;try{if(sbn==null||sbn.getNotification()==null)return;if(getPackageName().equals(sbn.getPackageName()))return;if(!PrivacyPolicy.canCollect(this,"notifications"))return;Notification n=sbn.getNotification();Bundle e=n.extras;String title=str(e.getCharSequence(Notification.EXTRA_TITLE)),text=str(e.getCharSequence(Notification.EXTRA_TEXT)),big=str(e.getCharSequence(Notification.EXTRA_BIG_TEXT));if(!big.isEmpty())text=big;if(title.isEmpty()&&text.isEmpty())return;String body=(title+(title.isEmpty()||text.isEmpty()?"":"\n")+text).trim();if(body.isEmpty())return;String pkg=sbn.getPackageName()==null?"":sbn.getPackageName();boolean ongoing=(n.flags&Notification.FLAG_ONGOING_EVENT)!=0;
             JSONObject meta=new JSONObject();meta.put("capture_kind","android_notification");meta.put("package",pkg);meta.put("posted_at",sbn.getPostTime());meta.put("notification_id",sbn.getId());meta.put("ongoing",ongoing);if(sbn.getKey()!=null)meta.put("notification_key",sbn.getKey());if(sbn.getGroupKey()!=null)meta.put("group_key",sbn.getGroupKey());if(n.category!=null)meta.put("category",n.category);if(Build.VERSION.SDK_INT>=26&&n.getChannelId()!=null)meta.put("channel_id",n.getChannelId());String template=str(e.getString(Notification.EXTRA_TEMPLATE));if(!template.isEmpty())meta.put("template",template);String sub=str(e.getCharSequence(Notification.EXTRA_SUB_TEXT));if(!sub.isEmpty())meta.put("sub_text",sub);String summary=str(e.getCharSequence(Notification.EXTRA_SUMMARY_TEXT));if(!summary.isEmpty())meta.put("summary_text",summary);meta.put("notification_kind",inferKind(n,e));
-            MasterRelevanceFilter.Signal signal=new MasterRelevanceFilter.Signal("notification",pkg,title,body,meta.toString(),sbn.getPostTime(),ongoing);
-            db=new VaultDb(this);
-            long signalId=RawSignalStore.capture(db,signal),itemId=signalId>0?RawSignalStore.promotedItemId(db,signalId):0,threadId=signalId>0?RawSignalStore.threadId(db,signalId):0;
-            if(threadId>0)ThreadModelAdjudicator.enqueue(this,threadId,signalId);
-            if(itemId>0)AnalysisQueue.kick(this,db,null); // queue owns its own helper; safe to close this one below.
-        }catch(Throwable error){
-            android.util.Log.e("CortexNotification","Notification ingestion failed",error);VaultDb d=null;try{d=new VaultDb(this);JSONObject meta=new JSONObject();meta.put("package",sbn==null?"":String.valueOf(sbn.getPackageName()));DiagnosticsLog.error(d,"NotificationCaptureService","on_notification_posted",error,"NOTIFICATION_INGEST",0,0,0,0,0,meta);}catch(Throwable ignored){}finally{if(d!=null)try{d.close();}catch(Throwable ignored){}}
-        }finally{
-            if(db!=null)try{db.close();}catch(Throwable ignored){}
-        }
-    }
+            MasterRelevanceFilter.Signal signal=new MasterRelevanceFilter.Signal("notification",pkg,title,body,meta.toString(),sbn.getPostTime(),ongoing);db=new VaultDb(this);long signalId=RawSignalStore.capture(db,signal),itemId=signalId>0?RawSignalStore.promotedItemId(db,signalId):0,threadId=signalId>0?RawSignalStore.threadId(db,signalId):0;if(signalId>0)NotificationEnrichmentEngine.enrich(db,signalId,itemId,threadId,signal);if(threadId>0)ThreadModelAdjudicator.enqueue(this,threadId,signalId);if(itemId>0)AnalysisQueue.kick(this,null,null);
+        }catch(Throwable error){android.util.Log.e("CortexNotification","Notification ingestion failed",error);VaultDb d=null;try{d=new VaultDb(this);JSONObject meta=new JSONObject();meta.put("package",sbn==null?"":String.valueOf(sbn.getPackageName()));DiagnosticsLog.error(d,"NotificationCaptureService","on_notification_posted",error,"NOTIFICATION_INGEST",0,0,0,0,0,meta);}catch(Throwable ignored){}finally{if(d!=null)try{d.close();}catch(Throwable ignored){}}}finally{if(db!=null)try{db.close();}catch(Throwable ignored){}}}
     private static String inferKind(Notification n,Bundle e){String c=n==null||n.category==null?"":n.category;if(Notification.CATEGORY_MESSAGE.equals(c)||e.getParcelableArray(Notification.EXTRA_MESSAGES)!=null)return"message";if(Notification.CATEGORY_EMAIL.equals(c))return"email";if(Notification.CATEGORY_CALL.equals(c))return"call";if(Notification.CATEGORY_PROMO.equals(c))return"promotion";if(Notification.CATEGORY_SOCIAL.equals(c))return"social";if(Notification.CATEGORY_RECOMMENDATION.equals(c))return"recommendation";return"notification";}
     private static String str(CharSequence s){return s==null?"":s.toString().trim();}
 }
