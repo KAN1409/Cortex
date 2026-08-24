@@ -18,10 +18,10 @@ public final class PrimeBriefStore {
     }
 
     public static final class Snapshot {
-        public final ArrayList<Item> actions,waiting,decisions,changes;
+        public final ArrayList<Item> actions,waiting,decisions,changes,worthKnowing;
         public final ArrayList<ReviewQueueStore.Item> reviews;
-        Snapshot(ArrayList<Item>a,ArrayList<Item>w,ArrayList<Item>d,ArrayList<Item>c,ArrayList<ReviewQueueStore.Item>r){actions=a;waiting=w;decisions=d;changes=c;reviews=r;}
-        public boolean empty(){return actions.isEmpty()&&waiting.isEmpty()&&reviews.isEmpty()&&changes.isEmpty();}
+        Snapshot(ArrayList<Item>a,ArrayList<Item>w,ArrayList<Item>d,ArrayList<Item>c,ArrayList<Item>k,ArrayList<ReviewQueueStore.Item>r){actions=a;waiting=w;decisions=d;changes=c;worthKnowing=k;reviews=r;}
+        public boolean empty(){return actions.isEmpty()&&waiting.isEmpty()&&reviews.isEmpty()&&changes.isEmpty()&&worthKnowing.isEmpty();}
     }
 
     public static Snapshot load(VaultDb db){
@@ -30,8 +30,9 @@ public final class PrimeBriefStore {
         ArrayList<Item> waiting=query(db,"WAITING",12);
         ArrayList<Item> decisions=query(db,"DECISION",8);
         ArrayList<Item> changes=recentChanges(db,10);
+        ArrayList<Item> worth=worthKnowing(db,10);
         ArrayList<ReviewQueueStore.Item> reviews=ReviewQueueStore.pending(db,12);
-        return new Snapshot(actions,waiting,decisions,changes,reviews);
+        return new Snapshot(actions,waiting,decisions,changes,worth,reviews);
     }
 
     private static ArrayList<Item> query(VaultDb db,String kind,int limit){
@@ -44,6 +45,10 @@ public final class PrimeBriefStore {
         ArrayList<Item> out=new ArrayList<>();
         Cursor c=db.getReadableDatabase().rawQuery("SELECT id,kind,title,body,source_key,state,confidence,importance,thread_id,anchor_signal_id,updated_at FROM derived_items WHERE state IN ('open','pending') AND kind IN ('DECISION','PROJECT_CANDIDATE','GOAL_SIGNAL') ORDER BY updated_at DESC,importance DESC LIMIT ?",new String[]{String.valueOf(limit*3)});
         while(c.moveToNext())out.add(from(c));c.close();return dedupe(out,limit);
+    }
+
+    private static ArrayList<Item> worthKnowing(VaultDb db,int limit){
+        ArrayList<Item> out=new ArrayList<>();Cursor c=db.getReadableDatabase().rawQuery("SELECT id,kind,title,body,source_key,state,confidence,importance,thread_id,anchor_signal_id,updated_at FROM derived_items WHERE state='open' AND kind IN ('IDEA','OPPORTUNITY','INSIGHT','HYPOTHESIS') ORDER BY importance DESC,updated_at DESC LIMIT ?",new String[]{String.valueOf(limit*3)});while(c.moveToNext())out.add(from(c));c.close();return dedupe(out,limit);
     }
 
     private static ArrayList<Item> dedupe(ArrayList<Item> xs,int limit){
