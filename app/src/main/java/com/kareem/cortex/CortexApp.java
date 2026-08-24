@@ -9,6 +9,7 @@ import android.app.Application;
 public class CortexApp extends Application {
     @Override public void onCreate(){
         super.onCreate();
+        CrashRecorder.install(this);
         // Never open Cortex DB, run migrations, recovery or backfills on process start.
         // StartupMaintenance is scheduled by the first visible PRIME activity.
     }
