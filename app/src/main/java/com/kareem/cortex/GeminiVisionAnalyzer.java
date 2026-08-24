@@ -13,6 +13,7 @@ import java.util.Locale;
 /** Strong visual understanding path. OCR is supporting evidence, not the primary task. */
 public final class GeminiVisionAnalyzer {
     private static final String MODEL="gemini-3.6-flash";
+    private static final int MAX_JPEG_BYTES=4_000_000;
     private static final String PROMPT=
         "You are Cortex Visual Intelligence. Analyze the IMAGE ITSELF, not merely OCR. The user may save screenshots as products, design references, research, chats, documents, places, tasks, inspiration, or images with no text. Return strict JSON only. Preserve visible Arabic exactly in Arabic script and visible English in Latin script; do not transliterate Arabic. Describe meaningful visual content even if there is zero text. Schema: {"+
         "\"content_type\":\"product|design_reference|ui_reference|chat|document|receipt|web_research|place|photo|task|temporary_ui|other\","+
@@ -77,12 +78,29 @@ public final class GeminiVisionAnalyzer {
     private static void normalize(JSONObject r)throws Exception{if(!r.has("content_type"))r.put("content_type","other");if(!r.has("description"))r.put("description","");if(!r.has("visible_text"))r.put("visible_text","");if(!r.has("objects"))r.put("objects",new JSONArray());if(!r.has("facts"))r.put("facts",new JSONArray());if(!r.has("related_topics"))r.put("related_topics",new JSONArray());if(!r.has("suggested_actions"))r.put("suggested_actions",new JSONArray());if(!r.has("search_query"))r.put("search_query","");if(!r.has("recreation_prompt"))r.put("recreation_prompt","");if(!r.has("usefulness"))r.put("usefulness",new JSONObject().put("score",0).put("why",""));}
 
     private static Prepared prepare(File f,KnowledgeItem item)throws Exception{
-        BitmapFactory.Options o=new BitmapFactory.Options();o.inJustDecodeBounds=true;BitmapFactory.decodeFile(f.getAbsolutePath(),o);if(o.outWidth<=0||o.outHeight<=0)throw new IOException("Could not read screenshot dimensions");
         String hints=(nz(item.category)+" "+nz(item.tags)+" "+nz(item.title)).toLowerCase(Locale.ROOT);boolean textHeavy=nz(item.extractedText).length()>350||containsAny(hints,"document","receipt","settings","chat","web","research","product","prompt","email","terminal","code");
-        int target=textHeavy?3000:1800;int max=Math.max(o.outWidth,o.outHeight);int sample=1;while(max/sample>target*2)sample*=2;
-        BitmapFactory.Options d=new BitmapFactory.Options();d.inSampleSize=Math.max(1,sample);Bitmap b=BitmapFactory.decodeFile(f.getAbsolutePath(),d);if(b==null)throw new IOException("Could not decode screenshot");
-        int w=b.getWidth(),h=b.getHeight();float scale=Math.min(1f,target/(float)Math.max(w,h));Bitmap x=b;if(scale<0.999f){x=Bitmap.createScaledBitmap(b,Math.max(1,Math.round(w*scale)),Math.max(1,Math.round(h*scale)),true);if(x!=b)b.recycle();}
-        ByteArrayOutputStream out=new ByteArrayOutputStream();x.compress(Bitmap.CompressFormat.JPEG,textHeavy?92:88,out);int fw=x.getWidth(),fh=x.getHeight();x.recycle();return new Prepared(out.toByteArray(),fw,fh,target);
+        int target=textHeavy?2400:1700;long pixels=textHeavy?5_500_000L:3_000_000L;
+        Bitmap b=SafeImageDecoder.decode(f,target,pixels);if(b==null)throw new IOException("Could not decode screenshot safely");
+        try{
+            int w=b.getWidth(),h=b.getHeight();float scale=Math.min(1f,target/(float)Math.max(w,h));Bitmap x=b;
+            if(scale<0.999f){x=Bitmap.createScaledBitmap(b,Math.max(1,Math.round(w*scale)),Math.max(1,Math.round(h*scale)),true);if(x!=b)b.recycle();}
+            try{
+                byte[] bytes=compressBounded(x,textHeavy?88:84);
+                return new Prepared(bytes,x.getWidth(),x.getHeight(),target);
+            }finally{if(!x.isRecycled())x.recycle();}
+        }catch(Throwable t){if(!b.isRecycled())b.recycle();throw new IOException("Vision image preparation failed safely: "+t.getClass().getSimpleName(),t);}
+    }
+
+    private static byte[] compressBounded(Bitmap bitmap,int initialQuality)throws IOException{
+        int quality=initialQuality;
+        while(quality>=58){
+            ByteArrayOutputStream out=new ByteArrayOutputStream(Math.min(MAX_JPEG_BYTES,1_000_000));
+            if(!bitmap.compress(Bitmap.CompressFormat.JPEG,quality,out))throw new IOException("JPEG compression failed");
+            byte[] bytes=out.toByteArray();
+            if(bytes.length<=MAX_JPEG_BYTES)return bytes;
+            quality-=10;
+        }
+        throw new IOException("Prepared image exceeds safe payload size");
     }
 
     private static String extractText(JSONObject root){JSONArray cs=root.optJSONArray("candidates");if(cs==null||cs.length()==0)return"";JSONObject c=cs.optJSONObject(0);if(c==null)return"";JSONObject content=c.optJSONObject("content");if(content==null)return"";JSONArray p=content.optJSONArray("parts");if(p==null)return"";StringBuilder b=new StringBuilder();for(int i=0;i<p.length();i++){JSONObject q=p.optJSONObject(i);if(q!=null&&!q.optString("text","").isEmpty())b.append(q.optString("text","")).append('\n');}return b.toString();}
