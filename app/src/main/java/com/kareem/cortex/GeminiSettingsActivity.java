@@ -23,7 +23,7 @@ public class GeminiSettingsActivity extends Activity {
                 String key=keyField.getText().toString().trim(),model=modelField.getText().toString().trim();
                 if(!configured&&key.isEmpty()){keyField.setError("API key required");return;}
                 if(!GeminiModelConfig.setGenerationModel(this,model)){modelField.setError("Use a valid Gemini model id");return;}
-                try{if(!key.isEmpty())GeminiKeyStore.save(this,key);Toast.makeText(this,"Gemini settings saved",Toast.LENGTH_SHORT).show();d.dismiss();finish();}
+                try{if(!key.isEmpty())GeminiKeyStore.save(this,key);if(GeminiKeyStore.has(this))VisualIntelligenceScheduler.kick(this);Toast.makeText(this,"Gemini settings saved",Toast.LENGTH_SHORT).show();d.dismiss();finish();}
                 catch(Exception ex){Toast.makeText(this,"Could not save key: "+ex.getMessage(),Toast.LENGTH_LONG).show();}
             });
             if(configured)d.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener(x->{GeminiKeyStore.clear(this);Toast.makeText(this,"Gemini key removed",Toast.LENGTH_SHORT).show();d.dismiss();finish();});
