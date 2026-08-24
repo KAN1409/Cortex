@@ -20,9 +20,17 @@ public final class CognitiveStore {
 
     public static long addDerived(VaultDb db,String kind,String title,String body,String state,double confidence,int importance,String fingerprint,String metadataJson){
         ensure(db);long now=System.currentTimeMillis();ContentValues v=new ContentValues();v.put("kind",n(kind).toUpperCase());v.put("title",empty(title)?friendly(kind):title.trim());v.put("body",n(body));v.put("state",empty(state)?"open":state);v.put("confidence",confidence);v.put("importance",importance);v.put("fingerprint",n(fingerprint));v.put("metadata_json",n(metadataJson));v.put("created_at",now);v.put("updated_at",now);
-        long id=db.getWritableDatabase().insertWithOnConflict("derived_items",null,v,SQLiteDatabase.CONFLICT_IGNORE);if(id>0)return id;
-        if(!empty(fingerprint)){Cursor c=db.getReadableDatabase().query("derived_items",new String[]{"id"},"fingerprint=?",new String[]{fingerprint},null,null,null,"1");long existing=c.moveToFirst()?c.getLong(0):0;c.close();return existing;}
-        return id;
+        SQLiteDatabase sql=db.getWritableDatabase();long id=sql.insertWithOnConflict("derived_items",null,v,SQLiteDatabase.CONFLICT_IGNORE);if(id>0)return id;
+        if(empty(fingerprint))return id;
+
+        Cursor c=sql.query("derived_items",new String[]{"id","state"},"fingerprint=?",new String[]{fingerprint},null,null,null,"1");long existing=0;String existingState="";if(c.moveToFirst()){existing=c.getLong(0);existingState=n(c.getString(1));}c.close();if(existing<=0)return 0;
+        if(active(existingState))return existing;
+
+        // The same semantic obligation may legitimately recur after completion/expiry.
+        // Archive the historical fingerprint, then let the canonical fingerprint identify the new active occurrence.
+        ContentValues history=new ContentValues();history.put("fingerprint",Fingerprint.text("historical-derived|"+fingerprint+"|"+existing));history.put("updated_at",now);if(sql.update("derived_items",history,"id=? AND fingerprint=?",new String[]{String.valueOf(existing),fingerprint})<=0)return 0;
+        long retry=sql.insertWithOnConflict("derived_items",null,v,SQLiteDatabase.CONFLICT_IGNORE);if(retry>0)return retry;
+        Cursor current=sql.query("derived_items",new String[]{"id","state"},"fingerprint=?",new String[]{fingerprint},null,null,null,"1");long currentId=0;if(current.moveToFirst()&&active(n(current.getString(1))))currentId=current.getLong(0);current.close();return currentId;
     }
 
     /** Hot routing fields stay typed/indexed; metadata_json remains flexible provenance. */
@@ -42,6 +50,7 @@ public final class CognitiveStore {
 
     public static String schemaRevision(VaultDb db){ensure(db);Cursor c=db.getReadableDatabase().query("schema_meta",new String[]{"value"},"key='cognitive_schema'",null,null,null,null,"1");String x=c.moveToFirst()?c.getString(0):"";c.close();return x==null?"":x;}
 
+    private static boolean active(String state){return"open".equalsIgnoreCase(n(state))||"pending".equalsIgnoreCase(n(state));}
     private static String friendly(String kind){String x=n(kind).toLowerCase().replace('_',' ');return x.isEmpty()?"Derived intelligence":Character.toUpperCase(x.charAt(0))+x.substring(1);}
     private static boolean empty(String s){return s==null||s.trim().isEmpty();}
     private static String n(String s){return s==null?"":s;}
