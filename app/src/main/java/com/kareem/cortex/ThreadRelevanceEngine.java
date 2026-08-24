@@ -7,7 +7,7 @@ import org.json.JSONObject;
 
 /** Newest signal anchors the deterministic baseline; persistence is one short atomic transition. */
 public final class ThreadRelevanceEngine {
-    private static final String POLICY="thread_master_006";
+    private static final String POLICY="thread_master_007";
     private static final int CONTEXT_SIGNALS=8;
     private ThreadRelevanceEngine(){}
 
@@ -16,8 +16,6 @@ public final class ThreadRelevanceEngine {
         String context=SignalThreadStore.recentContext(db,threadId,CONTEXT_SIGNALS),evidence=context.isEmpty()?t.latestBody:context;
         MasterRelevanceFilter.Decision base=MasterRelevanceFilter.evaluateThread(t.latestBody,context);MasterRelevanceFilter.Decision d=AdaptiveRelevanceLearning.adapt(db,t.source,base);
         RelevanceEvaluationStore.deterministic(db,threadId,signalId,t.source,base,d);RelevanceDecisionStatusStore.ensure(db);
-
-        // Final semantics are written only by the same transaction that applies the corresponding signal/review/derived state.
         RelevanceDecisionStatusStore.pendingApply(db,signalId);
 
         SQLiteDatabase sql=db.getWritableDatabase();boolean applied=false,superseded=false;String failure="";sql.beginTransaction();
@@ -27,7 +25,7 @@ public final class ThreadRelevanceEngine {
                 if(!markSignal(sql,signalId,"context",d))throw new IllegalStateException("signal context transition failed");
                 if(!RelevanceDecisionStatusStore.writeFinal(sql,signalId,"deterministic+learning",d,0,"APPLIED"))throw new IllegalStateException("context evaluation transition failed");
             }else if(d.reviewable()){
-                long reviewId=ReviewQueueStore.enqueue(db,d.candidateKind,t.title,evidence,d.confidence,d.importance,threadId,signalId,d.reason,t.source);if(reviewId<=0)throw new IllegalStateException("Review persistence failed");
+                long reviewId=ReviewQueueStore.enqueue(db,d.candidateKind,t.title,evidence,d.confidence,d.importance,threadId,signalId,d.reason,t.source,t.latestBody);if(reviewId<=0)throw new IllegalStateException("Review persistence failed");
                 if(!markSignal(sql,signalId,"review",d))throw new IllegalStateException("signal Review transition failed");
                 if(!RelevanceDecisionStatusStore.writeFinal(sql,signalId,"review",d,reviewId,"APPLIED"))throw new IllegalStateException("Review evaluation transition failed");
             }else if(d.durable()){
@@ -47,14 +45,14 @@ public final class ThreadRelevanceEngine {
         return d;
     }
 
-    /** One open durable item per thread/kind; new supporting messages refresh it instead of duplicating it. */
+    /** One open durable item per thread/kind/semantic obligation, never merely thread+kind. */
     private static long upsertDerived(VaultDb db,ThreadSnapshot t,long threadId,long signalId,String evidence,MasterRelevanceFilter.Decision d){
         try{
-            SQLiteDatabase sql=db.getWritableDatabase();String kind=d.disposition.name();Cursor c=sql.query("derived_items",new String[]{"id"},"thread_id=? AND kind=? AND state='open'",new String[]{String.valueOf(threadId),kind},null,null,"updated_at DESC","1");long existing=c.moveToFirst()?c.getLong(0):0;c.close();
-            JSONObject meta=new JSONObject();meta.put("policy_version",POLICY);meta.put("learning_version",AdaptiveRelevanceLearning.VERSION);meta.put("thread_id",threadId);meta.put("raw_signal_id",signalId);meta.put("reason",d.reason);meta.put("source",t.source);meta.put("confidence",d.confidence);meta.put("context_signal_count",SignalThreadStore.signalCount(db,threadId));String title=empty(t.title)?friendly(kind):t.title+" · "+friendly(kind);long derived=existing;
-            if(existing>0){ContentValues v=new ContentValues();v.put("title",title);v.put("body",evidence);v.put("confidence",d.confidence);v.put("importance",d.importance);v.put("metadata_json",meta.toString());v.put("source_key",t.source);v.put("thread_id",threadId);v.put("anchor_signal_id",signalId);v.put("candidate_kind",kind);v.put("updated_at",System.currentTimeMillis());if(sql.update("derived_items",v,"id=?",new String[]{String.valueOf(existing)})<=0)return 0;}
-            else{String fp=Fingerprint.text("thread-derived|"+kind+"|"+threadId);derived=CognitiveStore.addDerived(db,kind,title,evidence,"open",d.confidence,d.importance,fp,meta.toString());if(derived<=0)return 0;CognitiveStore.setDerivedRouting(db,derived,t.source,threadId,signalId,kind);CognitiveStore.link(db,CognitiveTypes.ObjectType.THREAD,threadId,CognitiveTypes.ObjectType.DERIVED,derived,"produced",d.confidence,meta.toString());}
-            CognitiveStore.link(db,CognitiveTypes.ObjectType.RAW_SIGNAL,signalId,CognitiveTypes.ObjectType.DERIVED,derived,CognitiveTypes.Relation.SUPPORTS,1.0,"");return derived;
+            SQLiteDatabase sql=db.getWritableDatabase();String kind=d.disposition.name(),semanticKey=DerivedSemanticIdentity.key(kind,t.latestBody);Cursor c=sql.query("derived_items",new String[]{"id"},"thread_id=? AND kind=? AND state='open' AND COALESCE(semantic_key,'')=?",new String[]{String.valueOf(threadId),kind,semanticKey},null,null,"updated_at DESC","1");long existing=c.moveToFirst()?c.getLong(0):0;c.close();
+            JSONObject meta=new JSONObject();meta.put("policy_version",POLICY);meta.put("learning_version",AdaptiveRelevanceLearning.VERSION);meta.put("thread_id",threadId);meta.put("raw_signal_id",signalId);meta.put("reason",d.reason);meta.put("source",t.source);meta.put("confidence",d.confidence);meta.put("semantic_key",semanticKey);meta.put("context_signal_count",SignalThreadStore.signalCount(db,threadId));String title=empty(t.title)?friendly(kind):t.title+" · "+friendly(kind);long derived=existing;
+            if(existing>0){ContentValues v=new ContentValues();v.put("title",title);v.put("body",evidence);v.put("confidence",d.confidence);v.put("importance",d.importance);v.put("metadata_json",meta.toString());v.put("source_key",t.source);v.put("thread_id",threadId);v.put("anchor_signal_id",signalId);v.put("candidate_kind",kind);v.put("semantic_key",semanticKey);v.put("updated_at",System.currentTimeMillis());if(sql.update("derived_items",v,"id=?",new String[]{String.valueOf(existing)})<=0)return 0;}
+            else{String identity=semanticKey.isEmpty()?String.valueOf(signalId):semanticKey;String fp=Fingerprint.text("thread-derived|"+kind+"|"+threadId+"|"+identity);derived=CognitiveStore.addDerived(db,kind,title,evidence,"open",d.confidence,d.importance,fp,meta.toString());if(derived<=0)return 0;if(!CognitiveStore.setDerivedRoutingChecked(db,derived,t.source,threadId,signalId,kind,semanticKey))return 0;if(!CognitiveStore.linkChecked(db,CognitiveTypes.ObjectType.THREAD,threadId,CognitiveTypes.ObjectType.DERIVED,derived,"produced",d.confidence,meta.toString()))return 0;}
+            if(!CognitiveStore.linkChecked(db,CognitiveTypes.ObjectType.RAW_SIGNAL,signalId,CognitiveTypes.ObjectType.DERIVED,derived,CognitiveTypes.Relation.SUPPORTS,1.0,""))return 0;return derived;
         }catch(Throwable e){DiagnosticsLog.error(db,"ThreadRelevanceEngine","derive",e,"THREAD_DERIVE",0,threadId,signalId,0,0,null);return 0;}
     }
 
