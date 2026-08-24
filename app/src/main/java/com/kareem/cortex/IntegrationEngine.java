@@ -23,6 +23,7 @@ public final class IntegrationEngine {
         String[] cols={ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME,ContactsContract.CommonDataKinds.Phone.NUMBER,ContactsContract.CommonDataKinds.Phone.CONTACT_ID};
         Cursor c=ctx.getContentResolver().query(ContactsContract.CommonDataKinds.Phone.CONTENT_URI,cols,null,null,ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME+" ASC");
         if(c!=null){while(c.moveToNext()&&n<1000){String name=nz(c.getString(0)),phone=nz(c.getString(1));if(name.isEmpty()||phone.isEmpty())continue;String canonical=PhoneNumberNormalizer.canonical(phone);String key=contactKey(name,canonical.isEmpty()?phone:canonical);if(!seen.add(key))continue;String body=name+"\nPhone: "+phone;long id=db.insert("CONTACT","contacts_sync",name,body,"People","person,contact","",Fingerprint.text("contact|"+key),"{\"phone_identity\":\""+json(canonical)+"\"}");if(id>0)n++;}c.close();}
+        ContactSafetyMaintenance.run(db);
         FeatureStore.logIntegration(db,"contacts","ok",n+" contacts imported");if(n>0)AnalysisQueue.kick(ctx,db,null);return n;
     }
 
