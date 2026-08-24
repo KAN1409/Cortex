@@ -12,14 +12,22 @@ import java.util.*;
 
 public class ShareImporter {
     private final Context ctx;private final VaultDb db;public ShareImporter(Context c,VaultDb d){ctx=c;db=d;}
+
+    /** Import exactly one ACTION_SEND payload and return the real knowledge item id. */
+    public long importSingle(Intent i){
+        if(i==null||!Intent.ACTION_SEND.equals(i.getAction()))return 0;
+        String mime=i.getType();Uri u=readUri(i);
+        if(mime!=null&&mime.startsWith("image/")&&u!=null)return saveImage(u,mime);
+        if(mime!=null&&mime.startsWith("audio/")&&u!=null)return saveAudio(u,mime);
+        if(u!=null)return saveFile(u,mime);
+        String text=i.getStringExtra(Intent.EXTRA_TEXT);
+        return text!=null&&!text.trim().isEmpty()?saveText(text,mime):0;
+    }
+
     public int importIntent(Intent i){
         if(i==null)return 0;String action=i.getAction(),mime=i.getType();int n=0;
         if(Intent.ACTION_SEND.equals(action)){
-            Uri u=readUri(i);
-            if(mime!=null&&mime.startsWith("image/")&&u!=null){if(saveImage(u,mime)>0)n++;}
-            else if(mime!=null&&mime.startsWith("audio/")&&u!=null){if(saveAudio(u,mime)>0)n++;}
-            else if(u!=null){if(saveFile(u,mime)>0)n++;}
-            else{String text=i.getStringExtra(Intent.EXTRA_TEXT);if(text!=null&&!text.trim().isEmpty()&&saveText(text,mime)>0)n++;}
+            if(importSingle(i)>0)n++;
         }else if(Intent.ACTION_SEND_MULTIPLE.equals(action)){
             ArrayList<Uri> us=i.getParcelableArrayListExtra(Intent.EXTRA_STREAM);if(us!=null)for(Uri u:us){long id=(mime!=null&&mime.startsWith("image/"))?saveImage(u,mime):(mime!=null&&mime.startsWith("audio/"))?saveAudio(u,mime):saveFile(u,mime);if(id>0)n++;}
         }
