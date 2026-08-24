@@ -6,17 +6,20 @@ import org.json.JSONObject;
 
 /** Temporary/raw signal layer. Only promoted signals enter durable Cortex memory. */
 public final class RawSignalStore {
-    private static final String FAST_POLICY="relevance_fast_002";
+    private static final String FAST_POLICY="relevance_fast_003";
     private RawSignalStore(){}
 
     public static void ensure(VaultDb db){CognitiveStore.ensure(db);}
 
     public static long capture(VaultDb db,MasterRelevanceFilter.Signal signal){
-        ensure(db);cleanup(db);String contentHash=Fingerprint.text(signal.text());String fp=Fingerprint.text(signal.kind+"|"+signal.source+"|"+signal.title+"|"+signal.body+"|"+(signal.occurredAt/60000));long existing=find(db,fp);if(existing>0)return existing;MasterRelevanceFilter.Decision decision=MasterRelevanceFilter.evaluateFast(signal);long now=System.currentTimeMillis(),retention=retentionUntil(now,decision.disposition);
+        ensure(db);cleanup(db);String contentHash=Fingerprint.text(signal.text());String fp=Fingerprint.text(signal.kind+"|"+signal.source+"|"+signal.title+"|"+signal.body+"|"+(signal.occurredAt/60000));long existing=find(db,fp);if(existing>0)return existing;MasterRelevanceFilter.Decision decision=fastDecision(signal);long now=System.currentTimeMillis(),retention=retentionUntil(now,decision.disposition);
         ContentValues v=new ContentValues();v.put("kind",signal.kind);v.put("source",signal.source);v.put("title",signal.title);v.put("body",signal.body);v.put("metadata_json",signal.metadataJson);v.put("fingerprint",fp);v.put("content_hash",contentHash);v.put("state","filtered");v.put("disposition",decision.disposition.name());v.put("importance",decision.importance);v.put("confidence",decision.confidence);v.put("policy_version",FAST_POLICY);v.put("filter_engine","deterministic_fast_gate");v.put("reason",decision.reason);v.put("occurred_at",signal.occurredAt>0?signal.occurredAt:now);v.put("retention_until",retention);v.put("created_at",now);v.put("updated_at",now);
         long signalId=db.getWritableDatabase().insert("raw_signals",null,v);if(signalId<=0){DiagnosticsLog.warn(db,"RawSignalStore","capture_insert","failed","RAW_SIGNAL_INSERT",0,0,0,0,0,null);return signalId;}
         long threadId=SignalThreadStore.attach(db,signalId,signal);if(threadId>0)ThreadRelevanceEngine.onSignal(db,threadId,signalId);if(decision.durable())promote(db,signalId,threadId,signal,decision);return signalId;
     }
+
+    /** Explicit screen understanding is evidence/context only; UI text can never auto-create durable intelligence. */
+    private static MasterRelevanceFilter.Decision fastDecision(MasterRelevanceFilter.Signal s){if(s!=null&&"screen_context".equalsIgnoreCase(s.kind))return new MasterRelevanceFilter.Decision(MasterRelevanceFilter.Disposition.CONTEXT,38,"explicit screen evidence; short-lived context until the user asks or promotes it","",0.94);return MasterRelevanceFilter.evaluateFast(s);}
 
     private static void promote(VaultDb db,long signalId,long threadId,MasterRelevanceFilter.Signal s,MasterRelevanceFilter.Decision d){
         try{
