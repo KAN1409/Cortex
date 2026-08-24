@@ -43,7 +43,7 @@ public final class GeminiAudioTranscriber {
         JSONObject root=new JSONObject(body);String text=extractText(root).trim();
         text=text.replaceAll("^```(?:text)?\\s*"," ").replaceAll("```$"," ").replaceAll("\\s+"," ").trim();
         if(text.isEmpty())throw new IOException("Gemini returned an empty transcript");
-        TranscriptResult r=new TranscriptResult();r.text=text;r.rawTranscript=text;r.providerMergedTranscript=text;r.engine=MODEL+"+audio";r.version="gemini-audio-v2";r.durationMs=duration(audio);r.processedDurationMs=0;r.coverage=0;r.language=detectLanguage(text);r.rawProviderResponse=body;return r;
+        long duration=duration(audio);TranscriptResult r=new TranscriptResult();r.text=text;r.rawTranscript=text;r.providerMergedTranscript=text;r.engine=MODEL+"+audio";r.version="gemini-audio-v3";r.durationMs=duration;r.processedDurationMs=duration;r.coverage=duration>0?1.0:0;r.language=detectLanguage(text);r.rawProviderResponse=body;return r;
     }
 
     private static String extractText(JSONObject root){
