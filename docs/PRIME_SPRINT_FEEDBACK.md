@@ -79,6 +79,27 @@ Contacts and Calendar default to `Local only` for cloud use. `Never collect` is 
 
 Manual Text/Voice captures feed the unified derived graph rather than remaining only in legacy action tables. Strong explicit tasks can become Actions; ambiguous action-like clauses go through Review; explicit Waiting, Decision, Goal, Idea, Opportunity and Hypothesis language is preserved as derived intelligence. Project mentions become Project Candidates only and still require explicit confirmation. Historical intentional captures are backfilled with fingerprint dedupe.
 
+## Visual Intelligence Gemini quota / request storm
+**Status:** IMPLEMENTED
+
+The 2026-08-24 diagnostic baseline showed 43 visual insight rows: 10 done, 7 skipped/protected and 26 failed, with repeated Gemini HTTP 429 quota errors. Rate limits must be treated as temporary provider state, never permanent image failure.
+
+Implementation checkpoint:
+- `VisionRateLimitGate` enforces a conservative rolling request budget plus provider-wide cooldown.
+- HTTP 429 uses the provider retry hint when available and stops immediate in-call retry.
+- Visual items enter `rate_limited`, keep their original evidence, and resume through delayed WorkManager work.
+- Visual pipeline v50 gives pre-v50 failures one safe retry, allowing the historical 429 backlog to recover gradually.
+- Manual Visual Intelligence shows `Waiting for Gemini quota` instead of `Visual analysis failed`.
+
+Runtime validation remains required after the new build.
+
+## Brain local refinement latency
+**Status:** IMPLEMENTED
+
+The same diagnostic baseline showed grounded retrieval completing in about 598 ms while optional local Qwen refinement took about 31.5 s. The default Brain `Your data` route remains grounded-fast. The optional `Improve wording` route now uses a compact prompt (top 4 sources with shorter excerpts, grounded draft included) and a 96-token output ceiling rather than the previous larger context / 180-token ceiling.
+
+Runtime validation remains required; empirical device latency will determine whether local refinement remains worth exposing.
+
 ## Rolling rule
 When a new user observation arrives:
 1. Record it here.
