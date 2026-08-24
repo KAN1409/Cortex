@@ -4,31 +4,42 @@ import android.content.ContentValues;
 import android.database.Cursor;
 import org.json.JSONObject;
 
-/** Temporary/raw signal layer. Only promoted signals enter durable Cortex memory. */
+/** Temporary/raw signal layer. Only an applied authoritative decision may enter durable Cortex memory. */
 public final class RawSignalStore {
-    private static final String FAST_POLICY="relevance_fast_003";
+    private static final String FAST_POLICY="relevance_fast_004";
     private RawSignalStore(){}
 
     public static void ensure(VaultDb db){CognitiveStore.ensure(db);}
 
     public static long capture(VaultDb db,MasterRelevanceFilter.Signal signal){
-        ensure(db);cleanup(db);String contentHash=Fingerprint.text(signal.text());String fp=Fingerprint.text(signal.kind+"|"+signal.source+"|"+signal.title+"|"+signal.body+"|"+(signal.occurredAt/60000));long existing=find(db,fp);if(existing>0)return existing;MasterRelevanceFilter.Decision decision=fastDecision(signal);long now=System.currentTimeMillis(),retention=retentionUntil(now,decision.disposition);
-        ContentValues v=new ContentValues();v.put("kind",signal.kind);v.put("source",signal.source);v.put("title",signal.title);v.put("body",signal.body);v.put("metadata_json",signal.metadataJson);v.put("fingerprint",fp);v.put("content_hash",contentHash);v.put("state","filtered");v.put("disposition",decision.disposition.name());v.put("importance",decision.importance);v.put("confidence",decision.confidence);v.put("policy_version",FAST_POLICY);v.put("filter_engine","deterministic_fast_gate");v.put("reason",decision.reason);v.put("occurred_at",signal.occurredAt>0?signal.occurredAt:now);v.put("retention_until",retention);v.put("created_at",now);v.put("updated_at",now);
+        ensure(db);cleanup(db);String contentHash=Fingerprint.text(signal.text());String fp=Fingerprint.text(signal.kind+"|"+signal.source+"|"+signal.title+"|"+signal.body+"|"+(signal.occurredAt/60000));long existing=find(db,fp);if(existing>0)return existing;MasterRelevanceFilter.Decision fast=fastDecision(signal);long now=System.currentTimeMillis(),retention=retentionUntil(now,fast.disposition);
+        ContentValues v=new ContentValues();v.put("kind",signal.kind);v.put("source",signal.source);v.put("title",signal.title);v.put("body",signal.body);v.put("metadata_json",signal.metadataJson);v.put("fingerprint",fp);v.put("content_hash",contentHash);v.put("state","filtered");v.put("disposition",fast.disposition.name());v.put("importance",fast.importance);v.put("confidence",fast.confidence);v.put("policy_version",FAST_POLICY);v.put("filter_engine","deterministic_fast_gate");v.put("reason",fast.reason);v.put("occurred_at",signal.occurredAt>0?signal.occurredAt:now);v.put("retention_until",retention);v.put("created_at",now);v.put("updated_at",now);
         long signalId=db.getWritableDatabase().insert("raw_signals",null,v);if(signalId<=0){DiagnosticsLog.warn(db,"RawSignalStore","capture_insert","failed","RAW_SIGNAL_INSERT",0,0,0,0,0,null);return signalId;}
-        long threadId=SignalThreadStore.attach(db,signalId,signal);if(threadId>0)ThreadRelevanceEngine.onSignal(db,threadId,signalId);if(decision.durable())promote(db,signalId,threadId,signal,decision);return signalId;
+
+        long threadId=SignalThreadStore.attach(db,signalId,signal);MasterRelevanceFilter.Decision authority=fast;boolean threadAuthority=false;
+        if(threadId>0){MasterRelevanceFilter.Decision threaded=ThreadRelevanceEngine.onSignal(db,threadId,signalId);if(threaded!=null){authority=threaded;threadAuthority=true;}}
+
+        // The fast gate is only authoritative when there is no thread-aware policy. Never promote from a stale fast decision.
+        if(authority.durable()&&(!threadAuthority||RelevanceDecisionStatusStore.isApplied(db,signalId)))promote(db,signalId,threadId,signal,authority,!threadAuthority);
+        return signalId;
     }
 
     /** Explicit screen understanding is evidence/context only; UI text can never auto-create durable intelligence. */
     private static MasterRelevanceFilter.Decision fastDecision(MasterRelevanceFilter.Signal s){if(s!=null&&"screen_context".equalsIgnoreCase(s.kind))return new MasterRelevanceFilter.Decision(MasterRelevanceFilter.Disposition.CONTEXT,38,"explicit screen evidence; short-lived context until the user asks or promotes it","",0.94);return MasterRelevanceFilter.evaluateFast(s);}
 
-    private static void promote(VaultDb db,long signalId,long threadId,MasterRelevanceFilter.Signal s,MasterRelevanceFilter.Decision d){
+    /**
+     * Materialize the raw signal as a knowledge item. Thread-aware policy already owns its derived intelligence,
+     * so createDerived=false prevents a second ACTION/WAITING/DECISION from the same notification.
+     */
+    private static long promote(VaultDb db,long signalId,long threadId,MasterRelevanceFilter.Signal s,MasterRelevanceFilter.Decision d,boolean createDerived){
         try{
-            JSONObject meta=new JSONObject();meta.put("raw_signal_id",signalId);if(threadId>0)meta.put("thread_id",threadId);meta.put("source",s.source);meta.put("occurred_at",s.occurredAt);meta.put("relevance_disposition",d.disposition.name());meta.put("importance",d.importance);meta.put("filter_reason",d.reason);meta.put("policy_version",FAST_POLICY);if(!s.metadataJson.isEmpty())meta.put("source_metadata",new JSONObject(s.metadataJson));
-            String title=s.title.isEmpty()?friendlyTitle(s):s.title,tags="signal,"+s.kind.toLowerCase()+",importance_"+d.importance;long itemId=db.insert(typeFor(s),s.source,title,s.body,categoryFor(s,d),tags,"",Fingerprint.text("promoted-signal|"+signalId),meta.toString());
-            if(itemId>0){ContentValues u=new ContentValues();u.put("promoted_item_id",itemId);u.put("state","promoted");u.put("retention_until",0);u.put("updated_at",System.currentTimeMillis());db.getWritableDatabase().update("raw_signals",u,"id=?",new String[]{String.valueOf(signalId)});CognitiveStore.link(db,"raw_signal",signalId,"memory",itemId,"promoted_to",1.0,"{\"policy\":\""+FAST_POLICY+"\"}");if(threadId>0)CognitiveStore.link(db,"memory",itemId,"thread",threadId,"from_thread",1.0,"");
-                if(d.disposition==MasterRelevanceFilter.Disposition.ACTION||d.disposition==MasterRelevanceFilter.Disposition.WAITING||d.disposition==MasterRelevanceFilter.Disposition.DECISION){long derived=CognitiveStore.addDerived(db,d.disposition.name(),title,s.body,"open",d.confidence,d.importance,Fingerprint.text("derived|"+d.disposition.name()+"|"+signalId),meta.toString());if(derived>0){CognitiveStore.setDerivedRouting(db,derived,s.source,threadId,signalId,d.disposition.name());CognitiveStore.link(db,"raw_signal",signalId,"derived",derived,"supports",1.0,"");CognitiveStore.link(db,"derived",derived,"memory",itemId,"grounded_by",1.0,"");if(threadId>0)CognitiveStore.link(db,"derived",derived,"thread",threadId,"derived_from_thread",1.0,"");}}
+            JSONObject meta=new JSONObject();meta.put("raw_signal_id",signalId);if(threadId>0)meta.put("thread_id",threadId);meta.put("source",s.source);meta.put("occurred_at",s.occurredAt);meta.put("relevance_disposition",d.disposition.name());meta.put("importance",d.importance);meta.put("filter_reason",d.reason);meta.put("policy_version",createDerived?FAST_POLICY:"thread_authority");if(!s.metadataJson.isEmpty())meta.put("source_metadata",new JSONObject(s.metadataJson));
+            String title=s.title.isEmpty()?friendlyTitle(s):s.title,tags="signal,"+s.kind.toLowerCase()+",importance_"+d.importance;long inserted=db.insert(typeFor(s),s.source,title,s.body,categoryFor(s,d),tags,"",Fingerprint.text("promoted-signal|"+signalId),meta.toString());long itemId=inserted<0?-inserted:inserted;
+            if(itemId>0){ContentValues u=new ContentValues();u.put("promoted_item_id",itemId);u.put("state","promoted");u.put("retention_until",0);u.put("updated_at",System.currentTimeMillis());db.getWritableDatabase().update("raw_signals",u,"id=?",new String[]{String.valueOf(signalId)});CognitiveStore.link(db,"raw_signal",signalId,"memory",itemId,"promoted_to",1.0,"{\"policy\":\""+(createDerived?FAST_POLICY:"thread_authority")+"\"}");if(threadId>0)CognitiveStore.link(db,"memory",itemId,"thread",threadId,"from_thread",1.0,"");
+                if(createDerived&&(d.disposition==MasterRelevanceFilter.Disposition.ACTION||d.disposition==MasterRelevanceFilter.Disposition.WAITING||d.disposition==MasterRelevanceFilter.Disposition.DECISION)){long derived=CognitiveStore.addDerived(db,d.disposition.name(),title,s.body,"open",d.confidence,d.importance,Fingerprint.text("derived|"+d.disposition.name()+"|"+signalId),meta.toString());if(derived>0){CognitiveStore.setDerivedRouting(db,derived,s.source,threadId,signalId,d.disposition.name());CognitiveStore.link(db,"raw_signal",signalId,"derived",derived,"supports",1.0,"");CognitiveStore.link(db,"derived",derived,"memory",itemId,"grounded_by",1.0,"");if(threadId>0)CognitiveStore.link(db,"derived",derived,"thread",threadId,"derived_from_thread",1.0,"");}}
             }
-        }catch(Throwable e){DiagnosticsLog.error(db,"RawSignalStore","promote",e,"RAW_SIGNAL_PROMOTE",0,threadId,signalId,0,0,null);}
+            return itemId;
+        }catch(Throwable e){DiagnosticsLog.error(db,"RawSignalStore","promote",e,"RAW_SIGNAL_PROMOTE",0,threadId,signalId,0,0,null);return 0;}
     }
 
     public static long promotedItemId(VaultDb db,long signalId){ensure(db);Cursor c=db.getReadableDatabase().query("raw_signals",new String[]{"promoted_item_id"},"id=?",new String[]{String.valueOf(signalId)},null,null,null,"1");long id=c.moveToFirst()?c.getLong(0):0;c.close();return id;}
