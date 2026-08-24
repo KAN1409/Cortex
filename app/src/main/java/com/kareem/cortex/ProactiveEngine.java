@@ -10,6 +10,7 @@ public final class ProactiveEngine {
     private ProactiveEngine(){}
 
     public static ArrayList<ProactiveSignal> scan(Context ctx,VaultDb db,int limit){
+        ContactSafetyMaintenance.run(db);
         ArrayList<ProactiveSignal> out=new ArrayList<>();long now=System.currentTimeMillis();
         for(BrainOpenLoop l:SecondBrainEngine.openLoops(db,120)){
             double age=Math.max(0,(now-l.createdAt)/(double)DAY);double p=.80+Math.min(.18,age/120.0)+(empty(l.due)?.0:.12);
