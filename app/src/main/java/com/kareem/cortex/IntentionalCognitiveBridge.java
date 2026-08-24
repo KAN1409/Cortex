@@ -5,8 +5,12 @@ import java.util.*;
 
 /** Bridges analyzed intentional captures into the unified derived graph without turning passive evidence into tasks. */
 public final class IntentionalCognitiveBridge {
-    public static final String POLICY="intentional_bridge_001";
+    public static final String POLICY="intentional_bridge_002";
     private IntentionalCognitiveBridge(){}
+
+    public static void backfill(VaultDb db,int limit){
+        if(db==null)return;int seen=0;for(KnowledgeItem item:db.lexicalSearch("",Math.max(1,limit*3))){if(seen>=limit)break;if(item==null||!"analyzed".equals(item.status)||!intentional(item))continue;String text=n(item.extractedText);if(text.isEmpty())text=n(item.rawText);if(text.isEmpty())text=n(item.summary);if(text.isEmpty())continue;try{AnalysisResult r=LocalAnalyzer.analyze(text,"text/plain");r.extractedText=text;r.title=n(item.title);afterAnalysis(db,item,r);seen++;}catch(Throwable ignored){}}
+    }
 
     public static void afterAnalysis(VaultDb db,KnowledgeItem item,AnalysisResult r){
         if(db==null||item==null||r==null)return;CognitiveStore.ensure(db);
