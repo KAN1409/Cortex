@@ -31,7 +31,7 @@ public class PremiumHomeActivity extends Activity {
     void header(){
         LinearLayout head=new LinearLayout(this);head.setOrientation(LinearLayout.HORIZONTAL);head.setGravity(Gravity.CENTER_VERTICAL);
         LinearLayout titles=new LinearLayout(this);titles.setOrientation(LinearLayout.VERTICAL);TextView title=CortexUi.plain(this,"Brief",31,CortexUi.TEXT);CortexUi.medium(title);titles.addView(title);
-        TextView subtitle=CortexUi.text(this,"What needs you now, what is waiting, and what changed.",11,CortexUi.MUTED);subtitle.setPadding(0,dp(3),0,0);titles.addView(subtitle);head.addView(titles,new LinearLayout.LayoutParams(0,-2,1));
+        TextView subtitle=CortexUi.text(this,"What needs you now, what is waiting, and what is worth knowing.",11,CortexUi.MUTED);subtitle.setPadding(0,dp(3),0,0);titles.addView(subtitle);head.addView(titles,new LinearLayout.LayoutParams(0,-2,1));
         TextView settings=CortexUi.chip(this,"Settings",CortexUi.MUTED,false);settings.setOnClickListener(v->open(SettingsActivity.class));head.addView(settings,new LinearLayout.LayoutParams(-2,dp(36)));content.addView(head);
     }
 
@@ -45,7 +45,7 @@ public class PremiumHomeActivity extends Activity {
         while(content.getChildCount()>1)content.removeViewAt(1);
         if(s.empty()){
             LinearLayout empty=CortexUi.card(this,24);empty.setPadding(dp(18),dp(28),dp(18),dp(28));TextView h=CortexUi.plain(this,"Nothing needs you right now",19,CortexUi.TEXT);CortexUi.medium(h);empty.addView(h);
-            TextView b=CortexUi.text(this,"Cortex will surface confirmed actions, waiting items, reviews and meaningful changes here — not ordinary notification noise.",12,CortexUi.MUTED);b.setPadding(0,dp(7),0,0);empty.addView(b);LinearLayout.LayoutParams ep=new LinearLayout.LayoutParams(-1,-2);ep.setMargins(0,dp(22),0,0);content.addView(empty,ep);return;
+            TextView b=CortexUi.text(this,"Cortex will surface confirmed actions, waiting items, reviews, decisions and useful intelligence here — not ordinary notification noise.",12,CortexUi.MUTED);b.setPadding(0,dp(7),0,0);empty.addView(b);LinearLayout.LayoutParams ep=new LinearLayout.LayoutParams(-1,-2);ep.setMargins(0,dp(22),0,0);content.addView(empty,ep);return;
         }
         if(!s.actions.isEmpty()){content.addView(CortexUi.section(this,"Needs you"));for(int i=0;i<Math.min(6,s.actions.size());i++)derivedRow(s.actions.get(i));}
         if(!s.waiting.isEmpty()){content.addView(CortexUi.section(this,"Waiting"));for(int i=0;i<Math.min(5,s.waiting.size());i++)derivedRow(s.waiting.get(i));}
@@ -54,6 +54,7 @@ public class PremiumHomeActivity extends Activity {
             for(int i=0;i<Math.min(4,s.reviews.size());i++)reviewRow(s.reviews.get(i));
             TextView all=CortexUi.action(this,"Review all ("+s.reviews.size()+")",CortexUi.MUTED,false);all.setOnClickListener(v->open(ReviewQueueActivity.class));LinearLayout.LayoutParams ap=new LinearLayout.LayoutParams(-1,dp(42));ap.setMargins(0,dp(8),0,0);content.addView(all,ap);
         }
+        if(!s.worthKnowing.isEmpty()){content.addView(CortexUi.section(this,"Worth knowing"));for(int i=0;i<Math.min(6,s.worthKnowing.size());i++)derivedRow(s.worthKnowing.get(i));}
         if(!s.changes.isEmpty()){content.addView(CortexUi.section(this,"Changed & evolving"));for(int i=0;i<Math.min(6,s.changes.size());i++)derivedRow(s.changes.get(i));}
     }
 
@@ -84,8 +85,8 @@ public class PremiumHomeActivity extends Activity {
 
     void renderError(){while(content.getChildCount()>1)content.removeViewAt(1);TextView t=CortexUi.text(this,"Brief could not load right now. Your data is still safe.",12,CortexUi.MUTED);t.setPadding(0,dp(24),0,0);content.addView(t);}
     void open(Class<?> c){Intent i=new Intent(this,c);i.addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT|Intent.FLAG_ACTIVITY_SINGLE_TOP);startActivity(i);}
-    String friendlyKind(String k){String x=n(k).toUpperCase(Locale.ROOT);if("ACTION".equals(x))return"Action";if("WAITING".equals(x))return"Waiting";if("DECISION".equals(x))return"Decision";if("PROJECT_CANDIDATE".equals(x))return"Project";if("GOAL_SIGNAL".equals(x))return"Goal";return x.isEmpty()?"Update":x;}
-    int kindColor(String k){if("ACTION".equalsIgnoreCase(k))return CortexUi.ACCENT;if("WAITING".equalsIgnoreCase(k))return CortexUi.GOLD;if("DECISION".equalsIgnoreCase(k))return CortexUi.SAGE;return CortexUi.MUTED;}
+    String friendlyKind(String k){String x=n(k).toUpperCase(Locale.ROOT);if("ACTION".equals(x))return"Action";if("WAITING".equals(x))return"Waiting";if("DECISION".equals(x))return"Decision";if("PROJECT_CANDIDATE".equals(x))return"Project";if("GOAL_SIGNAL".equals(x))return"Goal";if("IDEA".equals(x))return"Idea";if("OPPORTUNITY".equals(x))return"Opportunity";if("INSIGHT".equals(x))return"Insight";if("HYPOTHESIS".equals(x))return"Hypothesis";return x.isEmpty()?"Update":x;}
+    int kindColor(String k){if("ACTION".equalsIgnoreCase(k))return CortexUi.ACCENT;if("WAITING".equalsIgnoreCase(k))return CortexUi.GOLD;if("DECISION".equalsIgnoreCase(k))return CortexUi.SAGE;if("OPPORTUNITY".equalsIgnoreCase(k)||"IDEA".equalsIgnoreCase(k)||"INSIGHT".equalsIgnoreCase(k))return CortexUi.SAGE;return CortexUi.MUTED;}
     String sourceLabel(String s){String x=n(s);if(x.isEmpty())return"Cortex";int p=x.lastIndexOf('.');if(p>=0&&p<x.length()-1)x=x.substring(p+1);x=x.replace('_',' ');return Character.toUpperCase(x.charAt(0))+x.substring(1);}
     String cleanTitle(String s,String kind){String x=n(s);if(x.isEmpty())return friendlyKind(kind);x=x.replace(" · Action","").replace(" · Waiting","").replace(" · Decision","").replace(" · Review action","").replace(" · Review waiting","").replace(" · Review decision","");return x.trim();}
     String cleanBody(String s){return n(s).replace("\n---\n","\n").trim();}
