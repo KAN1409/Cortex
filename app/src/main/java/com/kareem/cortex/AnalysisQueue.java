@@ -1,6 +1,7 @@
 package com.kareem.cortex;
 
 import android.content.Context;
+import org.json.JSONObject;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 public final class AnalysisQueue {
@@ -16,7 +17,19 @@ public final class AnalysisQueue {
         }else if("FILE".equals(item.type)){
             try{finish(db,item.id,AttachmentAnalyzer.analyze(item),changed);}catch(Exception e){AnalysisQueue.fail(db,item.id,e,changed);}next(ctx,db,changed);
         }else{
-            try{AnalysisResult r=LocalAnalyzer.analyze(item.rawText,"text/plain");db.applyAnalysis(item.id,r);post(db,item.id);}catch(Exception e){db.markFailed(item.id,e.getMessage());}if(changed!=null)changed.run();next(ctx,db,changed);
+            try{
+                AnalysisResult r=LocalAnalyzer.analyze(item.rawText,"text/plain");
+                guardPassiveSources(db,item,r);
+                db.applyAnalysis(item.id,r);post(db,item.id);
+            }catch(Exception e){db.markFailed(item.id,e.getMessage());}
+            if(changed!=null)changed.run();next(ctx,db,changed);
+        }
+    }
+    private static void guardPassiveSources(VaultDb db,KnowledgeItem item,AnalysisResult r){
+        if(item==null||r==null)return;
+        if("CONTACT".equals(item.type)&&"contacts_sync".equals(item.source)&&!r.actions.isEmpty()){
+            int suppressed=r.actions.size();r.actions.clear();
+            try{JSONObject m=new JSONObject();m.put("suppressed_actions",suppressed);m.put("policy","contacts_are_passive_evidence");DiagnosticsLog.info(db,"analysis","contact_action_suppressed","safe",item.id,0,0,0,0,0,m);}catch(Throwable ignored){}
         }
     }
     private static void finish(VaultDb db,long id,AnalysisResult r,Runnable changed){db.applyAnalysis(id,r);post(db,id);if(changed!=null)changed.run();}
