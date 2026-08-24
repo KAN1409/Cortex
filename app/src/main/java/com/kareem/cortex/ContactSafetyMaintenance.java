@@ -9,16 +9,17 @@ import java.util.Locale;
 
 /** Idempotent cleanup for legacy contact false-actions. Contacts remain searchable context. */
 public final class ContactSafetyMaintenance {
-    public static final String VERSION="contact_safety_001";
+    public static final String VERSION="contact_safety_002";
     private ContactSafetyMaintenance(){}
 
     public static void run(VaultDb db){
         if(db==null)return;
         try{
-            FeatureStore.ensure(db);SQLiteDatabase s=db.getWritableDatabase();
+            FeatureStore.ensure(db);SQLiteDatabase s=db.getWritableDatabase();long now=System.currentTimeMillis();
             int removed=s.delete("actions","item_id IN (SELECT id FROM knowledge_items WHERE type='CONTACT' AND source='contacts_sync')",null);
 
-            ContentValues v=new ContentValues();v.put("bucket","Person");v.put("reviewed",1);v.put("attention_dismissed",1);v.put("snoozed_until",0);v.put("updated_at",System.currentTimeMillis());
+            s.execSQL("INSERT OR IGNORE INTO smart_inbox(item_id,bucket,reviewed,pinned,updated_at,snoozed_until,manual_bucket,attention_dismissed) SELECT id,'Person',1,0,"+now+",0,0,1 FROM knowledge_items WHERE type='CONTACT' AND source='contacts_sync'");
+            ContentValues v=new ContentValues();v.put("bucket","Person");v.put("reviewed",1);v.put("attention_dismissed",1);v.put("snoozed_until",0);v.put("updated_at",now);
             int quieted=s.update("smart_inbox",v,"manual_bucket=0 AND item_id IN (SELECT id FROM knowledge_items WHERE type='CONTACT' AND source='contacts_sync')",null);
 
             int duplicateVariants=countCanonicalDuplicateVariants(db);
