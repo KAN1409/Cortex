@@ -16,19 +16,23 @@ import java.util.Locale;
 public final class GeminiAudioTranscriber {
     public interface Callback{void ok(TranscriptResult r);void fail(Exception e);}
     private static final String MODEL="gemini-3.6-flash";
+    /** Inline Base64 duplicates memory several times (raw bytes + Base64 + JSON). Keep a mobile-safe ceiling. */
+    public static final long MAX_SAFE_INLINE_BYTES=8_000_000L;
     private static final String PROMPT="Transcribe this audio verbatim. Speech may switch between Egyptian Arabic and English. Preserve Egyptian Arabic as spoken, preserve every spoken English word in Latin letters, and do not translate, summarize, paraphrase, or convert Egyptian Arabic to Modern Standard Arabic. Return only the transcript text.";
     private GeminiAudioTranscriber(){}
 
     public static void transcribe(Context context,File audio,Callback cb){
         final Context app=context.getApplicationContext();
-        new Thread(()->{try{cb.ok(call(app,audio));}catch(Exception e){cb.fail(e);}},"CortexGeminiASR").start();
+        new Thread(()->{try{cb.ok(call(app,audio));}catch(Throwable e){cb.fail(asException(e));}},"CortexGeminiASR").start();
     }
 
     private static TranscriptResult call(Context context,File audio)throws Exception{
         if(audio==null||!audio.exists()||audio.length()==0)throw new IllegalArgumentException("Missing audio file");
+        if(audio.length()>MAX_SAFE_INLINE_BYTES)throw new IOException("Gemini inline audio skipped for memory safety: "+audio.length()+" bytes exceeds "+MAX_SAFE_INLINE_BYTES);
         String key=GeminiKeyStore.get(context);if(key.isEmpty())throw new IllegalStateException("Gemini API key not configured");
-        byte[] bytes=readBytes(audio);
+        byte[] bytes=readBytesBounded(audio,MAX_SAFE_INLINE_BYTES);
         String b64=Base64.encodeToString(bytes,Base64.NO_WRAP);
+        bytes=null; // let the raw buffer be reclaimed before building the larger JSON string.
         JSONObject inline=new JSONObject().put("mimeType",mime(audio)).put("data",b64);
         JSONArray parts=new JSONArray().put(new JSONObject().put("text",PROMPT)).put(new JSONObject().put("inlineData",inline));
         JSONArray contents=new JSONArray().put(new JSONObject().put("role","user").put("parts",parts));
@@ -43,16 +47,17 @@ public final class GeminiAudioTranscriber {
         JSONObject root=new JSONObject(body);String text=extractText(root).trim();
         text=text.replaceAll("^```(?:text)?\\s*"," ").replaceAll("```$"," ").replaceAll("\\s+"," ").trim();
         if(text.isEmpty())throw new IOException("Gemini returned an empty transcript");
-        long duration=duration(audio);TranscriptResult r=new TranscriptResult();r.text=text;r.rawTranscript=text;r.providerMergedTranscript=text;r.engine=MODEL+"+audio";r.version="gemini-audio-v3";r.durationMs=duration;r.processedDurationMs=duration;r.coverage=duration>0?1.0:0;r.language=detectLanguage(text);r.rawProviderResponse=body;return r;
+        long duration=duration(audio);TranscriptResult r=new TranscriptResult();r.text=text;r.rawTranscript=text;r.providerMergedTranscript=text;r.engine=MODEL+"+audio";r.version="gemini-audio-v4-safe-inline";r.durationMs=duration;r.processedDurationMs=duration;r.coverage=duration>0?1.0:0;r.language=detectLanguage(text);r.rawProviderResponse=body;return r;
     }
 
     private static String extractText(JSONObject root){
         JSONArray cs=root.optJSONArray("candidates");if(cs==null||cs.length()==0)return "";JSONObject c=cs.optJSONObject(0);if(c==null)return "";JSONObject content=c.optJSONObject("content");if(content==null)return "";JSONArray parts=content.optJSONArray("parts");if(parts==null)return "";StringBuilder b=new StringBuilder();for(int i=0;i<parts.length();i++){JSONObject p=parts.optJSONObject(i);if(p==null)continue;String t=p.optString("text","");if(!t.isEmpty()){if(b.length()>0)b.append(' ');b.append(t);}}return b.toString();
     }
-    private static byte[] readBytes(File f)throws Exception{try(InputStream in=new BufferedInputStream(new FileInputStream(f));ByteArrayOutputStream b=new ByteArrayOutputStream()){byte[] buf=new byte[65536];for(int n;(n=in.read(buf))!=-1;)b.write(buf,0,n);return b.toByteArray();}}
+    private static byte[] readBytesBounded(File f,long max)throws Exception{long len=f.length();if(len<=0||len>max)throw new IOException("Audio file outside safe inline size");try(InputStream in=new BufferedInputStream(new FileInputStream(f));ByteArrayOutputStream b=new ByteArrayOutputStream((int)Math.min(len,max))){byte[] buf=new byte[65536];long total=0;for(int n;(n=in.read(buf))!=-1;){total+=n;if(total>max)throw new IOException("Audio grew beyond safe inline size while reading");b.write(buf,0,n);}return b.toByteArray();}}
     private static String read(InputStream in)throws Exception{if(in==null)return "";try(InputStream x=in;ByteArrayOutputStream b=new ByteArrayOutputStream()){byte[] buf=new byte[8192];for(int n;(n=x.read(buf))!=-1;)b.write(buf,0,n);return b.toString("UTF-8");}}
-    private static long duration(File f){try{MediaMetadataRetriever m=new MediaMetadataRetriever();m.setDataSource(f.getAbsolutePath());String d=m.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION);m.release();return d==null?0:Long.parseLong(d);}catch(Exception e){return 0;}}
+    private static long duration(File f){MediaMetadataRetriever m=null;try{m=new MediaMetadataRetriever();m.setDataSource(f.getAbsolutePath());String d=m.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION);return d==null?0:Long.parseLong(d);}catch(Throwable e){return 0;}finally{if(m!=null)try{m.release();}catch(Throwable ignored){}}}
     private static String mime(File f){String n=f.getName().toLowerCase(Locale.ROOT);if(n.endsWith(".wav"))return "audio/wav";if(n.endsWith(".m4a"))return "audio/mp4";if(n.endsWith(".mp3"))return "audio/mpeg";if(n.endsWith(".ogg"))return "audio/ogg";return "audio/wav";}
     private static String detectLanguage(String s){int ar=0,la=0;for(int i=0;i<s.length();i++){char c=s.charAt(i);if(c>=0x0600&&c<=0x06ff)ar++;else if((c>='A'&&c<='Z')||(c>='a'&&c<='z'))la++;}if(ar>0&&la>0)return "Arabic+English";if(ar>0)return "Arabic";if(la>0)return "English";return "auto";}
     private static String compact(String s){if(s==null)return "";String x=s.replaceAll("\\s+"," ").trim();return x.length()>500?x.substring(0,500)+"…":x;}
+    private static Exception asException(Throwable t){return t instanceof Exception?(Exception)t:new IOException(t.getClass().getSimpleName()+": "+(t.getMessage()==null?"audio failure":t.getMessage()),t);}
 }
