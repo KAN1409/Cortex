@@ -12,6 +12,7 @@ public class CortexApp extends Application {
                 db=new VaultDb(this);
                 CognitiveSchema.ensure(db.getWritableDatabase());
                 ContactSafetyMaintenance.run(db);
+                EntityGraphMaintenance.run(db);
                 IntentionalCognitiveBridge.backfill(db,250);
                 EnvironmentPreflight.run(this);
             }catch(Throwable ignored){
