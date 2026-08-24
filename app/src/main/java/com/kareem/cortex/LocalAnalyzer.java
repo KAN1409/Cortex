@@ -13,14 +13,22 @@ public final class LocalAnalyzer {
         AnalysisResult table=TabularAnalyzer.analyze(src);
         if(table!=null){extractEntities(src,table);extractActions(src,table);return table;}
         AnalysisResult r=new AnalysisResult();
-        r.title=AutoClassifier.title(src,mime);
-        r.category=AutoClassifier.category(src,mime);
-        r.tags=AutoClassifier.tags(src,r.category);
-        r.summary=summarize(src);
+        boolean code=isCodeLike(src);
+        r.title=code?codeTitle(src):AutoClassifier.title(src,mime);
+        r.category=code?"Code & Commands":AutoClassifier.category(src,mime);
+        r.tags=code?mergeTags(AutoClassifier.tags(src,r.category),"code,commands,technical"):AutoClassifier.tags(src,r.category);
+        r.summary=code?codeSummary(src):summarize(src);
         extractEntities(src,r);
-        extractActions(src,r);
+        // Code/configuration text is evidence about a technical workflow, not a personal instruction.
+        if(!code)extractActions(src,r);
+        r.engine=code?"local_code_understanding":"local_rules";
         return r;
     }
+
+    private static boolean isCodeLike(String s){if(s==null||s.trim().isEmpty())return false;String x=s.toLowerCase(Locale.ROOT);int score=0;if(x.contains("#!/"))score+=3;if(x.contains("git ")||x.contains("gradle")||x.contains("./gradlew")||x.contains("bash "))score+=2;if(x.contains("cd ~/")||x.contains("~/cortex"))score+=2;if(x.contains("cat <<")||x.contains("sed -i")||x.contains("grep -")||x.contains("am start"))score+=2;if(x.contains("public class ")||x.contains("private static ")||x.contains("import android."))score+=3;if(x.contains("{")&&x.contains("}")&&x.contains(";"))score+=2;int lines=s.split("\\r?\\n").length;if(lines>=4&&score>=2)score++;return score>=3;}
+    private static String codeTitle(String s){String x=s.toLowerCase(Locale.ROOT);if(x.contains("~/cortex")||x.contains("com.kareem.cortex"))return"Cortex technical commands";if(x.contains("gradle")||x.contains("./gradlew"))return"Android build commands";if(x.contains("git "))return"Git commands";return"Captured code / commands";}
+    private static String codeSummary(String s){String x=s.toLowerCase(Locale.ROOT);ArrayList<String> parts=new ArrayList<>();if(x.contains("~/cortex")||x.contains("com.kareem.cortex"))parts.add("This is technical material related to the Cortex project");else parts.add("This is a code or command sequence");if(x.contains("git pull")||x.contains("git fetch"))parts.add("it updates source from Git");if(x.contains("gradle")||x.contains("termux-build-cortex.sh"))parts.add("it builds the Android app");if(x.contains("am start"))parts.add("it launches or tests an Android activity");if(x.contains("sed -i")||x.contains("cat <<"))parts.add("it modifies project files");String out=String.join("; ",parts)+". Cortex kept the original code as evidence rather than treating command words as personal tasks.";return out;}
+    private static String mergeTags(String a,String b){LinkedHashSet<String>s=new LinkedHashSet<>();for(String x:(a==null?"":a).split(","))if(!x.trim().isEmpty())s.add(x.trim());for(String x:b.split(","))if(!x.trim().isEmpty())s.add(x.trim());return String.join(",",s);}
 
     private static String summarize(String t){String one=t.replaceAll("\\s+"," ").trim();if(one.isEmpty())return "No text content.";String[] parts=one.split("(?<=[.!?؟])\\s+");StringBuilder s=new StringBuilder();for(String p:parts){if(p.trim().isEmpty())continue;if(s.length()>0)s.append(' ');s.append(p.trim());if(s.length()>=220||countSentences(s.toString())>=2)break;}String out=s.length()==0?one:s.toString();return out.length()>360?out.substring(0,360)+"…":out;}
     private static int countSentences(String s){int n=0;for(char c:s.toCharArray())if(c=='.'||c=='!'||c=='?'||c=='؟')n++;return n;}
@@ -47,14 +55,9 @@ public final class LocalAnalyzer {
     private static void extractActions(String t,AnalysisResult r){
         LinkedHashSet<String> unique=new LinkedHashSet<>();
         String normalized=t.replace('\n',' ').replace('\r',' ');
-        // Meaningful clause boundaries, not language switches.
         String[] clauses=normalized.split("(?<=[.!?؟;؛])\\s+|\\s+(?:و?بعدها|then|and then)\\s+|\\s+(?=ولو|وإذا|واذا|if\\s)");
         String[] keys={"todo","to-do","remind","follow up","follow-up","need to","must ","should ","call ","send ","book ","schedule ","check ","review ","upload ","fix ","لازم","محتاج","عاوز","عايز","فكرني","افتكر","ابعت","أبعت","كلم","أكلم","اكلم","احجز","راجع","شوف","اشتري","أشتري","أتابع","اتابع","هتابع"};
-        for(String clause:clauses){String c=clause.replaceAll("\\s+"," ").trim();if(c.length()<4)continue;String low=c.toLowerCase(Locale.US);boolean hit=false;for(String k:keys)if(low.contains(k.toLowerCase(Locale.US))){hit=true;break;}if(!hit)continue;
-            // Split an overloaded clause into actionable chunks around explicit follow-up conditions.
-            ArrayList<String> parts=new ArrayList<>();Matcher m=Pattern.compile("(?i)(.+?)(?=\\s+(?:ولو|وإذا|واذا|if\\s)|$)").matcher(c);while(m.find()){String x=m.group(1).trim();if(!x.isEmpty())parts.add(x);}if(parts.isEmpty())parts.add(c);
-            for(String a:parts){String action=cleanAction(a);if(action.length()<4||!unique.add(action.toLowerCase(Locale.US)))continue;r.actions.add(new AnalysisResult.Action(action,guessDue(a)));if(r.actions.size()>=12)return;}
-        }
+        for(String clause:clauses){String c=clause.replaceAll("\\s+"," ").trim();if(c.length()<4)continue;String low=c.toLowerCase(Locale.US);boolean hit=false;for(String k:keys)if(low.contains(k.toLowerCase(Locale.US))){hit=true;break;}if(!hit)continue;ArrayList<String> parts=new ArrayList<>();Matcher m=Pattern.compile("(?i)(.+?)(?=\\s+(?:ولو|وإذا|واذا|if\\s)|$)").matcher(c);while(m.find()){String x=m.group(1).trim();if(!x.isEmpty())parts.add(x);}if(parts.isEmpty())parts.add(c);for(String a:parts){String action=cleanAction(a);if(action.length()<4||!unique.add(action.toLowerCase(Locale.US)))continue;r.actions.add(new AnalysisResult.Action(action,guessDue(a)));if(r.actions.size()>=12)return;}}
     }
     private static String cleanAction(String s){String x=s.trim().replaceAll("^[•▪◦*-]+\\s*","").replaceAll("\\s+"," ");return x.length()>260?x.substring(0,260)+"…":x;}
     private static String guessDue(String s){String low=s.toLowerCase(Locale.US);String[] hints={"today","tomorrow","tonight","next week","next month","sunday","monday","tuesday","wednesday","thursday","friday","saturday","النهاردة","بكرة","بكره","الاسبوع الجاي","الأسبوع الجاي","الشهر الجاي","الأحد","الاتنين","الثلاثاء","الأربعاء","الخميس","الجمعة","السبت"};for(String h:hints)if(low.contains(h.toLowerCase(Locale.US)))return h;Matcher m=Pattern.compile("\\b[0-3]?\\d[/-][01]?\\d(?:[/-](?:19|20)?\\d{2})?\\b").matcher(s);return m.find()?m.group():"";}
