@@ -25,7 +25,8 @@
         <activity android:name=".SettingsActivity" android:exported="false" />
         <activity android:name=".ReviewQueueActivity" android:exported="false" />
         <activity android:name=".RelevanceEvaluationActivity" android:exported="false" />
-        <activity android:name=".CaptureActivity" android:exported="true" android:theme="@style/CaptureSheetTheme">
+        <activity android:name=".CaptureResultActivity" android:exported="false" />
+        <activity android:name=".CaptureActivity" android:exported="true" android:theme="@style/CaptureSheetTheme" android:windowSoftInputMode="adjustResize">
             <intent-filter><action android:name="android.intent.action.SEND" /><category android:name="android.intent.category.DEFAULT" /><data android:mimeType="*/*" /></intent-filter>
             <intent-filter><action android:name="android.intent.action.SEND_MULTIPLE" /><category android:name="android.intent.category.DEFAULT" /><data android:mimeType="*/*" /></intent-filter>
         </activity>
