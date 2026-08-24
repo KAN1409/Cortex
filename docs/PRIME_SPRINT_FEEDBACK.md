@@ -100,6 +100,17 @@ The same diagnostic baseline showed grounded retrieval completing in about 598 m
 
 Runtime validation remains required; empirical device latency will determine whether local refinement remains worth exposing.
 
+## Gemini external code-review recommendations
+**Status:** IMPLEMENTED / DEFERRED-PERF
+
+Review of the user-provided Gemini code suggestions against current `main`:
+- Dynamic Brain model configuration: implemented with `GeminiModelConfig`; External/Combined model id is runtime configurable from Gemini settings without an app rebuild.
+- Dynamic Combined evidence windows: implemented as a bounded 4,800-character evidence budget with 480–1,200 characters per source, preserving more context when few sources exist without uncontrolled prompt growth.
+- OCR regex compilation: implemented in `OcrGarbageGate` using precompiled `Pattern` instances for token cleanup, whitespace splitting and line scoring hot paths.
+- `ThreadModelAdjudicator` regex compilation: deliberately deferred. Its trivial-message regex work is tiny compared with 4B local-model inference, and changing a correctness-sensitive relevance file for microsecond-level savings is not justified until profiling shows it matters.
+
+Runtime/compile validation remains required for the implemented changes.
+
 ## Rolling rule
 When a new user observation arrives:
 1. Record it here.
