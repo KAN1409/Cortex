@@ -37,11 +37,13 @@ public final class ReviewQueueStore {
     public static ArrayList<Item> pending(VaultDb db,int limit){CognitiveStore.ensure(db);expireStale(db);return pendingRaw(db,limit,"1=1",null);}
 
     public static Item pendingForSignal(VaultDb db,long signalId){if(signalId<=0)return null;CognitiveStore.ensure(db);expireStale(db);ArrayList<Item> xs=pendingRaw(db,1,"anchor_signal_id=?",new String[]{String.valueOf(signalId)});return xs.isEmpty()?null:xs.get(0);}
-    public static Item pendingForThreadCandidate(VaultDb db,long threadId,String candidateKind){return pendingForThreadCandidate(db,threadId,candidateKind,"","");}
-    public static Item pendingForThreadCandidate(VaultDb db,long threadId,String candidateKind,String sourceKey){return pendingForThreadCandidate(db,threadId,candidateKind,sourceKey,"");}
+    public static Item pendingForThreadCandidate(VaultDb db,long threadId,String candidateKind){return pendingForThreadCandidateBroad(db,threadId,candidateKind,"");}
+    public static Item pendingForThreadCandidate(VaultDb db,long threadId,String candidateKind,String sourceKey){return pendingForThreadCandidateBroad(db,threadId,candidateKind,sourceKey);}
+    /** Semantic-specific lookup used by the new adjudicator; separate obligations in one thread do not collide. */
     public static Item pendingForThreadCandidate(VaultDb db,long threadId,String candidateKind,String sourceKey,String semanticKey){
         if(threadId<=0)return null;String kind=validCandidate(candidateKind);if(kind.isEmpty())return null;CognitiveStore.ensure(db);expireStale(db);String where="thread_id=? AND candidate_kind=? AND COALESCE(semantic_key,'')=?";ArrayList<String> args=new ArrayList<>();args.add(String.valueOf(threadId));args.add(kind);args.add(n(semanticKey));if(!n(sourceKey).isEmpty()){where+=" AND source_key=?";args.add(n(sourceKey));}ArrayList<Item> xs=pendingRaw(db,1,where,args.toArray(new String[0]));return xs.isEmpty()?null:xs.get(0);
     }
+    private static Item pendingForThreadCandidateBroad(VaultDb db,long threadId,String candidateKind,String sourceKey){if(threadId<=0)return null;String kind=validCandidate(candidateKind);if(kind.isEmpty())return null;CognitiveStore.ensure(db);expireStale(db);String where="thread_id=? AND candidate_kind=?";ArrayList<String> args=new ArrayList<>();args.add(String.valueOf(threadId));args.add(kind);if(!n(sourceKey).isEmpty()){where+=" AND source_key=?";args.add(n(sourceKey));}ArrayList<Item> xs=pendingRaw(db,1,where,args.toArray(new String[0]));return xs.isEmpty()?null:xs.get(0);}
 
     /** Silence is expiration, not negative feedback. */
     public static int expireStale(VaultDb db){CognitiveStore.ensure(db);long now=System.currentTimeMillis(),normalCutoff=now-REVIEW_TTL_MS,highCutoff=now-HIGH_IMPORTANCE_TTL_MS;ContentValues v=new ContentValues();v.put("state","expired");v.put("resolved_at",now);v.put("updated_at",now);return db.getWritableDatabase().update("derived_items",v,"kind='REVIEW' AND state='pending' AND ((importance<70 AND created_at<?) OR (importance>=70 AND created_at<?))",new String[]{String.valueOf(normalCutoff),String.valueOf(highCutoff)});}
