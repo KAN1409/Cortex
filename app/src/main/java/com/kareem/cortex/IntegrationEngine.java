@@ -4,6 +4,7 @@ import android.content.*;
 import android.database.Cursor;
 import android.provider.CalendarContract;
 import android.provider.ContactsContract;
+import org.json.JSONObject;
 import java.text.SimpleDateFormat;
 import java.util.*;
 
@@ -22,21 +23,20 @@ public final class IntegrationEngine {
         int n=0;HashSet<String> seen=new HashSet<>();preloadExistingContactKeys(db,seen);
         String[] cols={ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME,ContactsContract.CommonDataKinds.Phone.NUMBER,ContactsContract.CommonDataKinds.Phone.CONTACT_ID};
         Cursor c=ctx.getContentResolver().query(ContactsContract.CommonDataKinds.Phone.CONTENT_URI,cols,null,null,ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME+" ASC");
-        if(c!=null){while(c.moveToNext()&&n<1000){String name=nz(c.getString(0)),phone=nz(c.getString(1));if(name.isEmpty()||phone.isEmpty())continue;String canonical=PhoneNumberNormalizer.canonical(phone);String key=contactKey(name,canonical.isEmpty()?phone:canonical);if(!seen.add(key))continue;String body=name+"\nPhone: "+phone;long id=db.insert("CONTACT","contacts_sync",name,body,"People","person,contact","",Fingerprint.text("contact|"+key),"{\"phone_identity\":\""+json(canonical)+"\"}");if(id>0)n++;}c.close();}
+        if(c!=null){while(c.moveToNext()&&n<1000){String name=nz(c.getString(0)),phone=nz(c.getString(1));long contactId=c.getLong(2);if(name.isEmpty()||phone.isEmpty())continue;String canonical=PhoneNumberNormalizer.canonical(phone);String identity=canonical.isEmpty()?phone:canonical;String key=contactKey(name,identity,contactId);if(!seen.add(key))continue;String body=name+"\nPhone: "+phone;String meta="{\"phone_identity\":\""+json(canonical)+"\",\"contact_id\":"+Math.max(0,contactId)+"}";long id=db.insert("CONTACT","contacts_sync",name,body,"People","person,contact","",Fingerprint.text("contact|"+key),meta);if(id>0)n++;}c.close();}
         ContactSafetyMaintenance.run(db);
         EntityGraphMaintenance.run(db);
         FeatureStore.logIntegration(db,"contacts","ok",n+" contacts imported");if(n>0)AnalysisQueue.kick(ctx,db,null);return n;
     }
 
     private static void preloadExistingContactKeys(VaultDb db,Set<String> seen){
-        Cursor c=db.getReadableDatabase().rawQuery("SELECT title,raw_text FROM knowledge_items WHERE type='CONTACT' AND source='contacts_sync'",null);
+        Cursor c=db.getReadableDatabase().rawQuery("SELECT title,raw_text,metadata_json FROM knowledge_items WHERE type='CONTACT' AND source='contacts_sync'",null);
         while(c.moveToNext()){
-            String name=nz(c.getString(0)),raw=nz(c.getString(1)),phone=extractPhone(raw);if(name.isEmpty()||phone.isEmpty())continue;
-            String canonical=PhoneNumberNormalizer.canonical(phone);seen.add(contactKey(name,canonical.isEmpty()?phone:canonical));
+            String name=nz(c.getString(0)),raw=nz(c.getString(1)),meta=nz(c.getString(2)),phone=extractPhone(raw);if(name.isEmpty()||phone.isEmpty())continue;String canonical=PhoneNumberNormalizer.canonical(phone),identity=canonical.isEmpty()?phone:canonical;long contactId=0;try{contactId=new JSONObject(meta).optLong("contact_id",0);}catch(Exception ignored){}seen.add(contactKey(name,identity,contactId));
         }c.close();
     }
     private static String extractPhone(String raw){int i=raw.indexOf("Phone:");return i<0?"":raw.substring(i+6).trim().split("\\n",2)[0].trim();}
-    private static String contactKey(String name,String phoneIdentity){return name.trim().replaceAll("\\s+"," ").toLowerCase(Locale.ROOT)+"|"+phoneIdentity;}
+    private static String contactKey(String name,String phoneIdentity,long contactId){String owner=contactId>0?"cid:"+contactId:name.trim().replaceAll("\\s+"," ").toLowerCase(Locale.ROOT);return owner+"|"+phoneIdentity;}
     private static String json(String s){return (s==null?"":s).replace("\\","\\\\").replace("\"","\\\"");}
     private static String nz(String s){return s==null?"":s.trim();}
 }
