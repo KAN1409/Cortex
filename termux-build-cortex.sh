@@ -6,6 +6,7 @@ APK_SRC="$REPO_DIR/app/build/outputs/apk/debug/app-debug.apk"
 APK_OUT="/sdcard/Download/Cortex-v50-debug.apk"
 BUILD_LOG="$REPO_DIR/termux-build-last.log"
 BUILD_LOG_OUT="/sdcard/Download/Cortex-build-last.log"
+CLEAN_BUILD="${CORTEX_CLEAN_BUILD:-0}"
 
 log(){ printf '\n==> %s\n' "$*"; }
 fail(){ printf '\nERROR: %s\n' "$*" >&2; exit 1; }
@@ -42,14 +43,18 @@ if grep -q '^android.aapt2FromMavenOverride=' "$HOME/.gradle/gradle.properties";
 log "Java: $(java -version 2>&1 | head -n 1)"
 log "Android SDK: $ANDROID_HOME"
 log "AAPT2: $(aapt2 version 2>&1 | head -n 1)"
-log "Building Cortex v50"
+if [ "$CLEAN_BUILD" = "1" ]; then
+  log "Removing previous build outputs for a clean rebuild"
+  rm -rf "$REPO_DIR/app/build" "$REPO_DIR/build"
+fi
+log "Building Cortex v50${CLEAN_BUILD:+ (clean mode available)}"
 rm -f "$BUILD_LOG"
 set +e
 if [ -x ./gradlew ]; then
-  ./gradlew :app:assembleDebug --stacktrace --console=plain 2>&1 | tee "$BUILD_LOG"
+  if [ "$CLEAN_BUILD" = "1" ]; then ./gradlew :app:clean :app:assembleDebug --stacktrace --console=plain 2>&1 | tee "$BUILD_LOG"; else ./gradlew :app:assembleDebug --stacktrace --console=plain 2>&1 | tee "$BUILD_LOG"; fi
   BUILD_RC=${PIPESTATUS[0]}
 else
-  gradle :app:assembleDebug --stacktrace --console=plain 2>&1 | tee "$BUILD_LOG"
+  if [ "$CLEAN_BUILD" = "1" ]; then gradle :app:clean :app:assembleDebug --stacktrace --console=plain 2>&1 | tee "$BUILD_LOG"; else gradle :app:assembleDebug --stacktrace --console=plain 2>&1 | tee "$BUILD_LOG"; fi
   BUILD_RC=${PIPESTATUS[0]}
 fi
 set -e
@@ -69,4 +74,4 @@ cp -f "$APK_SRC" "$APK_OUT"
 sha256sum "$APK_OUT" | tee "$APK_OUT.sha256"
 log "Build complete"
 printf 'APK: %s\n' "$APK_OUT"
-printf 'Install over the existing Cortex build; do not uninstall.\n'
+printf 'Install over the existing Cortex build to preserve app data.\n'
