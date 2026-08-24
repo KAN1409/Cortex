@@ -7,7 +7,7 @@ import org.json.JSONObject;
 
 /** Newest signal anchors the deterministic baseline; persistence is one short atomic transition. */
 public final class ThreadRelevanceEngine {
-    private static final String POLICY="thread_master_005";
+    private static final String POLICY="thread_master_006";
     private static final int CONTEXT_SIGNALS=8;
     private ThreadRelevanceEngine(){}
 
@@ -17,13 +17,13 @@ public final class ThreadRelevanceEngine {
         MasterRelevanceFilter.Decision base=MasterRelevanceFilter.evaluateThread(t.latestBody,context);MasterRelevanceFilter.Decision d=AdaptiveRelevanceLearning.adapt(db,t.source,base);
         RelevanceEvaluationStore.deterministic(db,threadId,signalId,t.source,base,d);RelevanceDecisionStatusStore.ensure(db);
 
-        // Review/durable baselines are not final semantics until their backing persistence succeeds.
-        if(d.reviewable()||d.durable())RelevanceDecisionStatusStore.pendingApply(db,signalId);
+        // Final semantics are written only by the same transaction that applies the corresponding signal/review/derived state.
+        RelevanceDecisionStatusStore.pendingApply(db,signalId);
 
         SQLiteDatabase sql=db.getWritableDatabase();boolean applied=false,superseded=false;String failure="";sql.beginTransaction();
         try{
-            if(latestSignalId(sql,threadId)!=signalId){superseded=true;return d;}
-            if(d.disposition==MasterRelevanceFilter.Disposition.CONTEXT||d.disposition==MasterRelevanceFilter.Disposition.IGNORE){
+            if(latestSignalId(sql,threadId)!=signalId){superseded=true;}
+            else if(d.disposition==MasterRelevanceFilter.Disposition.CONTEXT||d.disposition==MasterRelevanceFilter.Disposition.IGNORE){
                 if(!markSignal(sql,signalId,"context",d))throw new IllegalStateException("signal context transition failed");
                 if(!RelevanceDecisionStatusStore.writeFinal(sql,signalId,"deterministic+learning",d,0,"APPLIED"))throw new IllegalStateException("context evaluation transition failed");
             }else if(d.reviewable()){
@@ -35,10 +35,10 @@ public final class ThreadRelevanceEngine {
                 if(!markSignal(sql,signalId,"derived",d))throw new IllegalStateException("signal durable transition failed");
                 if(!RelevanceDecisionStatusStore.writeFinal(sql,signalId,"deterministic+learning",d,0,"APPLIED"))throw new IllegalStateException("durable evaluation transition failed");
             }else{
-                // Non-durable unsupported baseline: keep the raw signal filtered without inventing a final semantic transition.
-                RelevanceDecisionStatusStore.writeFinal(sql,signalId,"deterministic+learning",d,0,"APPLIED");
+                if(!markSignal(sql,signalId,"context",d))throw new IllegalStateException("signal fallback transition failed");
+                if(!RelevanceDecisionStatusStore.writeFinal(sql,signalId,"deterministic+learning",d,0,"APPLIED"))throw new IllegalStateException("fallback evaluation transition failed");
             }
-            sql.setTransactionSuccessful();applied=true;
+            if(!superseded){sql.setTransactionSuccessful();applied=true;}
         }catch(Throwable e){failure=e.getMessage()==null?e.getClass().getSimpleName():e.getMessage();}
         finally{sql.endTransaction();}
 
