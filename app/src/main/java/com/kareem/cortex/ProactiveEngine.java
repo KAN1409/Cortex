@@ -16,7 +16,7 @@ public final class ProactiveEngine {
             out.add(new ProactiveSignal("OPEN_LOOP",l.action, l.title+(empty(l.due)?"":" • due: "+l.due),empty(l.due)?"Unclosed action":"Action with a due hint",l.itemId,p));
         }
         SharedPreferences sp=ctx.getSharedPreferences("proactive",Context.MODE_PRIVATE);
-        Cursor c=db.getReadableDatabase().rawQuery("SELECT id,created_at FROM knowledge_items WHERE status='analyzed' AND created_at<? ORDER BY created_at DESC LIMIT 220",new String[]{String.valueOf(now-7*DAY)});
+        Cursor c=db.getReadableDatabase().rawQuery("SELECT id,created_at FROM knowledge_items WHERE status='analyzed' AND created_at<? AND NOT (type='CONTACT' AND source='contacts_sync') ORDER BY created_at DESC LIMIT 220",new String[]{String.valueOf(now-7*DAY)});
         while(c.moveToNext()){
             long id=c.getLong(0),created=c.getLong(1);long last=sp.getLong("surfaced_"+id,0);if(last>0&&now-last<7*DAY)continue;
             KnowledgeItem k=db.getById(id);if(k==null)continue;int open=openCount(db,id);double age=Math.max(1,(now-created)/(double)DAY);
@@ -32,6 +32,6 @@ public final class ProactiveEngine {
     }
 
     public static void markSurfaced(Context ctx,Collection<ProactiveSignal> xs){SharedPreferences.Editor e=ctx.getSharedPreferences("proactive",Context.MODE_PRIVATE).edit();long now=System.currentTimeMillis();for(ProactiveSignal s:xs)if(s.itemId>0)e.putLong("surfaced_"+s.itemId,now);e.apply();}
-    private static int openCount(VaultDb db,long id){Cursor c=db.getReadableDatabase().rawQuery("SELECT COUNT(*) FROM actions WHERE item_id=? AND status='open'",new String[]{String.valueOf(id)});int n=c.moveToFirst()?c.getInt(0):0;c.close();return n;}
+    private static int openCount(VaultDb db,long id){Cursor c=db.getReadableDatabase().rawQuery("SELECT COUNT(*) FROM actions a JOIN knowledge_items k ON k.id=a.item_id WHERE a.item_id=? AND a.status='open' AND NOT (k.type='CONTACT' AND k.source='contacts_sync')",new String[]{String.valueOf(id)});int n=c.moveToFirst()?c.getInt(0):0;c.close();return n;}
     private static boolean empty(String s){return s==null||s.trim().isEmpty();}
 }
