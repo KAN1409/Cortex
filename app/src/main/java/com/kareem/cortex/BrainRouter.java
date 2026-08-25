@@ -18,28 +18,27 @@ public final class BrainRouter {
 
     private static LocalAskRouter.Result cloud(Context ctx,VaultDb db,String question,String mode,long focalItemId,LocalAskRouter.Progress progress){
         long wall=SystemClock.elapsedRealtime();long job=createJob(db,question,mode,focalItemId);boolean combined="combined".equals(mode);
-        GroundedAnswer grounded=emptyGrounding(question);long retrieval=0;int privateFound=0;KnowledgeItem focal=null,cloudFocal=null;String phoneContext="";boolean phoneAvailable=false,phoneSent=false;boolean fastFocal=false;
+        GroundedAnswer grounded=emptyGrounding(question);long retrieval=0;int privateFound=0;KnowledgeItem focal=null,cloudFocal=null;String phoneContext="";boolean phoneAvailable=false,phoneSent=false;boolean fastFocal=false;ContextPacketBuilder.Packet contextPacket=null;
         try{
             if(focalItemId>0)try{focal=db.getById(focalItemId);}catch(Throwable ignored){}
             if(combined&&focal!=null&&CloudEvidencePolicy.canSend(ctx,focal)&&!needsBroadContext(question)){
                 cloudFocal=focal;fastFocal=true;
             }
             AiJobStore.start(db,job,"Understanding request","understanding");emit(progress,job,"Understanding request",8);
+            if(combined)try{contextPacket=ContextPacketBuilder.buildLocal(db,520);}catch(Throwable ignored){}
 
-            // Exact state questions are already answered authoritatively by Cortex's local operational
-            // ledger (ACTION/WAITING/DECISION, phone state, goals, etc.). Sending those questions to a
-            // cloud model can both add latency and lose derived state because it has no simple M-source
-            // provenance. In Combined mode, return the authoritative local result immediately; the
-            // proposal layer can still generate optional next moves afterward.
+            // Exact state/context questions are already answered authoritatively by Cortex's local
+            // operational ledger and Context Engine. Sending them to cloud adds latency and can lose
+            // local-only derived state. Combined returns the authoritative local result immediately.
             if(combined&&focalItemId<=0){
                 long rt=SystemClock.elapsedRealtime();GroundedAnswer operational=AskOperationalEngine.tryAnswer(db,question);retrieval=SystemClock.elapsedRealtime()-rt;
                 if(operational!=null){
-                    grounded=operational;AiJobStore.linkSources(db,job,grounded);long total=SystemClock.elapsedRealtime()-wall;
-                    String detail="Combined operational fast path · authoritative Cortex state answered locally · no operational private state sent to cloud";
+                    grounded=operational;AiJobStore.linkSources(db,job,grounded);long total=SystemClock.elapsedRealtime()-wall;long contextId=contextPacket==null?0:contextPacket.contextId;
+                    String detail="Combined operational/context fast path · authoritative Cortex state answered locally · no operational private state sent to cloud";
                     AiJobStore.progress(db,job,"Using current Cortex state","operational_local",72,detail);emit(progress,job,"Using current Cortex state",72);
-                    JSONObject out=new JSONObject().put("answer",operational.answer).put("provider","cortex-operational").put("model","deterministic-local").put("source_mode",mode).put("source_count",operational.sources.size()).put("private_found",operational.sources.size()).put("focal_item_id",0).put("focal_sent",false).put("fast_focal",false).put("operational_fast_path",true).put("phone_context_available",false).put("phone_context_sent",false).put("withheld_local_only",0).put("actions_count",0).put("total_ms",total);
+                    JSONObject out=new JSONObject().put("answer",operational.answer).put("provider","cortex-operational").put("model","deterministic-local").put("source_mode",mode).put("source_count",operational.sources.size()).put("private_found",operational.sources.size()).put("focal_item_id",0).put("focal_sent",false).put("fast_focal",false).put("operational_fast_path",true).put("context_id",contextId).put("context_cloud_sent",false).put("phone_context_available",false).put("phone_context_sent",false).put("withheld_local_only",0).put("actions_count",0).put("total_ms",total);
                     AiJobStore.complete(db,job,out.toString(),"Answer ready",detail);emit(progress,job,"Answer ready",100);
-                    try{DiagnosticsLog.info(db,"BrainRouter","operational_answer","ok",0,0,0,job,0,total,new JSONObject().put("provider","cortex-operational").put("mode",mode).put("source_count",operational.sources.size()).put("cloud_sent",false));}catch(Throwable ignored){}
+                    try{DiagnosticsLog.info(db,"BrainRouter","operational_answer","ok",0,0,0,job,0,total,new JSONObject().put("provider","cortex-operational").put("mode",mode).put("source_count",operational.sources.size()).put("context_id",contextId).put("cloud_sent",false));}catch(Throwable ignored){}
                     return new LocalAskRouter.Result(job,operational,operational.answer,"cortex-operational-combined","",mode,0,0,0,total,retrieval,0,0,0,false);
                 }
             }
@@ -62,21 +61,21 @@ public final class BrainRouter {
             }
             int withheld=Math.max(0,privateFound-grounded.sources.size());
             String detail;
-            if(fastFocal)detail="Fast focal route · exact capture attached · broad retrieval/actions deferred until after the answer";
-            else detail=combined?("Explicit Combined route · "+grounded.sources.size()+" cloud-allowed Cortex source"+(grounded.sources.size()==1?"":"s")+(cloudFocal!=null?" · focal capture attached":(focal!=null?" · focal capture kept local":""))+(withheld>0?" · "+withheld+" local-only source(s) withheld":"")+(phoneAvailable?(phoneSent?" · recent phone context included":" · recent phone context kept local"):"")):"No Cortex memory is sent in External mode";
+            if(fastFocal)detail="Fast focal route · exact capture attached · broad retrieval/actions deferred until after the answer · 12s external budget";
+            else detail=combined?("Explicit Combined route · "+grounded.sources.size()+" cloud-allowed Cortex source"+(grounded.sources.size()==1?"":"s")+(cloudFocal!=null?" · focal capture attached":(focal!=null?" · focal capture kept local":""))+(withheld>0?" · "+withheld+" local-only source(s) withheld":"")+(phoneAvailable?(phoneSent?" · explicitly allowed recent phone context included":" · recent phone context kept local"):"")+" · 18s external budget"):"No Cortex memory is sent in External mode · 18s external budget";
             String stage=fastFocal?"Thinking":(combined?"Combining sources":"Using external AI");int stagePercent=fastFocal?46:(combined?52:36);
             AiJobStore.progress(db,job,stage,"external",stagePercent,detail);emit(progress,job,stage,stagePercent);
 
             // Direct questions about an attached capture prioritize time-to-answer. Structured actions are
             // generated later by the proposal layer instead of blocking the first user-visible answer.
-            String modelQuestion=fastFocal?question:BrainActionStore.request(question);
-            ExternalBrainProvider.Result x=ExternalBrainProvider.ask(ctx,modelQuestion,grounded,combined,cloudFocal,phoneSent?phoneContext:"");
+            String modelQuestion=fastFocal?question:BrainActionStore.request(question);long providerBudget=fastFocal?12_000L:18_000L;
+            ExternalBrainProvider.Result x=BrainAnswerBudget.ask(ctx,modelQuestion,grounded,combined,cloudFocal,phoneSent?phoneContext:"",providerBudget);
             BrainActionStore.Parsed structured=BrainActionStore.parseAndStore(db,job,x.text,cloudFocal,grounded);
-            String answer=structured.answer;long total=SystemClock.elapsedRealtime()-wall;
-            JSONObject out=new JSONObject().put("answer",answer).put("provider",x.provider).put("model",x.model).put("source_mode",mode).put("source_count",grounded.sources.size()).put("private_found",privateFound).put("focal_item_id",focalItemId).put("focal_sent",cloudFocal!=null).put("fast_focal",fastFocal).put("phone_context_available",phoneAvailable).put("phone_context_sent",phoneSent).put("withheld_local_only",withheld).put("primary_intent",structured.primaryIntent).put("actions_count",structured.actionCount).put("total_ms",total);
-            AiJobStore.modelRun(db,job,1,"primary","cloud",x.model,mode,"complete",Fingerprint.text(question+"|"+mode+"|"+focalItemId),x.durationMs,0,0,0.78,new JSONObject().put("provider",x.provider).put("source_count",grounded.sources.size()).put("focal_sent",cloudFocal!=null).put("fast_focal",fastFocal).put("phone_context_sent",phoneSent).put("withheld_local_only",withheld).put("actions_count",structured.actionCount).toString(),"");
+            String answer=structured.answer;long total=SystemClock.elapsedRealtime()-wall;long contextId=contextPacket==null?0:contextPacket.contextId;
+            JSONObject out=new JSONObject().put("answer",answer).put("provider",x.provider).put("model",x.model).put("source_mode",mode).put("source_count",grounded.sources.size()).put("private_found",privateFound).put("focal_item_id",focalItemId).put("focal_sent",cloudFocal!=null).put("fast_focal",fastFocal).put("context_id",contextId).put("context_cloud_sent",false).put("phone_context_available",phoneAvailable).put("phone_context_sent",phoneSent).put("withheld_local_only",withheld).put("primary_intent",structured.primaryIntent).put("actions_count",structured.actionCount).put("provider_budget_ms",providerBudget).put("total_ms",total);
+            AiJobStore.modelRun(db,job,1,"primary","cloud",x.model,mode,"complete",Fingerprint.text(question+"|"+mode+"|"+focalItemId),x.durationMs,0,0,0.78,new JSONObject().put("provider",x.provider).put("source_count",grounded.sources.size()).put("focal_sent",cloudFocal!=null).put("fast_focal",fastFocal).put("context_id",contextId).put("context_cloud_sent",false).put("phone_context_sent",phoneSent).put("withheld_local_only",withheld).put("actions_count",structured.actionCount).put("provider_budget_ms",providerBudget).toString(),"");
             AiJobStore.complete(db,job,out.toString(),"Answer ready",detail);emit(progress,job,"Answer ready",100);
-            try{DiagnosticsLog.info(db,"BrainRouter","external_answer","ok",focalItemId,0,0,job,0,total,new JSONObject().put("provider",x.provider).put("model",x.model).put("mode",mode).put("focal_sent",cloudFocal!=null).put("fast_focal",fastFocal).put("phone_context_sent",phoneSent).put("withheld_local_only",withheld).put("actions_count",structured.actionCount));}catch(Throwable ignored){}
+            try{DiagnosticsLog.info(db,"BrainRouter","external_answer","ok",focalItemId,0,0,job,0,total,new JSONObject().put("provider",x.provider).put("model",x.model).put("mode",mode).put("focal_sent",cloudFocal!=null).put("fast_focal",fastFocal).put("context_id",contextId).put("context_cloud_sent",false).put("phone_context_sent",phoneSent).put("withheld_local_only",withheld).put("actions_count",structured.actionCount).put("provider_budget_ms",providerBudget));}catch(Throwable ignored){}
             return new LocalAskRouter.Result(job,grounded,answer,x.provider+(combined?"-combined":"-external"),"",mode,0,0,x.durationMs,total,retrieval,0,0,x.durationMs,false);
         }catch(Throwable t){
             long total=SystemClock.elapsedRealtime()-wall;String err=t.getClass().getSimpleName()+(t.getMessage()==null?"":": "+t.getMessage());AiJobStore.fail(db,job,err,"External route unavailable");
