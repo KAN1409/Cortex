@@ -67,6 +67,9 @@ public final class CortexScreenAccessibilityService extends AccessibilityService
         try{root=s.getRootInActiveWindow();if(root==null)return false;AccessibilityNodeInfo x=root;String p=n(path);if(!p.isEmpty())for(String part:p.split("/")){if(part.isEmpty())continue;int i=Integer.parseInt(part);if(i<0||i>=x.getChildCount())return false;AccessibilityNodeInfo child=x.getChild(i);if(child==null)return false;x=child;}if(!x.isEnabled()||!x.isClickable())return false;return x.performAction(AccessibilityNodeInfo.ACTION_CLICK);}catch(Throwable ignored){return false;}
     }
 
+    /** Global Back for dialog/system-window backtracking. Test mode is mandatory. */
+    public static boolean robotBack(){CortexScreenAccessibilityService s=live;if(s==null||!CortexExperimentalTestMode.active(s))return false;try{return s.performGlobalAction(GLOBAL_ACTION_BACK);}catch(Throwable ignored){return false;}}
+
     private static void collectRobot(AccessibilityNodeInfo x,String path,List<RobotNode> out,int depth){
         if(x==null||depth>28||out.size()>=180)return;
         if(x.isClickable()&&x.isVisibleToUser()&&!x.isPassword()){
