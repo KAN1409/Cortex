@@ -6,6 +6,7 @@ import android.database.sqlite.SQLiteDatabase;
 import org.json.JSONObject;
 import java.text.SimpleDateFormat;
 import java.util.*;
+import java.util.regex.*;
 
 /** Local-only bounded phone-context timeline plus current process state. */
 public final class PhoneContextStore {
@@ -36,6 +37,9 @@ public final class PhoneContextStore {
     private static void maybeCleanup(VaultDb db){try{if((System.currentTimeMillis()/60000)%30==0)cleanup(db);}catch(Throwable ignored){}}
     private static Event from(Cursor c){Event e=new Event();e.id=g(c,"id");e.kind=s(c,"kind");e.source=s(c,"source");e.packageName=s(c,"package_name");e.appLabel=s(c,"app_label");e.className=s(c,"class_name");e.eventType=s(c,"event_type");e.text=s(c,"text_preview");e.metadataJson=s(c,"metadata_json");e.occurredAt=g(c,"occurred_at");return e;}
     private static String s(Cursor c,String k){int i=c.getColumnIndex(k);return i<0||c.isNull(i)?"":c.getString(i);}private static long g(Cursor c,String k){int i=c.getColumnIndex(k);return i<0||c.isNull(i)?0:c.getLong(i);}
-    private static String sanitizeText(String s){String x=n(s).replace('\u0000',' ').replaceAll("\\s+"," ");if(x.length()>800)x=x.substring(0,800)+"…";return x;}
+
+    /** Redact credentials/OTP/card numbers even from the local context preview. App/time/context still remain available. */
+    private static String sanitizeText(String s){String x=n(s).replace('\u0000',' ').replaceAll("\\s+"," ");if(x.isEmpty())return"";String low=x.toLowerCase(Locale.ROOT);boolean credential=low.matches(".*\\b(password|passcode|pin code|api key|secret key|private key|recovery code|backup code)\\b.*")||x.matches(".*(?:كلمة السر|كلمه السر|كلمة المرور|كلمه المرور|رمز الاسترداد).*" );boolean otp=(low.matches(".*\\b(otp|verification code|one[- ]?time|security code|auth code)\\b.*\\b\\d{4,8}\\b.*")||x.matches(".*(?:رمز التحقق|كود التحقق|رمز الأمان|كود الأمان).*\\d{4,8}.*"));if(credential||otp)return"<sensitive content redacted>";Matcher m=Pattern.compile("(?<!\\d)(?:\\d[ -]?){13,19}(?!\\d)").matcher(x);while(m.find()){String digits=m.group().replaceAll("\\D","");if(looksLikeCard(digits))return"<payment card number redacted>";}if(x.length()>800)x=x.substring(0,800)+"…";return x;}
+    private static boolean looksLikeCard(String d){if(d==null||d.length()<13||d.length()>19)return false;int sum=0;boolean alt=false;for(int i=d.length()-1;i>=0;i--){int n=d.charAt(i)-'0';if(n<0||n>9)return false;if(alt){n*=2;if(n>9)n-=9;}sum+=n;alt=!alt;}return sum%10==0;}
     private static String time(long ms){return new SimpleDateFormat("HH:mm:ss",Locale.getDefault()).format(new Date(ms));}private static String clip(String s,int n){String x=s==null?"":s;return x.length()<=n?x:x.substring(0,n)+"…";}private static String n(String s){return s==null?"":s.trim();}private static String safe(String s){return s==null?"":s;}
 }
