@@ -3,6 +3,7 @@ package com.kareem.cortex;
 import android.app.*;
 import android.content.*;
 import android.content.pm.ServiceInfo;
+import android.graphics.drawable.Icon;
 import android.os.Build;
 import org.json.JSONObject;
 import java.io.File;
@@ -45,9 +46,9 @@ public final class CortexRecordService extends Service {
     private Notification notification(){
         Intent stop=new Intent(this,CortexRecordService.class).setAction(ACTION_STOP);PendingIntent stopPi=PendingIntent.getService(this,41025,stop,PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE);
         Intent open=new Intent(this,InputActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK|Intent.FLAG_ACTIVITY_CLEAR_TOP);PendingIntent openPi=PendingIntent.getActivity(this,41026,open,PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE);
-        Notification.Builder b=Build.VERSION.SDK_INT>=26?new Notification.Builder(this,CHANNEL):new Notification.Builder(this);b.setSmallIcon(R.drawable.ic_cortex_record).setContentTitle("Cortex is recording").setContentText("Tap Stop when the memory is complete").setOngoing(true).setOnlyAlertOnce(true).setContentIntent(openPi).addAction(new Notification.Action.Builder(null,"Stop",stopPi).build());if(Build.VERSION.SDK_INT>=21)b.setCategory(Notification.CATEGORY_SERVICE).setVisibility(Notification.VISIBILITY_PRIVATE);return b.build();
+        Icon actionIcon=Icon.createWithResource(this,R.drawable.ic_cortex_record);Notification.Builder b=new Notification.Builder(this,CHANNEL);b.setSmallIcon(R.drawable.ic_cortex_record).setContentTitle("Cortex is recording").setContentText("Tap Stop when the memory is complete").setOngoing(true).setOnlyAlertOnce(true).setContentIntent(openPi).addAction(new Notification.Action.Builder(actionIcon,"Stop",stopPi).build()).setCategory(Notification.CATEGORY_SERVICE).setVisibility(Notification.VISIBILITY_PRIVATE);return b.build();
     }
-    private void ensureChannel(){if(Build.VERSION.SDK_INT>=26){NotificationManager nm=(NotificationManager)getSystemService(NOTIFICATION_SERVICE);NotificationChannel c=new NotificationChannel(CHANNEL,"Cortex voice recording",NotificationManager.IMPORTANCE_LOW);c.setDescription("Visible while Cortex records from the home-screen control");c.setSound(null,null);nm.createNotificationChannel(c);}}
+    private void ensureChannel(){NotificationManager nm=(NotificationManager)getSystemService(NOTIFICATION_SERVICE);NotificationChannel c=new NotificationChannel(CHANNEL,"Cortex voice recording",NotificationManager.IMPORTANCE_LOW);c.setDescription("Visible while Cortex records from the home-screen control");c.setSound(null,null);nm.createNotificationChannel(c);}
 
     @Override public void onDestroy(){if(recorder.isRunning()&&!stopping)stopAndPersist();super.onDestroy();}
     @Override public android.os.IBinder onBind(Intent i){return null;}
