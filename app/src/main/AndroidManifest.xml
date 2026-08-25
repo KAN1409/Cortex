@@ -12,7 +12,7 @@
     <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS" />
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
 
-    <application android:name=".CortexApp" android:theme="@style/AppTheme" android:label="Cortex" android:allowBackup="true" android:extractNativeLibs="true">
+    <application android:name=".CortexApp" android:theme="@style/AppTheme" android:label="Cortex" android:allowBackup="true">
         <provider android:name="androidx.core.content.FileProvider" android:authorities="${applicationId}.feedback.files" android:exported="false" android:grantUriPermissions="true"><meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/feedback_file_paths" /></provider>
         <provider android:name="rikka.shizuku.ShizukuProvider" android:authorities="${applicationId}.shizuku" android:multiprocess="false" android:enabled="true" android:exported="true" android:permission="android.permission.INTERACT_ACROSS_USERS_FULL" />
 
