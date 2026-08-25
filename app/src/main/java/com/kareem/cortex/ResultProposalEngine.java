@@ -27,7 +27,7 @@ public final class ResultProposalEngine {
         public Target(String surface,String resultKey,String title,String text,long sourceItemId,String sourceType,boolean cloudAllowed){
             this.surface=n(surface);this.resultKey=n(resultKey);this.title=n(title);this.text=n(text);this.sourceItemId=Math.max(0,sourceItemId);this.sourceType=n(sourceType);this.cloudAllowed=cloudAllowed;
         }
-        String fingerprint(){return Fingerprint.text("proposal-v2|"+surface+"|"+resultKey+"|"+sourceItemId+"|"+title+"|"+text);}
+        String fingerprint(){return Fingerprint.text("proposal-v3|"+surface+"|"+resultKey+"|"+sourceItemId+"|"+title+"|"+text);}
     }
 
     public static final class Proposal {
@@ -71,6 +71,17 @@ public final class ResultProposalEngine {
         });
     }
 
+    /** Clear cached proposals for one source item so a correction or Retry forces a real model pass. */
+    public static void invalidateSource(VaultDb db,long sourceItemId){
+        if(db==null||sourceItemId<=0)return;
+        try{ensure(db);db.getWritableDatabase().delete("result_proposals","source_item_id=?",new String[]{String.valueOf(sourceItemId)});}catch(Throwable ignored){}
+    }
+
+    public static void invalidate(VaultDb db,Target target){
+        if(db==null||target==null)return;
+        try{ensure(db);db.getWritableDatabase().delete("result_proposals","result_fingerprint=?",new String[]{target.fingerprint()});if(target.sourceItemId>0)db.getWritableDatabase().delete("result_proposals","source_item_id=?",new String[]{String.valueOf(target.sourceItemId)});}catch(Throwable ignored){}
+    }
+
     private static void flush(){
         flushScheduled=false;if(PENDING.isEmpty())return;ArrayList<Pending> all=new ArrayList<>(PENDING.values());PENDING.clear();
         ArrayList<Pending> cloud=new ArrayList<>(),local=new ArrayList<>();for(Pending p:all)(p.target.cloudAllowed?cloud:local).add(p);
@@ -87,9 +98,12 @@ public final class ResultProposalEngine {
         Map<String,ArrayList<Proposal>> parsed=mo==null?Collections.emptyMap():parse(mo.raw,batch.size());
         VaultDb db=null;try{db=new VaultDb(app);ensure(db);}catch(Throwable ignored){}
         for(int i=0;i<batch.size();i++){
-            Pending p=batch.get(i);ArrayList<Proposal> proposals=parsed.get("R"+(i+1));if(proposals==null)proposals=new ArrayList<>();
-            if(mo!=null&&db!=null)try{save(db,p.fingerprint,p.target,proposals,mo.provider);}catch(Throwable ignored){}
-            String provider=mo==null?"":mo.provider;for(Callback cb:p.callbacks)deliver(cb,proposals,provider,error);
+            Pending p=batch.get(i);String ref="R"+(i+1);boolean recognized=parsed.containsKey(ref);ArrayList<Proposal> proposals=recognized?parsed.get(ref):new ArrayList<>();if(proposals==null)proposals=new ArrayList<>();
+            String itemError=error;if(mo!=null&&!recognized&&itemError.isEmpty())itemError="Model response could not be parsed into proposals";
+            // Only cache a response when the model output actually contained this result_ref. This
+            // prevents a malformed model response from becoming a permanent empty suggestion cache.
+            if(mo!=null&&recognized&&db!=null)try{save(db,p.fingerprint,p.target,proposals,mo.provider);}catch(Throwable ignored){}
+            String provider=mo==null?"":mo.provider;for(Callback cb:p.callbacks)deliver(cb,proposals,provider,itemError);
         }
         if(db!=null)try{db.close();}catch(Throwable ignored){}
     }
@@ -115,26 +129,30 @@ public final class ResultProposalEngine {
 
     private static String prompt(ArrayList<Pending> batch){
         StringBuilder b=new StringBuilder();
-        b.append("CORTEX_MICRO_PROPOSALS_V2\nReturn ONLY one valid JSON object, no markdown fences.\n")
+        b.append("CORTEX_MICRO_PROPOSALS_V3\nReturn ONLY one valid JSON object, no markdown fences.\n")
          .append("For EACH result below, think about that exact result and propose 1-3 genuinely useful next moves. These must be content-specific, not a fixed toolbar. Do not suggest generic Export/Share/Copy unless the content itself makes that unusually useful. Zero proposals is allowed when there is no meaningful next move.\n")
          .append("Good proposal examples include: turn an obligation into a task/follow-up; study or learn a topic; compare options; extract decisions/questions/checklists; connect to a person/project; research a product/topic; prepare questions for a meeting/doctor; track something; create a calendar/reminder only when timing is actually present.\n")
          .append("Never invent dates, times, people, projects, phone numbers, emails, calendar IDs, package IDs, diagnoses, prices, or other missing facts. If an executable action lacks required data, include missing_fields rather than guessing.\n")
          .append("Execution must be either BRAIN_PROMPT or ACTION. BRAIN_PROMPT means the proposal continues reasoning/study/analysis in Cortex Brain and requires a concrete next_prompt. ACTION uses the action schema below.\n")
-         .append("Schema: {\"schema_version\":2,\"results\":[{\"result_ref\":\"R1\",\"proposals\":[{\"id\":\"p1\",\"title\":\"short user-facing suggestion\",\"why\":\"brief reason\",\"confidence\":0.0,\"execution\":\"BRAIN_PROMPT|ACTION\",\"next_prompt\":\"...\",\"action\":{\"type\":\"TASK|REMINDER|CALENDAR_EVENT|CALENDAR_RESCHEDULE|CALL|MESSAGE_DRAFT|EMAIL_DRAFT|PROJECT_LINK|FOLLOW_UP|WAIT_FOR|KNOWLEDGE_NOTE|WEB_SEARCH|OPEN_APP\",\"payload\":{},\"missing_fields\":[]}}]}]}\n\n");
+         .append("Schema: {\"schema_version\":3,\"results\":[{\"result_ref\":\"R1\",\"proposals\":[{\"id\":\"p1\",\"title\":\"short user-facing suggestion\",\"why\":\"brief reason\",\"confidence\":0.0,\"execution\":\"BRAIN_PROMPT|ACTION\",\"next_prompt\":\"...\",\"action\":{\"type\":\"TASK|REMINDER|CALENDAR_EVENT|CALENDAR_RESCHEDULE|CALL|MESSAGE_DRAFT|EMAIL_DRAFT|PROJECT_LINK|FOLLOW_UP|WAIT_FOR|KNOWLEDGE_NOTE|WEB_SEARCH|OPEN_APP\",\"payload\":{},\"missing_fields\":[]}}]}]}\n\n");
         for(int i=0;i<batch.size();i++){Target t=batch.get(i).target;b.append("RESULT R").append(i+1).append("\nSurface: ").append(clip(t.surface,80)).append("\nType: ").append(clip(t.sourceType,80)).append("\nTitle: ").append(clip(t.title,180)).append("\nContent:\n").append(clip(t.text,1100)).append("\n\n");}
         return b.toString();
     }
 
     private static Map<String,ArrayList<Proposal>> parse(String raw,int expected){
-        LinkedHashMap<String,ArrayList<Proposal>> out=new LinkedHashMap<>();JSONObject root=parseObject(raw);if(root==null)return out;JSONArray results=root.optJSONArray("results");if(results==null)return out;
+        LinkedHashMap<String,ArrayList<Proposal>> out=new LinkedHashMap<>();JSONObject root=parseObject(raw);if(root==null)return out;JSONArray results=root.optJSONArray("results");
+        // Some providers flatten the single-result envelope. Accept that shape without inventing
+        // proposals so a valid model response still reaches the UI.
+        if(results==null&&expected==1){JSONArray direct=root.optJSONArray("proposals");if(direct!=null){results=new JSONArray();JSONObject wrap=new JSONObject();try{wrap.put("result_ref","R1");wrap.put("proposals",direct);results.put(wrap);}catch(Exception ignored){results=null;}}}
+        if(results==null)return out;
         for(int i=0;i<results.length();i++){
             JSONObject r=results.optJSONObject(i);if(r==null)continue;String ref=n(r.optString("result_ref","")).trim().toUpperCase(Locale.ROOT);if(!ref.matches("R[1-9][0-9]*"))continue;JSONArray ps=r.optJSONArray("proposals");ArrayList<Proposal> list=new ArrayList<>();
             if(ps!=null)for(int j=0;j<ps.length()&&list.size()<3;j++){
-                JSONObject p=ps.optJSONObject(j);if(p==null)continue;String title=n(p.optString("title","")).trim();if(title.isEmpty())continue;String execution=n(p.optString("execution","")).trim().toUpperCase(Locale.ROOT);if(!"BRAIN_PROMPT".equals(execution)&&!"ACTION".equals(execution))continue;
-                String id=n(p.optString("id","p"+(j+1))).replaceAll("[^A-Za-z0-9_-]","");String why=n(p.optString("why","")).trim();double confidence=p.optDouble("confidence",0.68);String next=n(p.optString("next_prompt","")).trim();String actionType="";JSONObject payload=new JSONObject();JSONArray missing=new JSONArray();
+                JSONObject p=ps.optJSONObject(j);if(p==null)continue;String title=n(p.optString("title","")).trim();if(title.isEmpty())continue;String next=n(p.optString("next_prompt",p.optString("prompt",""))).trim();JSONObject action=p.optJSONObject("action");String execution=n(p.optString("execution","")).trim().toUpperCase(Locale.ROOT);if(execution.isEmpty()){if(action!=null)execution="ACTION";else if(!next.isEmpty())execution="BRAIN_PROMPT";}if(!"BRAIN_PROMPT".equals(execution)&&!"ACTION".equals(execution))continue;
+                String id=n(p.optString("id","p"+(j+1))).replaceAll("[^A-Za-z0-9_-]","");String why=n(p.optString("why","")).trim();double confidence=p.optDouble("confidence",0.68);String actionType="";JSONObject payload=new JSONObject();JSONArray missing=new JSONArray();
                 if("BRAIN_PROMPT".equals(execution)){if(next.isEmpty())continue;}
                 else{
-                    JSONObject a=p.optJSONObject("action");if(a==null)continue;actionType=n(a.optString("type","")).trim().toUpperCase(Locale.ROOT);if(!ACTION_TYPES.contains(actionType))continue;JSONObject supplied=a.optJSONObject("payload");if(supplied!=null)payload=supplied;missing=validatedMissing(actionType,payload,a.optJSONArray("missing_fields"));
+                    if(action==null)continue;actionType=n(action.optString("type","")).trim().toUpperCase(Locale.ROOT);if(!ACTION_TYPES.contains(actionType))continue;JSONObject supplied=action.optJSONObject("payload");if(supplied!=null)payload=supplied;missing=validatedMissing(actionType,payload,action.optJSONArray("missing_fields"));
                 }
                 list.add(new Proposal(id.isEmpty()?"p"+(j+1):id,title,why,execution,next,actionType,confidence,payload,missing));
             }
