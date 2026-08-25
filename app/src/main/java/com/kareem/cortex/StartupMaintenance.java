@@ -14,6 +14,7 @@ public final class StartupMaintenance {
     public static void schedule(Context context){
         if(context==null||!scheduled.compareAndSet(false,true))return;
         Context app=context.getApplicationContext();
+        PhoneContextScheduler.schedule(app);
         new Handler(Looper.getMainLooper()).postDelayed(()->{
             Thread t=new Thread(()->run(app),"cortex-maintenance");
             t.setPriority(Thread.NORM_PRIORITY-1);
@@ -27,6 +28,8 @@ public final class StartupMaintenance {
             db=new VaultDb(context);
             CognitiveSchema.ensure(db.getWritableDatabase());
             RelevanceDecisionStatusStore.ensure(db);
+            PhoneContextStore.ensure(db);
+            if(PhoneUsageAccess.has(context))PhoneUsageAccess.syncRecent(context,db,System.currentTimeMillis()-2L*60L*60L*1000L);
             importLastCrash(context,db);
             AdjudicationRecovery.run(context,db);
             ContactSafetyMaintenance.run(db);
