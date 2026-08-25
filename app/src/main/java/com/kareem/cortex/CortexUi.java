@@ -88,7 +88,7 @@ public final class CortexUi {
         boolean on=key.equals(selected);LinearLayout item=new LinearLayout(a);item.setOrientation(LinearLayout.VERTICAL);item.setGravity(Gravity.CENTER);item.setPadding(dp(a,2),dp(a,5),dp(a,2),dp(a,3));
         if(on)item.setBackground(round(a,SURFACE_2,Color.argb(26,126,158,255),16));
         NavIcon icon=new NavIcon(a,key,on?ACCENT:MUTED);item.addView(icon,new LinearLayout.LayoutParams(dp(a,27),dp(a,25)));
-        TextView l=plain(a,label,8,on?TEXT:MUTED);l.setGravity(Gravity.CENTER);l.setMaxLines(1);if(on)medium(l);item.addView(l,new LinearLayout.LayoutParams(0,dp(a,18),1));
+        TextView l=plain(a,label,8,on?TEXT:MUTED);l.setGravity(Gravity.CENTER);l.setMaxLines(1);if(on)medium(l);item.addView(l,new LinearLayout.LayoutParams(-1,dp(a,18)));
         item.setOnClickListener(v->{if(on)return;Intent i=new Intent(a,cls);i.addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT|Intent.FLAG_ACTIVITY_SINGLE_TOP);a.startActivity(i);});
         row.addView(item,new LinearLayout.LayoutParams(0,-1,1));
     }
