@@ -7,6 +7,7 @@ import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
+import android.graphics.pdf.PdfDocument;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.lang.reflect.Field;
@@ -19,6 +20,7 @@ public final class CortexRobotFixtures {
         CortexExperimentalTestMode.set(c,true);
         c.deleteDatabase(VaultDb.robotDbName());
         resetSchemaReadyForSandbox();
+        createPdf(c);
         try(VaultDb db=new VaultDb(c)){
             CognitiveStore.ensure(db);HealthStore.ensure(db);PromptLibraryStore.ensure(db);ScreenshotLearning.ensure(db);VisualInsightStore.ensure(db);
             long text=memory(db,"TEXT","robot_fixture","Meeting follow-up","اتفقنا نراجع العرض يوم الخميس الساعة 3 مساء ونبعت النسخة النهائية قبل الاجتماع.","اتفقنا نراجع العرض يوم الخميس الساعة 3 مساء ونبعت النسخة النهائية قبل الاجتماع.","Work","meeting,followup");
@@ -53,9 +55,12 @@ public final class CortexRobotFixtures {
         }
     }
 
+    public static File sharedImageFile(Context c){return new File(fixtureDir(c),"robot_fixture.png");}
+    public static File sharedPdfFile(Context c){return new File(fixtureDir(c),"robot_fixture.pdf");}
+
     public static void cleanup(Context c){
         try{c.deleteDatabase(VaultDb.robotDbName());}catch(Throwable ignored){}
-        try{File f=new File(c.getFilesDir(),"robot_fixture.png");if(f.exists())f.delete();}catch(Throwable ignored){}
+        try{File d=fixtureDir(c);File[] xs=d.listFiles();if(xs!=null)for(File f:xs)try{f.delete();}catch(Throwable ignored){}try{d.delete();}catch(Throwable ignored){}}catch(Throwable ignored){}
         CortexExperimentalTestMode.set(c,false);
         resetSchemaReadyForSandbox();
     }
@@ -63,7 +68,9 @@ public final class CortexRobotFixtures {
     private static long memory(VaultDb db,String type,String source,String title,String raw,String extracted,String category,String tags){long id=db.insert(type,source,title,raw,category,tags,"",Fingerprint.text("robot|"+type+"|"+title),"{\"synthetic\":true,\"robot_test\":true}");if(id<0)id=-id;ContentValues v=new ContentValues();v.put("extracted_text",extracted);v.put("summary",extracted);v.put("status","analyzed");v.put("updated_at",System.currentTimeMillis());db.getWritableDatabase().update("knowledge_items",v,"id=?",new String[]{String.valueOf(id)});try{SemanticIndex.indexItem(db,id);}catch(Throwable ignored){}return id;}
     private static long entity(VaultDb db,String kind,String name,String key,String metadata){ContentValues v=new ContentValues();long now=System.currentTimeMillis();v.put("kind",kind);v.put("canonical_name",name);v.put("normalized_key",key);v.put("status","active");v.put("metadata_json",metadata);v.put("created_at",now);v.put("updated_at",now);return db.getWritableDatabase().insert("entity_nodes",null,v);}
 
-    private static File createImage(Context c)throws Exception{File f=new File(c.getFilesDir(),"robot_fixture.png");Bitmap b=Bitmap.createBitmap(720,420,Bitmap.Config.ARGB_8888);Canvas canvas=new Canvas(b);canvas.drawColor(Color.rgb(244,244,240));Paint p=new Paint(Paint.ANTI_ALIAS_FLAG);p.setColor(Color.rgb(25,25,25));p.setTextSize(34);canvas.drawText("DEXAMETHASONE",44,100,p);p.setTextSize(28);canvas.drawText("8 mg / 2 ml",44,160,p);canvas.drawText("Robot test prescription fixture",44,230,p);try(FileOutputStream out=new FileOutputStream(f)){b.compress(Bitmap.CompressFormat.PNG,100,out);}b.recycle();return f;}
+    private static File fixtureDir(Context c){File d=new File(c.getFilesDir(),"debug_exports/user_journey_inputs");if(!d.exists())d.mkdirs();return d;}
+    private static File createImage(Context c)throws Exception{File f=sharedImageFile(c);Bitmap b=Bitmap.createBitmap(720,420,Bitmap.Config.ARGB_8888);Canvas canvas=new Canvas(b);canvas.drawColor(Color.rgb(244,244,240));Paint p=new Paint(Paint.ANTI_ALIAS_FLAG);p.setColor(Color.rgb(25,25,25));p.setTextSize(34);canvas.drawText("DEXAMETHASONE",44,100,p);p.setTextSize(28);canvas.drawText("8 mg / 2 ml",44,160,p);canvas.drawText("Cortex user journey fixture",44,230,p);try(FileOutputStream out=new FileOutputStream(f)){b.compress(Bitmap.CompressFormat.PNG,100,out);}b.recycle();return f;}
+    private static File createPdf(Context c)throws Exception{File f=sharedPdfFile(c);PdfDocument doc=new PdfDocument();PdfDocument.PageInfo info=new PdfDocument.PageInfo.Builder(612,792,1).create();PdfDocument.Page page=doc.startPage(info);Canvas canvas=page.getCanvas();Paint p=new Paint(Paint.ANTI_ALIAS_FLAG);p.setColor(Color.BLACK);p.setTextSize(24);canvas.drawText("Cortex PDF import fixture",48,90,p);p.setTextSize(16);canvas.drawText("Known evidence for deterministic user-journey testing.",48,130,p);doc.finishPage(page);try(FileOutputStream out=new FileOutputStream(f)){doc.writeTo(out);}finally{doc.close();}return f;}
 
     private static void resetSchemaReadyForSandbox(){try{Field f=CognitiveSchema.class.getDeclaredField("ready");f.setAccessible(true);f.setBoolean(null,false);}catch(Throwable ignored){}}
 }
