@@ -42,9 +42,8 @@ public final class CortexAuditScheduler {
             OneTimeWorkRequest baseline=new OneTimeWorkRequest.Builder(CortexAuditWorker.class).setInputData(d).setBackoffCriteria(BackoffPolicy.LINEAR,30,TimeUnit.SECONDS).addTag("cortex-stability-soak").build();
             wm.beginUniqueWork(initial(id),ExistingWorkPolicy.REPLACE,functional).then(baseline).enqueue();
             OneTimeWorkRequest sample1=sample(d,5),sample2=sample(d,10),sample3=sample(d,10);
-            wm.beginUniqueWork(soak(id),ExistingWorkPolicy.REPLACE,sample1).then(sample2).then(sample3).enqueue();
-            OneTimeWorkRequest fin=new OneTimeWorkRequest.Builder(CortexAuditSoakFinalizeWorker.class).setInputData(d).setInitialDelay(30,TimeUnit.MINUTES).addTag("cortex-stability-soak").build();
-            wm.enqueueUniqueWork(finish(id),ExistingWorkPolicy.REPLACE,fin);
+            OneTimeWorkRequest fin=new OneTimeWorkRequest.Builder(CortexAuditSoakFinalizeWorker.class).setInputData(d).setInitialDelay(5,TimeUnit.MINUTES).addTag("cortex-stability-soak").build();
+            wm.beginUniqueWork(soak(id),ExistingWorkPolicy.REPLACE,sample1).then(sample2).then(sample3).then(fin).enqueue();
             return id;
         }catch(Exception e){throw new RuntimeException(e);}finally{db.close();}
     }
