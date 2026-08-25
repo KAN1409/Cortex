@@ -7,76 +7,35 @@ import org.json.JSONObject;
 import java.text.SimpleDateFormat;
 import java.util.*;
 
-/**
- * Local-only phone context timeline. This is context, not durable personal memory.
- * It records app/window transitions and bounded UI hints so Cortex can understand
- * what was happening on the phone without turning every interaction into a memory.
- */
+/** Local-only bounded phone-context timeline plus current process state. */
 public final class PhoneContextStore {
     private static final long RETENTION_MS=14L*24L*60L*60L*1000L;
     private static final int MAX_ROWS=25000;
     private PhoneContextStore(){}
 
-    public static final class Event {
-        public long id,occurredAt;
-        public String kind="",source="",packageName="",appLabel="",className="",eventType="",text="",metadataJson="";
-        public String human(){
-            String app=!appLabel.isEmpty()?appLabel:(!packageName.isEmpty()?packageName:"Phone");
-            StringBuilder b=new StringBuilder(app);
-            if(!eventType.isEmpty())b.append(" · ").append(eventType.replace('_',' '));
-            if(!text.isEmpty())b.append(" · ").append(clip(text,180));
-            return b.toString();
-        }
-    }
+    public static final class Event {public long id,occurredAt;public String kind="",source="",packageName="",appLabel="",className="",eventType="",text="",metadataJson="";public String human(){String app=!appLabel.isEmpty()?appLabel:(!packageName.isEmpty()?packageName:"Phone");StringBuilder b=new StringBuilder(app);if(!eventType.isEmpty())b.append(" · ").append(eventType.replace('_',' '));if(!text.isEmpty())b.append(" · ").append(clip(text,180));return b.toString();}}
+    public static final class ProcessInfo {public final String name,label,user,pid;public ProcessInfo(String n,String l,String u,String p){name=safe(n);label=safe(l);user=safe(u);pid=safe(p);}}
 
-    public static void ensure(VaultDb db){
-        SQLiteDatabase s=db.getWritableDatabase();
-        s.execSQL("CREATE TABLE IF NOT EXISTS phone_context_events(id INTEGER PRIMARY KEY AUTOINCREMENT,kind TEXT NOT NULL,source TEXT NOT NULL,package_name TEXT,app_label TEXT,class_name TEXT,event_type TEXT,text_preview TEXT,metadata_json TEXT,fingerprint TEXT UNIQUE,occurred_at INTEGER NOT NULL,created_at INTEGER NOT NULL)");
-        s.execSQL("CREATE INDEX IF NOT EXISTS idx_phone_context_recent ON phone_context_events(occurred_at DESC)");
-        s.execSQL("CREATE INDEX IF NOT EXISTS idx_phone_context_pkg ON phone_context_events(package_name,occurred_at DESC)");
-        s.execSQL("CREATE INDEX IF NOT EXISTS idx_phone_context_kind ON phone_context_events(kind,occurred_at DESC)");
-    }
+    public static void ensure(VaultDb db){SQLiteDatabase s=db.getWritableDatabase();s.execSQL("CREATE TABLE IF NOT EXISTS phone_context_events(id INTEGER PRIMARY KEY AUTOINCREMENT,kind TEXT NOT NULL,source TEXT NOT NULL,package_name TEXT,app_label TEXT,class_name TEXT,event_type TEXT,text_preview TEXT,metadata_json TEXT,fingerprint TEXT UNIQUE,occurred_at INTEGER NOT NULL,created_at INTEGER NOT NULL)");s.execSQL("CREATE INDEX IF NOT EXISTS idx_phone_context_recent ON phone_context_events(occurred_at DESC)");s.execSQL("CREATE INDEX IF NOT EXISTS idx_phone_context_pkg ON phone_context_events(package_name,occurred_at DESC)");s.execSQL("CREATE INDEX IF NOT EXISTS idx_phone_context_kind ON phone_context_events(kind,occurred_at DESC)");s.execSQL("CREATE TABLE IF NOT EXISTS phone_process_state(process_name TEXT PRIMARY KEY,app_label TEXT,user_name TEXT,pid TEXT,active INTEGER DEFAULT 1,source TEXT,last_seen INTEGER NOT NULL,last_changed INTEGER NOT NULL)");s.execSQL("CREATE INDEX IF NOT EXISTS idx_phone_process_active ON phone_process_state(active,last_seen DESC)");}
 
-    public static long record(VaultDb db,String kind,String source,String pkg,String label,String cls,String eventType,String text,long occurredAt,JSONObject meta){
-        if(db==null)return 0;ensure(db);long now=System.currentTimeMillis();long when=occurredAt>0?occurredAt:now;
-        String k=n(kind),src=n(source),p=n(pkg),a=n(label),c=n(cls),e=n(eventType),t=sanitizeText(text);
-        String fp=Fingerprint.text("phone_context|"+k+"|"+src+"|"+p+"|"+e+"|"+t+"|"+(when/3000));
-        ContentValues v=new ContentValues();v.put("kind",k.isEmpty()?"app_context":k);v.put("source",src.isEmpty()?"phone":src);v.put("package_name",p);v.put("app_label",a);v.put("class_name",c);v.put("event_type",e);v.put("text_preview",t);v.put("metadata_json",meta==null?"{}":meta.toString());v.put("fingerprint",fp);v.put("occurred_at",when);v.put("created_at",now);
-        long id=db.getWritableDatabase().insertWithOnConflict("phone_context_events",null,v,SQLiteDatabase.CONFLICT_IGNORE);
-        maybeCleanup(db);return id;
-    }
+    public static long record(VaultDb db,String kind,String source,String pkg,String label,String cls,String eventType,String text,long occurredAt,JSONObject meta){if(db==null)return 0;ensure(db);long now=System.currentTimeMillis(),when=occurredAt>0?occurredAt:now;String k=n(kind),src=n(source),p=n(pkg),a=n(label),c=n(cls),e=n(eventType),t=sanitizeText(text);String fp=Fingerprint.text("phone_context|"+k+"|"+src+"|"+p+"|"+e+"|"+t+"|"+(when/3000));ContentValues v=new ContentValues();v.put("kind",k.isEmpty()?"app_context":k);v.put("source",src.isEmpty()?"phone":src);v.put("package_name",p);v.put("app_label",a);v.put("class_name",c);v.put("event_type",e);v.put("text_preview",t);v.put("metadata_json",meta==null?"{}":meta.toString());v.put("fingerprint",fp);v.put("occurred_at",when);v.put("created_at",now);long id=db.getWritableDatabase().insertWithOnConflict("phone_context_events",null,v,SQLiteDatabase.CONFLICT_IGNORE);maybeCleanup(db);return id;}
 
-    public static ArrayList<Event> recent(VaultDb db,long since,int limit){
-        ensure(db);ArrayList<Event> out=new ArrayList<>();int lim=Math.max(1,Math.min(200,limit));
-        Cursor c=db.getReadableDatabase().query("phone_context_events",null,"occurred_at>=?",new String[]{String.valueOf(Math.max(0,since))},null,null,"occurred_at DESC,id DESC",String.valueOf(lim));
-        while(c.moveToNext())out.add(from(c));c.close();return out;
-    }
+    /** Replaces the current process snapshot while only emitting timeline events for starts/stops. */
+    public static int updateProcessSnapshot(VaultDb db,Collection<ProcessInfo> processes,String source,long when){ensure(db);long now=when>0?when:System.currentTimeMillis();LinkedHashMap<String,ProcessInfo> current=new LinkedHashMap<>();if(processes!=null)for(ProcessInfo p:processes)if(p!=null&&!n(p.name).isEmpty())current.put(n(p.name),p);LinkedHashSet<String> previous=new LinkedHashSet<>();Cursor c=db.getReadableDatabase().rawQuery("SELECT process_name FROM phone_process_state WHERE active=1",null);while(c.moveToNext())previous.add(n(c.getString(0)));c.close();SQLiteDatabase w=db.getWritableDatabase();w.beginTransaction();try{for(ProcessInfo p:current.values()){boolean was=previous.contains(p.name);ContentValues v=new ContentValues();v.put("process_name",p.name);v.put("app_label",p.label);v.put("user_name",p.user);v.put("pid",p.pid);v.put("active",1);v.put("source",safe(source));v.put("last_seen",now);if(!was)v.put("last_changed",now);int updated=w.update("phone_process_state",v,"process_name=?",new String[]{p.name});if(updated==0){if(!v.containsKey("last_changed"))v.put("last_changed",now);w.insertWithOnConflict("phone_process_state",null,v,SQLiteDatabase.CONFLICT_REPLACE);}if(!was){JSONObject m=new JSONObject();try{m.put("pid",p.pid);m.put("user",p.user);m.put("source",source);m.put("local_only",true);}catch(Exception ignored){}record(db,"process_context",source,p.name,p.label,"","process_started",p.name,now,m);}}for(String old:previous)if(!current.containsKey(old)){ContentValues v=new ContentValues();v.put("active",0);v.put("last_changed",now);w.update("phone_process_state",v,"process_name=?",new String[]{old});record(db,"process_context",source,old,old,"","process_stopped",old,now,null);}w.setTransactionSuccessful();}finally{w.endTransaction();}return current.size();}
 
-    public static Event latest(VaultDb db){
-        ensure(db);Cursor c=db.getReadableDatabase().rawQuery("SELECT * FROM phone_context_events ORDER BY occurred_at DESC,id DESC LIMIT 1",null);Event e=c.moveToFirst()?from(c):null;c.close();return e;
-    }
+    public static int activeProcessCount(VaultDb db){ensure(db);Cursor c=db.getReadableDatabase().rawQuery("SELECT COUNT(*) FROM phone_process_state WHERE active=1",null);int n=c.moveToFirst()?c.getInt(0):0;c.close();return n;}
+    public static String activeProcessSummary(VaultDb db,int limit){ensure(db);int lim=Math.max(1,Math.min(100,limit));Cursor c=db.getReadableDatabase().rawQuery("SELECT process_name,app_label,user_name,pid FROM phone_process_state WHERE active=1 ORDER BY last_seen DESC,process_name LIMIT ?",new String[]{String.valueOf(lim)});StringBuilder b=new StringBuilder();while(c.moveToNext()){if(b.length()>0)b.append('\n');String name=n(c.getString(0)),label=n(c.getString(1)),user=n(c.getString(2)),pid=n(c.getString(3));b.append("• ").append(label.isEmpty()?name:label);if(!label.isEmpty()&&!label.equals(name))b.append(" (").append(name).append(')');if(!pid.isEmpty())b.append(" · pid ").append(pid);if(!user.isEmpty())b.append(" · ").append(user);}c.close();return b.toString();}
 
-    public static String recentSummary(VaultDb db,long windowMs,int limit){
-        long since=System.currentTimeMillis()-Math.max(60_000L,windowMs);ArrayList<Event> xs=recent(db,since,Math.max(limit*3,limit));
-        LinkedHashSet<String> seen=new LinkedHashSet<>();StringBuilder b=new StringBuilder();int n=0;
-        for(Event e:xs){String key=e.packageName+"|"+e.eventType+"|"+LocalSemanticEmbedder.norm(e.text);if(!seen.add(key))continue;
-            if(b.length()>0)b.append('\n');b.append("• ").append(time(e.occurredAt)).append(" · ").append(e.human());if(++n>=limit)break;}
-        return b.toString();
-    }
+    public static ArrayList<Event> recent(VaultDb db,long since,int limit){ensure(db);ArrayList<Event> out=new ArrayList<>();int lim=Math.max(1,Math.min(200,limit));Cursor c=db.getReadableDatabase().query("phone_context_events",null,"occurred_at>=?",new String[]{String.valueOf(Math.max(0,since))},null,null,"occurred_at DESC,id DESC",String.valueOf(lim));while(c.moveToNext())out.add(from(c));c.close();return out;}
+    public static Event latest(VaultDb db){ensure(db);Cursor c=db.getReadableDatabase().rawQuery("SELECT * FROM phone_context_events ORDER BY occurred_at DESC,id DESC LIMIT 1",null);Event e=c.moveToFirst()?from(c):null;c.close();return e;}
+    public static String recentSummary(VaultDb db,long windowMs,int limit){long since=System.currentTimeMillis()-Math.max(60_000L,windowMs);ArrayList<Event> xs=recent(db,since,Math.max(limit*3,limit));LinkedHashSet<String> seen=new LinkedHashSet<>();StringBuilder b=new StringBuilder();int z=0;for(Event e:xs){String key=e.packageName+"|"+e.eventType+"|"+LocalSemanticEmbedder.norm(e.text);if(!seen.add(key))continue;if(b.length()>0)b.append('\n');b.append("• ").append(time(e.occurredAt)).append(" · ").append(e.human());if(++z>=limit)break;}return b.toString();}
+    public static long countSince(VaultDb db,long since){ensure(db);Cursor c=db.getReadableDatabase().rawQuery("SELECT COUNT(*) FROM phone_context_events WHERE occurred_at>=?",new String[]{String.valueOf(since)});long z=c.moveToFirst()?c.getLong(0):0;c.close();return z;}
+    public static long distinctAppsSince(VaultDb db,long since){ensure(db);Cursor c=db.getReadableDatabase().rawQuery("SELECT COUNT(DISTINCT package_name) FROM phone_context_events WHERE occurred_at>=? AND COALESCE(package_name,'')<>''",new String[]{String.valueOf(since)});long z=c.moveToFirst()?c.getLong(0):0;c.close();return z;}
 
-    public static long countSince(VaultDb db,long since){ensure(db);Cursor c=db.getReadableDatabase().rawQuery("SELECT COUNT(*) FROM phone_context_events WHERE occurred_at>=?",new String[]{String.valueOf(since)});long n=c.moveToFirst()?c.getLong(0):0;c.close();return n;}
-    public static long distinctAppsSince(VaultDb db,long since){ensure(db);Cursor c=db.getReadableDatabase().rawQuery("SELECT COUNT(DISTINCT package_name) FROM phone_context_events WHERE occurred_at>=? AND COALESCE(package_name,'')<>''",new String[]{String.valueOf(since)});long n=c.moveToFirst()?c.getLong(0):0;c.close();return n;}
-
-    public static void cleanup(VaultDb db){
-        ensure(db);SQLiteDatabase s=db.getWritableDatabase();long cutoff=System.currentTimeMillis()-RETENTION_MS;
-        s.delete("phone_context_events","occurred_at<?",new String[]{String.valueOf(cutoff)});
-        s.execSQL("DELETE FROM phone_context_events WHERE id NOT IN (SELECT id FROM phone_context_events ORDER BY occurred_at DESC,id DESC LIMIT "+MAX_ROWS+")");
-    }
+    public static void cleanup(VaultDb db){ensure(db);SQLiteDatabase s=db.getWritableDatabase();long cutoff=System.currentTimeMillis()-RETENTION_MS;s.delete("phone_context_events","occurred_at<?",new String[]{String.valueOf(cutoff)});s.execSQL("DELETE FROM phone_context_events WHERE id NOT IN (SELECT id FROM phone_context_events ORDER BY occurred_at DESC,id DESC LIMIT "+MAX_ROWS+")");s.delete("phone_process_state","active=0 AND last_changed<?",new String[]{String.valueOf(cutoff)});}
     private static void maybeCleanup(VaultDb db){try{if((System.currentTimeMillis()/60000)%30==0)cleanup(db);}catch(Throwable ignored){}}
-
     private static Event from(Cursor c){Event e=new Event();e.id=g(c,"id");e.kind=s(c,"kind");e.source=s(c,"source");e.packageName=s(c,"package_name");e.appLabel=s(c,"app_label");e.className=s(c,"class_name");e.eventType=s(c,"event_type");e.text=s(c,"text_preview");e.metadataJson=s(c,"metadata_json");e.occurredAt=g(c,"occurred_at");return e;}
     private static String s(Cursor c,String k){int i=c.getColumnIndex(k);return i<0||c.isNull(i)?"":c.getString(i);}private static long g(Cursor c,String k){int i=c.getColumnIndex(k);return i<0||c.isNull(i)?0:c.getLong(i);}
     private static String sanitizeText(String s){String x=n(s).replace('\u0000',' ').replaceAll("\\s+"," ");if(x.length()>800)x=x.substring(0,800)+"…";return x;}
-    private static String time(long ms){return new SimpleDateFormat("HH:mm:ss",Locale.getDefault()).format(new Date(ms));}
-    private static String clip(String s,int n){String x=s==null?"":s;return x.length()<=n?x:x.substring(0,n)+"…";}private static String n(String s){return s==null?"":s.trim();}
+    private static String time(long ms){return new SimpleDateFormat("HH:mm:ss",Locale.getDefault()).format(new Date(ms));}private static String clip(String s,int n){String x=s==null?"":s;return x.length()<=n?x:x.substring(0,n)+"…";}private static String n(String s){return s==null?"":s.trim();}private static String safe(String s){return s==null?"":s;}
 }
