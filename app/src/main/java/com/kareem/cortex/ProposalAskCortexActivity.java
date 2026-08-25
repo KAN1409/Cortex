@@ -5,6 +5,7 @@ import android.graphics.Color;
 import android.text.InputType;
 import android.view.*;
 import android.widget.*;
+import java.util.ArrayList;
 
 /** Brain surface locked to the approved matte warm premium language with per-answer proposals. */
 public final class ProposalAskCortexActivity extends AskCortexActivity {
@@ -26,13 +27,26 @@ public final class ProposalAskCortexActivity extends AskCortexActivity {
 
     @Override TextView thinking(String s){TextView t=CortexUi.plain(this,s,11,CortexUi.MUTED);t.setPadding(dp(12),dp(9),dp(12),dp(9));t.setBackground(CortexUi.round(this,CortexUi.SURFACE,CortexUi.BORDER_SOFT,14));CortexUi.raised(this,t,2);LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-2,-2);p.setMargins(0,0,dp(48),dp(8));conversation.addView(t,p);return t;}
 
-    @Override void addAnswer(LocalAskRouter.Result r,String q,boolean refined){
-        int before=conversation==null?0:conversation.getChildCount();super.addAnswer(r,q,refined);if(conversation==null||db==null||r==null||conversation.getChildCount()<=before)return;LinearLayout card=null;
-        for(int i=conversation.getChildCount()-1;i>=before;i--){View v=conversation.getChildAt(i);if(v instanceof LinearLayout){card=(LinearLayout)v;break;}}
-        if(card==null)return;card.setPadding(dp(14),dp(13),dp(14),dp(13));card.setBackground(CortexUi.velvet(this,20));CortexUi.raised(this,card,4);
-        if(card.getChildCount()>0&&card.getChildAt(0) instanceof LinearLayout){LinearLayout labelRow=(LinearLayout)card.getChildAt(0);labelRow.setGravity(Gravity.CENTER_VERTICAL);CortexGlyphView icon=CortexUi.glyph(this,"brain",CortexUi.RED,true);labelRow.addView(icon,0,new LinearLayout.LayoutParams(dp(36),dp(36)));if(labelRow.getChildCount()>1){View text=labelRow.getChildAt(1);if(text!=null){ViewGroup.LayoutParams raw=text.getLayoutParams();if(raw instanceof LinearLayout.LayoutParams)((LinearLayout.LayoutParams)raw).setMargins(dp(8),0,0,0);}}}
-        boolean cloudAllowed=!"your_data".equals(r.sourceMode);long sourceId="combined".equals(r.sourceMode)?Math.max(0,focalItemId):0;String title=q==null||q.trim().isEmpty()?"Brain answer":"Brain · "+clip(q,72);ResultProposalEngine.Target target=new ResultProposalEngine.Target("Brain answer","brain_"+(r.jobId>0?r.jobId:System.nanoTime()),title,r.answer,sourceId,"BRAIN_RESULT",cloudAllowed);ProposalUi.attach(this,db,card,target);
+    @Override void addStructuredActions(LinearLayout card,LocalAskRouter.Result r){
+        if(db==null||r.jobId<=0||"your_data".equals(r.sourceMode))return;ArrayList<BrainActionStore.Action> xs;try{xs=BrainActionStore.list(db,r.jobId);}catch(Throwable e){return;}if(xs.isEmpty())return;
+        TextView head=CortexUi.plain(this,"Suggested next actions",10,CortexUi.MUTED);CortexUi.medium(head);head.setPadding(0,dp(14),0,dp(7));card.addView(head);
+        for(BrainActionStore.Action x:xs){
+            int color=actionColor(x.type);LinearLayout row=CortexUi.card(this,16);row.setOrientation(LinearLayout.HORIZONTAL);row.setGravity(Gravity.CENTER_VERTICAL);row.setPadding(dp(7),dp(6),dp(9),dp(6));row.addView(CortexUi.glyph(this,actionGlyph(x.type),color,!x.ready()),new LinearLayout.LayoutParams(dp(38),dp(38)));
+            LinearLayout tx=new LinearLayout(this);tx.setOrientation(LinearLayout.VERTICAL);LinearLayout.LayoutParams xp=new LinearLayout.LayoutParams(0,-2,1);xp.setMargins(dp(8),0,dp(7),0);row.addView(tx,xp);TextView title=CortexUi.text(this,x.title,12,CortexUi.TEXT);CortexUi.medium(title);title.setMaxLines(2);tx.addView(title);TextView state=CortexUi.plain(this,x.ready()?"Ready":"Needs details",9,x.ready()?CortexUi.MUTED:color);state.setPadding(0,dp(3),0,0);tx.addView(state);row.addView(CortexUi.chip(this,x.ready()?"READY":"DETAILS",color,false),new LinearLayout.LayoutParams(-2,dp(30)));row.setOnClickListener(v->CortexActionDispatcher.preview(this,db,x));LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,-2);p.setMargins(0,dp(6),0,0);card.addView(row,p);
+        }
+        TextView trust=CortexUi.plain(this,"Validated locally. External changes always open as a preview/draft before confirmation.",9,CortexUi.FAINT);trust.setPadding(0,dp(7),0,0);card.addView(trust);
     }
 
-    private static String clip(String s,int n){String x=s==null?"":s.replaceAll("\\s+"," ").trim();return x.length()>n?x.substring(0,n)+"…":x;}
+    private String actionGlyph(String type){if("CALENDAR_EVENT".equals(type)||"CALENDAR_RESCHEDULE".equals(type)||"REMINDER".equals(type)||"WAIT_FOR".equals(type))return"clock";if("CALL".equals(type))return"phone";if("MESSAGE_DRAFT".equals(type)||"EMAIL_DRAFT".equals(type))return"note";if("PROJECT_LINK".equals(type))return"project";if("WEB_SEARCH".equals(type))return"search";if("TASK".equals(type))return"check";return"action";}
+    private int actionColor(String type){if("WAIT_FOR".equals(type)||"REMINDER".equals(type))return CortexUi.ORANGE;if("CALENDAR_EVENT".equals(type)||"CALENDAR_RESCHEDULE".equals(type))return CortexUi.YELLOW;if("PROJECT_LINK".equals(type)||"TASK".equals(type)||"KNOWLEDGE_NOTE".equals(type))return CortexUi.GREEN;return CortexUi.RED;}
+
+    @Override void addAnswer(LocalAskRouter.Result r,String q,boolean refined){
+        int before=conversation==null?0:conversation.getChildCount();super.addAnswer(r,q,refined);if(conversation==null||db==null||r==null||conversation.getChildCount()<=before)return;LinearLayout answerCard=null;
+        for(int i=conversation.getChildCount()-1;i>=before;i--){View v=conversation.getChildAt(i);if(v instanceof LinearLayout){answerCard=(LinearLayout)v;break;}}
+        if(answerCard==null)return;answerCard.setPadding(dp(14),dp(13),dp(14),dp(13));answerCard.setBackground(CortexUi.velvet(this,20));CortexUi.raised(this,answerCard,4);
+        if(answerCard.getChildCount()>0&&answerCard.getChildAt(0) instanceof LinearLayout){LinearLayout labelRow=(LinearLayout)answerCard.getChildAt(0);labelRow.setGravity(Gravity.CENTER_VERTICAL);CortexGlyphView icon=CortexUi.glyph(this,"brain",CortexUi.RED,true);labelRow.addView(icon,0,new LinearLayout.LayoutParams(dp(36),dp(36)));if(labelRow.getChildCount()>1){View text=labelRow.getChildAt(1);if(text!=null){ViewGroup.LayoutParams raw=text.getLayoutParams();if(raw instanceof LinearLayout.LayoutParams)((LinearLayout.LayoutParams)raw).setMargins(dp(8),0,0,0);}}}
+        boolean cloudAllowed=!"your_data".equals(r.sourceMode);long sourceId="combined".equals(r.sourceMode)?Math.max(0,focalItemId):0;String title=q==null||q.trim().isEmpty()?"Brain answer":"Brain · "+proposalClip(q,72);ResultProposalEngine.Target target=new ResultProposalEngine.Target("Brain answer","brain_"+(r.jobId>0?r.jobId:System.nanoTime()),title,r.answer,sourceId,"BRAIN_RESULT",cloudAllowed);ProposalUi.attach(this,db,answerCard,target);
+    }
+
+    private static String proposalClip(String s,int n){String x=s==null?"":s.replaceAll("\\s+"," ").trim();return x.length()>n?x.substring(0,n)+"…":x;}
 }
