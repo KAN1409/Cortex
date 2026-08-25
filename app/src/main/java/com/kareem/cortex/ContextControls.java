@@ -8,12 +8,12 @@ public final class ContextControls {
     private ContextControls(){}
 
     public static boolean switchTo(VaultDb db,long contextId){
-        if(db==null||contextId<=0)return false;ContextStateStore.ContextState x=ContextStateStore.get(db,contextId);if(x==null)return false;ContextStateStore.ContextState before=ContextStateStore.primary(db);long now=System.currentTimeMillis();ContextStateStore.Offer offer=ContextStateStore.offerPrimary(db,x.id,1.0,100,ContextBoundaryDetector.USER_SWITCH+" · explicit user choice",now,0);try{ContextStateStore.feedback(db,x.id,before==null?0:before.id,"PIN_OR_SWITCH",new JSONObject().put("explicit",true).put("from_context_id",before==null?0:before.id));}catch(Throwable ignored){}return offer.becamePrimary;
+        if(db==null||contextId<=0)return false;ContextStateStore.ContextState x=ContextStateStore.get(db,contextId);if(x==null)return false;ContextStateStore.ContextState before=ContextStateStore.primary(db);long now=System.currentTimeMillis();ContextStateStore.Offer offer=ContextStateStore.offerPrimary(db,x.id,1.0,100,ContextBoundaryDetector.USER_SWITCH+" · explicit user choice",now,0);try{ContextStateStore.feedback(db,x.id,before==null?0:before.id,"PIN_OR_SWITCH",new JSONObject().put("explicit",true).put("from_context_id",before==null?0:before.id));}catch(Throwable ignored){}if(offer.becamePrimary)try{ContextFingerprintLearner.reinforceSelection(db,x,before);}catch(Throwable ignored){}return offer.becamePrimary;
     }
 
     public static boolean completeCurrent(VaultDb db){
         if(db==null)return false;ContextStateStore.ContextState current=ContextStateStore.primary(db);if(current==null)return false;try{ContextStateStore.feedback(db,current.id,0,"DONE",new JSONObject().put("explicit",true));}catch(Throwable ignored){}ContextStateStore.complete(db,current.id,ContextBoundaryDetector.USER_DONE+" · explicit user completion");
-        for(ContextStateStore.ContextState x:ContextStateStore.stack(db,8)){if(x.id==current.id||!ContextStateStore.ROLE_BACKGROUND.equals(x.role))continue;ContextStateStore.offerPrimary(db,x.id,Math.max(.90,x.stackConfidence),Math.max(85,x.priority),ContextBoundaryDetector.resume("Resume most recent suspended context after user completed the primary context"),System.currentTimeMillis(),0);break;}return true;
+        for(ContextStateStore.ContextState x:ContextStateStore.stack(db,8)){if(x.id==current.id||!ContextStateStore.ROLE_BACKGROUND.equals(x.role))continue;ContextStateStore.Offer resumed=ContextStateStore.offerPrimary(db,x.id,Math.max(.90,x.stackConfidence),Math.max(85,x.priority),ContextBoundaryDetector.resume("Resume most recent suspended context after user completed the primary context"),System.currentTimeMillis(),0);if(resumed.becamePrimary)try{ContextFingerprintLearner.reinforceResume(db,x);}catch(Throwable ignored){}break;}return true;
     }
 
     public static String why(VaultDb db){
