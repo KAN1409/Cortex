@@ -23,6 +23,13 @@ public final class CortexScreenAccessibilityService extends AccessibilityService
         public boolean usable(){return !text.isEmpty();}
     }
 
+    /** Lightweight test-only description of a clickable active-window node. */
+    public static final class RobotNode {
+        public final String path,label,className,packageName;
+        public final boolean enabled;
+        RobotNode(String p,String l,String c,String pkg,boolean e){path=n(p);label=n(l);className=n(c);packageName=n(pkg);enabled=e;}
+    }
+
     @Override protected void onServiceConnected(){super.onServiceConnected();live=this;PhoneContextScheduler.schedule(this);}
     @Override public void onDestroy(){if(live==this)live=null;super.onDestroy();}
     @Override public void onAccessibilityEvent(AccessibilityEvent event){PhoneContextCollector.onAccessibilityEvent(this,event);}
@@ -46,6 +53,27 @@ public final class CortexScreenAccessibilityService extends AccessibilityService
             StringBuilder body=new StringBuilder();for(String line:lines){if(body.length()>0)body.append('\n');if(body.length()+line.length()>MAX_CHARS)break;body.append(line);}
             return new Snapshot(pkg,label(s,pkg),body.toString(),System.currentTimeMillis());
         }catch(Throwable ignored){return null;}
+    }
+
+    /** Enumerate active-window click targets only while the explicit experimental test mode is enabled. */
+    public static List<RobotNode> robotClickableNodes(){
+        CortexScreenAccessibilityService s=live;if(s==null||!CortexExperimentalTestMode.active(s))return Collections.emptyList();AccessibilityNodeInfo root=null;
+        try{root=s.getRootInActiveWindow();if(root==null)return Collections.emptyList();ArrayList<RobotNode> out=new ArrayList<>();collectRobot(root,"",out,0);return out;}catch(Throwable ignored){return Collections.emptyList();}
+    }
+
+    /** Perform one accessibility click by tree path. Never available outside explicit test mode. */
+    public static boolean robotClick(String path){
+        CortexScreenAccessibilityService s=live;if(s==null||!CortexExperimentalTestMode.active(s))return false;AccessibilityNodeInfo root=null;
+        try{root=s.getRootInActiveWindow();if(root==null)return false;AccessibilityNodeInfo x=root;String p=n(path);if(!p.isEmpty())for(String part:p.split("/")){if(part.isEmpty())continue;int i=Integer.parseInt(part);if(i<0||i>=x.getChildCount())return false;AccessibilityNodeInfo child=x.getChild(i);if(child==null)return false;x=child;}if(!x.isEnabled()||!x.isClickable())return false;return x.performAction(AccessibilityNodeInfo.ACTION_CLICK);}catch(Throwable ignored){return false;}
+    }
+
+    private static void collectRobot(AccessibilityNodeInfo x,String path,List<RobotNode> out,int depth){
+        if(x==null||depth>28||out.size()>=180)return;
+        if(x.isClickable()&&x.isVisibleToUser()&&!x.isPassword()){
+            String text=n(x.getText()==null?null:x.getText().toString()),desc=n(x.getContentDescription()==null?null:x.getContentDescription().toString());String label=!text.isEmpty()?text:desc;if(label.length()>180)label=label.substring(0,180)+"…";
+            out.add(new RobotNode(path,label,n(x.getClassName()==null?null:x.getClassName().toString()),n(x.getPackageName()==null?null:x.getPackageName().toString()),x.isEnabled()));
+        }
+        for(int i=0;i<x.getChildCount()&&out.size()<180;i++){AccessibilityNodeInfo child=x.getChild(i);if(child!=null)collectRobot(child,path.isEmpty()?String.valueOf(i):path+"/"+i,out,depth+1);}
     }
 
     private static int add(LinkedHashSet<String> out,CharSequence raw,int current){String x=n(raw==null?null:raw.toString()).replaceAll("\\s+"," ");if(x.length()<2||current>=MAX_CHARS)return 0;if(x.length()>600)x=x.substring(0,600)+"…";return out.add(x)?x.length():0;}
