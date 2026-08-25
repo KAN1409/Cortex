@@ -13,24 +13,27 @@ public final class MixedBidiText {
     private MixedBidiText(){}
 
     /**
-     * Format each line independently. Consecutive same-script word runs are isolated as a unit,
-     * so punctuation attached to technical tokens (for example English? or API:) stays with them.
+     * Format each line using the document's reading direction. This matters for Arabic answers that
+     * begin individual lines with Latin medical/product tokens (for example "8mg/2ml ... من INAD").
+     * The whole answer remains RTL while consecutive Latin runs are isolated and stay readable LTR.
      */
     public static CharSequence format(String input){
         if(input==null||input.isEmpty())return "";
         String clean=stripControls(input).replace("\r\n","\n").replace('\r','\n');
+        boolean documentRtl=isArabicDominant(clean);
         String[] lines=clean.split("\n",-1);
         StringBuilder out=new StringBuilder(clean.length()+32);
         for(int i=0;i<lines.length;i++){
             if(i>0)out.append('\n');
-            out.append(formatLine(lines[i]));
+            out.append(formatLine(lines[i],documentRtl));
         }
         return out;
     }
 
-    private static CharSequence formatLine(String line){
+    private static CharSequence formatLine(String line,boolean documentRtl){
         if(line==null||line.isEmpty())return "";
-        boolean baseRtl=isArabicDominant(line);
+        boolean lineHasArabic=containsArabic(line);
+        boolean baseRtl=documentRtl||lineHasArabic;
         String trimmed=line.trim();
         if(trimmed.isEmpty())return line;
         String[] tokens=trimmed.split("\\s+");
@@ -80,6 +83,12 @@ public final class MixedBidiText {
         int ar=0,latin=0;for(int i=0;i<text.length();){int cp=text.codePointAt(i);i+=Character.charCount(cp);Character.UnicodeScript sc=Character.UnicodeScript.of(cp);if(sc==Character.UnicodeScript.ARABIC)ar++;else if(sc==Character.UnicodeScript.LATIN)latin++;}
         if(ar==latin&&ar>0)return firstStrongArabic(text);
         return ar>0&&ar>latin;
+    }
+
+    private static boolean containsArabic(String text){
+        if(text==null||text.isEmpty())return false;
+        for(int i=0;i<text.length();){int cp=text.codePointAt(i);i+=Character.charCount(cp);if(Character.UnicodeScript.of(cp)==Character.UnicodeScript.ARABIC)return true;}
+        return false;
     }
 
     private static int tokenDirection(String token){
