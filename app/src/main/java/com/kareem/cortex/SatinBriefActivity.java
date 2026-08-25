@@ -10,11 +10,11 @@ import java.io.File;
 import java.text.SimpleDateFormat;
 import java.util.*;
 
-/** Premium dark-satin PRIME Brief. Business logic stays in PremiumHomeActivity/PrimeBriefStore; this class is the presentation layer. */
+/** Legacy Satin presentation base. All visual tokens delegate to the locked CortexUi system. */
 public class SatinBriefActivity extends PremiumHomeActivity {
-    static final int CANVAS=Color.rgb(2,2,3),SURFACE=Color.rgb(11,13,17),SURFACE_HI=Color.rgb(18,20,26),INSET=Color.rgb(5,6,8);
-    static final int PRIMARY=Color.rgb(243,244,246),SECONDARY=Color.rgb(154,159,171),MUTED2=Color.rgb(102,108,119);
-    static final int RED=Color.rgb(255,42,36),AMBER=Color.rgb(255,176,0),VIOLET=Color.rgb(178,103,255),INFO=Color.rgb(139,145,156);
+    static final int CANVAS=CortexUi.BG,SURFACE=CortexUi.SURFACE,SURFACE_HI=CortexUi.SURFACE_2,INSET=CortexUi.BG;
+    static final int PRIMARY=CortexUi.TEXT,SECONDARY=CortexUi.MUTED,MUTED2=CortexUi.FAINT;
+    static final int RED=CortexUi.RED,AMBER=CortexUi.ORANGE,VIOLET=CortexUi.YELLOW,INFO=CortexUi.GREEN;
     final Handler ui=new Handler(Looper.getMainLooper());final ArrayList<KnowledgeItem> audioItems=new ArrayList<>();
     MediaPlayer player;boolean prepared=false;int audioIndex=0;CortexRingButton playRing;CortexScrubberView scrub;TextView audioTitle,audioSub,timeNow,timeEnd;Runnable playbackTick;
 
