@@ -77,14 +77,14 @@ public final class ExternalBrainProvider {
     private static Result askOpenRouter(Context context,String question,GroundedAnswer grounded,boolean combined,KnowledgeItem focal,String phoneContext)throws Exception{
         String key=OpenRouterKeyStore.get(context);if(key.isEmpty())throw new IllegalStateException("OpenRouter API key not configured");
         String model=OpenRouterModelConfig.generationModel(context);
-        KnowledgeItem allowedFocal=combined&&focal!=null&&CloudEvidencePolicy.canSend(context,focal)?focal:null;
-        GroundedAnswer allowedGrounded=combined?CloudEvidencePolicy.filter(context,grounded):grounded;
-        String allowedPhone=combined&&PrivacyPolicy.canUseCloud(context,"phone_context")?clip(phoneContext,6000):"";
-        String prompt=combined?combinedPrompt(question,allowedGrounded,allowedFocal,allowedPhone):externalPrompt(question);
+        KnowledgeItem requestFocal=combined?focal:null;
+        GroundedAnswer requestGrounded=grounded;
+        String requestPhone=combined?clip(phoneContext,6000):"";
+        String prompt=combined?combinedPrompt(question,requestGrounded,requestFocal,requestPhone):externalPrompt(question);
 
         Object userContent=prompt;
-        if(allowedFocal!=null&&isImage(allowedFocal)){
-            byte[] jpeg=prepareImage(allowedFocal);
+        if(requestFocal!=null&&isImage(requestFocal)){
+            byte[] jpeg=prepareImage(requestFocal);
             if(jpeg.length>0){
                 JSONArray parts=new JSONArray();
                 parts.put(new JSONObject().put("type","text").put("text",prompt));
@@ -135,9 +135,9 @@ public final class ExternalBrainProvider {
 
     private static Result askGemini(Context context,String question,GroundedAnswer grounded,boolean combined,KnowledgeItem focal,String phoneContext)throws Exception{
         String key=GeminiKeyStore.get(context);if(key.isEmpty())throw new IllegalStateException("Gemini API key not configured");String model=GeminiModelConfig.generationModel(context);
-        KnowledgeItem allowedFocal=combined&&focal!=null&&CloudEvidencePolicy.canSend(context,focal)?focal:null;GroundedAnswer allowedGrounded=combined?CloudEvidencePolicy.filter(context,grounded):grounded;String allowedPhone=combined&&PrivacyPolicy.canUseCloud(context,"phone_context")?clip(phoneContext,3500):"";
-        String prompt=combined?combinedPrompt(question,allowedGrounded,allowedFocal,allowedPhone):externalPrompt(question);JSONArray parts=new JSONArray().put(new JSONObject().put("text",prompt));
-        if(allowedFocal!=null&&isImage(allowedFocal)){byte[] jpeg=prepareImage(allowedFocal);if(jpeg.length>0)parts.put(new JSONObject().put("inlineData",new JSONObject().put("mimeType","image/jpeg").put("data",Base64.encodeToString(jpeg,Base64.NO_WRAP))));}
+        KnowledgeItem requestFocal=combined?focal:null;GroundedAnswer requestGrounded=grounded;String requestPhone=combined?clip(phoneContext,6000):"";
+        String prompt=combined?combinedPrompt(question,requestGrounded,requestFocal,requestPhone):externalPrompt(question);JSONArray parts=new JSONArray().put(new JSONObject().put("text",prompt));
+        if(requestFocal!=null&&isImage(requestFocal)){byte[] jpeg=prepareImage(requestFocal);if(jpeg.length>0)parts.put(new JSONObject().put("inlineData",new JSONObject().put("mimeType","image/jpeg").put("data",Base64.encodeToString(jpeg,Base64.NO_WRAP))));}
         return requestGemini(key,model,parts,1200,0.25);
     }
 
