@@ -24,6 +24,7 @@ need "$SUITE" 'CONFIRMED CORTEX PROBLEMS' 'report puts confirmed Cortex problems
 need "$SUITE" 'QUALITY PROBLEMS' 'report has quality-problem section'
 need "$SUITE" 'TEST GAPS' 'report distinguishes untested coverage from app bugs'
 need "$SUITE" 'PASSED JOURNEYS' 'report records passed real journeys'
+need "$SUITE" 'Test harness exception:.*HARNESS_ISSUE' 'test-harness exceptions cannot be mislabeled as Cortex app bugs'
 
 # Real product outcomes are asserted after the UI action.
 need "$SUITE" 'knowledge_items WHERE raw_text=\?' 'text-capture journey verifies exact persisted evidence'
