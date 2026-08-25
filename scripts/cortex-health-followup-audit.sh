@@ -19,8 +19,16 @@ RDEBUG="app/src/main/java/com/kareem/cortex/ReliableDebugExporter.java"
 ENV="app/src/main/java/com/kareem/cortex/EnvironmentActivity.java"
 TEXTUI="app/src/main/java/com/kareem/cortex/CortexTextUi.java"
 BIDI="app/src/main/java/com/kareem/cortex/MixedBidiText.java"
+AUTOTEST="app/src/main/java/com/kareem/cortex/CortexAutoTestSuite.java"
+AUTOEXPORT="app/src/main/java/com/kareem/cortex/CortexAutoTestExporter.java"
+ROBOTMODE="app/src/main/java/com/kareem/cortex/CortexExperimentalTestMode.java"
+ROBOTFIX="app/src/main/java/com/kareem/cortex/CortexRobotFixtures.java"
+ROBOT="app/src/main/java/com/kareem/cortex/CortexRobotUserTest.java"
+ROBOTEXPORT="app/src/main/java/com/kareem/cortex/CortexRobotTestExporter.java"
+ACCESSIBILITY="app/src/main/java/com/kareem/cortex/CortexScreenAccessibilityService.java"
+VAULT="app/src/main/java/com/kareem/cortex/VaultDb.java"
 
-for f in "$ONBOARD" "$ACCESS" "$PROVIDER" "$BRAIN" "$PUI" "$RDEBUG" "$ENV" "$TEXTUI" "$BIDI"; do need_file "$f"; done
+for f in "$ONBOARD" "$ACCESS" "$PROVIDER" "$BRAIN" "$PUI" "$RDEBUG" "$ENV" "$TEXTUI" "$BIDI" "$AUTOTEST" "$AUTOEXPORT" "$ROBOTMODE" "$ROBOTFIX" "$ROBOT" "$ROBOTEXPORT" "$ACCESSIBILITY" "$VAULT"; do need_file "$f"; done
 
 # First-run Android access walkthrough must stay wired to the same authoritative gate inventory.
 need "$MAN" 'activity android:name="\.AccessOnboardingActivity"' 'first-run Access onboarding is registered'
@@ -44,6 +52,8 @@ need "$PROVIDER" 'OPENROUTER_RATE_LIMIT_COOLDOWN_MS' 'OpenRouter rate-limit cool
 need "$PROVIDER" 'rateLimited\(\).*markOpenRouterCooldown' 'HTTP 429 marks OpenRouter cooling down'
 need "$PROVIDER" 'openRouterCoolingDown\(context\).*GeminiKeyStore' 'cooldown can route directly to Gemini fallback'
 need "$PROVIDER" 'clearOpenRouterCooldown' 'successful OpenRouter recovery clears cooldown'
+need "$RDEBUG" 'brain_health_primary' 'debug export retains primary provider health result'
+need "$RDEBUG" 'brain_failover_active' 'debug export reports effective Gemini failover state'
 
 # Attached-capture questions should answer from the focal evidence before doing broad cross-memory work.
 need "$BRAIN" 'fastFocal=true' 'Brain has explicit fast focal route'
@@ -77,6 +87,36 @@ need "$RDEBUG" 'Environment\.DIRECTORY_DOWNLOADS\+"/Cortex"' 'debug package has 
 need "$RDEBUG" 'ClipData\.newRawUri' 'debug share carries ClipData URI grant'
 need "$RDEBUG" 'grantUriPermission' 'debug share explicitly grants target apps read access'
 need "$ENV" 'ReliableDebugExporter\.exportAndShare' 'Advanced diagnostics uses reliable debug exporter'
+
+# Complete automatic verification must cover the authoritative matrix plus deterministic fixtures and readable reports.
+need "$AUTOTEST" 'CortexCapabilityRegistry\.all' 'automatic verification walks all authoritative capabilities'
+need "$AUTOTEST" 'health\.metric_roundtrip' 'automatic verification includes synthetic health metric round-trip'
+need "$AUTOTEST" 'transcript\.manual_override' 'automatic verification includes transcript correction authority test'
+need "$AUTOTEST" 'proposal\.parser' 'automatic verification tests structured proposal parsing'
+need "$AUTOTEST" 'rtl\.arabic_dominant' 'automatic verification tests Arabic-dominant mixed bidi behavior'
+need "$AUTOEXPORT" 'CortexAutoTest_.*\.md' 'automatic verification exports Markdown report'
+need "$AUTOEXPORT" 'CortexAutoTest_.*\.json' 'automatic verification exports JSON report'
+need "$ENV" 'CortexAutoTestExporter\.runAndShare' 'Advanced diagnostics exposes complete automatic verification'
+
+# Experimental robot-user test must isolate data, recursively explore UI results, and retain a crash-safe journey log.
+need "$VAULT" 'cortex_robot_test\.db' 'robot test uses a dedicated sandbox Vault DB'
+need "$ROBOTMODE" 'guardedLabel' 'robot test has explicit side-effect guard classifier'
+need "$ROBOTFIX" 'robot_fixture' 'robot test seeds disposable synthetic fixtures'
+need "$ROBOTFIX" 'deleteDatabase\(VaultDb\.robotDbName\(\)\)' 'robot sandbox is deleted after/before test'
+need "$ACCESSIBILITY" 'robotClickableNodes' 'Accessibility service exposes test-only clickable node inventory'
+need "$ACCESSIBILITY" 'robotEditableNodes' 'Accessibility service exposes test-only editable fields'
+need "$ACCESSIBILITY" 'robotSetText' 'robot can autofill synthetic form data'
+need "$ACCESSIBILITY" 'robotBack' 'robot can backtrack across dialogs/system surfaces'
+need "$ROBOT" 'MAX_STEPS=700' 'robot crawler has bounded exhaustive step budget'
+need "$ROBOT" 'MAX_SCREENS=240' 'robot crawler has bounded unique-screen budget'
+need "$ROBOT" 'PRESSED_EXTERNAL' 'robot records external/system transitions without interacting there'
+need "$ROBOT" 'GUARDED_PRIVACY' 'robot distinguishes privacy-sensitive guarded controls'
+need "$ROBOTEXPORT" 'journey\.jsonl' 'robot exporter writes incremental crash-safe journey journal'
+need "$ROBOTEXPORT" 'CortexRobotUserTest_.*\.md' 'robot exporter writes Markdown report'
+need "$ROBOTEXPORT" 'CortexRobotUserTest_.*\.json' 'robot exporter writes JSON report'
+need "$ROBOTEXPORT" 'CortexRobotUserTest_.*\.zip' 'robot exporter writes ZIP evidence bundle'
+need "$ROBOTEXPORT" 'Downloads/Cortex/AutoTests/RobotUser' 'robot reports have a known Downloads destination'
+need "$ENV" 'CortexRobotTestExporter\.runAndShare' 'Advanced diagnostics exposes experimental robot-user test'
 
 # Existing manual transcript correction behavior is part of the same runtime recovery contract.
 need_file app/src/main/java/com/kareem/cortex/TranscriptCorrectionStore.java
