@@ -39,5 +39,5 @@ public final class CortexRingButton extends View {
         case RECORD:{float bodyW=s*.22f,bodyH=s*.38f;RectF mic=new RectF(cx-bodyW,cy-bodyH,cx+bodyW,cy+s*.08f);c.drawRoundRect(mic,bodyW,bodyW,icon);p.moveTo(cx-s*.36f,cy);p.cubicTo(cx-s*.34f,cy+s*.32f,cx+s*.34f,cy+s*.32f,cx+s*.36f,cy);c.drawPath(p,icon);c.drawLine(cx,cy+s*.31f,cx,cy+s*.48f,icon);c.drawLine(cx-s*.18f,cy+s*.48f,cx+s*.18f,cy+s*.48f,icon);break;}
     }}
     @Override public boolean onTouchEvent(MotionEvent e){if(!isEnabled())return false;switch(e.getActionMasked()){case MotionEvent.ACTION_DOWN:pressedDown=true;invalidate();return true;case MotionEvent.ACTION_CANCEL:pressedDown=false;invalidate();return true;case MotionEvent.ACTION_UP:pressedDown=false;invalidate();if(e.getX()>=0&&e.getX()<=getWidth()&&e.getY()>=0&&e.getY()<=getHeight())performClick();return true;}return true;}
-    @Override public boolean performClick(){super.performClick();return true;}
+    @Override public boolean performClick(){super.performClick();if(glyph==Glyph.RECORD||glyph==Glyph.STOP)CortexHaptics.confirm(this);else CortexHaptics.press(this);return true;}
 }
