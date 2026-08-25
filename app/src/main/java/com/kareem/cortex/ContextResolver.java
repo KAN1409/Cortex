@@ -38,17 +38,19 @@ public final class ContextResolver {
         // A fresh communication thread that begins after a project/context anchor is treated as a
         // temporary interruption, not as permanent project replacement.
         long anchorAt=project!=null?project.evidenceAt:(current==null?0:current.lastEvidenceAt);
-        if(thread!=null&&now-thread.evidenceAt<=ACTIVE_INTERRUPT_WINDOW&&thread.evidenceAt>anchorAt+5_000L&&(current==null||!current.stableKey.equals(thread.key))){thread.confidence=.96;thread.priority=98;thread.reason=ContextBoundaryDetector.interrupt("A newer active conversation interrupted the prior working context");return thread;}
+        if(thread!=null&&now-thread.evidenceAt<=ACTIVE_INTERRUPT_WINDOW&&thread.evidenceAt>anchorAt+5_000L&&(current==null||!current.stableKey.equals(thread.key))){thread.confidence=.96;thread.priority=98;thread.reason=ContextBoundaryDetector.interrupt("A newer active conversation interrupted the prior working context");return learned(db,thread);}
 
         // Once a short interruption goes quiet, prefer the explicit project again. If no fresh
         // project evidence exists, resume the strongest recent suspended/background context.
         if(current!=null&&current.stableKey.startsWith("thread:")&&now-Math.max(current.lastEvidenceAt,current.lastActiveAt)>ACTIVE_INTERRUPT_WINDOW){
-            if(project!=null){project.confidence=.95;project.priority=97;project.reason=ContextBoundaryDetector.resume("Return to the recent project after the conversation interruption");return project;}
-            Candidate background=backgroundResumeCandidate(db,now,current.id);if(background!=null)return background;
+            if(project!=null){project.confidence=.95;project.priority=97;project.reason=ContextBoundaryDetector.resume("Return to the recent project after the conversation interruption");return learned(db,project);}
+            Candidate background=backgroundResumeCandidate(db,now,current.id);if(background!=null)return learned(db,background);
         }
 
-        ArrayList<Candidate> xs=new ArrayList<>();if(project!=null)xs.add(project);if(thread!=null)xs.add(thread);if(capture!=null)xs.add(capture);if(phone!=null)xs.add(phone);if(xs.isEmpty())return null;xs.sort((a,b)->{int c=Double.compare(b.confidence,a.confidence);if(c!=0)return c;return Long.compare(b.evidenceAt,a.evidenceAt);});return xs.get(0);
+        ArrayList<Candidate> xs=new ArrayList<>();if(project!=null)xs.add(project);if(thread!=null)xs.add(thread);if(capture!=null)xs.add(capture);if(phone!=null)xs.add(phone);if(xs.isEmpty())return null;for(Candidate x:xs)learned(db,x);xs.sort((a,b)->{int c=Double.compare(b.confidence,a.confidence);if(c!=0)return c;return Long.compare(b.evidenceAt,a.evidenceAt);});return xs.get(0);
     }
+
+    private static Candidate learned(VaultDb db,Candidate x){if(x==null)return null;double boost=0;try{boost=ContextFingerprintLearner.boost(db,x.key);}catch(Throwable ignored){}if(Math.abs(boost)>=.005){x.confidence=Math.max(.55,Math.min(.99,x.confidence+boost));x.reason=x.reason+" · learned fingerprint "+(boost>0?"+":"")+Math.round(boost*100)+"%";}return x;}
 
     private static Candidate backgroundResumeCandidate(VaultDb db,long now,long excludeId){try{for(ContextStateStore.ContextState s:ContextStateStore.stack(db,8)){if(s.id==excludeId||!ContextStateStore.ROLE_BACKGROUND.equals(s.role))continue;long seen=Math.max(s.lastEvidenceAt,s.lastActiveAt);if(seen<=0||now-seen>RESUME_BACKGROUND_WINDOW)continue;Candidate x=new Candidate();x.key=s.stableKey;x.title=s.title;x.goal=s.goal;x.summary=s.summary;x.evidenceAt=now;x.confidence=Math.max(.86,Math.min(.95,s.stackConfidence));x.priority=Math.max(86,s.priority);x.reason=ContextBoundaryDetector.resume("Resume the most recent suspended working context after a short interruption");x.sourceType="context";x.metadata="{\"resolver\":\"background_resume\",\"local_only\":true}";return x;}}catch(Throwable ignored){}return null;}
 
