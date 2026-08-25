@@ -5,7 +5,6 @@ import android.app.*;
 import android.content.*;
 import android.content.pm.PackageManager;
 import android.database.Cursor;
-import android.database.sqlite.SQLiteDatabase;
 import android.net.Uri;
 import android.provider.CalendarContract;
 import android.provider.Settings;
@@ -17,55 +16,11 @@ import java.util.*;
 public final class CortexCapabilityRegistry {
     public static final String ACTIVE="ACTIVE",READY="READY",NEEDS_ACCESS="NEEDS ACCESS",NEEDS_SETUP="NEEDS SETUP",FAILED="FAILED",NOT_VERIFIED="NOT VERIFIED";
     private CortexCapabilityRegistry(){}
-
     public static final class Capability {public final int number;public final String key,title;Capability(int n,String k,String t){number=n;key=k;title=t;}}
     public static final class State {public final String status,detail;State(String s,String d){status=s;detail=d;}}
 
     public static List<Capability> all(){return Arrays.asList(
-        c(1,"app_identity","App identity / build"),
-        c(2,"components","Activities / services / providers"),
-        c(3,"permissions","Permission & special-access inventory"),
-        c(4,"db_integrity","Database integrity"),
-        c(5,"db_schema","Database schema inventory"),
-        c(6,"vault_readability","Vault readability"),
-        c(7,"attachments","Archived attachments"),
-        c(8,"screenshot_folder","Screenshot folder"),
-        c(9,"screenshot_queue","Screenshot extraction queue"),
-        c(10,"dedup","Duplicate fingerprints"),
-        c(11,"ocr","OCR component"),
-        c(12,"visual_intelligence","Visual Intelligence"),
-        c(13,"privacy_guard","Privacy Guard"),
-        c(14,"strong_vision","Strong Vision provider"),
-        c(15,"local_qwen","Local Qwen"),
-        c(16,"grounded_ask","Grounded Ask routing"),
-        c(17,"semantic_retrieval","Semantic retrieval"),
-        c(18,"smart_inbox","Smart Inbox / Brief state"),
-        c(19,"temporal_actions","Temporal actions"),
-        c(20,"graph_relations","Graph / relations"),
-        c(21,"people_memory","People memory"),
-        c(22,"projects_context","Projects / context packs"),
-        c(23,"prompt_library","Prompt / AI library"),
-        c(24,"screenshot_learning","Screenshot learning"),
-        c(25,"corrections","Correction rules"),
-        c(26,"calendar_read","Calendar read"),
-        c(27,"contacts_read","Contacts read"),
-        c(28,"backup_export","Backup export"),
-        c(29,"debug_export","Debug export"),
-        c(30,"notification_capture","All-notification capture"),
-        c(31,"audio_asr","Audio / ASR"),
-        c(32,"background_visual","Background visual processing"),
-        c(33,"stability_soak","Stability soak"),
-        c(34,"performance","Performance / stability metrics"),
-        c(35,"proactive_needs","Proactive / Needs"),
-        c(36,"user_feedback","User feedback learning"),
-        c(37,"calendar_write","Calendar write / draft"),
-        c(38,"restore","Validated restore"),
-        c(39,"external_writes","External write drafts"),
-        c(40,"visual_actions","Visual actions"),
-        c(41,"briefs","Daily / weekly Brief"),
-        c(42,"warm_qwen","Warm Qwen reuse"),
-        c(43,"interaction_telemetry","Interaction telemetry")
-    );}
+        c(1,"app_identity","App identity / build"),c(2,"components","Activities / services / providers"),c(3,"permissions","Permission & special-access inventory"),c(4,"db_integrity","Database integrity"),c(5,"db_schema","Database schema inventory"),c(6,"vault_readability","Vault readability"),c(7,"attachments","Archived attachments"),c(8,"screenshot_folder","Screenshot folder"),c(9,"screenshot_queue","Screenshot extraction queue"),c(10,"dedup","Duplicate fingerprints"),c(11,"ocr","OCR component"),c(12,"visual_intelligence","Visual Intelligence"),c(13,"privacy_guard","Privacy Guard"),c(14,"strong_vision","Strong Vision provider"),c(15,"local_qwen","Local Qwen"),c(16,"grounded_ask","Grounded Ask routing"),c(17,"semantic_retrieval","Semantic retrieval"),c(18,"smart_inbox","Smart Inbox / Brief state"),c(19,"temporal_actions","Temporal actions"),c(20,"graph_relations","Graph / relations"),c(21,"people_memory","People memory"),c(22,"projects_context","Projects / context packs"),c(23,"prompt_library","Prompt / AI library"),c(24,"screenshot_learning","Screenshot learning"),c(25,"corrections","Correction rules"),c(26,"calendar_read","Calendar read"),c(27,"contacts_read","Contacts read"),c(28,"backup_export","Backup export"),c(29,"debug_export","Debug export"),c(30,"notification_capture","All-notification capture"),c(31,"audio_asr","Audio / ASR"),c(32,"background_visual","Background visual processing"),c(33,"stability_soak","Stability soak"),c(34,"performance","Performance / stability metrics"),c(35,"proactive_needs","Proactive / Needs"),c(36,"user_feedback","User feedback learning"),c(37,"calendar_write","Calendar write / draft"),c(38,"restore","Validated restore"),c(39,"external_writes","External write drafts"),c(40,"visual_actions","Visual actions"),c(41,"briefs","Daily / weekly Brief"),c(42,"warm_qwen","Warm Qwen reuse"),c(43,"interaction_telemetry","Interaction telemetry"));}
 
     public static State evaluate(Context ctx,VaultDb db,Capability x){try{switch(x.key){
         case"app_identity":return active(ctx.getPackageName()+" · "+BuildConfig.VERSION_NAME);
@@ -74,9 +29,9 @@ public final class CortexCapabilityRegistry {
         case"db_integrity":return dbIntegrity(db);
         case"db_schema":return tableCount(db)>0?active(tableCount(db)+" application tables readable"):failed("No Cortex tables found");
         case"vault_readability":return active(count(db,"SELECT COUNT(*) FROM knowledge_items")+" memories readable");
-        case"attachments":{long m=count(db,"SELECT COUNT(*) FROM knowledge_items WHERE COALESCE(attachment_path,'')<>'' AND attachment_path IS NOT NULL");long missing=missingAttachments(db);return missing==0?active(m+" archived attachment reference(s) readable"):failed(missing+" missing archived attachment(s)");}
+        case"attachments":{long m=count(db,"SELECT COUNT(*) FROM knowledge_items WHERE COALESCE(attachment_path,'')<>'' AND attachment_path IS NOT NULL"),missing=missingAttachments(db);return missing==0?active(m+" archived attachment reference(s) readable"):failed(missing+" missing archived attachment(s)");}
         case"screenshot_folder":return ScreenshotIngestor.tree(ctx)!=null?active("Screenshot folder connected"):setup("Connect the screenshot folder in Advanced diagnostics");
-        case"screenshot_queue":{long f=count(db,"SELECT COUNT(*) FROM knowledge_items WHERE source='screenshot-folder' AND status IN ('analysis_failed','failed_retryable')");long q=count(db,"SELECT COUNT(*) FROM knowledge_items WHERE source='screenshot-folder' AND status IN ('queued','analyzing')");return f>0?failed(f+" failed screenshot item(s) · "+q+" queued/processing"):active(q+" queued/processing · no failed screenshot items");}
+        case"screenshot_queue":{long f=count(db,"SELECT COUNT(*) FROM knowledge_items WHERE source='screenshot-folder' AND status IN ('analysis_failed','failed_retryable')"),q=count(db,"SELECT COUNT(*) FROM knowledge_items WHERE source='screenshot-folder' AND status IN ('queued','analyzing')");return f>0?failed(f+" failed screenshot item(s) · "+q+" queued/processing"):active(q+" queued/processing · no failed screenshot items");}
         case"dedup":{long n=count(db,"SELECT COUNT(*) FROM (SELECT fingerprint FROM knowledge_items WHERE COALESCE(fingerprint,'')<>'' GROUP BY fingerprint HAVING COUNT(*)>1)");return n==0?active("No duplicate fingerprint groups"):failed(n+" duplicate fingerprint group(s) need review");}
         case"ocr":return ArabicOcr.modelReady(ctx)?active("ML Kit Latin + bundled Arabic OCR available"):setup("Arabic OCR model is not ready");
         case"visual_intelligence":{VisualInsightStore.ensure(db);int done=VisualInsightStore.countDone(db),fail=VisualInsightStore.countFailed(db);return fail>0?failed(done+" done · "+fail+" failed visual result(s)"):active(done+" visual understanding result(s) · no current failures");}
@@ -97,11 +52,11 @@ public final class CortexCapabilityRegistry {
         case"contacts_read":return granted(ctx,Manifest.permission.READ_CONTACTS)?active("Contacts read permission granted"):access("Grant Contacts read permission when importing contacts");
         case"backup_export":return ready("Export flow is available from Data & integrations");
         case"debug_export":return ready("Debug export flow + FileProvider are installed");
-        case"notification_capture":return notificationEnabled(ctx)?active("Notification Listener enabled · active notifications are snapshotted on reconnect"):access("Enable Cortex Notification Access");
+        case"notification_capture":{PhoneContextStore.ensure(db);long seen=count(db,"SELECT COUNT(*) FROM phone_context_events WHERE kind='notification_context'");return notificationEnabled(ctx)?active("Notification Listener enabled · "+seen+" redacted local notification-context event(s) seen · relevant items also enter Cortex intelligence"):access("Enable Cortex Notification Access");}
         case"audio_asr":{boolean mic=granted(ctx,Manifest.permission.RECORD_AUDIO),provider=GeminiKeyStore.has(ctx)||GroqKeyStore.has(ctx);if(!mic)return access("Grant microphone permission");if(!provider)return setup("Configure Gemini or Groq for transcription");return active("Microphone + ASR provider configured");}
         case"background_visual":{VisualInsightStore.ensure(db);int fail=VisualInsightStore.countFailed(db);return fail>0?failed(fail+" failed visual item(s) · recovery available in Advanced diagnostics"):active("Background visual worker has no stored failures");}
         case"stability_soak":return ready("Long-duration soak capability is available as a separate diagnostic run");
-        case"performance":InteractionTelemetry.ensure(db);return active(count(db,"SELECT COUNT(*) FROM interaction_telemetry")+" interaction telemetry record(s)");
+        case"performance":{InteractionTelemetry.ensure(db);PhoneContextStore.ensure(db);long t=count(db,"SELECT COUNT(*) FROM interaction_telemetry"),pc=PhoneContextStore.countSince(db,System.currentTimeMillis()-24L*60L*60L*1000L);int proc=PhoneContextStore.activeProcessCount(db);return active(t+" interaction telemetry record(s) · "+pc+" phone-context event(s)/24h · "+proc+" current process state(s)");}
         case"proactive_needs":return table(db,"derived_items")?active(count(db,"SELECT COUNT(*) FROM derived_items WHERE kind IN ('ACTION','WAITING','OPPORTUNITY','INSIGHT') AND state='open'")+" proactive/open item(s)"):ready("Proactive engine installed");
         case"user_feedback":return table(db,"feedback_events")?active(count(db,"SELECT COUNT(*) FROM feedback_events")+" feedback event(s)"):ready("Feedback persistence initializes on first feedback");
         case"calendar_write":return calendarHandler(ctx)?ready("Approval-first calendar draft handler available"):setup("No Calendar app can accept event drafts");
@@ -115,8 +70,8 @@ public final class CortexCapabilityRegistry {
     }}catch(Throwable e){return failed(e.getClass().getSimpleName()+": "+safe(e.getMessage()));}}
 
     private static Capability c(int n,String k,String t){return new Capability(n,k,t);}private static State active(String d){return new State(ACTIVE,d);}private static State ready(String d){return new State(READY,d);}private static State access(String d){return new State(NEEDS_ACCESS,d);}private static State setup(String d){return new State(NEEDS_SETUP,d);}private static State failed(String d){return new State(FAILED,d);}
-    private static State componentState(Context c){try{PackageManager p=c.getPackageManager();p.getActivityInfo(new ComponentName(c,InputActivity.class),0);p.getActivityInfo(new ComponentName(c,CaptureResultActivity.class),0);p.getServiceInfo(new ComponentName(c,NotificationCaptureService.class),0);p.getServiceInfo(new ComponentName(c,CortexScreenAccessibilityService.class),0);return active("Core Cortex activities/services resolve correctly");}catch(Throwable e){return failed("A core Android component is missing: "+safe(e.getMessage()));}}
-    private static State permissionState(Context c){int miss=0;if(!granted(c,Manifest.permission.RECORD_AUDIO))miss++;if(!notificationEnabled(c))miss++;if(!PhoneUsageAccess.has(c))miss++;boolean a=CortexScreenAccessibilityService.connected()||accessibilityEnabled(c);if(!a)miss++;return miss==0?active("Runtime + special-access stack is enabled"):access(miss+" permission/special-access layer(s) still need user approval");}
+    private static State componentState(Context c){try{PackageManager p=c.getPackageManager();p.getActivityInfo(new ComponentName(c,InputActivity.class),0);p.getActivityInfo(new ComponentName(c,CaptureResultActivity.class),0);p.getActivityInfo(new ComponentName(c,PhoneContextAccessActivity.class),0);p.getActivityInfo(new ComponentName(c,CapabilityMatrixActivity.class),0);p.getServiceInfo(new ComponentName(c,NotificationCaptureService.class),0);p.getServiceInfo(new ComponentName(c,CortexScreenAccessibilityService.class),0);if(p.resolveContentProvider(c.getPackageName()+".shizuku",0)==null)return failed("Shizuku provider is not registered");return active("Core Cortex activities/services/providers resolve correctly");}catch(Throwable e){return failed("A core Android component is missing: "+safe(e.getMessage()));}}
+    private static State permissionState(Context c){int miss=0;if(!granted(c,Manifest.permission.RECORD_AUDIO))miss++;if(!notificationEnabled(c))miss++;if(!PhoneUsageAccess.has(c))miss++;boolean a=CortexScreenAccessibilityService.connected()||accessibilityEnabled(c);if(!a)miss++;String sh=ShizukuContextBridge.granted()?"Shizuku process access granted":(ShizukuContextBridge.available()?"Shizuku running · optional permission not granted":"Shizuku optional/not running");return miss==0?active("Standard Android context stack enabled · "+sh):access(miss+" standard permission/special-access layer(s) still need user approval · "+sh);}
     private static State dbIntegrity(VaultDb db){Cursor c=db.getReadableDatabase().rawQuery("PRAGMA quick_check(1)",null);String x=c.moveToFirst()?safe(c.getString(0)):"";c.close();return"ok".equalsIgnoreCase(x)?active("SQLite quick_check=ok"):failed("SQLite quick_check="+x);}
     private static State privacyGuard(){try{KnowledgeItem k=new KnowledgeItem(-1,"TEXT","audit","Password: secret","Password: secret","","","","","","analyzed","","","{}",0,0);return VisualTriage.evaluate(k).sensitive?active("Synthetic password-like evidence is blocked by privacy triage"):failed("Privacy triage did not block a synthetic secret");}catch(Throwable e){return failed("Privacy synthetic check failed");}}
     private static boolean granted(Context c,String p){return c.getPackageManager().checkPermission(p,c.getPackageName())==PackageManager.PERMISSION_GRANTED;}
