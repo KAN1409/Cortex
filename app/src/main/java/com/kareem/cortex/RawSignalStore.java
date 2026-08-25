@@ -19,8 +19,15 @@ public final class RawSignalStore {
         long threadId=SignalThreadStore.attach(db,signalId,signal);MasterRelevanceFilter.Decision authority=fast;boolean threadAuthority=false;
         if(threadId>0){MasterRelevanceFilter.Decision threaded=ThreadRelevanceEngine.onSignal(db,threadId,signalId);if(threaded!=null){authority=threaded;threadAuthority=true;}}
 
-        // The fast gate is only authoritative when there is no thread-aware policy. Never promote from a stale fast decision.
-        if(authority.durable()&&(!threadAuthority||RelevanceDecisionStatusStore.isApplied(db,signalId)))promote(db,signalId,threadId,signal,authority,!threadAuthority);
+        // Relevance decides meaning. ContextMemoryGate independently decides lifetime/promotion and
+        // links even temporary evidence to the active cognitive situation without polluting Vault.
+        ContextMemoryGate.Decision memoryGate=ContextMemoryGate.evaluate(db,signal,authority,threadId);
+        ContextMemoryGate.linkEvidence(db,signalId,memoryGate);
+
+        // The fast gate is only authoritative when there is no thread-aware policy. Never promote
+        // from a stale fast decision, and never bypass the memory-lifetime gate.
+        if(authority.durable()&&memoryGate.durable()&&(!threadAuthority||RelevanceDecisionStatusStore.isApplied(db,signalId)))
+            promote(db,signalId,threadId,signal,authority,memoryGate,!threadAuthority);
         return signalId;
     }
 
@@ -31,12 +38,12 @@ public final class RawSignalStore {
      * Materialize the raw signal as a knowledge item. Thread-aware policy already owns its derived intelligence,
      * so createDerived=false prevents a second ACTION/WAITING/DECISION from the same notification.
      */
-    private static long promote(VaultDb db,long signalId,long threadId,MasterRelevanceFilter.Signal s,MasterRelevanceFilter.Decision d,boolean createDerived){
+    private static long promote(VaultDb db,long signalId,long threadId,MasterRelevanceFilter.Signal s,MasterRelevanceFilter.Decision d,ContextMemoryGate.Decision gate,boolean createDerived){
         try{
-            JSONObject meta=new JSONObject();meta.put("raw_signal_id",signalId);if(threadId>0)meta.put("thread_id",threadId);meta.put("source",s.source);meta.put("occurred_at",s.occurredAt);meta.put("relevance_disposition",d.disposition.name());meta.put("importance",d.importance);meta.put("filter_reason",d.reason);meta.put("policy_version",createDerived?FAST_POLICY:"thread_authority");if(!s.metadataJson.isEmpty())meta.put("source_metadata",new JSONObject(s.metadataJson));
-            String title=s.title.isEmpty()?friendlyTitle(s):s.title,tags="signal,"+s.kind.toLowerCase()+",importance_"+d.importance;long inserted=db.insert(typeFor(s),s.source,title,s.body,categoryFor(s,d),tags,"",Fingerprint.text("promoted-signal|"+signalId),meta.toString());long itemId=inserted<0?-inserted:inserted;
-            if(itemId>0){ContentValues u=new ContentValues();u.put("promoted_item_id",itemId);u.put("state","promoted");u.put("retention_until",0);u.put("updated_at",System.currentTimeMillis());db.getWritableDatabase().update("raw_signals",u,"id=?",new String[]{String.valueOf(signalId)});CognitiveStore.link(db,"raw_signal",signalId,"memory",itemId,"promoted_to",1.0,"{\"policy\":\""+(createDerived?FAST_POLICY:"thread_authority")+"\"}");if(threadId>0)CognitiveStore.link(db,"memory",itemId,"thread",threadId,"from_thread",1.0,"");
-                if(createDerived&&(d.disposition==MasterRelevanceFilter.Disposition.ACTION||d.disposition==MasterRelevanceFilter.Disposition.WAITING||d.disposition==MasterRelevanceFilter.Disposition.DECISION)){long derived=CognitiveStore.addDerived(db,d.disposition.name(),title,s.body,"open",d.confidence,d.importance,Fingerprint.text("derived|"+d.disposition.name()+"|"+signalId),meta.toString());if(derived>0){CognitiveStore.setDerivedRouting(db,derived,s.source,threadId,signalId,d.disposition.name());CognitiveStore.link(db,"raw_signal",signalId,"derived",derived,"supports",1.0,"");CognitiveStore.link(db,"derived",derived,"memory",itemId,"grounded_by",1.0,"");if(threadId>0)CognitiveStore.link(db,"derived",derived,"thread",threadId,"derived_from_thread",1.0,"");}}
+            JSONObject meta=new JSONObject();meta.put("raw_signal_id",signalId);if(threadId>0)meta.put("thread_id",threadId);meta.put("source",s.source);meta.put("occurred_at",s.occurredAt);meta.put("relevance_disposition",d.disposition.name());meta.put("importance",d.importance);meta.put("effective_importance",gate==null?d.importance:gate.effectiveImportance);meta.put("filter_reason",d.reason);meta.put("policy_version",createDerived?FAST_POLICY:"thread_authority");if(gate!=null){meta.put("memory_tier",gate.tier.name());meta.put("memory_gate_reason",gate.reason);if(gate.contextId>0)meta.put("context_id",gate.contextId);}if(!s.metadataJson.isEmpty())meta.put("source_metadata",new JSONObject(s.metadataJson));
+            int effectiveImportance=gate==null?d.importance:gate.effectiveImportance;String title=s.title.isEmpty()?friendlyTitle(s):s.title,tags="signal,"+s.kind.toLowerCase()+",importance_"+effectiveImportance;long inserted=db.insert(typeFor(s),s.source,title,s.body,categoryFor(s,d),tags,"",Fingerprint.text("promoted-signal|"+signalId),meta.toString());long itemId=inserted<0?-inserted:inserted;
+            if(itemId>0){ContentValues u=new ContentValues();u.put("promoted_item_id",itemId);u.put("state","promoted");u.put("retention_until",0);u.put("updated_at",System.currentTimeMillis());db.getWritableDatabase().update("raw_signals",u,"id=?",new String[]{String.valueOf(signalId)});CognitiveStore.link(db,"raw_signal",signalId,"memory",itemId,"promoted_to",1.0,"{\"policy\":\""+(createDerived?FAST_POLICY:"thread_authority")+"\",\"memory_gate\":true}");if(threadId>0)CognitiveStore.link(db,"memory",itemId,"thread",threadId,"from_thread",1.0,"");ContextMemoryGate.linkPromotedMemory(db,itemId,gate);
+                if(createDerived&&(d.disposition==MasterRelevanceFilter.Disposition.ACTION||d.disposition==MasterRelevanceFilter.Disposition.WAITING||d.disposition==MasterRelevanceFilter.Disposition.DECISION)){long derived=CognitiveStore.addDerived(db,d.disposition.name(),title,s.body,"open",d.confidence,effectiveImportance,Fingerprint.text("derived|"+d.disposition.name()+"|"+signalId),meta.toString());if(derived>0){CognitiveStore.setDerivedRouting(db,derived,s.source,threadId,signalId,d.disposition.name());CognitiveStore.link(db,"raw_signal",signalId,"derived",derived,"supports",1.0,"");CognitiveStore.link(db,"derived",derived,"memory",itemId,"grounded_by",1.0,"");if(threadId>0)CognitiveStore.link(db,"derived",derived,"thread",threadId,"derived_from_thread",1.0,"");if(gate!=null&&gate.contextId>0)CognitiveStore.link(db,"derived",derived,"context",gate.contextId,"belongs_to_context",Math.max(.55,gate.contextConfidence),ContextMemoryGate.provenanceJson(gate));}}
             }
             return itemId;
         }catch(Throwable e){DiagnosticsLog.error(db,"RawSignalStore","promote",e,"RAW_SIGNAL_PROMOTE",0,threadId,signalId,0,0,null);return 0;}
