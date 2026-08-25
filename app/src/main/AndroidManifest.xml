@@ -20,6 +20,7 @@
         <activity android:name=".CortexOrbBriefActivity" android:exported="false" />
         <activity-alias android:name=".PremiumHomeActivity" android:targetActivity=".CortexOrbBriefActivity" android:exported="false" />
         <activity android:name=".SatinCaptureActivity" android:exported="false" android:theme="@style/CaptureSheetTheme" android:windowSoftInputMode="adjustResize" />
+        <activity android:name=".PinRecordWidgetActivity" android:exported="true" android:label="Add Cortex Voice widget" />
         <activity android:name=".PeopleProjectsActivity" android:exported="false" />
         <activity android:name=".SmartInboxActivity" android:exported="false" />
         <activity android:name=".VaultActivity" android:exported="false" />
