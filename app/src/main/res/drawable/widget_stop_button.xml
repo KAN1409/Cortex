@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="oval">
-    <gradient android:angle="315" android:startColor="#FFFF3B32" android:endColor="#FF8A120C" />
-    <stroke android:width="2dp" android:color="#66FFFFFF" />
+    <gradient android:angle="315" android:startColor="#FFFF625B" android:endColor="#FFB73531" />
+    <stroke android:width="2dp" android:color="#55FFFFFF" />
 </shape>
