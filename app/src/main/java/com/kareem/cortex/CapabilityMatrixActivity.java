@@ -1,0 +1,28 @@
+package com.kareem.cortex;
+
+import android.app.*;
+import android.content.*;
+import android.graphics.Color;
+import android.os.Bundle;
+import android.view.*;
+import android.widget.*;
+import java.util.*;
+import java.util.concurrent.*;
+
+/** Visible truth table for the 43 Cortex capabilities. */
+public final class CapabilityMatrixActivity extends Activity {
+    LinearLayout list;TextView summary;volatile boolean destroyed=false;final ExecutorService worker=Executors.newSingleThreadExecutor();
+    int dp(int x){return CortexUi.dp(this,x);}
+    static final class Row{CortexCapabilityRegistry.Capability c;CortexCapabilityRegistry.State s;Row(CortexCapabilityRegistry.Capability c,CortexCapabilityRegistry.State s){this.c=c;this.s=s;}}
+    @Override public void onCreate(Bundle b){super.onCreate(b);CortexUi.applyWindow(this);build();load();}
+    @Override protected void onResume(){super.onResume();load();}
+    @Override protected void onDestroy(){destroyed=true;worker.shutdownNow();super.onDestroy();}
+
+    void build(){LinearLayout root=new LinearLayout(this);root.setOrientation(LinearLayout.VERTICAL);root.setBackgroundColor(CortexUi.BG);ScrollView sv=new ScrollView(this);LinearLayout body=new LinearLayout(this);body.setOrientation(LinearLayout.VERTICAL);body.setPadding(dp(20),dp(14),dp(20),dp(30));sv.addView(body);root.addView(sv,new LinearLayout.LayoutParams(-1,0,1));LinearLayout head=new LinearLayout(this);head.setGravity(Gravity.CENTER_VERTICAL);TextView back=CortexUi.plain(this,"‹",34,CortexUi.TEXT);back.setGravity(Gravity.CENTER);back.setOnClickListener(v->finish());head.addView(back,new LinearLayout.LayoutParams(dp(42),dp(48)));LinearLayout hs=new LinearLayout(this);hs.setOrientation(LinearLayout.VERTICAL);TextView h=CortexUi.plain(this,"43 Cortex capabilities",27,CortexUi.TEXT);CortexUi.medium(h);hs.addView(h);hs.addView(CortexUi.text(this,"Runtime truth, not feature inventory. ACTIVE means the path is currently usable; READY means implemented but awaits an explicit user action/test.",11,CortexUi.MUTED));head.addView(hs,new LinearLayout.LayoutParams(0,-2,1));body.addView(head);summary=CortexUi.text(this,"Checking…",13,CortexUi.MUTED);summary.setPadding(0,dp(12),0,dp(12));body.addView(summary);TextView phone=CortexUi.action(this,"Phone context access",CortexUi.ACCENT,true);phone.setOnClickListener(v->startActivity(new Intent(this,PhoneContextAccessActivity.class)));body.addView(phone,new LinearLayout.LayoutParams(-1,dp(48)));TextView audit=CortexUi.action(this,"Run full functional diagnostics",CortexUi.MUTED,false);LinearLayout.LayoutParams ap=new LinearLayout.LayoutParams(-1,dp(46));ap.setMargins(0,dp(8),0,dp(14));body.addView(audit,ap);audit.setOnClickListener(v->startActivity(new Intent(this,CortexAuditActivity.class)));list=new LinearLayout(this);list.setOrientation(LinearLayout.VERTICAL);body.addView(list);setContentView(root);CortexUi.fitSystemBars(this,root);}
+
+    void load(){if(destroyed||worker.isShutdown())return;try{worker.execute(()->{ArrayList<Row> rows=new ArrayList<>();int active=0,ready=0,access=0,setup=0,failed=0,other=0;VaultDb db=null;try{db=new VaultDb(getApplicationContext());for(CortexCapabilityRegistry.Capability c:CortexCapabilityRegistry.all()){CortexCapabilityRegistry.State s=CortexCapabilityRegistry.evaluate(getApplicationContext(),db,c);rows.add(new Row(c,s));if(CortexCapabilityRegistry.ACTIVE.equals(s.status))active++;else if(CortexCapabilityRegistry.READY.equals(s.status))ready++;else if(CortexCapabilityRegistry.NEEDS_ACCESS.equals(s.status))access++;else if(CortexCapabilityRegistry.NEEDS_SETUP.equals(s.status))setup++;else if(CortexCapabilityRegistry.FAILED.equals(s.status))failed++;else other++;}}catch(Throwable e){}finally{if(db!=null)try{db.close();}catch(Throwable ignored){}}final int a=active,r=ready,ac=access,se=setup,f=failed,o=other;post(()->render(rows,a,r,ac,se,f,o));});}catch(RejectedExecutionException ignored){}}
+    void render(ArrayList<Row> rows,int active,int ready,int access,int setup,int failed,int other){if(destroyed)return;summary.setText(active+" ACTIVE · "+ready+" READY · "+access+" NEEDS ACCESS · "+setup+" NEEDS SETUP · "+failed+" FAILED"+(other>0?" · "+other+" NOT VERIFIED":""));summary.setTextColor(failed>0?CortexUi.CORAL:(access+setup>0?CortexUi.COPPER:CortexUi.SAGE));list.removeAllViews();for(Row r:rows){LinearLayout c=CortexUi.card(this,18);c.setPadding(dp(14),dp(12),dp(14),dp(12));LinearLayout top=new LinearLayout(this);top.setGravity(Gravity.CENTER_VERTICAL);TextView title=CortexUi.text(this,r.c.number+". "+r.c.title,13,CortexUi.TEXT);CortexUi.medium(title);top.addView(title,new LinearLayout.LayoutParams(0,-2,1));TextView badge=CortexUi.chip(this,r.s.status,statusColor(r.s.status),true);top.addView(badge,new LinearLayout.LayoutParams(-2,dp(30)));c.addView(top);TextView detail=CortexUi.text(this,r.s.detail,11,CortexUi.MUTED);detail.setPadding(0,dp(6),0,0);c.addView(detail);if(phoneCapability(r.c.key)){c.setOnClickListener(v->startActivity(new Intent(this,PhoneContextAccessActivity.class)));}LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,-2);p.setMargins(0,0,0,dp(8));list.addView(c,p);}}
+    boolean phoneCapability(String k){return"permissions".equals(k)||"notification_capture".equals(k);}
+    int statusColor(String s){if(CortexCapabilityRegistry.ACTIVE.equals(s))return CortexUi.SAGE;if(CortexCapabilityRegistry.FAILED.equals(s))return CortexUi.CORAL;if(CortexCapabilityRegistry.NEEDS_ACCESS.equals(s)||CortexCapabilityRegistry.NEEDS_SETUP.equals(s))return CortexUi.COPPER;return CortexUi.MUTED;}
+    void post(Runnable r){if(destroyed||isFinishing()||isDestroyed())return;runOnUiThread(()->{if(!destroyed&&!isFinishing()&&!isDestroyed())r.run();});}
+}
