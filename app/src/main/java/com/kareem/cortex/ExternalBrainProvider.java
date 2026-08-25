@@ -18,6 +18,9 @@ import java.nio.charset.StandardCharsets;
  */
 public final class ExternalBrainProvider {
     private static final String OPENROUTER_ENDPOINT="https://openrouter.ai/api/v1/chat/completions";
+    private static final String PREFS="cortex_external_provider_state";
+    private static final String KEY_OPENROUTER_COOLDOWN="openrouter_cooldown_until";
+    private static final long OPENROUTER_RATE_LIMIT_COOLDOWN_MS=2L*60L*1000L;
     private ExternalBrainProvider(){}
 
     public static final class Result {
@@ -48,31 +51,52 @@ public final class ExternalBrainProvider {
         public boolean rateLimited(){return httpCode==429;}public boolean retryable(){return httpCode==408||httpCode==429||httpCode>=500;}
     }
 
-    public static String activeProviderId(Context context){return OpenRouterKeyStore.has(context)?"openrouter":(GeminiKeyStore.has(context)?"gemini":"openrouter");}
-    public static String activeModel(Context context){return OpenRouterKeyStore.has(context)?OpenRouterModelConfig.generationModel(context):GeminiModelConfig.generationModel(context);}
+    public static String activeProviderId(Context context){
+        if(GeminiKeyStore.has(context)&&openRouterCoolingDown(context))return"gemini";
+        return OpenRouterKeyStore.has(context)?"openrouter":(GeminiKeyStore.has(context)?"gemini":"openrouter");
+    }
+    public static String activeModel(Context context){
+        if(GeminiKeyStore.has(context)&&openRouterCoolingDown(context))return GeminiModelConfig.generationModel(context);
+        return OpenRouterKeyStore.has(context)?OpenRouterModelConfig.generationModel(context):GeminiModelConfig.generationModel(context);
+    }
     public static boolean configured(Context context){return OpenRouterKeyStore.has(context)||GeminiKeyStore.has(context);}
-    public static String configurationHint(Context context){return configured(context)?activeProviderId(context)+" · "+activeModel(context):"Configure OpenRouter in Settings";}
+    public static String configurationHint(Context context){
+        if(!configured(context))return"Configure OpenRouter in Settings";
+        String hint=activeProviderId(context)+" · "+activeModel(context);
+        return openRouterCoolingDown(context)&&GeminiKeyStore.has(context)?hint+" · OpenRouter cooling down after rate limit":hint;
+    }
 
     public static Result ask(Context context,String question,GroundedAnswer grounded,boolean combined)throws Exception{return ask(context,question,grounded,combined,null,"");}
     public static Result ask(Context context,String question,GroundedAnswer grounded,boolean combined,KnowledgeItem focal)throws Exception{return ask(context,question,grounded,combined,focal,"");}
 
-    /** OpenRouter is primary. If it fails and Gemini is configured, Gemini is the provider fallback. */
+    /** OpenRouter is primary. A recent 429 temporarily routes straight to Gemini instead of repeatedly hitting the same upstream pool. */
     public static Result ask(Context context,String question,GroundedAnswer grounded,boolean combined,KnowledgeItem focal,String phoneContext)throws Exception{
-        if(OpenRouterKeyStore.has(context)){
-            try{return askOpenRouter(context,question,grounded,combined,focal,phoneContext);}catch(Throwable primary){
-                if(GeminiKeyStore.has(context))try{return askGemini(context,question,grounded,combined,focal,phoneContext);}catch(Throwable ignored){}
+        boolean haveOpenRouter=OpenRouterKeyStore.has(context),haveGemini=GeminiKeyStore.has(context);
+        boolean tryOpenRouter=haveOpenRouter&&(!openRouterCoolingDown(context)||!haveGemini);
+        if(tryOpenRouter){
+            try{
+                Result r=askOpenRouter(context,question,grounded,combined,focal,phoneContext);clearOpenRouterCooldown(context);return r;
+            }catch(Throwable primary){
+                if(primary instanceof ProviderException&&((ProviderException)primary).rateLimited())markOpenRouterCooldown(context);
+                if(haveGemini)try{return askGemini(context,question,grounded,combined,focal,phoneContext);}catch(Throwable ignored){}
                 if(primary instanceof Exception)throw (Exception)primary;throw new IOException(primary);
             }
         }
-        if(GeminiKeyStore.has(context))return askGemini(context,question,grounded,combined,focal,phoneContext);
+        if(haveGemini)return askGemini(context,question,grounded,combined,focal,phoneContext);
+        if(haveOpenRouter)return askOpenRouter(context,question,grounded,combined,focal,phoneContext);
         throw new IllegalStateException("No external Brain provider configured. Add an OpenRouter API key in Settings.");
     }
 
     public static HealthReport healthCheck(Context context){
+        if(GeminiKeyStore.has(context)&&openRouterCoolingDown(context))return healthGemini(context);
         if(OpenRouterKeyStore.has(context))return healthOpenRouter(context);
         if(GeminiKeyStore.has(context))return healthGemini(context);
         return new HealthReport(false,false,"openrouter",OpenRouterModelConfig.generationModel(context),"API key missing","OpenRouter API key not configured","",0,0);
     }
+
+    private static boolean openRouterCoolingDown(Context c){try{return c.getSharedPreferences(PREFS,Context.MODE_PRIVATE).getLong(KEY_OPENROUTER_COOLDOWN,0)>System.currentTimeMillis();}catch(Throwable ignored){return false;}}
+    private static void markOpenRouterCooldown(Context c){try{c.getSharedPreferences(PREFS,Context.MODE_PRIVATE).edit().putLong(KEY_OPENROUTER_COOLDOWN,System.currentTimeMillis()+OPENROUTER_RATE_LIMIT_COOLDOWN_MS).apply();}catch(Throwable ignored){}}
+    private static void clearOpenRouterCooldown(Context c){try{c.getSharedPreferences(PREFS,Context.MODE_PRIVATE).edit().remove(KEY_OPENROUTER_COOLDOWN).apply();}catch(Throwable ignored){}}
 
     private static Result askOpenRouter(Context context,String question,GroundedAnswer grounded,boolean combined,KnowledgeItem focal,String phoneContext)throws Exception{
         String key=OpenRouterKeyStore.get(context);if(key.isEmpty())throw new IllegalStateException("OpenRouter API key not configured");
@@ -95,7 +119,7 @@ public final class ExternalBrainProvider {
         JSONArray messages=new JSONArray();
         messages.put(new JSONObject().put("role","system").put("content","You are Cortex Brain. Be useful, direct, context-aware, and preserve Egyptian Arabic/English code-switching naturally. Never reveal chain-of-thought."));
         messages.put(new JSONObject().put("role","user").put("content",userContent));
-        JSONObject req=new JSONObject().put("model",model).put("messages",messages).put("max_tokens",1800);
+        JSONObject req=new JSONObject().put("model",model).put("messages",messages).put("max_tokens",1200);
         // Ox Alpha is a reasoning model. Keep the reasoning private and give the response budget to
         // user-visible content; the same setting already proven by the provider health check is used here.
         if(OpenRouterModelConfig.isOxAlpha(context))req.put("reasoning",new JSONObject().put("effort","low").put("exclude",true));
@@ -113,6 +137,7 @@ public final class ExternalBrainProvider {
             c=openOpenRouter(key);write(c,req);int code=c.getResponseCode();String body=read(code>=200&&code<300?c.getInputStream():c.getErrorStream());long ms=SystemClock.elapsedRealtime()-started;
             String text="";if(code>=200&&code<300)try{text=extractOpenRouterText(new JSONObject(body)).trim();}catch(Exception ignored){}
             boolean ok=code>=200&&code<300&&!text.isEmpty();
+            if(code==429)markOpenRouterCooldown(context);else if(ok)clearOpenRouterCooldown(context);
             return new HealthReport(true,ok,"openrouter",model,ok?"Provider and configured model responded successfully":statusFor(code),ok?"":compact(body),clip(text,160),code,ms);
         }catch(Throwable e){return new HealthReport(true,false,"openrouter",model,"Network/provider request failed",e.getClass().getSimpleName()+": "+safe(e.getMessage()),"",0,SystemClock.elapsedRealtime()-started);}finally{if(c!=null)try{c.disconnect();}catch(Throwable ignored){}}
     }
