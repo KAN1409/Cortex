@@ -19,7 +19,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="CORTEX VOICE"
-            android:textColor="#F3F4F6"
+            android:textColor="#F4F6FA"
             android:textSize="12sp"
             android:textStyle="bold"
             android:fontFamily="sans"
@@ -31,7 +31,7 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="5dp"
             android:text="READY"
-            android:textColor="#9A9FAB"
+            android:textColor="#A0A6B4"
             android:textSize="10sp"
             android:fontFamily="monospace"
             android:letterSpacing="0.08" />
@@ -41,7 +41,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginTop="3dp"
-            android:textColor="#FFFFFF"
+            android:textColor="#F4F6FA"
             android:textSize="16sp"
             android:textStyle="bold"
             android:fontFamily="monospace"
@@ -53,7 +53,7 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="3dp"
             android:text="Tap to capture a memory"
-            android:textColor="#666C77"
+            android:textColor="#676F7E"
             android:textSize="9sp"
             android:fontFamily="sans" />
     </LinearLayout>
@@ -69,7 +69,7 @@
             android:layout_height="66dp"
             android:gravity="center"
             android:text="●"
-            android:textColor="#FFFF2A24"
+            android:textColor="#FFFF524C"
             android:textSize="31sp"
             android:background="@drawable/widget_record_button" />
 
@@ -79,7 +79,7 @@
             android:layout_height="66dp"
             android:gravity="center"
             android:text="■"
-            android:textColor="#FFFFFFFF"
+            android:textColor="#FFF4F6FA"
             android:textSize="22sp"
             android:background="@drawable/widget_stop_button"
             android:visibility="gone" />
