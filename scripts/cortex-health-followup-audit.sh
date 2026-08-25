@@ -13,11 +13,14 @@ INPUT="app/src/main/java/com/kareem/cortex/InputActivity.java"
 ONBOARD="app/src/main/java/com/kareem/cortex/AccessOnboardingActivity.java"
 ACCESS="app/src/main/java/com/kareem/cortex/AccessGateRegistry.java"
 PROVIDER="app/src/main/java/com/kareem/cortex/ExternalBrainProvider.java"
+BRAIN="app/src/main/java/com/kareem/cortex/BrainRouter.java"
 PUI="app/src/main/java/com/kareem/cortex/ProposalUi.java"
 RDEBUG="app/src/main/java/com/kareem/cortex/ReliableDebugExporter.java"
 ENV="app/src/main/java/com/kareem/cortex/EnvironmentActivity.java"
+TEXTUI="app/src/main/java/com/kareem/cortex/CortexTextUi.java"
+BIDI="app/src/main/java/com/kareem/cortex/MixedBidiText.java"
 
-for f in "$ONBOARD" "$ACCESS" "$PROVIDER" "$PUI" "$RDEBUG" "$ENV"; do need_file "$f"; done
+for f in "$ONBOARD" "$ACCESS" "$PROVIDER" "$BRAIN" "$PUI" "$RDEBUG" "$ENV" "$TEXTUI" "$BIDI"; do need_file "$f"; done
 
 # First-run Android access walkthrough must stay wired to the same authoritative gate inventory.
 need "$MAN" 'activity android:name="\.AccessOnboardingActivity"' 'first-run Access onboarding is registered'
@@ -35,6 +38,20 @@ need "$PROVIDER" 'isOxAlpha\(context\).*reasoning' 'OX Alpha normal request carr
 need "$PROVIDER" 'content==null\|\|content==JSONObject\.NULL' 'OpenRouter JSON null content is rejected as empty'
 need "$PROVIDER" 'isNullLike' 'provider rejects literal null/undefined model text'
 need "$PROVIDER" 'effort","low".*exclude",true' 'OX reasoning remains low and excluded from returned content'
+
+# Attached-capture questions should answer from the focal evidence before doing broad cross-memory work.
+need "$BRAIN" 'fastFocal=true' 'Brain has explicit fast focal route'
+need "$BRAIN" '!needsBroadContext\(question\)' 'fast focal route is limited to direct capture questions'
+need "$BRAIN" 'modelQuestion=fastFocal\?question:BrainActionStore\.request' 'direct focal answers do not wait for structured-action JSON'
+need "$BRAIN" 'broad retrieval/actions deferred' 'fast route records deferred broad work explicitly'
+need "$PUI" 'target\.sourceItemId>0' 'attached proposal opens Brain with authoritative source item id'
+need "$PUI" 'Do not duplicate its OCR/transcript' 'attached evidence is not duplicated into the visible Brain prompt'
+
+# Arabic-dominant content must stay RTL even when a line begins with an English drug/model/dose token.
+need "$TEXTUI" 'TEXT_DIRECTION_RTL' 'Arabic-dominant TextViews use forced RTL paragraph direction'
+need "$TEXTUI" 'TEXT_ALIGNMENT_VIEW_END' 'Arabic-dominant TextViews align to the right/end edge'
+need "$BIDI" 'documentRtl=isArabicDominant\(clean\)' 'mixed bidi formatting derives a document-level Arabic base'
+need "$BIDI" 'baseRtl=documentRtl\|\|lineHasArabic' 'Arabic document/line forces RTL while embedded Latin runs remain isolated'
 
 # Useful Next Moves must always resolve to proposals, a no-op, or a recoverable error; never infinite loading.
 need "$PUI" 'UI_TIMEOUT_MS=45_000L' 'proposal UI has bounded loading watchdog'
