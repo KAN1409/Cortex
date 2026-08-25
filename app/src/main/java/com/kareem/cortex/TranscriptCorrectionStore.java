@@ -6,9 +6,9 @@ import android.database.sqlite.SQLiteDatabase;
 
 /**
  * Durable manual transcript override for captured audio.
- * The ASR/original text is preserved as correction history while the corrected text becomes the
- * effective evidence used by Cortex. A small trigger keeps the manual override authoritative if a
- * later analysis pass writes extracted_text again.
+ * The original ASR text is preserved only as correction history; the corrected text is the
+ * authoritative working evidence used by Cortex. Any stale summary derived from the old transcript
+ * is cleared so it cannot contradict the user's correction in UI, retrieval, proposals or Brain.
  */
 public final class TranscriptCorrectionStore {
     private TranscriptCorrectionStore(){}
@@ -25,11 +25,14 @@ public final class TranscriptCorrectionStore {
                 "source TEXT NOT NULL DEFAULT 'manual_result_edit',"+
                 "created_at INTEGER NOT NULL)");
         s.execSQL("CREATE INDEX IF NOT EXISTS idx_text_corrections_item ON item_text_corrections(item_id,id DESC)");
-        s.execSQL("CREATE TRIGGER IF NOT EXISTS keep_manual_transcript_correction " +
+        s.execSQL("DROP TRIGGER IF EXISTS keep_manual_transcript_correction");
+        s.execSQL("CREATE TRIGGER keep_manual_transcript_correction " +
                 "AFTER UPDATE OF extracted_text ON knowledge_items " +
                 "WHEN EXISTS(SELECT 1 FROM item_text_corrections c WHERE c.item_id=NEW.id AND c.field='transcript') " +
                 "AND COALESCE(NEW.extracted_text,'') <> COALESCE((SELECT corrected_text FROM item_text_corrections c WHERE c.item_id=NEW.id AND c.field='transcript' ORDER BY c.id DESC LIMIT 1),'') " +
-                "BEGIN UPDATE knowledge_items SET extracted_text=(SELECT corrected_text FROM item_text_corrections c WHERE c.item_id=NEW.id AND c.field='transcript' ORDER BY c.id DESC LIMIT 1) WHERE id=NEW.id; END");
+                "BEGIN UPDATE knowledge_items SET " +
+                "extracted_text=(SELECT corrected_text FROM item_text_corrections c WHERE c.item_id=NEW.id AND c.field='transcript' ORDER BY c.id DESC LIMIT 1)," +
+                "summary='' WHERE id=NEW.id; END");
     }
 
     public static String effectiveText(VaultDb db,KnowledgeItem item){
@@ -56,7 +59,7 @@ public final class TranscriptCorrectionStore {
         SQLiteDatabase s=db.getWritableDatabase();long now=System.currentTimeMillis();s.beginTransaction();
         try{
             ContentValues h=new ContentValues();h.put("item_id",item.id);h.put("field","transcript");h.put("original_text",before);h.put("corrected_text",clean);h.put("source","manual_result_edit");h.put("created_at",now);s.insertOrThrow("item_text_corrections",null,h);
-            ContentValues v=new ContentValues();v.put("extracted_text",clean);v.put("updated_at",now);s.update("knowledge_items",v,"id=?",new String[]{String.valueOf(item.id)});
+            ContentValues v=new ContentValues();v.put("extracted_text",clean);v.put("summary","");v.put("updated_at",now);s.update("knowledge_items",v,"id=?",new String[]{String.valueOf(item.id)});
             s.setTransactionSuccessful();
         }finally{s.endTransaction();}
         try{ResultProposalEngine.invalidateSource(db,item.id);}catch(Throwable ignored){}
