@@ -23,8 +23,6 @@ public final class CortexScrubberView extends View {
     public void setListener(Listener l){listener=l;}public void setProgress(float p){if(dragging)return;progress=clamp(p);invalidate();}public float getProgress(){return progress;}
 
     @Override protected void onDraw(Canvas c){super.onDraw(c);float pad=9*d,w=Math.max(1,getWidth()-2*pad),cy=getHeight()*.46f;int count=Math.max(28,Math.min(72,(int)(w/(5*d))));float dx=w/Math.max(1,count-1),xp=pad+w*progress;
-        for(int i=0;i<count;i++){float x=pad+i*dx;float t=i/(float)Math.max(1,count-1);float wave=(float)(.24+.58*Math.abs(Math.sin(i*.63)+.38*Math.sin(i*1.77+.8))/.0+0);}
-        // deterministic waveform envelope; kept separate for clarity and compile-safety.
         for(int i=0;i<count;i++){
             float x=pad+i*dx;float a=(float)Math.abs(Math.sin(i*.57)+.45*Math.sin(i*1.43+.7));a=Math.min(1f,.20f+a*.48f);float hh=Math.max(2*d,(getHeight()*.33f)*a);
             Paint p=(x<=xp)?active:bars;
