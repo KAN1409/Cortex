@@ -6,7 +6,7 @@ import android.util.AttributeSet;
 import android.view.MotionEvent;
 import android.view.View;
 
-/** Satin circular control whose red arc is semantic progress, never a fake spinner. */
+/** Satin circular control. Accent is semantic: blue by default, red only for recording/urgent signal states. */
 public final class CortexRingButton extends View {
     public enum Glyph { PLAY, PAUSE, RECORD, STOP, PREVIOUS, NEXT }
 
@@ -21,23 +21,24 @@ public final class CortexRingButton extends View {
     private float progress=0f;
     private boolean pressedDown=false;
     private final float density;
-    private int accent=Color.rgb(255,42,36);
+    private int accent=CortexUi.ACCENT;
 
     public CortexRingButton(Context c){this(c,null);}
     public CortexRingButton(Context c,AttributeSet a){super(c,a);density=getResources().getDisplayMetrics().density;setLayerType(LAYER_TYPE_SOFTWARE,null);setClickable(true);setFocusable(true);
-        fill.setColor(Color.rgb(8,9,12));fill.setStyle(Paint.Style.FILL);fill.setShadowLayer(14*density,0,8*density,Color.argb(210,0,0,0));
+        fill.setColor(CortexUi.SURFACE);fill.setStyle(Paint.Style.FILL);fill.setShadowLayer(14*density,0,8*density,Color.argb(210,0,0,0));
         border.setColor(Color.argb(30,255,255,255));border.setStyle(Paint.Style.STROKE);border.setStrokeWidth(1*density);
-        track.setColor(Color.argb(75,122,15,7));track.setStyle(Paint.Style.STROKE);track.setStrokeCap(Paint.Cap.ROUND);track.setStrokeWidth(3*density);
-        glow.setColor(accent);glow.setStyle(Paint.Style.STROKE);glow.setStrokeCap(Paint.Cap.ROUND);glow.setStrokeWidth(7*density);glow.setShadowLayer(12*density,0,0,Color.argb(210,255,38,28));
+        track.setColor(Color.argb(70,75,82,96));track.setStyle(Paint.Style.STROKE);track.setStrokeCap(Paint.Cap.ROUND);track.setStrokeWidth(3*density);
+        glow.setColor(accent);glow.setStyle(Paint.Style.STROKE);glow.setStrokeCap(Paint.Cap.ROUND);glow.setStrokeWidth(7*density);applyGlowShadow(accent);
         arc.setColor(accent);arc.setStyle(Paint.Style.STROKE);arc.setStrokeCap(Paint.Cap.ROUND);arc.setStrokeWidth(3.2f*density);
-        icon.setColor(Color.rgb(243,244,246));icon.setStyle(Paint.Style.STROKE);icon.setStrokeWidth(2.4f*density);icon.setStrokeCap(Paint.Cap.ROUND);icon.setStrokeJoin(Paint.Join.ROUND);
+        icon.setColor(CortexUi.TEXT);icon.setStyle(Paint.Style.STROKE);icon.setStrokeWidth(2.4f*density);icon.setStrokeCap(Paint.Cap.ROUND);icon.setStrokeJoin(Paint.Join.ROUND);
     }
 
     public void setGlyph(Glyph g){glyph=g==null?Glyph.PLAY:g;invalidate();}
     public Glyph getGlyph(){return glyph;}
     public void setProgress(float p){progress=Math.max(0f,Math.min(1f,p));invalidate();}
     public float getProgress(){return progress;}
-    public void setAccent(int color){accent=color;arc.setColor(color);glow.setColor(color);invalidate();}
+    public void setAccent(int color){accent=color;arc.setColor(color);glow.setColor(color);applyGlowShadow(color);invalidate();}
+    private void applyGlowShadow(int color){glow.setShadowLayer(12*density,0,0,Color.argb(190,Color.red(color),Color.green(color),Color.blue(color)));}
 
     @Override protected void onDraw(Canvas c){super.onDraw(c);float w=getWidth(),h=getHeight(),cx=w/2f,cy=h/2f;float radius=Math.min(w,h)*.39f;if(pressedDown)radius*=.96f;
         c.drawCircle(cx,cy,radius,fill);c.drawCircle(cx,cy,radius,border);
