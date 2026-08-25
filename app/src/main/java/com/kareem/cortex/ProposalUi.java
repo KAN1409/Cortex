@@ -2,6 +2,7 @@ package com.kareem.cortex;
 
 import android.app.*;
 import android.graphics.Color;
+import android.os.*;
 import android.view.*;
 import android.widget.*;
 import org.json.JSONArray;
@@ -9,6 +10,7 @@ import java.util.*;
 
 /** Compact reusable model-proposal strip mounted directly under one specific result. */
 public final class ProposalUi {
+    private static final long UI_TIMEOUT_MS=45_000L;
     private ProposalUi(){}
 
     public static void attach(Activity activity,VaultDb db,LinearLayout parent,ResultProposalEngine.Target target){
@@ -20,7 +22,11 @@ public final class ProposalUi {
     private static void requestInto(Activity activity,VaultDb db,LinearLayout holder,ResultProposalEngine.Target target){
         if(activity==null||db==null||holder==null||target==null)return;final int dp=CortexUi.dp(activity,1);holder.setVisibility(View.VISIBLE);holder.removeAllViews();
         LinearLayout waiting=new LinearLayout(activity);waiting.setGravity(Gravity.CENTER_VERTICAL);waiting.addView(CortexUi.glyph(activity,"brain",CortexUi.RED,true),new LinearLayout.LayoutParams(28*dp,28*dp));TextView thinking=CortexUi.plain(activity,"Generating useful next moves…",9,CortexUi.MUTED);LinearLayout.LayoutParams tp=new LinearLayout.LayoutParams(0,-2,1);tp.setMargins(7*dp,0,0,0);waiting.addView(thinking,tp);holder.addView(waiting);
+        Handler main=new Handler(Looper.getMainLooper());final boolean[] finished={false};
+        Runnable timeout=()->{if(finished[0]||activity.isFinishing()||activity.isDestroyed()||holder.getParent()==null)return;finished[0]=true;holder.removeAllViews();renderRecoverableState(activity,db,holder,target,"Suggestions are taking too long","The model did not finish within 45 seconds. Retry starts a fresh suggestion request; Cortex will not invent fallback actions.",ExternalBrainProvider.configurationHint(activity),true);};
+        main.postDelayed(timeout,UI_TIMEOUT_MS);
         ResultProposalEngine.request(activity,target,(proposals,provider,error)->{
+            if(finished[0])return;finished[0]=true;main.removeCallbacks(timeout);
             if(activity.isFinishing()||activity.isDestroyed()||holder.getParent()==null)return;holder.removeAllViews();
             if(proposals.isEmpty()){
                 boolean failed=error!=null&&!error.trim().isEmpty();String title=failed?"Couldn’t generate suggestions":"No useful next move found";String detail=failed?"The proposal model was unavailable or returned an invalid response.":"Cortex checked this result but did not find a meaningful next move yet.";renderRecoverableState(activity,db,holder,target,title,detail,provider,failed);return;
