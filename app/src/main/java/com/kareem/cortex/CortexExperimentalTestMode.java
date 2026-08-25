@@ -13,7 +13,7 @@ public final class CortexExperimentalTestMode {
     /**
      * Conservative classifier used by the UI explorer. Internal sandbox reads/simple writes are
      * allowed, while destructive, recursive, microphone, private-import, external mutation and
-     * background-analysis enqueue actions are recorded but intercepted.
+     * background-analysis/long-running jobs are recorded but intercepted.
      */
     public static boolean guardedLabel(String raw){
         String s=raw==null?"":raw.trim().toLowerCase(Locale.ROOT);
@@ -24,6 +24,7 @@ public final class CortexExperimentalTestMode {
                 "start recording","record audio","record voice","microphone recording",
                 "sync health","sync now","import contacts","import calendar","import health","read contacts now","read calendar now",
                 "save","analyze","analyse","re-analyze","reanalyze","retry analysis","process now","capture now",
+                "run full app audit","scan new screenshots","repair screenshot archive",
                 "حذف","امسح","مسح","استرجاع","ريستور","إرسال","ابعت","اتصل","مكالمة","تثبيت","سجل صوت","تسجيل صوت","مزامنة الصحة","استيراد جهات","استيراد التقويم","حفظ","حلل","إعادة التحليل"
         };
         for(String x:risky)if(s.contains(x))return true;
