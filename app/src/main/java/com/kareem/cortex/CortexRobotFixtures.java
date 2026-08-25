@@ -54,6 +54,9 @@ public final class CortexRobotFixtures {
         try{c.deleteDatabase(VaultDb.robotDbName());}catch(Throwable ignored){}
         try{File f=new File(c.getFilesDir(),"robot_fixture.png");if(f.exists())f.delete();}catch(Throwable ignored){}
         CortexExperimentalTestMode.set(c,false);
+        // The sandbox was the last database to mark CognitiveSchema.ready. Reset the process cache so
+        // the next real Vault open re-validates the production schema rather than trusting test state.
+        resetSchemaReadyForSandbox();
     }
 
     private static long memory(VaultDb db,String type,String source,String title,String raw,String extracted,String category,String tags){long id=db.insert(type,source,title,raw,category,tags,"",Fingerprint.text("robot|"+type+"|"+title),"{\"synthetic\":true,\"robot_test\":true}");if(id<0)id=-id;ContentValues v=new ContentValues();v.put("extracted_text",extracted);v.put("summary",extracted);v.put("status","analyzed");v.put("updated_at",System.currentTimeMillis());db.getWritableDatabase().update("knowledge_items",v,"id=?",new String[]{String.valueOf(id)});try{SemanticIndex.indexItem(db,id);}catch(Throwable ignored){}return id;}
