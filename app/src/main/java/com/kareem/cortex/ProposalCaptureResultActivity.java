@@ -22,6 +22,11 @@ public final class ProposalCaptureResultActivity extends CaptureResultActivity {
         return super.displayTitle(k,vi);
     }
 
+    @Override String understanding(KnowledgeItem k,VisualInsightStore.Insight vi){
+        if(k!=null&&"AUDIO".equals(k.type)&&TranscriptCorrectionStore.hasCorrection(db,k.id)){String t=TranscriptCorrectionStore.effectiveText(db,k);if(t!=null&&!t.trim().isEmpty())return t.trim();}
+        return super.understanding(k,vi);
+    }
+
     @Override void render(KnowledgeItem k){
         super.render(k);hideLegacySuggestions(content);if(stopped||db==null||content==null||k==null||notReady(k.status))return;VisualInsightStore.Insight vi=null;if(isImageType(k.type))try{vi=VisualInsightStore.get(db,k.id);}catch(Throwable ignored){}
         if("AUDIO".equals(k.type))addTranscriptEditor(k);
