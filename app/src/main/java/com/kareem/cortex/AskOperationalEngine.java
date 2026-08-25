@@ -10,6 +10,7 @@ public final class AskOperationalEngine {
     public static GroundedAnswer tryAnswer(VaultDb db,String question){
         String q=n(question),norm=LocalSemanticEmbedder.norm(q);
         if(q.isEmpty())return null;
+        if(isPhoneContext(norm))return phoneContext(db,q);
         if(isAttention(norm))return attention(db,q);
         if(isWaiting(norm))return waiting(db,q);
         if(isRecentDecisions(norm))return decisions(db,q);
@@ -17,6 +18,10 @@ public final class AskOperationalEngine {
         if(isIdeas(norm))return kinds(db,q,"Ideas and opportunities currently in Cortex",new String[]{"IDEA","OPPORTUNITY","INSIGHT","HYPOTHESIS"},12);
         if(isContextlessProject(norm))return new GroundedAnswer(q,"Tell me which project you mean, and I’ll ground the answer in that project’s Cortex context.",1.0,new ArrayList<SemanticHit>(),new ArrayList<String>(),new ArrayList<String>());
         return null;
+    }
+
+    private static GroundedAnswer phoneContext(VaultDb db,String q){
+        try{PhoneContextStore.ensure(db);String s=PhoneContextStore.recentSummary(db,6L*60L*60L*1000L,14);if(s.isEmpty())return new GroundedAnswer(q,"Cortex doesn’t have recent phone-context events yet. Enable Phone context access for Notification, Accessibility and Usage Access, then use the phone normally.",.98,new ArrayList<SemanticHit>(),new ArrayList<String>(),new ArrayList<String>());return new GroundedAnswer(q,"Recent phone context:\n"+s,.98,new ArrayList<SemanticHit>(),new ArrayList<String>(),new ArrayList<String>());}catch(Throwable e){return new GroundedAnswer(q,"Cortex couldn’t read the local phone-context timeline right now.",.80,new ArrayList<SemanticHit>(),new ArrayList<String>(),new ArrayList<String>());}
     }
 
     private static GroundedAnswer attention(VaultDb db,String q){
@@ -43,6 +48,7 @@ public final class AskOperationalEngine {
 
     private static GroundedAnswer kinds(VaultDb db,String q,String heading,String[] kinds,int limit){CognitiveStore.ensure(db);StringBuilder marks=new StringBuilder();for(int i=0;i<kinds.length;i++){if(i>0)marks.append(',');marks.append('?');}String sql="SELECT kind,title,body FROM derived_items WHERE state IN ('open','confirmed') AND kind IN ("+marks+") ORDER BY importance DESC,updated_at DESC LIMIT ?";String[] args=new String[kinds.length+1];System.arraycopy(kinds,0,args,0,kinds.length);args[kinds.length]=String.valueOf(limit);LinkedHashSet<String> lines=new LinkedHashSet<>();Cursor c=db.getReadableDatabase().rawQuery(sql,args);while(c.moveToNext()){String kind=n(c.getString(0)),body=n(c.getString(2));if(body.isEmpty())body=n(c.getString(1));if(!body.isEmpty())lines.add(friendly(kind)+": "+clip(body,220));}c.close();if(lines.isEmpty())return new GroundedAnswer(q,"Cortex doesn’t have any confirmed items for that yet.",.96,new ArrayList<SemanticHit>(),new ArrayList<String>(),new ArrayList<String>());StringBuilder out=new StringBuilder(heading).append(":\n");for(String x:lines)out.append("• ").append(x).append('\n');return new GroundedAnswer(q,out.toString().trim(),.97,new ArrayList<SemanticHit>(),new ArrayList<String>(),new ArrayList<String>());}
 
+    private static boolean isPhoneContext(String q){return has(q,"what app am i using","what app was i using","what was i doing on my phone","what was i doing","recent apps","last apps","current app","phone context","what did i open","what have i been doing on my phone","كنت فاتح ايه","كنت فاتح إيه","انا فاتح ايه","أنا فاتح إيه","كنت بعمل ايه على الموبايل","كنت بعمل إيه على الموبايل","آخر ابلكيشنات","اخر ابلكيشنات","آخر تطبيقات","اخر تطبيقات","عملت ايه على الموبايل","عملت إيه على الموبايل");}
     private static boolean isAttention(String q){return has(q,"what still needs my attention","what needs my attention","what needs me","what do i need to do","what should i do","needs attention","محتاج انتباهي","محتاج مني","محتاج اعمل ايه","محتاج أعمل ايه","ايه اللي محتاجني","إيه اللي محتاجني","ايه اللي محتاج اهتمامي","إيه اللي محتاج اهتمامي");}
     private static boolean isWaiting(String q){return has(q,"what am i waiting for","what am i waiting on","what are we waiting for","waiting on","waiting for","مستني ايه","مستنى ايه","منتظر ايه","في انتظار ايه");}
     private static boolean isRecentDecisions(String q){return has(q,"what did i decide recently","recent decisions","what have i decided","قررت ايه مؤخرا","قررت ايه قريب","ايه القرارات الاخيره","إيه القرارات الأخيرة");}
