@@ -50,7 +50,7 @@ need "$PROVIDER" 'effort","low".*exclude",true' 'OX reasoning remains low and ex
 # Provider rate-limit recovery must avoid repeatedly hitting the same upstream shared pool.
 need "$PROVIDER" 'OPENROUTER_RATE_LIMIT_COOLDOWN_MS' 'OpenRouter rate-limit cooldown is defined'
 need "$PROVIDER" 'rateLimited\(\).*markOpenRouterCooldown' 'HTTP 429 marks OpenRouter cooling down'
-need "$PROVIDER" 'openRouterCoolingDown\(context\).*GeminiKeyStore' 'cooldown can route directly to Gemini fallback'
+need "$PROVIDER" 'GeminiKeyStore.*openRouterCoolingDown\(context\)|openRouterCoolingDown\(context\).*GeminiKeyStore' 'cooldown can route directly to Gemini fallback'
 need "$PROVIDER" 'clearOpenRouterCooldown' 'successful OpenRouter recovery clears cooldown'
 need "$RDEBUG" 'brain_health_primary' 'debug export retains primary provider health result'
 need "$RDEBUG" 'brain_failover_active' 'debug export reports effective Gemini failover state'
@@ -98,25 +98,21 @@ need "$AUTOEXPORT" 'CortexAutoTest_.*\.md' 'automatic verification exports Markd
 need "$AUTOEXPORT" 'CortexAutoTest_.*\.json' 'automatic verification exports JSON report'
 need "$ENV" 'CortexAutoTestExporter\.runAndShare' 'Advanced diagnostics exposes complete automatic verification'
 
-# Experimental robot-user test must isolate data, recursively explore UI results, and retain a crash-safe journey log.
-need "$VAULT" 'cortex_robot_test\.db' 'robot test uses a dedicated sandbox Vault DB'
-need "$ROBOTMODE" 'guardedLabel' 'robot test has explicit side-effect guard classifier'
-need "$ROBOTFIX" 'robot_fixture' 'robot test seeds disposable synthetic fixtures'
-need "$ROBOTFIX" 'deleteDatabase\(VaultDb\.robotDbName\(\)\)' 'robot sandbox is deleted after/before test'
+# Legacy recursive crawler remains available only as low-level infrastructure while the primary goal-driven suite is audited separately.
+need "$VAULT" 'cortex_robot_test\.db' 'experimental journeys use a dedicated sandbox Vault DB'
+need "$ROBOTMODE" 'guardedLabel' 'experimental test mode retains side-effect guard classifier'
+need "$ROBOTFIX" 'robot_fixture' 'experimental tests seed disposable synthetic fixtures'
+need "$ROBOTFIX" 'deleteDatabase\(VaultDb\.robotDbName\(\)\)' 'experimental sandbox is deleted after/before test'
 need "$ACCESSIBILITY" 'robotClickableNodes' 'Accessibility service exposes test-only clickable node inventory'
 need "$ACCESSIBILITY" 'robotEditableNodes' 'Accessibility service exposes test-only editable fields'
-need "$ACCESSIBILITY" 'robotSetText' 'robot can autofill synthetic form data'
-need "$ACCESSIBILITY" 'robotBack' 'robot can backtrack across dialogs/system surfaces'
-need "$ROBOT" 'MAX_STEPS=700' 'robot crawler has bounded exhaustive step budget'
-need "$ROBOT" 'MAX_SCREENS=240' 'robot crawler has bounded unique-screen budget'
-need "$ROBOT" 'PRESSED_EXTERNAL' 'robot records external/system transitions without interacting there'
-need "$ROBOT" 'GUARDED_PRIVACY' 'robot distinguishes privacy-sensitive guarded controls'
-need "$ROBOTEXPORT" 'journey\.jsonl' 'robot exporter writes incremental crash-safe journey journal'
-need "$ROBOTEXPORT" 'CortexRobotUserTest_.*\.md' 'robot exporter writes Markdown report'
-need "$ROBOTEXPORT" 'CortexRobotUserTest_.*\.json' 'robot exporter writes JSON report'
-need "$ROBOTEXPORT" 'CortexRobotUserTest_.*\.zip' 'robot exporter writes ZIP evidence bundle'
-need "$ROBOTEXPORT" 'Downloads/Cortex/AutoTests/RobotUser' 'robot reports have a known Downloads destination'
-need "$ENV" 'CortexRobotTestExporter\.runAndShare' 'Advanced diagnostics exposes experimental robot-user test'
+need "$ACCESSIBILITY" 'robotSetText' 'experimental journeys can enter synthetic form data'
+need "$ACCESSIBILITY" 'robotBack' 'test hand can backtrack across dialogs/system surfaces'
+need "$ROBOT" 'MAX_STEPS=700' 'legacy crawler remains bounded when used for low-level exploration'
+need "$ROBOT" 'MAX_SCREENS=240' 'legacy crawler retains bounded unique-screen budget'
+need "$ROBOT" 'PRESSED_EXTERNAL' 'legacy crawler records external/system transitions without interacting there'
+need "$ROBOT" 'GUARDED_PRIVACY' 'legacy crawler distinguishes privacy-sensitive guarded controls'
+need "$ROBOTEXPORT" 'CortexUserJourneyTestExporter\.runAndShare' 'legacy diagnostics compatibility entry delegates to goal-driven user journeys'
+need "$ENV" 'CortexRobotTestExporter\.runAndShare' 'Advanced diagnostics compatibility entry reaches goal-driven suite'
 
 # Existing manual transcript correction behavior is part of the same runtime recovery contract.
 need_file app/src/main/java/com/kareem/cortex/TranscriptCorrectionStore.java
