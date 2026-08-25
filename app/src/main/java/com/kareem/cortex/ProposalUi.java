@@ -13,21 +13,36 @@ public final class ProposalUi {
 
     public static void attach(Activity activity,VaultDb db,LinearLayout parent,ResultProposalEngine.Target target){
         if(activity==null||db==null||parent==null||target==null||target.text.trim().isEmpty())return;
-        final int dp=CortexUi.dp(activity,1);LinearLayout holder=new LinearLayout(activity);holder.setOrientation(LinearLayout.VERTICAL);holder.setPadding(0,8*dp,0,2*dp);
-        LinearLayout waiting=new LinearLayout(activity);waiting.setGravity(Gravity.CENTER_VERTICAL);waiting.addView(CortexUi.glyph(activity,"brain",CortexUi.RED,true),new LinearLayout.LayoutParams(28*dp,28*dp));TextView thinking=CortexUi.plain(activity,"Thinking of useful next moves…",9,CortexUi.MUTED);LinearLayout.LayoutParams tp=new LinearLayout.LayoutParams(0,-2,1);tp.setMargins(7*dp,0,0,0);waiting.addView(thinking,tp);holder.addView(waiting);parent.addView(holder);
+        final int dp=CortexUi.dp(activity,1);LinearLayout holder=new LinearLayout(activity);holder.setOrientation(LinearLayout.VERTICAL);holder.setPadding(0,8*dp,0,2*dp);parent.addView(holder);
+        requestInto(activity,db,holder,target);
+    }
+
+    private static void requestInto(Activity activity,VaultDb db,LinearLayout holder,ResultProposalEngine.Target target){
+        if(activity==null||db==null||holder==null||target==null)return;final int dp=CortexUi.dp(activity,1);holder.setVisibility(View.VISIBLE);holder.removeAllViews();
+        LinearLayout waiting=new LinearLayout(activity);waiting.setGravity(Gravity.CENTER_VERTICAL);waiting.addView(CortexUi.glyph(activity,"brain",CortexUi.RED,true),new LinearLayout.LayoutParams(28*dp,28*dp));TextView thinking=CortexUi.plain(activity,"Generating useful next moves…",9,CortexUi.MUTED);LinearLayout.LayoutParams tp=new LinearLayout.LayoutParams(0,-2,1);tp.setMargins(7*dp,0,0,0);waiting.addView(thinking,tp);holder.addView(waiting);
         ResultProposalEngine.request(activity,target,(proposals,provider,error)->{
             if(activity.isFinishing()||activity.isDestroyed()||holder.getParent()==null)return;holder.removeAllViews();
             if(proposals.isEmpty()){
-                if(!error.isEmpty()){TextView unavailable=CortexUi.plain(activity,"Suggestions are waiting for an available model",8,CortexUi.FAINT);holder.addView(unavailable);}else holder.setVisibility(View.GONE);return;
+                boolean failed=error!=null&&!error.trim().isEmpty();String title=failed?"Couldn’t generate suggestions":"No useful next move found";String detail=failed?"The proposal model was unavailable or returned an invalid response.":"Cortex checked this result but did not find a meaningful next move yet.";renderRecoverableState(activity,db,holder,target,title,detail,provider,failed);return;
             }
-            holder.setVisibility(View.VISIBLE);LinearLayout headRow=new LinearLayout(activity);headRow.setGravity(Gravity.CENTER_VERTICAL);headRow.addView(CortexUi.glyph(activity,"brain",CortexUi.RED,true),new LinearLayout.LayoutParams(30*dp,30*dp));TextView head=CortexUi.plain(activity,"Cortex suggests",9,CortexUi.TEXT);CortexUi.medium(head);LinearLayout.LayoutParams hp=new LinearLayout.LayoutParams(0,-2,1);hp.setMargins(7*dp,0,0,0);headRow.addView(head,hp);holder.addView(headRow);
-            HorizontalScrollView scroller=new HorizontalScrollView(activity);scroller.setHorizontalScrollBarEnabled(false);LinearLayout row=new LinearLayout(activity);row.setOrientation(LinearLayout.HORIZONTAL);row.setPadding(0,7*dp,0,2*dp);scroller.addView(row,new HorizontalScrollView.LayoutParams(-2,-2));
-            for(ResultProposalEngine.Proposal p:proposals){
-                int color=proposalColor(p);TextView chip=CortexUi.chip(activity,p.title,color,false);chip.setSingleLine(true);chip.setEllipsize(android.text.TextUtils.TruncateAt.END);chip.setMaxWidth(290*dp);int wash=Color.argb(9,Color.red(color),Color.green(color),Color.blue(color));CortexUi.pressable(activity,chip,CortexUi.round(activity,wash,Color.argb(68,Color.red(color),Color.green(color),Color.blue(color)),999));
-                LinearLayout.LayoutParams cp=new LinearLayout.LayoutParams(-2,38*dp);if(row.getChildCount()>0)cp.setMargins(7*dp,0,0,0);row.addView(chip,cp);chip.setOnClickListener(v->open(activity,db,target,p));
-            }
-            holder.addView(scroller,new LinearLayout.LayoutParams(-1,45*dp));if(provider!=null&&!provider.trim().isEmpty()){TextView model=CortexUi.plain(activity,"Suggested by "+provider,7,CortexUi.FAINT);model.setPadding(0,1*dp,0,0);holder.addView(model);}
+            renderProposals(activity,db,holder,target,proposals,provider);
         });
+    }
+
+    private static void renderRecoverableState(Activity activity,VaultDb db,LinearLayout holder,ResultProposalEngine.Target target,String title,String detail,String provider,boolean failed){
+        final int dp=CortexUi.dp(activity,1);holder.setVisibility(View.VISIBLE);LinearLayout headRow=new LinearLayout(activity);headRow.setGravity(Gravity.CENTER_VERTICAL);headRow.addView(CortexUi.glyph(activity,"brain",failed?CortexUi.RED:CortexUi.YELLOW,true),new LinearLayout.LayoutParams(30*dp,30*dp));LinearLayout copy=new LinearLayout(activity);copy.setOrientation(LinearLayout.VERTICAL);TextView h=CortexUi.plain(activity,title,9,CortexUi.TEXT);CortexUi.medium(h);copy.addView(h);TextView d=CortexUi.plain(activity,detail,8,CortexUi.MUTED);d.setPadding(0,2*dp,0,0);copy.addView(d);LinearLayout.LayoutParams cp=new LinearLayout.LayoutParams(0,-2,1);cp.setMargins(7*dp,0,0,0);headRow.addView(copy,cp);holder.addView(headRow);
+        TextView retry=CortexUi.action(activity,"Retry suggestions",failed?CortexUi.RED:CortexUi.YELLOW,false);LinearLayout.LayoutParams rp=new LinearLayout.LayoutParams(-1,40*dp);rp.setMargins(0,8*dp,0,0);holder.addView(retry,rp);retry.setOnClickListener(v->{try{ResultProposalEngine.invalidate(db,target);}catch(Throwable ignored){}requestInto(activity,db,holder,target);});
+        if(provider!=null&&!provider.trim().isEmpty()){TextView model=CortexUi.plain(activity,"Last provider: "+provider,7,CortexUi.FAINT);model.setPadding(0,4*dp,0,0);holder.addView(model);}
+    }
+
+    private static void renderProposals(Activity activity,VaultDb db,LinearLayout holder,ResultProposalEngine.Target target,ArrayList<ResultProposalEngine.Proposal> proposals,String provider){
+        final int dp=CortexUi.dp(activity,1);holder.setVisibility(View.VISIBLE);LinearLayout headRow=new LinearLayout(activity);headRow.setGravity(Gravity.CENTER_VERTICAL);headRow.addView(CortexUi.glyph(activity,"brain",CortexUi.RED,true),new LinearLayout.LayoutParams(30*dp,30*dp));TextView head=CortexUi.plain(activity,"Cortex suggests",9,CortexUi.TEXT);CortexUi.medium(head);LinearLayout.LayoutParams hp=new LinearLayout.LayoutParams(0,-2,1);hp.setMargins(7*dp,0,0,0);headRow.addView(head,hp);holder.addView(headRow);
+        HorizontalScrollView scroller=new HorizontalScrollView(activity);scroller.setHorizontalScrollBarEnabled(false);LinearLayout row=new LinearLayout(activity);row.setOrientation(LinearLayout.HORIZONTAL);row.setPadding(0,7*dp,0,2*dp);scroller.addView(row,new HorizontalScrollView.LayoutParams(-2,-2));
+        for(ResultProposalEngine.Proposal p:proposals){
+            int color=proposalColor(p);TextView chip=CortexUi.chip(activity,p.title,color,false);chip.setSingleLine(true);chip.setEllipsize(android.text.TextUtils.TruncateAt.END);chip.setMaxWidth(290*dp);int wash=Color.argb(9,Color.red(color),Color.green(color),Color.blue(color));CortexUi.pressable(activity,chip,CortexUi.round(activity,wash,Color.argb(68,Color.red(color),Color.green(color),Color.blue(color)),999));
+            LinearLayout.LayoutParams cp=new LinearLayout.LayoutParams(-2,38*dp);if(row.getChildCount()>0)cp.setMargins(7*dp,0,0,0);row.addView(chip,cp);chip.setOnClickListener(v->open(activity,db,target,p));
+        }
+        holder.addView(scroller,new LinearLayout.LayoutParams(-1,45*dp));if(provider!=null&&!provider.trim().isEmpty()){TextView model=CortexUi.plain(activity,"Suggested by "+provider,7,CortexUi.FAINT);model.setPadding(0,1*dp,0,0);holder.addView(model);}
     }
 
     private static int proposalColor(ResultProposalEngine.Proposal p){
