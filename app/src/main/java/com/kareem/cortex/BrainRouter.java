@@ -25,6 +25,25 @@ public final class BrainRouter {
                 cloudFocal=focal;fastFocal=true;
             }
             AiJobStore.start(db,job,"Understanding request","understanding");emit(progress,job,"Understanding request",8);
+
+            // Exact state questions are already answered authoritatively by Cortex's local operational
+            // ledger (ACTION/WAITING/DECISION, phone state, goals, etc.). Sending those questions to a
+            // cloud model can both add latency and lose derived state because it has no simple M-source
+            // provenance. In Combined mode, return the authoritative local result immediately; the
+            // proposal layer can still generate optional next moves afterward.
+            if(combined&&focalItemId<=0){
+                long rt=SystemClock.elapsedRealtime();GroundedAnswer operational=AskOperationalEngine.tryAnswer(db,question);retrieval=SystemClock.elapsedRealtime()-rt;
+                if(operational!=null){
+                    grounded=operational;AiJobStore.linkSources(db,job,grounded);long total=SystemClock.elapsedRealtime()-wall;
+                    String detail="Combined operational fast path · authoritative Cortex state answered locally · no operational private state sent to cloud";
+                    AiJobStore.progress(db,job,"Using current Cortex state","operational_local",72,detail);emit(progress,job,"Using current Cortex state",72);
+                    JSONObject out=new JSONObject().put("answer",operational.answer).put("provider","cortex-operational").put("model","deterministic-local").put("source_mode",mode).put("source_count",operational.sources.size()).put("private_found",operational.sources.size()).put("focal_item_id",0).put("focal_sent",false).put("fast_focal",false).put("operational_fast_path",true).put("phone_context_available",false).put("phone_context_sent",false).put("withheld_local_only",0).put("actions_count",0).put("total_ms",total);
+                    AiJobStore.complete(db,job,out.toString(),"Answer ready",detail);emit(progress,job,"Answer ready",100);
+                    try{DiagnosticsLog.info(db,"BrainRouter","operational_answer","ok",0,0,0,job,0,total,new JSONObject().put("provider","cortex-operational").put("mode",mode).put("source_count",operational.sources.size()).put("cloud_sent",false));}catch(Throwable ignored){}
+                    return new LocalAskRouter.Result(job,operational,operational.answer,"cortex-operational-combined","",mode,0,0,0,total,retrieval,0,0,0,false);
+                }
+            }
+
             if(combined){
                 if(fastFocal){
                     AiJobStore.progress(db,job,"Using this capture","focal_context",32,"Fast focal route: exact cloud-allowed capture attached; broad retrieval deferred");
