@@ -61,7 +61,17 @@ public final class ProposalUi {
     }
 
     private static void open(Activity a,VaultDb db,ResultProposalEngine.Target target,ResultProposalEngine.Proposal p){
-        if("BRAIN_PROMPT".equals(p.execution)){StringBuilder q=new StringBuilder();if(p.prompt!=null&&!p.prompt.trim().isEmpty())q.append(p.prompt.trim());q.append("\n\nCORTEX RESULT CONTEXT\nSurface: ").append(target.surface).append("\nTitle: ").append(target.title).append("\nResult:\n").append(clip(target.text,1800));CortexActionExecutor.openBrain(a,target.sourceItemId,q.toString());return;}
+        if("BRAIN_PROMPT".equals(p.execution)){
+            String prompt=p.prompt==null?"":p.prompt.trim();
+            if(target.sourceItemId>0){
+                // The exact source item is carried separately by item_id. Do not duplicate its OCR/transcript
+                // inside the visible user prompt; BrainRouter retrieves the authoritative evidence directly.
+                CortexActionExecutor.openBrain(a,target.sourceItemId,prompt);return;
+            }
+            StringBuilder q=new StringBuilder(prompt);
+            q.append("\n\nCORTEX RESULT CONTEXT\nSurface: ").append(target.surface).append("\nTitle: ").append(target.title).append("\nResult:\n").append(clip(target.text,900));
+            CortexActionExecutor.openBrain(a,0,q.toString());return;
+        }
         if(!"ACTION".equals(p.execution))return;String key=safeKey(target.resultKey)+"_"+safeKey(p.id);long syntheticJob=target.sourceItemId>0?target.sourceItemId:Math.max(1,Math.abs((long)target.fingerprint().hashCode()));JSONArray missing=normalizedMissing(p,target);String status=missing.length()==0?"READY":"NEEDS_DETAILS";BrainActionStore.Action action=new BrainActionStore.Action(0,syntheticJob,key,p.actionType,p.title,status,p.confidence,p.payload,missing,target.sourceItemId,target.sourceType,clip(target.text,420));CortexActionDispatcher.preview(a,db,action);
     }
 
