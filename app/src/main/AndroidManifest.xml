@@ -4,6 +4,7 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.READ_CALENDAR" />
     <uses-permission android:name="android.permission.WRITE_CALENDAR" />
@@ -16,7 +17,8 @@
         <provider android:name="rikka.shizuku.ShizukuProvider" android:authorities="${applicationId}.shizuku" android:multiprocess="false" android:enabled="true" android:exported="true" android:permission="android.permission.INTERACT_ACROSS_USERS_FULL" />
         <activity android:name=".InputActivity" android:exported="true"><intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter></activity>
         <activity android:name=".SatinBriefActivity" android:exported="false" />
-        <activity-alias android:name=".PremiumHomeActivity" android:targetActivity=".SatinBriefActivity" android:exported="false" />
+        <activity android:name=".CortexOrbBriefActivity" android:exported="false" />
+        <activity-alias android:name=".PremiumHomeActivity" android:targetActivity=".CortexOrbBriefActivity" android:exported="false" />
         <activity android:name=".SatinCaptureActivity" android:exported="false" android:theme="@style/CaptureSheetTheme" android:windowSoftInputMode="adjustResize" />
         <activity android:name=".PeopleProjectsActivity" android:exported="false" />
         <activity android:name=".SmartInboxActivity" android:exported="false" />
@@ -44,9 +46,11 @@
         <activity android:name=".GeminiSettingsActivity" android:exported="false" android:label="Cortex Gemini Setup" />
         <activity android:name=".MainActivity" android:exported="false" />
         <service android:name=".LocalModelDownloadService" android:exported="false" android:foregroundServiceType="dataSync" />
+        <service android:name=".CortexRecordService" android:exported="false" android:foregroundServiceType="microphone" />
         <service android:name=".NotificationCaptureService" android:label="Cortex Notification Memory" android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE" android:exported="true"><intent-filter><action android:name="android.service.notification.NotificationListenerService" /></intent-filter></service>
         <service android:name=".CortexQuickTileService" android:label="Cortex Voice" android:permission="android.permission.BIND_QUICK_SETTINGS_TILE" android:exported="true"><intent-filter><action android:name="android.service.quicksettings.action.QS_TILE" /></intent-filter></service>
         <service android:name=".UnderstandScreenTileService" android:label="Understand screen" android:permission="android.permission.BIND_QUICK_SETTINGS_TILE" android:exported="true"><intent-filter><action android:name="android.service.quicksettings.action.QS_TILE" /></intent-filter></service>
         <service android:name=".CortexScreenAccessibilityService" android:label="Cortex Screen Understanding" android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE" android:exported="true"><intent-filter><action android:name="android.accessibilityservice.AccessibilityService" /></intent-filter><meta-data android:name="android.accessibilityservice" android:resource="@xml/cortex_screen_accessibility" /></service>
+        <receiver android:name=".CortexRecordWidget" android:exported="true" android:label="Cortex Voice"><intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter><meta-data android:name="android.appwidget.provider" android:resource="@xml/cortex_record_widget_info" /></receiver>
     </application>
 </manifest>
