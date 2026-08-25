@@ -83,15 +83,30 @@ public final class CortexUi {
     }
     public static CortexGlyphView glyph(Activity a,String kind,int color,boolean dot){CortexGlyphView g=new CortexGlyphView(a,kind,color,dot);raised(a,g,4);return g;}
 
+    /**
+     * Shared tactile behavior for actionable surfaces. The haptic fires only for a completed tap,
+     * not when the finger turns into a scroll gesture, so dense Cortex lists do not buzz while scrolling.
+     */
     public static View pressable(Activity a,View v,GradientDrawable base){
         if(Build.VERSION.SDK_INT>=21)v.setBackground(new RippleDrawable(ColorStateList.valueOf(Color.argb(18,255,255,255)),base,null));else v.setBackground(base);
         v.setClickable(true);v.setFocusable(true);raised(a,v,3);
-        v.setOnTouchListener((x,e)->{
-            if(Build.VERSION.SDK_INT>=21){
-                if(e.getActionMasked()==MotionEvent.ACTION_DOWN){x.setTranslationZ(-dp(a,1));x.setScaleX(.992f);x.setScaleY(.992f);}
-                else if(e.getActionMasked()==MotionEvent.ACTION_UP||e.getActionMasked()==MotionEvent.ACTION_CANCEL){x.setTranslationZ(0f);x.setScaleX(1f);x.setScaleY(1f);}
+        final int slop=ViewConfiguration.get(a).getScaledTouchSlop();
+        v.setOnTouchListener(new View.OnTouchListener(){float downX,downY;boolean moved;
+            @Override public boolean onTouch(View x,MotionEvent e){
+                switch(e.getActionMasked()){
+                    case MotionEvent.ACTION_DOWN:
+                        downX=e.getX();downY=e.getY();moved=false;
+                        if(Build.VERSION.SDK_INT>=21){x.setTranslationZ(-dp(a,1));x.setScaleX(.992f);x.setScaleY(.992f);}break;
+                    case MotionEvent.ACTION_MOVE:
+                        if(Math.abs(e.getX()-downX)>slop||Math.abs(e.getY()-downY)>slop)moved=true;break;
+                    case MotionEvent.ACTION_UP:
+                        if(Build.VERSION.SDK_INT>=21){x.setTranslationZ(0f);x.setScaleX(1f);x.setScaleY(1f);}
+                        if(!moved&&e.getX()>=0&&e.getX()<=x.getWidth()&&e.getY()>=0&&e.getY()<=x.getHeight())CortexHaptics.press(x);break;
+                    case MotionEvent.ACTION_CANCEL:
+                        if(Build.VERSION.SDK_INT>=21){x.setTranslationZ(0f);x.setScaleX(1f);x.setScaleY(1f);}break;
+                }
+                return false;
             }
-            return false;
         });return v;
     }
 
@@ -143,7 +158,7 @@ public final class CortexUi {
         int stroke=on?Color.argb(72,Color.red(semantic),Color.green(semantic),Color.blue(semantic)):Color.TRANSPARENT;item.setBackground(round(a,fill,stroke,15));if(on)raised(a,item,3);
         CortexGlyphView icon=glyph(a,key,on?semantic:idle,on);item.addView(icon,new LinearLayout.LayoutParams(dp(a,30),dp(a,30)));
         TextView l=plain(a,label,8,on?TEXT:MUTED);l.setGravity(Gravity.CENTER);l.setMaxLines(1);if(on)medium(l);item.addView(l,new LinearLayout.LayoutParams(-1,dp(a,18)));
-        item.setOnClickListener(v->{if(on)return;Intent i=new Intent(a,cls);i.addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT|Intent.FLAG_ACTIVITY_SINGLE_TOP);a.startActivity(i);});row.addView(item,new LinearLayout.LayoutParams(0,-1,1));
+        item.setOnClickListener(v->{CortexHaptics.press(v);if(on)return;Intent i=new Intent(a,cls);i.addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT|Intent.FLAG_ACTIVITY_SINGLE_TOP);a.startActivity(i);});row.addView(item,new LinearLayout.LayoutParams(0,-1,1));
     }
 
     private static int mix(int a,int b,float amountOfB){float q=Math.max(0f,Math.min(1f,amountOfB)),p=1f-q;return Color.rgb((int)(Color.red(a)*p+Color.red(b)*q),(int)(Color.green(a)*p+Color.green(b)*q),(int)(Color.blue(a)*p+Color.blue(b)*q));}
