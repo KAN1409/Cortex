@@ -6,12 +6,12 @@ import java.util.*;
 
 /**
  * Conservative local context resolver.
- * It prefers explicit Cortex threads and intentional captures; phone activity can challenge only
- * when repeated evidence exists. ContextStateStore supplies hysteresis so app switching alone does
- * not constantly replace the user's cognitive context.
+ * It prefers explicit project/thread anchors and intentional captures; phone activity can challenge
+ * only when repeated evidence exists. ContextStateStore supplies hysteresis so app switching alone
+ * does not constantly replace the user's cognitive context.
  */
 public final class ContextResolver {
-    private static final long THREAD_WINDOW=45L*60L*1000L,CAPTURE_WINDOW=25L*60L*1000L,PHONE_WINDOW=15L*60L*1000L;
+    private static final long PROJECT_WINDOW=60L*60L*1000L,THREAD_WINDOW=45L*60L*1000L,CAPTURE_WINDOW=25L*60L*1000L,PHONE_WINDOW=15L*60L*1000L;
     private ContextResolver(){}
 
     private static final class Candidate {
@@ -32,7 +32,10 @@ public final class ContextResolver {
         return current;
     }
 
-    private static Candidate best(VaultDb db,long now){ArrayList<Candidate> xs=new ArrayList<>();Candidate thread=threadCandidate(db,now);if(thread!=null)xs.add(thread);Candidate capture=captureCandidate(db,now);if(capture!=null)xs.add(capture);Candidate phone=phoneCandidate(db,now);if(phone!=null)xs.add(phone);if(xs.isEmpty())return null;xs.sort((a,b)->{int c=Double.compare(b.confidence,a.confidence);if(c!=0)return c;return Long.compare(b.evidenceAt,a.evidenceAt);});return xs.get(0);}
+    private static Candidate best(VaultDb db,long now){ArrayList<Candidate> xs=new ArrayList<>();Candidate project=projectCandidate(db,now);if(project!=null)xs.add(project);Candidate thread=threadCandidate(db,now);if(thread!=null)xs.add(thread);Candidate capture=captureCandidate(db,now);if(capture!=null)xs.add(capture);Candidate phone=phoneCandidate(db,now);if(phone!=null)xs.add(phone);if(xs.isEmpty())return null;xs.sort((a,b)->{int c=Double.compare(b.confidence,a.confidence);if(c!=0)return c;return Long.compare(b.evidenceAt,a.evidenceAt);});return xs.get(0);}
+
+    /** A confirmed Project entity linked to recent evidence is the strongest stable context identity. */
+    private static Candidate projectCandidate(VaultDb db,long now){Cursor c=null;try{String sql="SELECT n.id,n.canonical_name,k.id,k.title,k.summary,k.extracted_text,k.raw_text,k.created_at FROM source_links sl JOIN entity_nodes n ON n.id=sl.to_id JOIN knowledge_items k ON k.id=sl.from_id WHERE sl.from_type='memory' AND sl.to_type='entity' AND n.kind='PROJECT' AND n.status='active' AND k.created_at>=? ORDER BY k.created_at DESC,sl.confidence DESC LIMIT 1";c=db.getReadableDatabase().rawQuery(sql,new String[]{String.valueOf(now-PROJECT_WINDOW)});if(!c.moveToFirst())return null;long entityId=c.getLong(0),memoryId=c.getLong(2);String project=n(c.getString(1)),title=n(c.getString(3)),summary=n(c.getString(4)),extracted=n(c.getString(5)),raw=n(c.getString(6)),body=!summary.isEmpty()?summary:!extracted.isEmpty()?extracted:raw;Candidate x=new Candidate();x.sourceId=memoryId;x.key="project:"+entityId;x.title=!project.isEmpty()?project:(!title.isEmpty()?title:"Current project");x.goal=clip(body,200);x.summary=(!title.isEmpty()?title+(body.isEmpty()?"":" · "):"")+clip(body,320);x.evidenceAt=c.getLong(7);x.confidence=.94;x.priority=96;x.reason="Recent evidence linked to a confirmed Project entity";x.sourceType="memory";x.metadata="{\"resolver\":\"project_entity\",\"project_entity_id\":"+entityId+",\"local_only\":true}";return x;}catch(Throwable ignored){return null;}finally{if(c!=null)c.close();}}
 
     private static Candidate threadCandidate(VaultDb db,long now){
         Cursor c=null;try{c=db.getReadableDatabase().rawQuery("SELECT id,title,summary,participant_key,last_event_at FROM signal_threads WHERE state='open' AND last_event_at>=? ORDER BY last_event_at DESC LIMIT 1",new String[]{String.valueOf(now-THREAD_WINDOW)});if(!c.moveToFirst())return null;Candidate x=new Candidate();x.sourceId=c.getLong(0);x.key="thread:"+x.sourceId;String title=n(c.getString(1)),summary=n(c.getString(2)),person=n(c.getString(3));x.title=!title.isEmpty()?title:(!person.isEmpty()?"Conversation with "+person:"Active conversation");x.goal=!summary.isEmpty()?clip(summary,180):x.title;x.summary=!summary.isEmpty()?summary:x.title;x.evidenceAt=c.getLong(4);long age=Math.max(0,now-x.evidenceAt);x.confidence=age<=10L*60L*1000L?.92:.84;x.priority=90;x.reason="Active Cortex signal thread";x.sourceType="thread";x.metadata="{\"resolver\":\"signal_thread\",\"local_only\":true}";return x;}catch(Throwable ignored){return null;}finally{if(c!=null)c.close();}}
