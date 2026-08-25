@@ -29,13 +29,12 @@ if [ ! -d "$REPO_DIR/.git" ]; then
   else fail "Cortex repo not found. Set CORTEX_REPO_DIR or clone it to $HOME/Cortex first."; fi
 fi
 cd "$REPO_DIR"
-CURRENT_REF="$(git branch --show-current 2>/dev/null || true)"
-TARGET_REF="${CORTEX_BUILD_REF:-${CURRENT_REF:-main}}"
-[ -n "$TARGET_REF" ] || TARGET_REF=main
+# The normal command is always the release gate for main. Override only deliberately.
+TARGET_REF="${CORTEX_BUILD_REF:-main}"
 log "Updating Cortex source: $TARGET_REF"
 git fetch origin "$TARGET_REF"
 
-# Preserve local tracked edits instead of deleting them, then build exact origin/<target>.
+# Preserve tracked local edits instead of deleting them, then build exact origin/<target>.
 if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
   log "Preserving local tracked edits before sync"
   git stash push -m "$AUTO_STASH_NAME" >/dev/null
@@ -45,6 +44,14 @@ fi
 
 git checkout "$TARGET_REF"
 git pull --ff-only origin "$TARGET_REF"
+
+log "Running full Cortex repository regression audit"
+[ -f "$REPO_DIR/scripts/cortex-repo-audit.sh" ] || fail "Repository audit script is missing"
+if ! bash "$REPO_DIR/scripts/cortex-repo-audit.sh" "$REPO_DIR"; then
+  printf '\nCORTEX BUILD STOPPED: repository audit failed before Gradle.\n' >&2
+  if [ "$AUTO_STASHED" = "1" ]; then printf 'Local pre-build edits remain safely stashed as: %s\n' "$AUTO_STASH_NAME" >&2; fi
+  exit 2
+fi
 
 if [ -z "${ANDROID_HOME:-}" ]; then for d in "$HOME/android-sdk" "$PREFIX/share/android-sdk" "$HOME/Android/Sdk"; do if [ -d "$d" ]; then export ANDROID_HOME="$d"; break; fi; done; fi
 [ -n "${ANDROID_HOME:-}" ] || fail "ANDROID_HOME is not set and Android SDK was not found."
