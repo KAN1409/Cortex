@@ -19,6 +19,7 @@
         <activity android:name=".PeopleProjectsActivity" android:exported="false" />
         <activity android:name=".SmartInboxActivity" android:exported="false" />
         <activity android:name=".VaultActivity" android:exported="false" />
+        <activity android:name=".PromptLibraryActivity" android:exported="false" />
         <activity android:name=".AskCortexActivity" android:exported="false" android:windowSoftInputMode="adjustResize" />
         <activity android:name=".SettingsActivity" android:exported="false" />
         <activity android:name=".ReviewQueueActivity" android:exported="false" />
