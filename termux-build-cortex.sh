@@ -75,6 +75,17 @@ if [ -f "$REPO_DIR/scripts/cortex-user-journey-audit.sh" ]; then
   fi
 fi
 
+# Context is now a first-class cognitive layer. Fail before Gradle if the schema, hysteresis,
+# provenance, privacy boundary or Brain routing contract is accidentally removed.
+if [ -f "$REPO_DIR/scripts/cortex-context-core-audit.sh" ]; then
+  log "Running Context Core architecture audit"
+  if ! bash "$REPO_DIR/scripts/cortex-context-core-audit.sh" "$REPO_DIR"; then
+    printf '\nCORTEX BUILD STOPPED: Context Core architecture audit failed before Gradle.\n' >&2
+    if [ "$AUTO_STASHED" = "1" ]; then printf 'Local pre-build edits remain safely stashed as: %s\n' "$AUTO_STASH_NAME" >&2; fi
+    exit 2
+  fi
+fi
+
 if [ -z "${ANDROID_HOME:-}" ]; then for d in "$HOME/android-sdk" "$PREFIX/share/android-sdk" "$HOME/Android/Sdk"; do if [ -d "$d" ]; then export ANDROID_HOME="$d"; break; fi; done; fi
 [ -n "${ANDROID_HOME:-}" ] || fail "ANDROID_HOME is not set and Android SDK was not found."
 export ANDROID_SDK_ROOT="$ANDROID_HOME"
