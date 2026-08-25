@@ -105,7 +105,8 @@ public final class ExternalBrainProvider {
         long started=SystemClock.elapsedRealtime();HttpURLConnection c=null;
         try{
             JSONArray messages=new JSONArray().put(new JSONObject().put("role","user").put("content","Cortex external-model health check. Reply with exactly: CORTEX_OK"));
-            JSONObject req=new JSONObject().put("model",model).put("messages",messages).put("max_tokens",24);
+            JSONObject req=new JSONObject().put("model",model).put("messages",messages).put("max_tokens",256);
+            if(OpenRouterModelConfig.isOxAlpha(context))req.put("reasoning",new JSONObject().put("effort","low").put("exclude",true));
             c=openOpenRouter(key);write(c,req);int code=c.getResponseCode();String body=read(code>=200&&code<300?c.getInputStream():c.getErrorStream());long ms=SystemClock.elapsedRealtime()-started;
             String text="";if(code>=200&&code<300)try{text=extractOpenRouterText(new JSONObject(body)).trim();}catch(Exception ignored){}
             boolean ok=code>=200&&code<300&&!text.isEmpty();
