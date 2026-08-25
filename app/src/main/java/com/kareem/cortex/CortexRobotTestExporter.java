@@ -42,7 +42,7 @@ public final class CortexRobotTestExporter {
         },"CortexRobotTestExporter").start();
     }
 
-    private static synchronized void appendJournal(File f,CortexRobotUserTest.Step step){try{if(f==null)return;try(Writer w=new BufferedWriter(new OutputStreamWriter(new FileOutputStream(f,true),StandardCharsets.UTF_8),4096)){w.write(step.json().toString());w.write('\n');}}catch(Throwable ignored){}}
+    private static synchronized void appendJournal(File f,CortexRobotUserTest.Step step){try{if(f==null)return;CortexRobotReportSanitizer.sanitize(step);try(Writer w=new BufferedWriter(new OutputStreamWriter(new FileOutputStream(f,true),StandardCharsets.UTF_8),4096)){w.write(step.json().toString());w.write('\n');}}catch(Throwable ignored){}}
     private static void write(File f,String s)throws Exception{try(Writer w=new BufferedWriter(new OutputStreamWriter(new FileOutputStream(f),StandardCharsets.UTF_8),16384)){w.write(s==null?"":s);}}
     private static void zip(File out,File... files)throws Exception{try(ZipOutputStream z=new ZipOutputStream(new BufferedOutputStream(new FileOutputStream(out)))){byte[] b=new byte[16384];for(File f:files){if(f==null||!f.exists())continue;z.putNextEntry(new ZipEntry(f.getName()));try(InputStream in=new BufferedInputStream(new FileInputStream(f))){for(int n;(n=in.read(b))!=-1;)z.write(b,0,n);}z.closeEntry();}}}
 
