@@ -108,6 +108,48 @@ require_text app/src/main/java/com/kareem/cortex/CortexScrubberView.java 'Color\
 
 if git grep -nEi '126,158,255|182,137,255|178,103,255|#7E9EFF|#B689FF|#B267FF' -- 'app/src/main/**' >/dev/null 2>&1; then bad "legacy blue/purple visual token detected in final app sources"; else ok "no legacy blue/purple visual token in final app sources"; fi
 
+# Tactile interaction contract.
+require_file app/src/main/java/com/kareem/cortex/CortexHaptics.java
+require_text app/src/main/java/com/kareem/cortex/CortexHaptics.java 'performHapticFeedback' 'central haptic helper respects Android haptic feedback system'
+require_text "$UI" 'CortexHaptics\.press' 'shared pressable/navigation layer emits tactile feedback'
+require_text app/src/main/java/com/kareem/cortex/CortexRingButton.java 'CortexHaptics\.(confirm|press)' 'Cortex ring/orb controls emit tactile feedback'
+
+# Health Follow-up branch contract: read-only Health Connect + evidence provenance + no fake Huawei connection.
+for f in \
+  app/src/main/java/com/kareem/cortex/HealthSchema.java \
+  app/src/main/java/com/kareem/cortex/HealthStore.java \
+  app/src/main/java/com/kareem/cortex/HealthConnectBridge.kt \
+  app/src/main/java/com/kareem/cortex/HealthFollowupActivity.java \
+  app/src/main/java/com/kareem/cortex/HealthPermissionsRationaleActivity.java; do require_file "$f"; done
+require_text app/build.gradle 'androidx\.health\.connect:connect-client:1\.1\.0' 'Health Connect stable client is pinned'
+require_text "$MAN" 'android\.permission\.health\.READ_STEPS' 'Health Connect steps read scope declared'
+require_text "$MAN" 'android\.permission\.health\.READ_HEART_RATE' 'Health Connect heart-rate read scope declared'
+require_text "$MAN" 'android\.permission\.health\.READ_RESTING_HEART_RATE' 'Health Connect resting-heart-rate read scope declared'
+require_text "$MAN" 'android\.permission\.health\.READ_SLEEP' 'Health Connect sleep read scope declared'
+require_text "$MAN" 'android\.permission\.health\.READ_OXYGEN_SATURATION' 'Health Connect oxygen read scope declared'
+require_text "$MAN" 'android\.permission\.health\.READ_WEIGHT' 'Health Connect weight read scope declared'
+require_text "$MAN" 'HealthPermissionsRationaleActivity' 'Health Connect privacy rationale route is declared'
+require_text app/src/main/java/com/kareem/cortex/HealthConnectBridge.kt 'dataOrigin\.packageName' 'Health metric provenance retains Health Connect data origin'
+require_text app/src/main/java/com/kareem/cortex/HealthConnectBridge.kt 'syncRecent' 'Health Connect user-triggered recent sync is implemented'
+require_text app/src/main/java/com/kareem/cortex/HealthStore.java 'linkKnowledgeEvidence' 'health imports link back to original Cortex evidence'
+require_text app/src/main/java/com/kareem/cortex/CaptureActivity.java 'health_context' 'capture pipeline preserves health import context'
+require_text app/src/main/java/com/kareem/cortex/HealthFollowupActivity.java 'HEALTH KIT SETUP|Health Kit' 'Huawei Health is represented as an explicit setup gate, not fake active data'
+if grep -Fq 'READ_HEALTH_DATA_IN_BACKGROUND' "$MAN" || grep -Fq 'READ_HEALTH_DATA_HISTORY' "$MAN"; then bad "background/history Health Connect permission declared before corresponding behavior"; else ok "Health Connect keeps least privilege: no background/history read scope yet"; fi
+
+# Unified phone environment access center and least-privilege permission boundary.
+require_file app/src/main/java/com/kareem/cortex/AccessGateRegistry.java
+require_text app/src/main/java/com/kareem/cortex/PhoneContextAccessActivity.java 'AccessGateRegistry\.snapshot' 'Access Center renders authoritative gate inventory'
+require_text app/src/main/java/com/kareem/cortex/AccessGateRegistry.java 'notification_listener' 'notification-listener gate is inventoried'
+require_text app/src/main/java/com/kareem/cortex/AccessGateRegistry.java 'accessibility' 'Accessibility gate is inventoried'
+require_text app/src/main/java/com/kareem/cortex/AccessGateRegistry.java 'usage' 'Usage Access gate is inventoried'
+require_text app/src/main/java/com/kareem/cortex/AccessGateRegistry.java 'microphone' 'microphone runtime gate is inventoried'
+require_text app/src/main/java/com/kareem/cortex/AccessGateRegistry.java 'contacts' 'contacts read gate is inventoried'
+require_text app/src/main/java/com/kareem/cortex/AccessGateRegistry.java 'calendar' 'calendar read gate is inventoried'
+require_text app/src/main/java/com/kareem/cortex/AccessGateRegistry.java 'battery' 'background reliability gate is inventoried'
+require_text app/src/main/java/com/kareem/cortex/AccessGateRegistry.java 'shizuku' 'optional Shizuku gate is inventoried'
+if grep -Fq 'android.permission.WRITE_CALENDAR' "$MAN"; then bad "direct WRITE_CALENDAR permission conflicts with approval-first external draft architecture"; else ok "calendar access is read-only; external writes remain owning-app drafts"; fi
+for p in 'android.permission.CAMERA' 'android.permission.MANAGE_EXTERNAL_STORAGE' 'android.permission.SYSTEM_ALERT_WINDOW' 'android.permission.SCHEDULE_EXACT_ALARM'; do if grep -Fq "$p" "$MAN"; then bad "unneeded privileged permission declared: $p"; else ok "unneeded privileged permission not declared: $p"; fi; done
+
 placeholder_hits="$(git grep -nEi '\b(TODO|FIXME|temporary stub|placeholder implementation)\b' -- '*.java' '*.kt' '*.xml' '*.gradle' '*.sh' 2>/dev/null | wc -l | tr -d ' ' || true)"
 [ "$placeholder_hits" = "0" ] || warn "$placeholder_hits TODO/FIXME/placeholder source hit(s) require human context review"
 
