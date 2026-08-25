@@ -11,9 +11,17 @@ import java.util.ArrayList;
 
 /** Content-first PRIME input: one voice orb, compact secondary capture, progressive disclosure. */
 public class InputActivity extends Activity {
+    boolean accessOnboardingLaunchAttempted=false;
     int dp(int x){return CortexUi.dp(this,x);}
-    @Override public void onCreate(Bundle b){super.onCreate(b);CortexUi.applyWindow(this);build();}
+    @Override public void onCreate(Bundle b){super.onCreate(b);CortexUi.applyWindow(this);build();maybeLaunchAccessOnboarding();}
     @Override protected void onPostResume(){super.onPostResume();StartupMaintenance.schedule(this);}
+
+    void maybeLaunchAccessOnboarding(){
+        if(accessOnboardingLaunchAttempted)return;
+        if(getSharedPreferences(AccessOnboardingActivity.PREFS,MODE_PRIVATE).getBoolean(AccessOnboardingActivity.KEY_SEEN,false))return;
+        accessOnboardingLaunchAttempted=true;
+        try{startActivity(new Intent(this,AccessOnboardingActivity.class));}catch(Throwable ignored){}
+    }
 
     void build(){
         LinearLayout root=new LinearLayout(this);root.setOrientation(LinearLayout.VERTICAL);root.setBackgroundColor(CortexUi.BG);
