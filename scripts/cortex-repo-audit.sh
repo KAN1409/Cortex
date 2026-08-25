@@ -55,6 +55,19 @@ require_text app/src/main/java/com/kareem/cortex/ProposalAskCortexActivity.java 
 require_text app/src/main/java/com/kareem/cortex/ProposalCaptureResultActivity.java 'ProposalUi\.attach' 'Capture results are wired to micro proposals'
 require_text app/src/main/java/com/kareem/cortex/ProposalCaptureResultActivity.java 'hideLegacySuggestions' 'fixed legacy pseudo-suggestions are removed from final capture result'
 
+# Capture correction + recoverable proposal contract.
+TC="app/src/main/java/com/kareem/cortex/TranscriptCorrectionStore.java"
+require_file "$TC"
+require_text "$TC" 'item_text_corrections' 'manual transcript corrections preserve correction history'
+require_text "$TC" 'keep_manual_transcript_correction' 'manual transcript override survives later analysis writes'
+require_text "$TC" 'SemanticIndex\.indexItem' 'corrected transcript is re-indexed for retrieval'
+require_text app/src/main/java/com/kareem/cortex/ProposalCaptureResultActivity.java 'Edit transcript' 'audio result exposes direct transcript editing'
+require_text app/src/main/java/com/kareem/cortex/ProposalCaptureResultActivity.java 'TranscriptCorrectionStore\.save' 'transcript editor persists corrected evidence'
+require_text app/src/main/java/com/kareem/cortex/ProposalUi.java 'Retry suggestions' 'proposal failures expose a retry action instead of a blank card'
+require_text app/src/main/java/com/kareem/cortex/ResultProposalEngine.java 'proposal-v3' 'proposal cache generation invalidates stale empty results'
+require_text app/src/main/java/com/kareem/cortex/ResultProposalEngine.java 'invalidateSource' 'proposal cache can be invalidated after corrected evidence'
+require_text app/src/main/java/com/kareem/cortex/ResultProposalEngine.java 'mo!=null&&recognized&&db!=null' 'malformed model responses are not cached as empty proposals'
+
 MAN="app/src/main/AndroidManifest.xml"
 require_file "$MAN"
 launcher_count="$(grep -o 'android.intent.action.MAIN' "$MAN" | wc -l | tr -d ' ')"
@@ -121,7 +134,8 @@ for f in \
   app/src/main/java/com/kareem/cortex/HealthConnectBridge.kt \
   app/src/main/java/com/kareem/cortex/HealthFollowupActivity.java \
   app/src/main/java/com/kareem/cortex/HealthPermissionsRationaleActivity.java; do require_file "$f"; done
-require_text app/build.gradle 'androidx\.health\.connect:connect-client:1\.1\.0' 'Health Connect stable client is pinned'
+require_text app/build.gradle 'androidx\.health\.connect:connect-client:1\.1\.0-alpha10' 'Health Connect compatibility client is pinned for SDK 35'
+require_text app/build.gradle 'com\.google\.guava:guava:31\.1-android' 'WorkManager ListenableFuture API is present on Java compile classpath'
 require_text "$MAN" 'android\.permission\.health\.READ_STEPS' 'Health Connect steps read scope declared'
 require_text "$MAN" 'android\.permission\.health\.READ_HEART_RATE' 'Health Connect heart-rate read scope declared'
 require_text "$MAN" 'android\.permission\.health\.READ_RESTING_HEART_RATE' 'Health Connect resting-heart-rate read scope declared'
