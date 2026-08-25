@@ -46,7 +46,9 @@ dependencies {
     implementation 'cz.adaptech.tesseract4android:tesseract4android:4.9.0'
     implementation 'androidx.work:work-runtime:2.11.2'
     implementation 'androidx.documentfile:documentfile:1.1.0'
-    implementation 'androidx.health.connect:connect-client:1.1.0'
+    // Compatibility pin for the current Cortex Android toolchain (compileSdk 35 / AGP 8.7.3).
+    // Stable Health Connect 1.1.0 now requires compileSdk 36 and AGP 8.9.1+.
+    implementation 'androidx.health.connect:connect-client:1.1.0-alpha10'
     implementation 'dev.ffmpegkit-maintained:llama-android:0.1.1'
     implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0'
     implementation 'dev.rikka.shizuku:api:13.1.5'
