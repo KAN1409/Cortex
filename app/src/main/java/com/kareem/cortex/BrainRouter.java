@@ -5,7 +5,7 @@ import android.os.SystemClock;
 import org.json.JSONObject;
 import java.util.*;
 
-/** Source-mode router for Brain. Cloud routes are explicit and never run from Your Data mode. */
+/** Source-mode router for Brain. Your Data stays local; External sends no Cortex memory; Combined may send retrieved Cortex context. */
 public final class BrainRouter {
     private BrainRouter(){}
 
@@ -13,14 +13,7 @@ public final class BrainRouter {
 
     /** focalItemId keeps "Ask Brain about this" attached to the exact Cortex capture instead of only copying OCR text. */
     public static LocalAskRouter.Result fast(Context ctx,VaultDb db,String question,String mode,long focalItemId,LocalAskRouter.Progress progress){
-        String m=normalize(mode);
-        if("your_data".equals(m))return LocalAskRouter.fast(ctx,db,question,progress);
-        if("combined".equals(m)&&phoneQuestion(question)&&!PrivacyPolicy.canUseCloud(ctx,"phone_context")){
-            LocalAskRouter.Result local=LocalAskRouter.fast(ctx,db,question,progress);
-            String answer="Phone context is Local only, so Combined kept this phone-state question on-device.\n\n"+local.answer;
-            return new LocalAskRouter.Result(local.jobId,local.grounded,answer,"combined-local-private-context","","combined",local.tokensPerSecond,local.tokensGenerated,local.durationMs,local.totalMs,local.retrievalMs,local.promptBuildMs,local.modelLoadMs,local.generationMs,local.cacheHit);
-        }
-        return cloud(ctx,db,question,m,focalItemId,progress);
+        String m=normalize(mode);if("your_data".equals(m))return LocalAskRouter.fast(ctx,db,question,progress);return cloud(ctx,db,question,m,focalItemId,progress);
     }
 
     private static LocalAskRouter.Result cloud(Context ctx,VaultDb db,String question,String mode,long focalItemId,LocalAskRouter.Progress progress){
@@ -30,23 +23,22 @@ public final class BrainRouter {
             if(focalItemId>0)try{focal=db.getById(focalItemId);}catch(Throwable ignored){}
             AiJobStore.start(db,job,"Understanding request","understanding");emit(progress,job,"Understanding request",8);
             if(combined){
-                AiJobStore.progress(db,job,"Searching your Cortex","retrieval",24,"Selecting private evidence for Combined mode");emit(progress,job,"Searching your Cortex",24);
-                long rt=SystemClock.elapsedRealtime();GroundedAnswer found=SecondBrainEngine.ask(db,question);retrieval=SystemClock.elapsedRealtime()-rt;privateFound=found.sources.size();
-                grounded=CloudEvidencePolicy.filter(ctx,found);AiJobStore.linkSources(db,job,grounded);
-                if(focal!=null&&CloudEvidencePolicy.canSend(ctx,focal)){cloudFocal=focal;AiJobStore.progress(db,job,"Using this capture","focal_context",40,"The exact capture is available to the external model under current privacy settings");emit(progress,job,"Using this capture",40);}
+                AiJobStore.progress(db,job,"Searching your Cortex","retrieval",24,"Selecting relevant Cortex evidence for Combined mode");emit(progress,job,"Searching your Cortex",24);
+                long rt=SystemClock.elapsedRealtime();grounded=SecondBrainEngine.ask(db,question);retrieval=SystemClock.elapsedRealtime()-rt;privateFound=grounded.sources.size();AiJobStore.linkSources(db,job,grounded);
+                if(focal!=null){cloudFocal=focal;AiJobStore.progress(db,job,"Using this capture","focal_context",40,"The exact capture is attached to the Combined request");emit(progress,job,"Using this capture",40);}
                 if(PrivacyPolicy.canCollect(ctx,"phone_context")){
                     try{
                         PhoneContextStore.ensure(db);String recent=PhoneContextStore.recentSummary(db,30L*60L*1000L,8);String processes=phoneQuestion(question)?PhoneContextStore.activeProcessSummary(db,25):"";StringBuilder pc=new StringBuilder();
-                        if(!recent.isEmpty())pc.append("RECENT PHONE TIMELINE:\n").append(recent);if(!processes.isEmpty()){if(pc.length()>0)pc.append("\n\n");pc.append("LATEST RUNNING PROCESS STATE:\n").append(processes);}phoneContext=pc.toString();phoneSent=!phoneContext.isEmpty()&&PrivacyPolicy.canUseCloud(ctx,"phone_context");
+                        if(!recent.isEmpty())pc.append("RECENT PHONE TIMELINE:\n").append(recent);if(!processes.isEmpty()){if(pc.length()>0)pc.append("\n\n");pc.append("LATEST RUNNING PROCESS STATE:\n").append(processes);}phoneContext=pc.toString();phoneSent=!phoneContext.isEmpty();
                     }catch(Throwable ignored){phoneContext="";phoneSent=false;}
                 }
             }
-            String detail=combined?("Explicit Combined route · "+grounded.sources.size()+" cloud-allowed Cortex source"+(grounded.sources.size()==1?"":"s")+(cloudFocal!=null?" · focal capture attached":"")+(focal!=null&&cloudFocal==null?" · focal capture kept local by privacy policy":"")+(privateFound>grounded.sources.size()?" · "+(privateFound-grounded.sources.size())+" local-only source(s) withheld":"")+(!phoneContext.isEmpty()?(phoneSent?" · recent phone context included":" · recent phone context kept local") : "")):"No Cortex memory is sent in External mode";
+            String detail=combined?("Explicit Combined route · "+grounded.sources.size()+" Cortex source"+(grounded.sources.size()==1?"":"s")+(cloudFocal!=null?" · focal capture attached":"")+(phoneSent?" · recent phone context included":"")):"No Cortex memory is sent in External mode";
             AiJobStore.progress(db,job,combined?"Combining sources":"Using external AI","external",combined?52:36,detail);emit(progress,job,combined?"Combining sources":"Using external AI",combined?52:36);
 
             ExternalBrainProvider.Result x=ExternalBrainProvider.ask(ctx,question,grounded,combined,cloudFocal,phoneSent?phoneContext:"");long total=SystemClock.elapsedRealtime()-wall;
-            JSONObject out=new JSONObject().put("answer",x.text).put("provider",x.provider).put("model",x.model).put("source_mode",mode).put("source_count",grounded.sources.size()).put("private_found",privateFound).put("focal_item_id",focalItemId).put("focal_sent",cloudFocal!=null).put("phone_context_available",!phoneContext.isEmpty()).put("phone_context_sent",phoneSent).put("withheld_local_only",Math.max(0,privateFound-grounded.sources.size())).put("total_ms",total);
-            AiJobStore.modelRun(db,job,1,"primary","cloud",x.model,mode,"complete",Fingerprint.text(question+"|"+mode+"|"+focalItemId),x.durationMs,0,0,0.78,new JSONObject().put("provider",x.provider).put("source_count",grounded.sources.size()).put("focal_sent",cloudFocal!=null).put("phone_context_sent",phoneSent).put("withheld_local_only",Math.max(0,privateFound-grounded.sources.size())).toString(),"");
+            JSONObject out=new JSONObject().put("answer",x.text).put("provider",x.provider).put("model",x.model).put("source_mode",mode).put("source_count",grounded.sources.size()).put("private_found",privateFound).put("focal_item_id",focalItemId).put("focal_sent",cloudFocal!=null).put("phone_context_available",!phoneContext.isEmpty()).put("phone_context_sent",phoneSent).put("total_ms",total);
+            AiJobStore.modelRun(db,job,1,"primary","cloud",x.model,mode,"complete",Fingerprint.text(question+"|"+mode+"|"+focalItemId),x.durationMs,0,0,0.78,new JSONObject().put("provider",x.provider).put("source_count",grounded.sources.size()).put("focal_sent",cloudFocal!=null).put("phone_context_sent",phoneSent).toString(),"");
             AiJobStore.complete(db,job,out.toString(),"Answer ready",combined?detail:"External AI answer; no Cortex memory sent");emit(progress,job,"Answer ready",100);
             try{DiagnosticsLog.info(db,"BrainRouter","external_answer","ok",focalItemId,0,0,job,0,total,new JSONObject().put("provider",x.provider).put("model",x.model).put("mode",mode).put("focal_sent",cloudFocal!=null).put("phone_context_sent",phoneSent));}catch(Throwable ignored){}
             return new LocalAskRouter.Result(job,grounded,x.text,x.provider+(combined?"-combined":"-external"),"",mode,0,0,x.durationMs,total,retrieval,0,0,x.durationMs,false);
@@ -54,14 +46,9 @@ public final class BrainRouter {
             long total=SystemClock.elapsedRealtime()-wall;String err=t.getClass().getSimpleName()+(t.getMessage()==null?"":": "+t.getMessage());AiJobStore.fail(db,job,err,"External route unavailable");
             try{DiagnosticsLog.error(db,"BrainRouter","external_route",t,"EXTERNAL_MODEL",focalItemId,0,0,job,0,new JSONObject().put("mode",mode).put("provider",ExternalBrainProvider.activeProviderId(ctx)).put("model",ExternalBrainProvider.activeModel(ctx)));}catch(Throwable ignored){}
             if(combined){
-                try{
-                    emit(progress,job,"External unavailable · using your Cortex",72);LocalAskRouter.Result local=LocalAskRouter.fast(ctx,db,question,progress);String answer="External AI is unavailable right now, so Brain answered from your Cortex data only.\n\n"+local.answer;
-                    return new LocalAskRouter.Result(local.jobId,local.grounded,answer,"combined-local-fallback",err,"combined",local.tokensPerSecond,local.tokensGenerated,local.durationMs,SystemClock.elapsedRealtime()-wall,local.retrievalMs,local.promptBuildMs,local.modelLoadMs,local.generationMs,local.cacheHit);
-                }catch(Throwable fallbackError){err=err+" | local fallback: "+fallbackError.getClass().getSimpleName();}
+                try{emit(progress,job,"External unavailable · using your Cortex",72);LocalAskRouter.Result local=LocalAskRouter.fast(ctx,db,question,progress);String answer="External AI is unavailable right now, so Brain answered from your Cortex data only.\n\n"+local.answer;return new LocalAskRouter.Result(local.jobId,local.grounded,answer,"combined-local-fallback",err,"combined",local.tokensPerSecond,local.tokensGenerated,local.durationMs,SystemClock.elapsedRealtime()-wall,local.retrievalMs,local.promptBuildMs,local.modelLoadMs,local.generationMs,local.cacheHit);}catch(Throwable fallbackError){err=err+" | local fallback: "+fallbackError.getClass().getSimpleName();}
             }
-            emit(progress,job,"External route unavailable",100);
-            String answer=ExternalBrainProvider.configured(ctx)?"Brain couldn't reach the configured external AI right now. Your Cortex data was not changed.":"External AI isn't configured yet. Add an OpenRouter API key in Settings. Your Cortex data stays local unless you explicitly choose Combined mode.";
-            return new LocalAskRouter.Result(job,grounded,answer,"failed",err,mode,0,0,0,total,retrieval,0,0,0,false);
+            emit(progress,job,"External route unavailable",100);String answer=ExternalBrainProvider.configured(ctx)?"Brain couldn't reach the configured external AI right now. Your Cortex data was not changed.":"External AI isn't configured yet. Add an OpenRouter API key in Settings.";return new LocalAskRouter.Result(job,grounded,answer,"failed",err,mode,0,0,0,total,retrieval,0,0,0,false);
         }
     }
 
