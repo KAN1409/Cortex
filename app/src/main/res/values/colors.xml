@@ -1,7 +1,13 @@
 <resources>
-    <color name="cortex_bg">#101114</color>
-    <color name="cortex_panel">#181A1F</color>
-    <color name="cortex_text">#F3F4F6</color>
-    <color name="cortex_muted">#A5A8B0</color>
-    <color name="cortex_accent">#8FA9FF</color>
+    <color name="cortex_bg">#050609</color>
+    <color name="cortex_panel">#0D0F14</color>
+    <color name="cortex_panel_high">#14171E</color>
+    <color name="cortex_text">#F4F6FA</color>
+    <color name="cortex_muted">#A0A6B4</color>
+    <color name="cortex_faint">#676F7E</color>
+    <color name="cortex_accent">#7E9EFF</color>
+    <color name="cortex_violet">#B689FF</color>
+    <color name="cortex_amber">#F4B758</color>
+    <color name="cortex_sage">#82C49E</color>
+    <color name="cortex_signal">#FF524C</color>
 </resources>
