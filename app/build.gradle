@@ -45,6 +45,9 @@ dependencies {
     implementation 'com.google.mlkit:text-recognition:16.0.1'
     implementation 'cz.adaptech.tesseract4android:tesseract4android:4.9.0'
     implementation 'androidx.work:work-runtime:2.11.2'
+    // WorkManager's public Java surface extends ListenableFuture. Health Connect alpha10 changes
+    // dependency resolution enough that this tiny compile API is no longer present transitively.
+    implementation 'com.google.guava:listenablefuture:1.0'
     implementation 'androidx.documentfile:documentfile:1.1.0'
     // Compatibility pin for the current Cortex Android toolchain (compileSdk 35 / AGP 8.7.3).
     // Stable Health Connect 1.1.0 now requires compileSdk 36 and AGP 8.9.1+.
