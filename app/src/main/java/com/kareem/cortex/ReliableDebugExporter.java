@@ -50,7 +50,7 @@ public final class ReliableDebugExporter {
         root.put("local_model",safe(()->LocalLlmRuntime.state(c).state+" · "+LocalLlmRuntime.state(c).error));
         root.put("db_file_bytes",c.getDatabasePath("cortex.db").exists()?c.getDatabasePath("cortex.db").length():0);
         if(db!=null){
-            try{root.put("capability_matrix",CortexCapabilityRegistry.snapshot(c,db).toJson());}catch(Throwable e){root.put("capability_matrix_error",error(e));}
+            try{root.put("capability_matrix",capabilities(c,db));}catch(Throwable e){root.put("capability_matrix_error",error(e));}
             try{CortexAuditStore.Run r=CortexAuditStore.latest(db);if(r!=null)root.put("latest_audit","#"+r.id+" · "+r.status+" · "+r.progress()+"%");}catch(Throwable e){root.put("audit_error",error(e));}
         }
         File dir=new File(c.getFilesDir(),"debug_exports");if(!dir.exists()&&!dir.mkdirs())throw new IOException("Could not create debug export directory");
@@ -59,6 +59,7 @@ public final class ReliableDebugExporter {
         return out;
     }
 
+    private static JSONArray capabilities(Context c,VaultDb db){JSONArray a=new JSONArray();for(CortexCapabilityRegistry.Capability cap:CortexCapabilityRegistry.all()){try{CortexCapabilityRegistry.State s=CortexCapabilityRegistry.evaluate(c,db,cap);JSONObject o=new JSONObject();o.put("number",cap.number);o.put("key",cap.key);o.put("title",cap.title);o.put("status",s.status);o.put("detail",s.detail);a.put(o);}catch(Throwable e){try{a.put(new JSONObject().put("number",cap.number).put("key",cap.key).put("error",error(e)));}catch(Exception ignored){}}}return a;}
     private static JSONArray access(Context c){JSONArray a=new JSONArray();try{for(AccessGateRegistry.Gate g:AccessGateRegistry.snapshot(c)){JSONObject o=new JSONObject();o.put("key",g.key);o.put("title",g.title);o.put("active",g.active);o.put("recommended",g.recommended);o.put("status",g.status);a.put(o);}}catch(Throwable e){try{a.put(new JSONObject().put("error",error(e)));}catch(Exception ignored){}}return a;}
 
     private static String saveDownloadCopy(Context c,File f){
