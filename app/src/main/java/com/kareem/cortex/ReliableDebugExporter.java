@@ -17,13 +17,22 @@ import java.util.*;
 
 /** Reliable shell around the exhaustive exporter: debug evidence must still leave the app when one diagnostic section fails. */
 public final class ReliableDebugExporter {
+    private static final long MAX_DB_FOR_EXHAUSTIVE=16L*1024L*1024L;
+    private static final long MIN_HEAP_HEADROOM_FOR_EXHAUSTIVE=192L*1024L*1024L;
     private ReliableDebugExporter(){}
 
     public static void exportAndShare(Activity a,VaultDb db){
         android.widget.Toast.makeText(a,"Building Cortex debug package…",android.widget.Toast.LENGTH_SHORT).show();
         new Thread(()->{
             File file=null;Throwable fullFailure=null;
-            try{file=DebugExporter.build(a,db);}catch(Throwable e){fullFailure=e;try{file=buildRecovery(a,db,e);}catch(Throwable recovery){fullFailure=recovery;}}
+            try{
+                String risk=exhaustiveRisk(a);
+                if(!risk.isEmpty())throw new FullExportSkipped(risk);
+                file=DebugExporter.build(a,db);
+            }catch(Throwable e){
+                fullFailure=e;
+                try{file=buildRecovery(a,db,e);}catch(Throwable recovery){fullFailure=recovery;}
+            }
             final File f=file;final Throwable err=fullFailure;
             if(f==null){a.runOnUiThread(()->android.widget.Toast.makeText(a,"Debug export failed: "+safeMessage(err),android.widget.Toast.LENGTH_LONG).show());return;}
             final String saved=saveDownloadCopy(a,f);
@@ -35,12 +44,24 @@ public final class ReliableDebugExporter {
         },"CortexReliableDebugExport").start();
     }
 
+    private static String exhaustiveRisk(Context c){
+        try{
+            File db=c.getDatabasePath("cortex.db");long dbBytes=db.exists()?db.length():0;
+            Runtime rt=Runtime.getRuntime();long used=rt.totalMemory()-rt.freeMemory();long headroom=Math.max(0,rt.maxMemory()-used);
+            if(dbBytes>MAX_DB_FOR_EXHAUSTIVE)return"Database is "+dbBytes+" bytes; exhaustive in-memory JSON is skipped to protect the app heap";
+            if(headroom<MIN_HEAP_HEADROOM_FOR_EXHAUSTIVE)return"Only "+headroom+" bytes of Java heap headroom remain; exhaustive export is skipped to avoid OutOfMemoryError";
+        }catch(Throwable ignored){}
+        return"";
+    }
+
     private static File buildRecovery(Context c,VaultDb db,Throwable cause)throws Exception{
         JSONObject root=new JSONObject();
-        root.put("schema_version",4);
+        root.put("schema_version",5);
         root.put("recovery_export",true);
         root.put("generated_at",System.currentTimeMillis());
+        root.put("full_export_skipped",cause instanceof FullExportSkipped);
         root.put("full_export_failure",error(cause));
+        root.put("memory_preflight",memoryPreflight(c));
         root.put("package",c.getPackageName());
         root.put("android_sdk",Build.VERSION.SDK_INT);
         root.put("device",Build.MANUFACTURER+" "+Build.MODEL);
@@ -55,8 +76,15 @@ public final class ReliableDebugExporter {
         }
         File dir=new File(c.getFilesDir(),"debug_exports");if(!dir.exists()&&!dir.mkdirs())throw new IOException("Could not create debug export directory");
         File out=new File(dir,"CortexDebug_RECOVERY_"+stamp()+".json");
-        try(Writer w=new OutputStreamWriter(new FileOutputStream(out),StandardCharsets.UTF_8)){w.write(root.toString(2));}
+        try(Writer w=new BufferedWriter(new OutputStreamWriter(new FileOutputStream(out),StandardCharsets.UTF_8),16384)){w.write(root.toString(2));}
         return out;
+    }
+
+    private static JSONObject memoryPreflight(Context c)throws Exception{
+        Runtime rt=Runtime.getRuntime();long used=rt.totalMemory()-rt.freeMemory();JSONObject o=new JSONObject();
+        o.put("db_file_bytes",c.getDatabasePath("cortex.db").exists()?c.getDatabasePath("cortex.db").length():0);
+        o.put("heap_max_bytes",rt.maxMemory());o.put("heap_used_bytes",used);o.put("heap_headroom_bytes",Math.max(0,rt.maxMemory()-used));
+        o.put("exhaustive_db_limit_bytes",MAX_DB_FOR_EXHAUSTIVE);o.put("exhaustive_min_headroom_bytes",MIN_HEAP_HEADROOM_FOR_EXHAUSTIVE);return o;
     }
 
     private static JSONArray capabilities(Context c,VaultDb db){JSONArray a=new JSONArray();for(CortexCapabilityRegistry.Capability cap:CortexCapabilityRegistry.all()){try{CortexCapabilityRegistry.State s=CortexCapabilityRegistry.evaluate(c,db,cap);JSONObject o=new JSONObject();o.put("number",cap.number);o.put("key",cap.key);o.put("title",cap.title);o.put("status",s.status);o.put("detail",s.detail);a.put(o);}catch(Throwable e){try{a.put(new JSONObject().put("number",cap.number).put("key",cap.key).put("error",error(e)));}catch(Exception ignored){}}}return a;}
@@ -83,6 +111,7 @@ public final class ReliableDebugExporter {
     }
 
     private interface UnsafeString{String get()throws Exception;}
+    private static final class FullExportSkipped extends IOException{FullExportSkipped(String message){super(message);}}
     private static String safe(UnsafeString x){try{return String.valueOf(x.get());}catch(Throwable e){return"ERROR: "+error(e);}}
     private static String error(Throwable e){if(e==null)return"unknown";String m=e.getMessage();return e.getClass().getSimpleName()+(m==null||m.trim().isEmpty()?"":": "+m);}
     private static String safeMessage(Throwable e){return e==null?"unknown error":error(e);}
