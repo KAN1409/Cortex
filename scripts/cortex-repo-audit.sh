@@ -43,7 +43,8 @@ for f in \
   app/src/main/java/com/kareem/cortex/ProposalCaptureResultActivity.java \
   app/src/main/java/com/kareem/cortex/ProposalBriefActivity.java \
   app/src/main/java/com/kareem/cortex/ProposalPeopleProjectsActivity.java \
-  app/src/main/java/com/kareem/cortex/ProposalAskCortexActivity.java; do require_file "$f"; done
+  app/src/main/java/com/kareem/cortex/ProposalAskCortexActivity.java \
+  app/src/main/java/com/kareem/cortex/CortexGlyphView.java; do require_file "$f"; done
 
 require_text app/src/main/java/com/kareem/cortex/ResultProposalEngine.java 'ExternalBrainProvider\.ask' 'proposal engine can use configured external reasoning model'
 require_text app/src/main/java/com/kareem/cortex/ResultProposalEngine.java 'LocalLlmBridge\.completeCached' 'proposal engine has local/private model fallback'
@@ -86,27 +87,32 @@ require_text app/src/main/java/com/kareem/cortex/CortexActionDispatcher.java 'CA
 require_text app/src/main/java/com/kareem/cortex/CortexActionExecutor.java 'Calendar app owns the final write' 'external calendar mutation remains user-confirmed draft'
 require_text app/src/main/java/com/kareem/cortex/BrainRouter.java 'CloudEvidencePolicy\.filter' 'Combined Brain still filters cloud evidence locally'
 
-# Final visual language: warm multicolor semantics + tactile velvet depth, no single blue primary.
-require_text "$UI" 'ORANGE = Color\.rgb\(255,138,52\)' 'warm orange interaction color is centralized'
-require_text "$UI" 'YELLOW = Color\.rgb\(246,201,69\)' 'warm yellow attention color is centralized'
-require_text "$UI" 'GREEN = Color\.rgb\(105,211,145\)' 'green success/people color is centralized'
-require_text "$UI" 'RED = Color\.rgb\(255,85,77\)' 'red Brain/recording signal is centralized'
-require_text "$UI" 'public static GradientDrawable velvet' 'velvet surface gradient is centralized'
+# Locked approved preview: matte graphite + red/orange/yellow/green, no purple/blue drift.
+require_text "$UI" 'RED = Color\.rgb\(255,72,62\)' 'approved red signal is centralized'
+require_text "$UI" 'ORANGE = Color\.rgb\(255,146,42\)' 'approved orange interaction color is centralized'
+require_text "$UI" 'YELLOW = Color\.rgb\(241,188,52\)' 'approved yellow decision/attention color is centralized'
+require_text "$UI" 'GREEN = Color\.rgb\(105,194,82\)' 'approved green useful/confirmed color is centralized'
+require_text "$UI" 'VIOLET = YELLOW' 'legacy violet semantic cannot render purple'
+require_text "$UI" 'public static GradientDrawable matte' 'matte surface helper is centralized'
+require_text "$UI" 'public static GradientDrawable velvet' 'low-reflection depth helper is centralized'
 require_text "$UI" 'public static <T extends View> T raised' 'raised elevation helper is centralized'
-require_text "$UI" 'navColor\(' 'bottom navigation uses per-tab semantic colors'
-require_text app/src/main/java/com/kareem/cortex/ProposalBriefActivity.java 'CortexUi\.addBottomNav' 'Brief uses shared raised multicolor navigation'
-require_text app/src/main/java/com/kareem/cortex/ProposalBriefActivity.java 'return CortexUi\.card' 'Brief cards use shared velvet raised surfaces'
+require_text app/src/main/java/com/kareem/cortex/CortexGlyphView.java 'monoline white glyph' 'custom raised monoline icon language is present'
+require_text app/src/main/java/com/kareem/cortex/ProposalBriefActivity.java 'CortexUi\.glyph' 'Brief uses shared custom icon plates'
+require_text app/src/main/java/com/kareem/cortex/InputActivity.java 'CortexUi\.glyph' 'Input uses shared custom icon plates'
+require_text app/src/main/java/com/kareem/cortex/ProposalPeopleProjectsActivity.java 'CortexUi\.glyph' 'People/Projects uses shared custom icon plates'
+require_text app/src/main/java/com/kareem/cortex/ProposalAskCortexActivity.java 'CortexUi\.glyph' 'Brain uses shared custom icon plates'
+require_text app/src/main/java/com/kareem/cortex/ProposalCaptureResultActivity.java 'CortexUi\.glyph' 'Capture result uses shared custom icon plates'
 require_text app/src/main/java/com/kareem/cortex/SatinCaptureActivity.java 'setAccent\(CortexUi\.SIGNAL\)' 'recording STOP ring uses red signal color'
-require_text app/src/main/java/com/kareem/cortex/CortexScrubberView.java 'CortexUi\.ORANGE' 'playback scrubber uses warm orange interaction color'
+require_text app/src/main/java/com/kareem/cortex/CortexScrubberView.java 'CortexUi\.RED' 'waveform playback uses approved red signal family'
+require_text app/src/main/java/com/kareem/cortex/CortexScrubberView.java 'Color\.rgb\(244,243,239\)' 'waveform playhead resolves toward neutral white, not purple'
+
+if git grep -nEi '126,158,255|182,137,255|178,103,255|#7E9EFF|#B689FF|#B267FF' -- 'app/src/main/**' >/dev/null 2>&1; then bad "legacy blue/purple visual token detected in final app sources"; else ok "no legacy blue/purple visual token in final app sources"; fi
 
 placeholder_hits="$(git grep -nEi '\b(TODO|FIXME|temporary stub|placeholder implementation)\b' -- '*.java' '*.kt' '*.xml' '*.gradle' '*.sh' 2>/dev/null | wc -l | tr -d ' ' || true)"
 [ "$placeholder_hits" = "0" ] || warn "$placeholder_hits TODO/FIXME/placeholder source hit(s) require human context review"
 
 printf '%s\n' '-----------------------------------------------------'
 printf 'Files scanned: %s  Warnings: %s  Failures: %s\n' "$SCANNED" "$WARN" "$FAIL"
-if [ "$FAIL" -ne 0 ]; then
-  printf 'CORTEX_REPO_AUDIT=FAIL\n' >&2
-  exit 2
-fi
+if [ "$FAIL" -ne 0 ]; then printf 'CORTEX_REPO_AUDIT=FAIL\n' >&2;exit 2;fi
 printf 'CORTEX_REPO_AUDIT=PASS\n'
 printf '%s\n\n' '====================================================='
