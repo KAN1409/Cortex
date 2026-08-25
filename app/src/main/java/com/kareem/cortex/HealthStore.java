@@ -3,11 +3,17 @@ package com.kareem.cortex;
 import android.content.ContentValues;
 import android.database.Cursor;
 import android.database.sqlite.SQLiteDatabase;
-import java.util.Locale;
+import org.json.JSONObject;
+import java.util.*;
 
 /** Evidence-first health persistence. Metrics and imported artifacts retain source provenance. */
 public final class HealthStore {
     private HealthStore(){}
+
+    public static final class SourceState {
+        public final String key,status,metadata;public final long lastSyncAt;
+        SourceState(String key,String status,long lastSyncAt,String metadata){this.key=n(key);this.status=n(status);this.lastSyncAt=lastSyncAt;this.metadata=n(metadata);}
+    }
 
     public static void ensure(VaultDb db){HealthSchema.ensure(db.getWritableDatabase());}
 
@@ -22,7 +28,7 @@ public final class HealthStore {
     public static long addMetric(VaultDb db,String sourceKey,String metric,double value,String unit,long startAt,long endAt,String externalId,String metadata){
         ensure(db);String sk=blank(sourceKey)?"health_connect":sourceKey;String ext=externalId==null?"":externalId;String fp=Fingerprint.text("health_metric|"+sk+"|"+metric+"|"+startAt+"|"+endAt+"|"+ext+"|"+value+"|"+unit);
         ContentValues v=new ContentValues();v.put("source_key",sk);v.put("metric_type",metric);v.put("value_real",value);v.put("unit",unit==null?"":unit);v.put("start_at",startAt);v.put("end_at",endAt);v.put("external_id",ext);v.put("metadata_json",metadata==null?"{}":metadata);v.put("fingerprint",fp);v.put("created_at",System.currentTimeMillis());
-        long id=db.getWritableDatabase().insertWithOnConflict("health_metrics",null,v,SQLiteDatabase.CONFLICT_IGNORE);return id;
+        return db.getWritableDatabase().insertWithOnConflict("health_metrics",null,v,SQLiteDatabase.CONFLICT_IGNORE);
     }
 
     public static long linkKnowledgeEvidence(VaultDb db,long knowledgeItemId,String evidenceKind,String sourceKey){
@@ -36,15 +42,31 @@ public final class HealthStore {
     }
 
     public static void markSource(VaultDb db,String sourceKey,String status,long lastSyncAt,String metadata){
-        ensure(db);ContentValues v=new ContentValues();v.put("status",status==null?"unknown":status);if(lastSyncAt>0)v.put("last_sync_at",lastSyncAt);if(metadata!=null)v.put("metadata_json",metadata);v.put("updated_at",System.currentTimeMillis());db.getWritableDatabase().update("health_sources",v,"source_key=?",new String[]{sourceKey});
+        ensure(db);ensureSourceRow(db,sourceKey);ContentValues v=new ContentValues();v.put("status",blank(status)?"unknown":status);if(lastSyncAt>0)v.put("last_sync_at",lastSyncAt);if(metadata!=null)v.put("metadata_json",metadata);v.put("updated_at",System.currentTimeMillis());db.getWritableDatabase().update("health_sources",v,"source_key=?",new String[]{sourceKey});
     }
+
+    public static SourceState sourceState(VaultDb db,String sourceKey){ensure(db);Cursor c=db.getReadableDatabase().rawQuery("SELECT source_key,status,last_sync_at,COALESCE(metadata_json,'{}') FROM health_sources WHERE source_key=? LIMIT 1",new String[]{sourceKey});SourceState s=c.moveToFirst()?new SourceState(c.getString(0),c.getString(1),c.getLong(2),c.getString(3)):null;c.close();return s;}
 
     public static long beginSync(VaultDb db,String sourceKey){
-        ensure(db);ContentValues v=new ContentValues();v.put("source_key",sourceKey);v.put("state","running");v.put("started_at",System.currentTimeMillis());v.put("metadata_json","{}");return db.getWritableDatabase().insert("health_sync_runs",null,v);
+        ensure(db);markSource(db,sourceKey,"syncing",0,null);ContentValues v=new ContentValues();v.put("source_key",sourceKey);v.put("state","running");v.put("started_at",System.currentTimeMillis());v.put("metadata_json","{}");return db.getWritableDatabase().insert("health_sync_runs",null,v);
     }
 
+    /** Legacy caller retained. New Health Connect path uses finishSyncDetailed. */
     public static void finishSync(VaultDb db,long runId,String sourceKey,int seen,int added,String error){
-        ensure(db);ContentValues v=new ContentValues();v.put("state",blank(error)?"success":"failed");v.put("records_seen",seen);v.put("records_added",added);v.put("error",error==null?"":error);v.put("finished_at",System.currentTimeMillis());db.getWritableDatabase().update("health_sync_runs",v,"id=?",new String[]{String.valueOf(runId)});if(blank(error))markSource(db,sourceKey,"active",System.currentTimeMillis(),null);else markSource(db,sourceKey,"error",0,"{\"error\":\""+safe(error)+"\"}");
+        HealthSyncResult r=blank(error)?HealthSyncResult.ok(seen,added,null,null):HealthSyncResult.fail(seen,added,HealthSyncResult.ERROR,"legacy_error",error,"Review the source and retry explicitly.",null,null);finishSyncDetailed(db,runId,sourceKey,r);
+    }
+
+    public static void finishSyncDetailed(VaultDb db,long runId,String gatewaySource,HealthSyncResult result){
+        ensure(db);if(result==null)return;long now=System.currentTimeMillis();String state=result.success()?"success":"failed";
+        JSONObject meta=new JSONObject();try{meta.put("result_state",result.state);meta.put("failure_kind",result.failureKind);meta.put("next_action",result.nextAction);JSONObject seen=new JSONObject(),added=new JSONObject();for(Map.Entry<String,Integer> e:result.sourceSeen.entrySet())seen.put(e.getKey(),e.getValue());for(Map.Entry<String,Integer> e:result.sourceAdded.entrySet())added.put(e.getKey(),e.getValue());meta.put("source_seen",seen);meta.put("source_added",added);}catch(Throwable ignored){}
+        ContentValues v=new ContentValues();v.put("state",state);v.put("records_seen",result.seen);v.put("records_added",result.added);v.put("error",result.error);v.put("finished_at",now);v.put("metadata_json",meta.toString());if(runId>0)db.getWritableDatabase().update("health_sync_runs",v,"id=?",new String[]{String.valueOf(runId)});
+
+        String gatewayStatus=result.success()?"active":sourceStatus(result.state);markSource(db,gatewaySource,gatewayStatus,result.success()?now:0,meta.toString());
+        if(result.success())for(Map.Entry<String,Integer> e:result.sourceSeen.entrySet()){
+            String key=e.getKey();if(blank(key)||gatewaySource.equals(key)||e.getValue()==null||e.getValue()<=0)continue;
+            JSONObject sm=new JSONObject();try{sm.put("route","health_connect");sm.put("records_seen",e.getValue());sm.put("records_added",result.sourceAdded.containsKey(key)?result.sourceAdded.get(key):0);sm.put("observed_via","health_connect");}catch(Throwable ignored){}
+            markSource(db,key,"active_via_health_connect",now,sm.toString());
+        }
     }
 
     public static Summary summary(VaultDb db){
@@ -55,8 +77,11 @@ public final class HealthStore {
         ensure(db);StringBuilder out=new StringBuilder();Cursor c=db.getReadableDatabase().rawQuery("SELECT metric_type,value_real,unit,end_at,source_key FROM health_metrics ORDER BY end_at DESC LIMIT ?",new String[]{String.valueOf(Math.max(1,limit))});while(c.moveToNext()){if(out.length()>0)out.append('\n');out.append(c.getString(0)).append(" · ").append(trimNumber(c.getDouble(1))).append(' ').append(c.getString(2)==null?"":c.getString(2)).append(" · ").append(c.getString(4));}c.close();return out.toString();
     }
 
+    private static void ensureSourceRow(VaultDb db,String sourceKey){if(blank(sourceKey))return;Cursor c=db.getReadableDatabase().rawQuery("SELECT 1 FROM health_sources WHERE source_key=? LIMIT 1",new String[]{sourceKey});boolean exists=c.moveToFirst();c.close();if(exists)return;long now=System.currentTimeMillis();ContentValues v=new ContentValues();v.put("source_key",sourceKey);v.put("kind","ORIGIN");v.put("display_name",sourceKey.startsWith("health_connect:")?sourceKey.substring("health_connect:".length()):sourceKey);v.put("package_name",sourceKey.startsWith("health_connect:")?sourceKey.substring("health_connect:".length()):"");v.put("status","observed");v.put("last_sync_at",0);v.put("metadata_json","{\"route\":\"health_connect\"}");v.put("updated_at",now);db.getWritableDatabase().insertWithOnConflict("health_sources",null,v,SQLiteDatabase.CONFLICT_IGNORE);}
+    private static String sourceStatus(String resultState){if(HealthSyncResult.NEEDS_ACCESS.equals(resultState))return"needs_access";if(HealthSyncResult.UPDATE_REQUIRED.equals(resultState))return"update_required";if(HealthSyncResult.UNAVAILABLE.equals(resultState))return"unavailable";return"error";}
     public static final class Summary{public long metricCount,evidenceCount,openFollowups,lastMetricAt,lastEvidenceAt;}
     private static boolean blank(String s){return s==null||s.trim().isEmpty();}
     private static String safe(String s){return s==null?"":s.replace("\\","\\\\").replace("\"","\\\"").replace("\n"," ");}
+    private static String n(String s){return s==null?"":s.trim();}
     private static String trimNumber(double x){if(Math.rint(x)==x)return String.valueOf((long)x);return String.format(Locale.US,"%.2f",x);}
 }
