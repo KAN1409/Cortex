@@ -22,7 +22,9 @@ public final class CortexRobotFixtures {
         try(VaultDb db=new VaultDb(c)){
             CognitiveStore.ensure(db);HealthStore.ensure(db);PromptLibraryStore.ensure(db);ScreenshotLearning.ensure(db);VisualInsightStore.ensure(db);
             long text=memory(db,"TEXT","robot_fixture","Meeting follow-up","اتفقنا نراجع العرض يوم الخميس الساعة 3 مساء ونبعت النسخة النهائية قبل الاجتماع.","اتفقنا نراجع العرض يوم الخميس الساعة 3 مساء ونبعت النسخة النهائية قبل الاجتماع.","Work","meeting,followup");
-            long voice=memory(db,"VOICE","robot_fixture","Voice note — mixed Arabic/English","Finally now هنجرب Cortex transcription with English وعربي مع بعض.","Finally now هنجرب Cortex transcription with English وعربي مع بعض.","Voice","voice,transcription");
+            // Production voice capture is stored as AUDIO. Keep the synthetic fixture on the same
+            // contract so the Vault Voice filter tests the app instead of a test-only type mismatch.
+            long voice=memory(db,"AUDIO","robot_fixture","Voice note — mixed Arabic/English","Finally now هنجرب Cortex transcription with English وعربي مع بعض.","Finally now هنجرب Cortex transcription with English وعربي مع بعض.","Voice","voice,transcription");
             File img=createImage(c);long image=memory(db,"IMAGE","robot_fixture","Prescription image","Dexamethasone phosphate 8mg/2ml injection","Dexamethasone phosphate 8mg/2ml injection","Health","image,medical");
             ContentValues attach=new ContentValues();attach.put("attachment_path",img.getAbsolutePath());db.getWritableDatabase().update("knowledge_items",attach,"id=?",new String[]{String.valueOf(image)});
 
