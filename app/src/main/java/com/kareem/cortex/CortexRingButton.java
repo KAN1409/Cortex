@@ -8,7 +8,7 @@ import android.view.View;
 
 /** Satin circular control whose red arc is semantic progress, never a fake spinner. */
 public final class CortexRingButton extends View {
-    public enum Glyph { PLAY, PAUSE, RECORD, PREVIOUS, NEXT }
+    public enum Glyph { PLAY, PAUSE, RECORD, STOP, PREVIOUS, NEXT }
 
     private final Paint fill=new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint border=new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -49,6 +49,7 @@ public final class CortexRingButton extends View {
     private void drawGlyph(Canvas c,float cx,float cy,float s){Path p=new Path();switch(glyph){
         case PLAY:{icon.setStyle(Paint.Style.FILL);p.moveTo(cx-s*.18f,cy-s*.28f);p.lineTo(cx+s*.27f,cy);p.lineTo(cx-s*.18f,cy+s*.28f);p.close();c.drawPath(p,icon);icon.setStyle(Paint.Style.STROKE);break;}
         case PAUSE:{icon.setStrokeWidth(4*density);c.drawLine(cx-s*.13f,cy-s*.27f,cx-s*.13f,cy+s*.27f,icon);c.drawLine(cx+s*.13f,cy-s*.27f,cx+s*.13f,cy+s*.27f,icon);icon.setStrokeWidth(2.4f*density);break;}
+        case STOP:{icon.setStyle(Paint.Style.FILL);float q=s*.24f;RectF stop=new RectF(cx-q,cy-q,cx+q,cy+q);c.drawRoundRect(stop,s*.07f,s*.07f,icon);icon.setStyle(Paint.Style.STROKE);break;}
         case PREVIOUS:{c.drawLine(cx-s*.23f,cy-s*.25f,cx-s*.23f,cy+s*.25f,icon);p.moveTo(cx+s*.20f,cy-s*.28f);p.lineTo(cx-s*.12f,cy);p.lineTo(cx+s*.20f,cy+s*.28f);c.drawPath(p,icon);break;}
         case NEXT:{c.drawLine(cx+s*.23f,cy-s*.25f,cx+s*.23f,cy+s*.25f,icon);p.moveTo(cx-s*.20f,cy-s*.28f);p.lineTo(cx+s*.12f,cy);p.lineTo(cx-s*.20f,cy+s*.28f);c.drawPath(p,icon);break;}
         case RECORD:{float bodyW=s*.22f,bodyH=s*.38f;RectF mic=new RectF(cx-bodyW,cy-bodyH,cx+bodyW,cy+s*.08f);c.drawRoundRect(mic,bodyW,bodyW,icon);p.moveTo(cx-s*.36f,cy);p.cubicTo(cx-s*.34f,cy+s*.32f,cx+s*.34f,cy+s*.32f,cx+s*.36f,cy);c.drawPath(p,icon);c.drawLine(cx,cy+s*.31f,cx,cy+s*.48f,icon);c.drawLine(cx-s*.18f,cy+s*.48f,cx+s*.18f,cy+s*.48f,icon);break;}
