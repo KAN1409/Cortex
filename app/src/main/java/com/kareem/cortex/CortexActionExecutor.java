@@ -15,7 +15,7 @@ public final class CortexActionExecutor {
     private CortexActionExecutor(){}
 
     public static boolean searchWeb(Activity a,String query){try{String q=URLEncoder.encode(safe(query),"UTF-8");a.startActivity(new Intent(Intent.ACTION_VIEW,Uri.parse("https://www.google.com/search?q="+q)));return true;}catch(Throwable e){toast(a,"Could not open web search");return false;}}
-    public static boolean openBrain(Activity a,long itemId,String prompt){try{Intent i=new Intent(a,AskCortexActivity.class);if(itemId>0)i.putExtra("item_id",itemId);i.putExtra("prefill",safe(prompt));a.startActivity(i);return true;}catch(Throwable e){toast(a,"Could not open Brain");return false;}}
+    public static boolean openBrain(Activity a,long itemId,String prompt){try{Intent i=new Intent(a,ProposalAskCortexActivity.class);if(itemId>0)i.putExtra("item_id",itemId);i.putExtra("prefill",safe(prompt));a.startActivity(i);return true;}catch(Throwable e){toast(a,"Could not open Brain");return false;}}
 
     /** Calendar app owns the final write. Cortex only prepares the draft and the user confirms it. */
     public static boolean calendarDraft(Activity a,String title,String description,long suggestedStartMs){try{Intent i=new Intent(Intent.ACTION_INSERT);i.setData(CalendarContract.Events.CONTENT_URI);i.putExtra(CalendarContract.Events.TITLE,safe(title));i.putExtra(CalendarContract.Events.DESCRIPTION,safe(description));if(suggestedStartMs>0)i.putExtra(CalendarContract.EXTRA_EVENT_BEGIN_TIME,suggestedStartMs);a.startActivity(i);return true;}catch(Throwable e){toast(a,"No calendar app could open this draft");return false;}}
