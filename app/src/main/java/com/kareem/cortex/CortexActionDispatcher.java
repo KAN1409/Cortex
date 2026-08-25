@@ -33,7 +33,13 @@ public final class CortexActionDispatcher {
 
     private static void executeApproved(Activity a,VaultDb db,BrainActionStore.Action x){
         try{
-            if(CortexExperimentalTestMode.active(a)){toast(a,"Experimental robot test intercepted this action safely");return;}
+            // Experimental journeys run against cortex_robot_test.db. Local Cortex mutations are safe
+            // and must execute so the suite can verify real persistence. External/device mutations stay blocked.
+            if(CortexExperimentalTestMode.active(a)){
+                if(localType(x.type)){createLocal(db,x);toast(a,"Experimental test: added to sandbox Cortex");}
+                else toast(a,"Experimental test intercepted external action safely");
+                return;
+            }
             if(localType(x.type)){createLocal(db,x);toast(a,"Added to Cortex");return;}
             if("CALENDAR_EVENT".equals(x.type)||"REMINDER".equals(x.type)){
                 long when=parseWhen(x.payload,"CALENDAR_EVENT".equals(x.type)?"start_time":"trigger_time");
