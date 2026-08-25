@@ -7,6 +7,7 @@ APK_OUT="/sdcard/Download/Cortex-v50-debug.apk"
 BUILD_LOG="$REPO_DIR/termux-build-last.log"
 BUILD_LOG_OUT="/sdcard/Download/Cortex-build-last.log"
 CLEAN_BUILD="${CORTEX_CLEAN_BUILD:-0}"
+AUTO_INSTALL="${CORTEX_AUTO_INSTALL:-0}"
 AUTO_STASH_NAME="cortex-prebuild-$(date +%Y%m%d-%H%M%S)"
 AUTO_STASHED=0
 
@@ -28,11 +29,13 @@ if [ ! -d "$REPO_DIR/.git" ]; then
   else fail "Cortex repo not found. Set CORTEX_REPO_DIR or clone it to $HOME/Cortex first."; fi
 fi
 cd "$REPO_DIR"
-log "Updating Cortex source"
-git fetch origin main
+CURRENT_REF="$(git branch --show-current 2>/dev/null || true)"
+TARGET_REF="${CORTEX_BUILD_REF:-${CURRENT_REF:-main}}"
+[ -n "$TARGET_REF" ] || TARGET_REF=main
+log "Updating Cortex source: $TARGET_REF"
+git fetch origin "$TARGET_REF"
 
-# A previous emergency/local edit must never block the canonical build gate.
-# Preserve tracked edits in a stash instead of deleting them, then build exact origin/main.
+# Preserve local tracked edits instead of deleting them, then build exact origin/<target>.
 if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
   log "Preserving local tracked edits before sync"
   git stash push -m "$AUTO_STASH_NAME" >/dev/null
@@ -40,8 +43,8 @@ if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
   printf 'Saved local edits as git stash: %s\n' "$AUTO_STASH_NAME"
 fi
 
-git checkout main
-git pull --ff-only origin main
+git checkout "$TARGET_REF"
+git pull --ff-only origin "$TARGET_REF"
 
 if [ -z "${ANDROID_HOME:-}" ]; then for d in "$HOME/android-sdk" "$PREFIX/share/android-sdk" "$HOME/Android/Sdk"; do if [ -d "$d" ]; then export ANDROID_HOME="$d"; break; fi; done; fi
 [ -n "${ANDROID_HOME:-}" ] || fail "ANDROID_HOME is not set and Android SDK was not found."
@@ -59,7 +62,7 @@ if [ "$CLEAN_BUILD" = "1" ]; then
   log "Removing previous build outputs for a clean rebuild"
   rm -rf "$REPO_DIR/app/build" "$REPO_DIR/build"
 fi
-log "Building Cortex v50${CLEAN_BUILD:+ (clean mode available)}"
+log "Building Cortex v50 from $TARGET_REF"
 rm -f "$BUILD_LOG"
 set +e
 if [ -x ./gradlew ]; then
@@ -87,5 +90,15 @@ cp -f "$APK_SRC" "$APK_OUT"
 sha256sum "$APK_OUT" | tee "$APK_OUT.sha256"
 log "Build complete"
 printf 'APK: %s\n' "$APK_OUT"
-printf 'Install over the existing Cortex build to preserve app data.\n'
+
+if [ "$AUTO_INSTALL" = "1" ]; then
+  if command -v rish >/dev/null 2>&1; then
+    log "Installing APK through Shizuku/rish"
+    rish -c "cp '$APK_OUT' /data/local/tmp/Cortex-v50-debug.apk && chmod 644 /data/local/tmp/Cortex-v50-debug.apk && pm install -r /data/local/tmp/Cortex-v50-debug.apk"
+  else
+    printf 'CORTEX_AUTO_INSTALL=1 requested, but rish is not available. APK is ready in Downloads.\n' >&2
+  fi
+else
+  printf 'Install over the existing Cortex build to preserve app data.\n'
+fi
 if [ "$AUTO_STASHED" = "1" ]; then printf 'Local pre-build edits were preserved in git stash: %s\n' "$AUTO_STASH_NAME"; fi
