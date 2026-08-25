@@ -18,35 +18,46 @@ public final class BrainRouter {
 
     private static LocalAskRouter.Result cloud(Context ctx,VaultDb db,String question,String mode,long focalItemId,LocalAskRouter.Progress progress){
         long wall=SystemClock.elapsedRealtime();long job=createJob(db,question,mode,focalItemId);boolean combined="combined".equals(mode);
-        GroundedAnswer grounded=emptyGrounding(question);long retrieval=0;int privateFound=0;KnowledgeItem focal=null,cloudFocal=null;String phoneContext="";boolean phoneAvailable=false,phoneSent=false;
+        GroundedAnswer grounded=emptyGrounding(question);long retrieval=0;int privateFound=0;KnowledgeItem focal=null,cloudFocal=null;String phoneContext="";boolean phoneAvailable=false,phoneSent=false;boolean fastFocal=false;
         try{
             if(focalItemId>0)try{focal=db.getById(focalItemId);}catch(Throwable ignored){}
+            if(combined&&focal!=null&&CloudEvidencePolicy.canSend(ctx,focal)&&!needsBroadContext(question)){
+                cloudFocal=focal;fastFocal=true;
+            }
             AiJobStore.start(db,job,"Understanding request","understanding");emit(progress,job,"Understanding request",8);
             if(combined){
-                AiJobStore.progress(db,job,"Searching your Cortex","retrieval",24,"Selecting relevant Cortex evidence for Combined mode");emit(progress,job,"Searching your Cortex",24);
-                long rt=SystemClock.elapsedRealtime();GroundedAnswer found=SecondBrainEngine.ask(db,question);retrieval=SystemClock.elapsedRealtime()-rt;privateFound=found.sources.size();grounded=CloudEvidencePolicy.filter(ctx,found);AiJobStore.linkSources(db,job,grounded);
-                if(focal!=null&&CloudEvidencePolicy.canSend(ctx,focal)){cloudFocal=focal;AiJobStore.progress(db,job,"Using this capture","focal_context",40,"The exact capture is cloud-eligible under its current privacy setting");emit(progress,job,"Using this capture",40);}
-                if(PrivacyPolicy.canCollect(ctx,"phone_context")){
-                    try{
-                        PhoneContextStore.ensure(db);String recent=PhoneContextStore.recentSummary(db,30L*60L*1000L,8);String processes=phoneQuestion(question)?PhoneContextStore.activeProcessSummary(db,25):"";StringBuilder pc=new StringBuilder();
-                        if(!recent.isEmpty())pc.append("RECENT PHONE TIMELINE:\n").append(recent);if(!processes.isEmpty()){if(pc.length()>0)pc.append("\n\n");pc.append("LATEST RUNNING PROCESS STATE:\n").append(processes);}phoneContext=pc.toString();phoneAvailable=!phoneContext.isEmpty();phoneSent=phoneAvailable&&PrivacyPolicy.canUseCloud(ctx,"phone_context");
-                    }catch(Throwable ignored){phoneContext="";phoneAvailable=false;phoneSent=false;}
+                if(fastFocal){
+                    AiJobStore.progress(db,job,"Using this capture","focal_context",32,"Fast focal route: exact cloud-allowed capture attached; broad retrieval deferred");
+                    emit(progress,job,"Using this capture",32);
+                }else{
+                    AiJobStore.progress(db,job,"Searching your Cortex","retrieval",24,"Selecting relevant Cortex evidence for Combined mode");emit(progress,job,"Searching your Cortex",24);
+                    long rt=SystemClock.elapsedRealtime();GroundedAnswer found=SecondBrainEngine.ask(db,question);retrieval=SystemClock.elapsedRealtime()-rt;privateFound=found.sources.size();grounded=CloudEvidencePolicy.filter(ctx,found);AiJobStore.linkSources(db,job,grounded);
+                    if(focal!=null&&CloudEvidencePolicy.canSend(ctx,focal)){cloudFocal=focal;AiJobStore.progress(db,job,"Using this capture","focal_context",40,"The exact capture is cloud-eligible under its current privacy setting");emit(progress,job,"Using this capture",40);}
+                    if(PrivacyPolicy.canCollect(ctx,"phone_context")){
+                        try{
+                            PhoneContextStore.ensure(db);String recent=PhoneContextStore.recentSummary(db,30L*60L*1000L,8);String processes=phoneQuestion(question)?PhoneContextStore.activeProcessSummary(db,25):"";StringBuilder pc=new StringBuilder();
+                            if(!recent.isEmpty())pc.append("RECENT PHONE TIMELINE:\n").append(recent);if(!processes.isEmpty()){if(pc.length()>0)pc.append("\n\n");pc.append("LATEST RUNNING PROCESS STATE:\n").append(processes);}phoneContext=pc.toString();phoneAvailable=!phoneContext.isEmpty();phoneSent=phoneAvailable&&PrivacyPolicy.canUseCloud(ctx,"phone_context");
+                        }catch(Throwable ignored){phoneContext="";phoneAvailable=false;phoneSent=false;}
+                    }
                 }
             }
             int withheld=Math.max(0,privateFound-grounded.sources.size());
-            String detail=combined?("Explicit Combined route · "+grounded.sources.size()+" cloud-allowed Cortex source"+(grounded.sources.size()==1?"":"s")+(cloudFocal!=null?" · focal capture attached":(focal!=null?" · focal capture kept local":""))+(withheld>0?" · "+withheld+" local-only source(s) withheld":"")+(phoneAvailable?(phoneSent?" · recent phone context included":" · recent phone context kept local"):"")):"No Cortex memory is sent in External mode";
-            AiJobStore.progress(db,job,combined?"Combining sources":"Using external AI","external",combined?52:36,detail);emit(progress,job,combined?"Combining sources":"Using external AI",combined?52:36);
+            String detail;
+            if(fastFocal)detail="Fast focal route · exact capture attached · broad retrieval/actions deferred until after the answer";
+            else detail=combined?("Explicit Combined route · "+grounded.sources.size()+" cloud-allowed Cortex source"+(grounded.sources.size()==1?"":"s")+(cloudFocal!=null?" · focal capture attached":(focal!=null?" · focal capture kept local":""))+(withheld>0?" · "+withheld+" local-only source(s) withheld":"")+(phoneAvailable?(phoneSent?" · recent phone context included":" · recent phone context kept local"):"")):"No Cortex memory is sent in External mode";
+            String stage=fastFocal?"Thinking":(combined?"Combining sources":"Using external AI");int stagePercent=fastFocal?46:(combined?52:36);
+            AiJobStore.progress(db,job,stage,"external",stagePercent,detail);emit(progress,job,stage,stagePercent);
 
-            // One provider call produces both the natural answer and locally-validated action candidates.
-            // The provider never receives database IDs; provenance is resolved back to THIS/M# locally.
-            String modelQuestion=BrainActionStore.request(question);
+            // Direct questions about an attached capture prioritize time-to-answer. Structured actions are
+            // generated later by the proposal layer instead of blocking the first user-visible answer.
+            String modelQuestion=fastFocal?question:BrainActionStore.request(question);
             ExternalBrainProvider.Result x=ExternalBrainProvider.ask(ctx,modelQuestion,grounded,combined,cloudFocal,phoneSent?phoneContext:"");
             BrainActionStore.Parsed structured=BrainActionStore.parseAndStore(db,job,x.text,cloudFocal,grounded);
             String answer=structured.answer;long total=SystemClock.elapsedRealtime()-wall;
-            JSONObject out=new JSONObject().put("answer",answer).put("provider",x.provider).put("model",x.model).put("source_mode",mode).put("source_count",grounded.sources.size()).put("private_found",privateFound).put("focal_item_id",focalItemId).put("focal_sent",cloudFocal!=null).put("phone_context_available",phoneAvailable).put("phone_context_sent",phoneSent).put("withheld_local_only",withheld).put("primary_intent",structured.primaryIntent).put("actions_count",structured.actionCount).put("total_ms",total);
-            AiJobStore.modelRun(db,job,1,"primary","cloud",x.model,mode,"complete",Fingerprint.text(question+"|"+mode+"|"+focalItemId),x.durationMs,0,0,0.78,new JSONObject().put("provider",x.provider).put("source_count",grounded.sources.size()).put("focal_sent",cloudFocal!=null).put("phone_context_sent",phoneSent).put("withheld_local_only",withheld).put("actions_count",structured.actionCount).toString(),"");
-            AiJobStore.complete(db,job,out.toString(),"Answer ready",combined?detail:"External AI answer; no Cortex memory sent");emit(progress,job,"Answer ready",100);
-            try{DiagnosticsLog.info(db,"BrainRouter","external_answer","ok",focalItemId,0,0,job,0,total,new JSONObject().put("provider",x.provider).put("model",x.model).put("mode",mode).put("focal_sent",cloudFocal!=null).put("phone_context_sent",phoneSent).put("withheld_local_only",withheld).put("actions_count",structured.actionCount));}catch(Throwable ignored){}
+            JSONObject out=new JSONObject().put("answer",answer).put("provider",x.provider).put("model",x.model).put("source_mode",mode).put("source_count",grounded.sources.size()).put("private_found",privateFound).put("focal_item_id",focalItemId).put("focal_sent",cloudFocal!=null).put("fast_focal",fastFocal).put("phone_context_available",phoneAvailable).put("phone_context_sent",phoneSent).put("withheld_local_only",withheld).put("primary_intent",structured.primaryIntent).put("actions_count",structured.actionCount).put("total_ms",total);
+            AiJobStore.modelRun(db,job,1,"primary","cloud",x.model,mode,"complete",Fingerprint.text(question+"|"+mode+"|"+focalItemId),x.durationMs,0,0,0.78,new JSONObject().put("provider",x.provider).put("source_count",grounded.sources.size()).put("focal_sent",cloudFocal!=null).put("fast_focal",fastFocal).put("phone_context_sent",phoneSent).put("withheld_local_only",withheld).put("actions_count",structured.actionCount).toString(),"");
+            AiJobStore.complete(db,job,out.toString(),"Answer ready",detail);emit(progress,job,"Answer ready",100);
+            try{DiagnosticsLog.info(db,"BrainRouter","external_answer","ok",focalItemId,0,0,job,0,total,new JSONObject().put("provider",x.provider).put("model",x.model).put("mode",mode).put("focal_sent",cloudFocal!=null).put("fast_focal",fastFocal).put("phone_context_sent",phoneSent).put("withheld_local_only",withheld).put("actions_count",structured.actionCount));}catch(Throwable ignored){}
             return new LocalAskRouter.Result(job,grounded,answer,x.provider+(combined?"-combined":"-external"),"",mode,0,0,x.durationMs,total,retrieval,0,0,x.durationMs,false);
         }catch(Throwable t){
             long total=SystemClock.elapsedRealtime()-wall;String err=t.getClass().getSimpleName()+(t.getMessage()==null?"":": "+t.getMessage());AiJobStore.fail(db,job,err,"External route unavailable");
@@ -56,6 +67,15 @@ public final class BrainRouter {
             }
             emit(progress,job,"External route unavailable",100);String answer=ExternalBrainProvider.configured(ctx)?"Brain couldn't reach the configured external AI right now. Your Cortex data was not changed.":"External AI isn't configured yet. Add an OpenRouter API key in Settings.";return new LocalAskRouter.Result(job,grounded,answer,"failed",err,mode,0,0,0,total,retrieval,0,0,0,false);
         }
+    }
+
+    /** Broad memory retrieval is reserved for questions that actually ask Cortex to connect/history/reason across sources. */
+    private static boolean needsBroadContext(String q){
+        if(phoneQuestion(q))return true;
+        String n=LocalSemanticEmbedder.norm(q==null?"":q);
+        String[] xs={"project","history","previous","recently","recent","remember","decision","decide","related","connect","compare","follow up","follow-up","appointment","calendar","what do i know","what did i","what have i","before","earlier","مشروع","فاكر","قبل كده","قبل كدة","قرار","قررت","قارن","مقارنة","اربط","ربط","متابعة","تابع","موعد","ميعاد","فكرني","كنت عملت","كنت قلت","إيه اللي أعرفه","ايه اللي اعرفه"};
+        for(String x:xs)if(n.contains(LocalSemanticEmbedder.norm(x)))return true;
+        return false;
     }
 
     private static boolean phoneQuestion(String q){String n=LocalSemanticEmbedder.norm(q==null?"":q);String[] xs={"phone context","current app","recent apps","last apps","running apps","running processes","background apps","what was i doing on my phone","what apps are running","what is running on my phone","كنت فاتح ايه","كنت فاتح إيه","كنت بعمل ايه على الموبايل","كنت بعمل إيه على الموبايل","ايه شغال على الموبايل","إيه شغال على الموبايل","آخر تطبيقات","اخر تطبيقات","آخر ابلكيشنات","اخر ابلكيشنات"};for(String x:xs)if(n.contains(LocalSemanticEmbedder.norm(x)))return true;return false;}
