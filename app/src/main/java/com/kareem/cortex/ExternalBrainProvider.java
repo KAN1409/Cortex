@@ -96,6 +96,9 @@ public final class ExternalBrainProvider {
         messages.put(new JSONObject().put("role","system").put("content","You are Cortex Brain. Be useful, direct, context-aware, and preserve Egyptian Arabic/English code-switching naturally. Never reveal chain-of-thought."));
         messages.put(new JSONObject().put("role","user").put("content",userContent));
         JSONObject req=new JSONObject().put("model",model).put("messages",messages).put("max_tokens",1800);
+        // Ox Alpha is a reasoning model. Keep the reasoning private and give the response budget to
+        // user-visible content; the same setting already proven by the provider health check is used here.
+        if(OpenRouterModelConfig.isOxAlpha(context))req.put("reasoning",new JSONObject().put("effort","low").put("exclude",true));
         return requestOpenRouter(key,model,req);
     }
 
@@ -118,7 +121,7 @@ public final class ExternalBrainProvider {
         long started=SystemClock.elapsedRealtime();HttpURLConnection c=openOpenRouter(key);write(c,req);int code=c.getResponseCode();String body=read(code>=200&&code<300?c.getInputStream():c.getErrorStream());c.disconnect();long ms=SystemClock.elapsedRealtime()-started;
         if(code<200||code>=300)throw new ProviderException("OpenRouter Brain HTTP "+code+" ["+model+"]: "+compact(body),code,model,"openrouter",ms);
         String text=cleanModelText(extractOpenRouterText(new JSONObject(body)));
-        if(text.isEmpty())throw new ProviderException("OpenRouter returned an empty answer ["+model+"]",200,model,"openrouter",ms);
+        if(text.isEmpty()||isNullLike(text))throw new ProviderException("OpenRouter returned an empty answer ["+model+"]",200,model,"openrouter",ms);
         return new Result(text,body,ms,model,"openrouter");
     }
 
@@ -129,9 +132,10 @@ public final class ExternalBrainProvider {
 
     private static String extractOpenRouterText(JSONObject root){
         JSONArray choices=root.optJSONArray("choices");if(choices==null||choices.length()==0)return"";JSONObject choice=choices.optJSONObject(0);if(choice==null)return"";JSONObject message=choice.optJSONObject("message");if(message==null)return"";Object content=message.opt("content");
+        if(content==null||content==JSONObject.NULL)return"";
         if(content instanceof String)return (String)content;
-        if(content instanceof JSONArray){StringBuilder b=new StringBuilder();JSONArray a=(JSONArray)content;for(int i=0;i<a.length();i++){Object part=a.opt(i);if(part instanceof JSONObject){String t=((JSONObject)part).optString("text","");if(!t.isEmpty()){if(b.length()>0)b.append('\n');b.append(t);}}else if(part instanceof String){if(b.length()>0)b.append('\n');b.append((String)part);}}return b.toString();}
-        return content==null?"":String.valueOf(content);
+        if(content instanceof JSONArray){StringBuilder b=new StringBuilder();JSONArray a=(JSONArray)content;for(int i=0;i<a.length();i++){Object part=a.opt(i);if(part==null||part==JSONObject.NULL)continue;if(part instanceof JSONObject){String t=((JSONObject)part).optString("text","");if(!t.isEmpty()){if(b.length()>0)b.append('\n');b.append(t);}}else if(part instanceof String){if(b.length()>0)b.append('\n');b.append((String)part);}}return b.toString();}
+        return String.valueOf(content);
     }
 
     private static Result askGemini(Context context,String question,GroundedAnswer grounded,boolean combined,KnowledgeItem focal,String phoneContext)throws Exception{
@@ -148,7 +152,7 @@ public final class ExternalBrainProvider {
     }
 
     private static Result requestGemini(String key,String model,JSONArray parts,int maxTokens,double temperature)throws Exception{
-        JSONArray contents=new JSONArray().put(new JSONObject().put("role","user").put("parts",parts));JSONObject cfg=new JSONObject().put("temperature",temperature).put("maxOutputTokens",maxTokens);JSONObject req=new JSONObject().put("contents",contents).put("generationConfig",cfg);long started=SystemClock.elapsedRealtime();HttpURLConnection c=(HttpURLConnection)new URL(geminiEndpoint(model,key)).openConnection();c.setRequestMethod("POST");c.setDoOutput(true);c.setConnectTimeout(20000);c.setReadTimeout(90000);c.setRequestProperty("Content-Type","application/json");c.setRequestProperty("Accept","application/json");write(c,req);int code=c.getResponseCode();String body=read(code>=200&&code<300?c.getInputStream():c.getErrorStream());c.disconnect();long ms=SystemClock.elapsedRealtime()-started;if(code<200||code>=300)throw new ProviderException("Gemini Brain HTTP "+code+" ["+model+"]: "+compact(body),code,model,"gemini",ms);String text=cleanModelText(extractGeminiText(new JSONObject(body)));if(text.isEmpty())throw new ProviderException("Gemini returned an empty answer ["+model+"]",200,model,"gemini",ms);return new Result(text,body,ms,model,"gemini");
+        JSONArray contents=new JSONArray().put(new JSONObject().put("role","user").put("parts",parts));JSONObject cfg=new JSONObject().put("temperature",temperature).put("maxOutputTokens",maxTokens);JSONObject req=new JSONObject().put("contents",contents).put("generationConfig",cfg);long started=SystemClock.elapsedRealtime();HttpURLConnection c=(HttpURLConnection)new URL(geminiEndpoint(model,key)).openConnection();c.setRequestMethod("POST");c.setDoOutput(true);c.setConnectTimeout(20000);c.setReadTimeout(90000);c.setRequestProperty("Content-Type","application/json");c.setRequestProperty("Accept","application/json");write(c,req);int code=c.getResponseCode();String body=read(code>=200&&code<300?c.getInputStream():c.getErrorStream());c.disconnect();long ms=SystemClock.elapsedRealtime()-started;if(code<200||code>=300)throw new ProviderException("Gemini Brain HTTP "+code+" ["+model+"]: "+compact(body),code,model,"gemini",ms);String text=cleanModelText(extractGeminiText(new JSONObject(body)));if(text.isEmpty()||isNullLike(text))throw new ProviderException("Gemini returned an empty answer ["+model+"]",200,model,"gemini",ms);return new Result(text,body,ms,model,"gemini");
     }
 
     private static String externalPrompt(String q){return "You are Brain, the general AI surface inside Cortex. Answer the user's question using general knowledge only. No private Cortex memory has been supplied in this route. If the answer depends on current live information you cannot verify, say that clearly rather than pretending it is current. Preserve Egyptian Arabic and English code-switching naturally. Be concise, useful, and do not reveal chain-of-thought.\n\nUSER QUESTION:\n"+q;}
@@ -166,7 +170,8 @@ public final class ExternalBrainProvider {
     private static boolean isImage(KnowledgeItem k){return k!=null&&("IMAGE".equals(k.type)||"SCREENSHOT".equals(k.type));}
     private static String geminiEndpoint(String model,String key)throws Exception{return "https://generativelanguage.googleapis.com/v1beta/models/"+model+":generateContent?key="+java.net.URLEncoder.encode(key,"UTF-8");}
     private static String extractGeminiText(JSONObject root){JSONArray cs=root.optJSONArray("candidates");if(cs==null||cs.length()==0)return"";JSONObject c=cs.optJSONObject(0);if(c==null)return"";JSONObject content=c.optJSONObject("content");if(content==null)return"";JSONArray parts=content.optJSONArray("parts");if(parts==null)return"";StringBuilder b=new StringBuilder();for(int i=0;i<parts.length();i++){JSONObject p=parts.optJSONObject(i);if(p==null)continue;String t=p.optString("text","");if(!t.isEmpty()){if(b.length()>0)b.append('\n');b.append(t);}}return b.toString();}
-    private static String cleanModelText(String text){String x=safe(text).trim();return x.replaceAll("(?s)<think>.*?</think>","").replaceAll("^```(?:text|markdown)?\\s*","").replaceAll("```$","").trim();}
+    private static String cleanModelText(String text){String x=safe(text).trim();if(isNullLike(x))return"";return x.replaceAll("(?s)<think>.*?</think>","").replaceAll("^```(?:text|markdown)?\\s*","").replaceAll("```$","").trim();}
+    private static boolean isNullLike(String text){String x=safe(text).trim();return"null".equalsIgnoreCase(x)||"undefined".equalsIgnoreCase(x)||"[null]".equalsIgnoreCase(x);}
     private static void write(HttpURLConnection c,JSONObject req)throws Exception{try(OutputStream out=c.getOutputStream()){out.write(req.toString().getBytes(StandardCharsets.UTF_8));}}
     private static String read(InputStream in)throws Exception{if(in==null)return"";try(InputStream x=in;ByteArrayOutputStream b=new ByteArrayOutputStream()){byte[] buf=new byte[8192];for(int n;(n=x.read(buf))!=-1;)b.write(buf,0,n);return b.toString("UTF-8");}}
     private static String statusFor(int code){if(code==400)return"Provider rejected the request/model configuration";if(code==401||code==403)return"Authentication/permission failed";if(code==404)return"Configured model was not found";if(code==429)return"Provider quota/rate limit reached";if(code>=500)return"Provider service error";return"Provider returned HTTP "+code;}
