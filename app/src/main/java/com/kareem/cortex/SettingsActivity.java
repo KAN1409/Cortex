@@ -26,7 +26,9 @@ public class SettingsActivity extends Activity {
         row(body,"Transcription","Voice transcription providers and preferences",AsrSettingsActivity.class);
         actionRow(body,"Screen understanding",CortexScreenAccessibilityService.connected()?"Ready · explicit Understand screen capture + local phone context":"Enable screen/window understanding",()->{try{startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS));}catch(Throwable ignored){}});
 
-        body.addView(CortexUi.section(this,"Learning"));row(body,"Corrections & learning","Correct recent Cortex understanding/transcripts and manage user-approved learning",CorrectionLearningActivity.class);
+        body.addView(CortexUi.section(this,"Learning"));
+        row(body,"Prompt Library","Reuse prompts, run them through Brain, keep results and ratings",PromptLibraryActivity.class);
+        row(body,"Corrections & learning","Correct recent Cortex understanding/transcripts and manage user-approved learning",CorrectionLearningActivity.class);
         body.addView(CortexUi.section(this,"Data"));row(body,"Data & integrations","Backup, validated restore, privacy, calendar and contacts",FeatureHubActivity.class);
         body.addView(CortexUi.section(this,"Advanced"));row(body,"43 capabilities","See what is ACTIVE, READY, needs access/setup, or failed right now",CapabilityMatrixActivity.class);row(body,"Advanced diagnostics","External model health, phone-context health, runtime, audits, OCR and recovery tools",EnvironmentActivity.class);row(body,"Review queue","Resolve uncertain actions, waiting items, decisions and projects",ReviewQueueActivity.class);
         setContentView(root);CortexUi.fitSystemBars(this,root);
