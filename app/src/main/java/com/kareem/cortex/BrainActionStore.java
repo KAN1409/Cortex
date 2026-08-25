@@ -49,7 +49,7 @@ public final class BrainActionStore {
         return "CORTEX_STRUCTURED_RESPONSE_V1\n"
                 +"Answer the user's actual question, but return ONLY one valid JSON object and no markdown fences. Preserve Egyptian Arabic/English code-switching naturally in answer/title fields.\n"
                 +"Schema: {\"schema_version\":1,\"answer\":\"natural user-facing answer\",\"primary_intent\":\"...\",\"suggested_actions\":[{\"id\":\"act_1\",\"type\":\"TASK|REMINDER|CALENDAR_EVENT|CALENDAR_RESCHEDULE|CALL|MESSAGE_DRAFT|EMAIL_DRAFT|PROJECT_LINK|FOLLOW_UP|WAIT_FOR|KNOWLEDGE_NOTE|WEB_SEARCH|OPEN_APP\",\"title\":\"...\",\"confidence\":0.0,\"source_ref\":\"THIS or M1/M2/... when supported by supplied Cortex evidence, otherwise empty\",\"payload\":{},\"missing_fields\":[]}]}\n"
-                +"Rules: suggest only actions that are actually useful; zero actions is valid. Never invent dates, times, phone numbers, email addresses, people, projects, calendar event IDs, app package IDs or other missing private facts. Facts and inferred intent must stay distinct. Use WAIT_FOR when the user is waiting on someone else; KNOWLEDGE_NOTE when information should only be kept; FOLLOW_UP for an unresolved follow-up. CALENDAR_EVENT needs a real date/time from evidence. CALENDAR_RESCHEDULE must not pretend an existing calendar event ID is known. REMINDER needs a real trigger/due time. If required execution data is absent, list it in missing_fields rather than guessing. WEB_SEARCH is allowed; do not claim live deep research. source_ref may only reference THIS or the M-number labels present in supplied evidence; never output database IDs.\n\n"
+                +"Rules: suggest only actions that are actually useful; zero actions is valid. Never invent dates, times, phone numbers, email addresses, people, projects, calendar event IDs, app package IDs or other missing private facts. Facts and inferred intent must stay distinct. Use WAIT_FOR when the user is waiting on someone else; KNOWLEDGE_NOTE when information should only be kept; FOLLOW_UP for an unresolved follow-up. CALENDAR_EVENT needs a real date/time from evidence. CALENDAR_RESCHEDULE must never output or guess an event_id; Cortex will ask the user to select the existing event. REMINDER needs a real trigger/due date AND time. PROJECT_LINK must not output project IDs; Cortex will show confirmed projects locally. If required execution data is absent, list it in missing_fields rather than guessing. WEB_SEARCH is allowed; do not claim live deep research. source_ref may only reference THIS or the M-number labels present in supplied evidence; never output database IDs.\n\n"
                 +"ACTUAL USER QUESTION:\n"+(question==null?"":question);
     }
 
@@ -60,8 +60,9 @@ public final class BrainActionStore {
             if(a!=null)for(int i=0;i<a.length()&&actions.size()<8;i++){
                 JSONObject o=a.optJSONObject(i);if(o==null)continue;String type=n(o.optString("type","")).trim().toUpperCase(Locale.ROOT);if(!ALLOWED.contains(type))continue;
                 String title=n(o.optString("title","")).trim();if(title.isEmpty())continue;String key=n(o.optString("id","act_"+(i+1))).replaceAll("[^A-Za-z0-9_-]","");if(key.isEmpty())key="act_"+(i+1);
-                JSONObject payload=o.optJSONObject("payload");if(payload==null)payload=new JSONObject();double confidence=Math.max(0,Math.min(1,o.optDouble("confidence",0.65)));
-                KnowledgeItem source=resolveSource(n(o.optString("source_ref","")),focal,grounded);Validation v=validate(type,payload,o.optJSONArray("missing_fields"));
+                JSONObject payload=o.optJSONObject("payload");if(payload==null)payload=new JSONObject();if("CALENDAR_RESCHEDULE".equals(type))payload.remove("event_id");if("PROJECT_LINK".equals(type))payload.remove("project_id");
+                double confidence=Math.max(0,Math.min(1,o.optDouble("confidence",0.65)));
+                KnowledgeItem source=resolveSource(n(o.optString("source_ref","")),focal,grounded);Validation v=validate(type,payload,o.optJSONArray("missing_fields"),source!=null);
                 long sourceId=source==null?0:source.id;String sourceType=source==null?"":n(source.type);String excerpt=source==null?"":excerpt(source);
                 actions.add(new Action(0,jobId,key,type,title,v.status,confidence,payload,v.missing,sourceId,sourceType,excerpt));
             }
@@ -84,20 +85,19 @@ public final class BrainActionStore {
 
     private static KnowledgeItem resolveSource(String ref,KnowledgeItem focal,GroundedAnswer g){String r=n(ref).trim().toUpperCase(Locale.ROOT);if("THIS".equals(r))return focal;if(r.matches("M[1-9][0-9]*")&&g!=null){try{int i=Integer.parseInt(r.substring(1))-1;if(i>=0&&i<g.sources.size())return g.sources.get(i).item;}catch(Throwable ignored){}}return null;}
 
-    private static Validation validate(String type,JSONObject p,JSONArray modelMissing){
+    private static Validation validate(String type,JSONObject p,JSONArray modelMissing,boolean hasSource){
         LinkedHashSet<String> missing=new LinkedHashSet<>();if(modelMissing!=null)for(int i=0;i<modelMissing.length();i++){String x=n(modelMissing.optString(i,"")).trim();if(!x.isEmpty())missing.add(x);}
-        if("CALENDAR_EVENT".equals(type)){need(p,missing,"event_title","title");if(!has(p,"start_time")&&!(has(p,"date")&&has(p,"time")))missing.add("date/time");}
-        else if("CALENDAR_RESCHEDULE".equals(type)){if(!has(p,"event_id"))missing.add("existing calendar event");if(!has(p,"new_start_time")&&!(has(p,"new_date")&&has(p,"new_time")))missing.add("new date/time");}
-        else if("REMINDER".equals(type)){if(!has(p,"trigger_time")&&!has(p,"due_at")&&!has(p,"due_date"))missing.add("trigger time");}
+        if("CALENDAR_EVENT".equals(type)){if(!has(p,"start_time")&&!(has(p,"date")&&has(p,"time")))missing.add("date/time");}
+        else if("CALENDAR_RESCHEDULE".equals(type)){missing.add("select existing calendar event");if(!has(p,"new_start_time")&&!(has(p,"new_date")&&has(p,"new_time")))missing.add("new date/time");}
+        else if("REMINDER".equals(type)){if(!has(p,"trigger_time")&&!has(p,"due_at")&&!(has(p,"due_date")&&has(p,"due_time")))missing.add("trigger date/time");}
         else if("CALL".equals(type)){if(!has(p,"phone_number"))missing.add("phone number");}
         else if("MESSAGE_DRAFT".equals(type)){if(!has(p,"phone_number")&&!has(p,"recipient"))missing.add("recipient");if(!has(p,"body")&&!has(p,"message"))missing.add("message");}
         else if("EMAIL_DRAFT".equals(type)){if(!has(p,"to"))missing.add("recipient email");}
-        else if("PROJECT_LINK".equals(type)){if(!has(p,"project_id"))missing.add("confirmed project");}
+        else if("PROJECT_LINK".equals(type)){if(!hasSource)missing.add("source capture");}
         else if("WEB_SEARCH".equals(type)){if(!has(p,"query"))missing.add("search query");}
-        else if("OPEN_APP".equals(type)){if(!has(p,"package")&&!has(p,"app_name"))missing.add("app");}
+        else if("OPEN_APP".equals(type)){if(!has(p,"package"))missing.add("exact app");}
         JSONArray a=new JSONArray();for(String x:missing)a.put(x);return new Validation(missing.isEmpty()?"READY":"NEEDS_DETAILS",a);
     }
-    private static void need(JSONObject p,Set<String> missing,String... alternatives){for(String x:alternatives)if(has(p,x))return;missing.add(alternatives.length==0?"required detail":alternatives[0]);}
     private static boolean has(JSONObject p,String k){Object x=p.opt(k);return x!=null&&x!=JSONObject.NULL&&!String.valueOf(x).trim().isEmpty();}
 
     private static JSONObject parseObject(String raw){if(raw==null)return null;String x=raw.trim();if(x.startsWith("```")){int nl=x.indexOf('\n');if(nl>=0)x=x.substring(nl+1);int end=x.lastIndexOf("```");if(end>=0)x=x.substring(0,end);}int a=x.indexOf('{'),b=x.lastIndexOf('}');if(a<0||b<=a)return null;try{return new JSONObject(x.substring(a,b+1));}catch(Exception e){return null;}}
