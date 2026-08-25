@@ -1,0 +1,87 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="horizontal"
+    android:gravity="center_vertical"
+    android:padding="12dp"
+    android:background="@drawable/widget_panel">
+
+    <LinearLayout
+        android:layout_width="0dp"
+        android:layout_height="match_parent"
+        android:layout_weight="1"
+        android:orientation="vertical"
+        android:gravity="center_vertical">
+
+        <TextView
+            android:id="@+id/record_widget_title"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="CORTEX VOICE"
+            android:textColor="#F3F4F6"
+            android:textSize="12sp"
+            android:textStyle="bold"
+            android:fontFamily="sans"
+            android:letterSpacing="0.10" />
+
+        <TextView
+            android:id="@+id/record_widget_state"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="5dp"
+            android:text="READY"
+            android:textColor="#9A9FAB"
+            android:textSize="10sp"
+            android:fontFamily="monospace"
+            android:letterSpacing="0.08" />
+
+        <Chronometer
+            android:id="@+id/record_widget_timer"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="3dp"
+            android:textColor="#FFFFFF"
+            android:textSize="16sp"
+            android:textStyle="bold"
+            android:fontFamily="monospace"
+            android:visibility="gone" />
+
+        <TextView
+            android:id="@+id/record_widget_hint"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="3dp"
+            android:text="Tap to capture a memory"
+            android:textColor="#666C77"
+            android:textSize="9sp"
+            android:fontFamily="sans" />
+    </LinearLayout>
+
+    <FrameLayout
+        android:layout_width="66dp"
+        android:layout_height="66dp"
+        android:layout_marginStart="10dp">
+
+        <TextView
+            android:id="@+id/record_widget_record"
+            android:layout_width="66dp"
+            android:layout_height="66dp"
+            android:gravity="center"
+            android:text="●"
+            android:textColor="#FFFF2A24"
+            android:textSize="31sp"
+            android:background="@drawable/widget_record_button" />
+
+        <TextView
+            android:id="@+id/record_widget_stop"
+            android:layout_width="66dp"
+            android:layout_height="66dp"
+            android:gravity="center"
+            android:text="■"
+            android:textColor="#FFFFFFFF"
+            android:textSize="22sp"
+            android:background="@drawable/widget_stop_button"
+            android:visibility="gone" />
+    </FrameLayout>
+</LinearLayout>
