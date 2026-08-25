@@ -53,6 +53,17 @@ if ! bash "$REPO_DIR/scripts/cortex-repo-audit.sh" "$REPO_DIR"; then
   exit 2
 fi
 
+# Branch/runtime contract additions are kept in a separate small audit so they can fail fast without
+# making the long-lived 43-capability audit harder to maintain. It is safe to keep this after merge.
+if [ -f "$REPO_DIR/scripts/cortex-health-followup-audit.sh" ]; then
+  log "Running Health Follow-up runtime-contract audit"
+  if ! bash "$REPO_DIR/scripts/cortex-health-followup-audit.sh" "$REPO_DIR"; then
+    printf '\nCORTEX BUILD STOPPED: Health Follow-up runtime-contract audit failed before Gradle.\n' >&2
+    if [ "$AUTO_STASHED" = "1" ]; then printf 'Local pre-build edits remain safely stashed as: %s\n' "$AUTO_STASH_NAME" >&2; fi
+    exit 2
+  fi
+fi
+
 if [ -z "${ANDROID_HOME:-}" ]; then for d in "$HOME/android-sdk" "$PREFIX/share/android-sdk" "$HOME/Android/Sdk"; do if [ -d "$d" ]; then export ANDROID_HOME="$d"; break; fi; done; fi
 [ -n "${ANDROID_HOME:-}" ] || fail "ANDROID_HOME is not set and Android SDK was not found."
 export ANDROID_SDK_ROOT="$ANDROID_HOME"
