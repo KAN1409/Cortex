@@ -38,12 +38,12 @@ public final class CortexTextUi {
         if(rtl){
             view.setTextDirection(View.TEXT_DIRECTION_RTL);
             view.setTextAlignment(View.TEXT_ALIGNMENT_VIEW_END);
-            view.setGravity(Gravity.END|Gravity.TOP);
+            view.setGravity(Gravity.END|Gravity.CENTER_VERTICAL);
             view.setLayoutDirection(View.LAYOUT_DIRECTION_RTL);
         }else{
             view.setTextDirection(View.TEXT_DIRECTION_LTR);
             view.setTextAlignment(View.TEXT_ALIGNMENT_VIEW_START);
-            view.setGravity(Gravity.START|Gravity.TOP);
+            view.setGravity(Gravity.START|Gravity.CENTER_VERTICAL);
             view.setLayoutDirection(View.LAYOUT_DIRECTION_LTR);
         }
     }
