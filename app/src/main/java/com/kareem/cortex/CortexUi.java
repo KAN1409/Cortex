@@ -77,9 +77,9 @@ public final class CortexUi {
     public static void addBottomNav(Activity a,LinearLayout root,String selected,Runnable ignoredMoreAction){
         String current=primeKey(selected);LinearLayout bar=new LinearLayout(a);bar.setOrientation(LinearLayout.HORIZONTAL);bar.setGravity(Gravity.CENTER);bar.setPadding(dp(a,6),dp(a,5),dp(a,6),dp(a,5));bar.setBackground(round(a,Color.rgb(9,11,15),Color.argb(18,255,255,255),22));
         addNav(a,bar,"input","Input",current,InputActivity.class);
-        addNav(a,bar,"brief","Brief",current,PremiumHomeActivity.class);
-        addNav(a,bar,"people","People / Projects",current,PeopleProjectsActivity.class);
-        addNav(a,bar,"brain","Brain",current,AskCortexActivity.class);
+        addNav(a,bar,"brief","Brief",current,ProposalBriefActivity.class);
+        addNav(a,bar,"people","People / Projects",current,ProposalPeopleProjectsActivity.class);
+        addNav(a,bar,"brain","Brain",current,ProposalAskCortexActivity.class);
         LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,dp(a,66));p.setMargins(dp(a,14),dp(a,7),dp(a,14),dp(a,10));root.addView(bar,p);fitSystemBars(a,root);
     }
     private static String primeKey(String s){if("home".equals(s)||"focus".equals(s)||"brief".equals(s))return"brief";if("vault".equals(s)||"people".equals(s))return"people";if("ask".equals(s)||"brain".equals(s))return"brain";if("input".equals(s))return"input";return s==null?"":s;}
