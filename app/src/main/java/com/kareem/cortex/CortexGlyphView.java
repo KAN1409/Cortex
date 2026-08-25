@@ -56,7 +56,7 @@ public final class CortexGlyphView extends View {
             case "bolt":case "action":{
                 p.moveTo(cx+s*.12f,cy-s);p.lineTo(cx-s*.55f,cy+s*.05f);p.lineTo(cx-s*.05f,cy+s*.05f);p.lineTo(cx-s*.20f,cy+s);p.lineTo(cx+s*.62f,cy-s*.16f);p.lineTo(cx+s*.12f,cy-s*.16f);p.close();c.drawPath(p,glyph);break;
             }
-            case "note":case "info":case "file":{
+            case "brief":case "note":case "info":case "file":{
                 r=new RectF(cx-s*.78f,cy-s,cx+s*.62f,cy+s);c.drawRoundRect(r,s*.12f,s*.12f,glyph);c.drawLine(cx-s*.47f,cy-s*.45f,cx+s*.25f,cy-s*.45f,glyph);c.drawLine(cx-s*.47f,cy,cx+s*.38f,cy,glyph);c.drawLine(cx-s*.47f,cy+s*.45f,cx+s*.10f,cy+s*.45f,glyph);break;
             }
             case "open":{
@@ -86,9 +86,7 @@ public final class CortexGlyphView extends View {
             case "check":{
                 p.moveTo(cx-s*.72f,cy);p.lineTo(cx-s*.15f,cy+s*.58f);p.lineTo(cx+s*.82f,cy-s*.60f);c.drawPath(p,glyph);break;
             }
-            default:{
-                c.drawCircle(cx,cy,s*.80f,glyph);c.drawCircle(cx,cy,s*.10f,glyph);break;
-            }
+            default:{c.drawCircle(cx,cy,s*.80f,glyph);c.drawCircle(cx,cy,s*.10f,glyph);break;}
         }
     }
 }
