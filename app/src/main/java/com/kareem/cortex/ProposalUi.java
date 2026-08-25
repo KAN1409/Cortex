@@ -3,6 +3,7 @@ package com.kareem.cortex;
 import android.app.*;
 import android.view.View;
 import android.widget.*;
+import org.json.JSONArray;
 import java.util.*;
 
 /** Compact reusable model-proposal strip mounted directly under one specific result. */
@@ -48,9 +49,21 @@ public final class ProposalUi {
         }
         if(!"ACTION".equals(p.execution))return;
         String key=safeKey(target.resultKey)+"_"+safeKey(p.id);long syntheticJob=target.sourceItemId>0?target.sourceItemId:Math.max(1,Math.abs((long)target.fingerprint().hashCode()));
-        String status=p.missing.length()==0?"READY":"NEEDS_DETAILS";
-        BrainActionStore.Action action=new BrainActionStore.Action(0,syntheticJob,key,p.actionType,p.title,status,p.confidence,p.payload,p.missing,target.sourceItemId,target.sourceType,clip(target.text,420));
+        JSONArray missing=normalizedMissing(p,target);String status=missing.length()==0?"READY":"NEEDS_DETAILS";
+        BrainActionStore.Action action=new BrainActionStore.Action(0,syntheticJob,key,p.actionType,p.title,status,p.confidence,p.payload,missing,target.sourceItemId,target.sourceType,clip(target.text,420));
         CortexActionDispatcher.preview(a,db,action);
+    }
+
+    private static JSONArray normalizedMissing(ResultProposalEngine.Proposal p,ResultProposalEngine.Target target){
+        LinkedHashSet<String> xs=new LinkedHashSet<>();for(int i=0;i<p.missing.length();i++){String x=p.missing.optString(i,"").trim();if(!x.isEmpty())xs.add(x);}
+        if("PROJECT_LINK".equals(p.actionType)){
+            xs.remove("confirmed project selection");
+            if(target.sourceItemId<=0)xs.add("source capture");
+        }
+        if("OPEN_APP".equals(p.actionType)){
+            String pkg=p.payload.optString("package","").trim();if(pkg.isEmpty())xs.add("exact app package");
+        }
+        JSONArray out=new JSONArray();for(String x:xs)out.put(x);return out;
     }
 
     public static boolean cloudAllowedForMemory(Activity a,KnowledgeItem k){
