@@ -7,6 +7,8 @@ APK_OUT="/sdcard/Download/Cortex-v50-debug.apk"
 BUILD_LOG="$REPO_DIR/termux-build-last.log"
 BUILD_LOG_OUT="/sdcard/Download/Cortex-build-last.log"
 CLEAN_BUILD="${CORTEX_CLEAN_BUILD:-0}"
+AUTO_STASH_NAME="cortex-prebuild-$(date +%Y%m%d-%H%M%S)"
+AUTO_STASHED=0
 
 log(){ printf '\n==> %s\n' "$*"; }
 fail(){ printf '\nERROR: %s\n' "$*" >&2; exit 1; }
@@ -28,6 +30,16 @@ fi
 cd "$REPO_DIR"
 log "Updating Cortex source"
 git fetch origin main
+
+# A previous emergency/local edit must never block the canonical build gate.
+# Preserve tracked edits in a stash instead of deleting them, then build exact origin/main.
+if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
+  log "Preserving local tracked edits before sync"
+  git stash push -m "$AUTO_STASH_NAME" >/dev/null
+  AUTO_STASHED=1
+  printf 'Saved local edits as git stash: %s\n' "$AUTO_STASH_NAME"
+fi
+
 git checkout main
 git pull --ff-only origin main
 
@@ -65,6 +77,7 @@ if [ "$BUILD_RC" -ne 0 ]; then
   grep -n -E '(^|[[:space:]])error:|FAILURE:|Execution failed for task|What went wrong:|Caused by:|cannot find symbol|method .* cannot be applied|incompatible types|package .* does not exist' "$BUILD_LOG" 2>/dev/null | tail -n 100 >&2 || true
   printf '=============================================================\n' >&2
   printf 'Full log: %s\n' "$BUILD_LOG_OUT" >&2
+  if [ "$AUTO_STASHED" = "1" ]; then printf 'Local pre-build edits remain safely stashed as: %s\n' "$AUTO_STASH_NAME" >&2; fi
   exit "$BUILD_RC"
 fi
 
@@ -75,3 +88,4 @@ sha256sum "$APK_OUT" | tee "$APK_OUT.sha256"
 log "Build complete"
 printf 'APK: %s\n' "$APK_OUT"
 printf 'Install over the existing Cortex build to preserve app data.\n'
+if [ "$AUTO_STASHED" = "1" ]; then printf 'Local pre-build edits were preserved in git stash: %s\n' "$AUTO_STASH_NAME"; fi
