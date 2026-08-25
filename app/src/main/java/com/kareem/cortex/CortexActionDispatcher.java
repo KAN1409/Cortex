@@ -27,12 +27,13 @@ public final class CortexActionDispatcher {
         AlertDialog.Builder b=new AlertDialog.Builder(a).setTitle(action.ready()?"Prepare this action?":"This action needs details").setMessage(message.toString()).setNegativeButton("Cancel",null);
         if(action.ready())b.setPositiveButton(primaryLabel(action.type),(d,w)->executeApproved(a,db,action));
         else b.setPositiveButton("Complete details",(d,w)->completeInBrain(a,action));
-        b.setNeutralButton("Dismiss suggestion",(d,w)->{BrainActionStore.markStatus(db,action.rowId,"DISMISSED");toast(a,"Suggestion dismissed");});
+        b.setNeutralButton("Dismiss suggestion",(d,w)->{if(CortexExperimentalTestMode.active(a)){toast(a,"Experimental test: dismiss recorded, state unchanged");return;}BrainActionStore.markStatus(db,action.rowId,"DISMISSED");toast(a,"Suggestion dismissed");});
         b.show();
     }
 
     private static void executeApproved(Activity a,VaultDb db,BrainActionStore.Action x){
         try{
+            if(CortexExperimentalTestMode.active(a)){toast(a,"Experimental robot test intercepted this action safely");return;}
             if(localType(x.type)){createLocal(db,x);toast(a,"Added to Cortex");return;}
             if("CALENDAR_EVENT".equals(x.type)||"REMINDER".equals(x.type)){
                 long when=parseWhen(x.payload,"CALENDAR_EVENT".equals(x.type)?"start_time":"trigger_time");
