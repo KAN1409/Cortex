@@ -14,7 +14,7 @@ public class SettingsActivity extends Activity {
     void build(){
         LinearLayout root=new LinearLayout(this);root.setOrientation(LinearLayout.VERTICAL);root.setBackgroundColor(CortexUi.BG);
         ScrollView sv=new ScrollView(this);LinearLayout body=new LinearLayout(this);body.setOrientation(LinearLayout.VERTICAL);body.setPadding(dp(20),dp(14),dp(20),dp(26));sv.addView(body);root.addView(sv,new LinearLayout.LayoutParams(-1,0,1));
-        LinearLayout head=new LinearLayout(this);head.setOrientation(LinearLayout.HORIZONTAL);head.setGravity(Gravity.CENTER_VERTICAL);TextView back=CortexUi.plain(this,"‹",34,CortexUi.TEXT);back.setGravity(Gravity.CENTER);back.setOnClickListener(v->finish());head.addView(back,new LinearLayout.LayoutParams(dp(42),dp(48)));TextView h=CortexUi.plain(this,"Settings",29,CortexUi.TEXT);CortexUi.medium(h);head.addView(h,new LinearLayout.LayoutParams(0,-2,1));body.addView(head);
+        LinearLayout head=new LinearLayout(this);head.setOrientation(LinearLayout.HORIZONTAL);head.setGravity(Gravity.CENTER_VERTICAL);TextView back=CortexUi.plain(this,"‹",34,CortexUi.TEXT);back.setGravity(Gravity.CENTER);back.setOnClickListener(v->{CortexHaptics.press(v);finish();});head.addView(back,new LinearLayout.LayoutParams(dp(42),dp(48)));TextView h=CortexUi.plain(this,"Settings",29,CortexUi.TEXT);CortexUi.medium(h);head.addView(h,new LinearLayout.LayoutParams(0,-2,1));body.addView(head);
 
         body.addView(CortexUi.section(this,"Brain"));
         String remote=OpenRouterKeyStore.has(this)?"Primary · "+OpenRouterModelConfig.generationModel(this)+" via OpenRouter":"Configure OpenRouter · default model stealth/ox-alpha";
@@ -22,9 +22,12 @@ public class SettingsActivity extends Activity {
         row(body,"Vision / fallback",GeminiKeyStore.has(this)?"Gemini configured · retained for vision and provider fallback":"Optional Gemini fallback and cloud vision",GeminiSettingsActivity.class);
 
         body.addView(CortexUi.section(this,"Capture & phone awareness"));
-        row(body,"Phone context access","Notifications, current app/window context and recent app usage",PhoneContextAccessActivity.class);
+        row(body,"Access Center","Runtime permissions, Notification Listener, Accessibility, Usage Access, background reliability and optional Shizuku",PhoneContextAccessActivity.class);
         row(body,"Transcription","Voice transcription providers and preferences",AsrSettingsActivity.class);
         actionRow(body,"Screen understanding",CortexScreenAccessibilityService.connected()?"Ready · explicit Understand screen capture + local phone context":"Enable screen/window understanding",()->{try{startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS));}catch(Throwable ignored){}});
+
+        body.addView(CortexUi.section(this,"Health"));
+        row(body,"Health follow-up","Samsung Health / Health Connect, Huawei Health gate, scans, documents, voice and a grounded health timeline",HealthFollowupActivity.class);
 
         body.addView(CortexUi.section(this,"Learning"));
         row(body,"Prompt Library","Reuse prompts, run them through Brain, keep results and ratings",PromptLibraryActivity.class);
