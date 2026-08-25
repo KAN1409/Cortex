@@ -26,6 +26,7 @@
         <activity android:name=".CaptureActivity" android:exported="true" android:theme="@style/CaptureSheetTheme" android:windowSoftInputMode="adjustResize"><intent-filter><action android:name="android.intent.action.SEND" /><category android:name="android.intent.category.DEFAULT" /><data android:mimeType="*/*" /></intent-filter><intent-filter><action android:name="android.intent.action.SEND_MULTIPLE" /><category android:name="android.intent.category.DEFAULT" /><data android:mimeType="*/*" /></intent-filter></activity>
         <activity android:name=".FeatureHubActivity" android:exported="false" />
         <activity android:name=".PhoneContextAccessActivity" android:exported="false" />
+        <activity android:name=".CapabilityMatrixActivity" android:exported="false" />
         <activity android:name=".EnvironmentActivity" android:exported="false" />
         <activity android:name=".CortexStatusActivity" android:exported="false" />
         <activity android:name=".CortexAuditActivity" android:exported="false" />
