@@ -39,6 +39,12 @@ need "$PROVIDER" 'content==null\|\|content==JSONObject\.NULL' 'OpenRouter JSON n
 need "$PROVIDER" 'isNullLike' 'provider rejects literal null/undefined model text'
 need "$PROVIDER" 'effort","low".*exclude",true' 'OX reasoning remains low and excluded from returned content'
 
+# Provider rate-limit recovery must avoid repeatedly hitting the same upstream shared pool.
+need "$PROVIDER" 'OPENROUTER_RATE_LIMIT_COOLDOWN_MS' 'OpenRouter rate-limit cooldown is defined'
+need "$PROVIDER" 'rateLimited\(\).*markOpenRouterCooldown' 'HTTP 429 marks OpenRouter cooling down'
+need "$PROVIDER" 'openRouterCoolingDown\(context\).*GeminiKeyStore' 'cooldown can route directly to Gemini fallback'
+need "$PROVIDER" 'clearOpenRouterCooldown' 'successful OpenRouter recovery clears cooldown'
+
 # Attached-capture questions should answer from the focal evidence before doing broad cross-memory work.
 need "$BRAIN" 'fastFocal=true' 'Brain has explicit fast focal route'
 need "$BRAIN" '!needsBroadContext\(question\)' 'fast focal route is limited to direct capture questions'
@@ -59,8 +65,12 @@ need "$PUI" 'Suggestions are taking too long' 'proposal timeout has explicit rec
 need "$PUI" 'Retry suggestions' 'proposal failures expose retry'
 need "$PUI" 'ResultProposalEngine\.invalidate' 'proposal retry invalidates stale cache before fresh request'
 
-# Debug export must create an artifact even when exhaustive diagnostics partially fail.
-need "$RDEBUG" 'DebugExporter\.build' 'reliable exporter attempts exhaustive package first'
+# Debug export must create an artifact even when exhaustive diagnostics partially fail or are unsafe for the current heap.
+need "$RDEBUG" 'DebugExporter\.build' 'reliable exporter can attempt exhaustive package'
+need "$RDEBUG" 'exhaustiveRisk' 'debug exporter performs memory/database preflight'
+need "$RDEBUG" 'MAX_DB_FOR_EXHAUSTIVE' 'debug exporter bounds exhaustive DB size'
+need "$RDEBUG" 'MIN_HEAP_HEADROOM_FOR_EXHAUSTIVE' 'debug exporter requires safe heap headroom'
+need "$RDEBUG" 'FullExportSkipped' 'unsafe exhaustive export falls back without OOM'
 need "$RDEBUG" 'buildRecovery' 'reliable exporter has recovery package fallback'
 need "$RDEBUG" 'MediaStore\.Downloads' 'debug package is copied to Downloads on modern Android'
 need "$RDEBUG" 'Environment\.DIRECTORY_DOWNLOADS\+"/Cortex"' 'debug package has known Downloads/Cortex destination'
