@@ -21,7 +21,7 @@ public final class ProposalPeopleProjectsActivity extends PeopleProjectsActivity
         if(r.mentions>0)result.append("\nGrounded references: ").append(r.mentions);
         for(int i=0;i<Math.min(2,recent.size());i++){
             ContextRef x=recent.get(i);result.append("\nContext: ").append(x.title==null?"":x.title);
-            if(x.preview!=null&&!x.preview.trim().isEmpty())result.append(" — ").append(clip(x.preview,260));
+            if(x.preview!=null&&!x.preview.trim().isEmpty())result.append(" — ").append(proposalClip(x.preview,260));
         }
         long sourceId=recent.isEmpty()?0:recent.get(0).itemId;
         ResultProposalEngine.Target target=new ResultProposalEngine.Target(
@@ -36,5 +36,5 @@ public final class ProposalPeopleProjectsActivity extends PeopleProjectsActivity
     }
 
     private ArrayList<ContextRef> safeRecent(Row r){try{return recentContext(r);}catch(Throwable e){return new ArrayList<>();}}
-    private static String clip(String s,int n){String x=s==null?"":s.replaceAll("\\s+"," ").trim();return x.length()>n?x.substring(0,n)+"…":x;}
+    private static String proposalClip(String s,int n){String x=s==null?"":s.replaceAll("\\s+"," ").trim();return x.length()>n?x.substring(0,n)+"…":x;}
 }
