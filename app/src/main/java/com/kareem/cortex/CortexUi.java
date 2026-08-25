@@ -11,22 +11,28 @@ import android.view.*;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
-/** Unified Cortex shell: quiet surfaces, one accent, safe insets and one PRIME navigation model. */
+/** Unified Cortex Satin shell: dark quiet surfaces, red signal accent, semantic state colors and one PRIME navigation model. */
 public final class CortexUi {
-    public static final int BG = Color.rgb(8,9,12);
-    public static final int SURFACE = Color.rgb(18,20,25);
-    public static final int SURFACE_2 = Color.rgb(25,28,34);
-    public static final int SURFACE_3 = Color.rgb(31,35,42);
-    public static final int TEXT = Color.rgb(244,246,250);
-    public static final int MUTED = Color.rgb(158,166,178);
-    public static final int FAINT = Color.rgb(99,106,117);
-    public static final int ACCENT = Color.rgb(126,158,255);
+    // Final Satin palette. Keep user-facing surfaces on these tokens instead of ad-hoc RGB values.
+    public static final int BG = Color.rgb(2,2,3);
+    public static final int SURFACE = Color.rgb(11,13,17);
+    public static final int SURFACE_2 = Color.rgb(18,20,26);
+    public static final int SURFACE_3 = Color.rgb(25,28,34);
+    public static final int TEXT = Color.rgb(243,244,246);
+    public static final int MUTED = Color.rgb(154,159,171);
+    public static final int FAINT = Color.rgb(102,108,119);
+    public static final int ACCENT = Color.rgb(255,42,36);      // Cortex signal / recording / primary action
+    public static final int SIGNAL = ACCENT;
+    public static final int AMBER = Color.rgb(255,176,0);      // waiting / caution
+    public static final int VIOLET = Color.rgb(178,103,255);   // decisions / cognition
+    public static final int INFO = Color.rgb(139,145,156);     // neutral system intelligence
+    public static final int SAGE = Color.rgb(141,194,159);     // healthy / confirmed / useful
+    public static final int BORDER = Color.rgb(31,35,42);
+    public static final int BORDER_SOFT = Color.rgb(18,20,26);
+    // Legacy aliases intentionally resolve to the current signal accent so old screens cannot drift visually.
     public static final int COPPER = ACCENT;
     public static final int CORAL = ACCENT;
     public static final int GOLD = ACCENT;
-    public static final int SAGE = Color.rgb(141,194,159);
-    public static final int BORDER = Color.rgb(40,44,52);
-    public static final int BORDER_SOFT = Color.rgb(25,28,34);
 
     private CortexUi() {}
 
@@ -63,11 +69,11 @@ public final class CortexUi {
     public static LinearLayout card(Activity a,int radius){LinearLayout c=new LinearLayout(a);c.setOrientation(LinearLayout.VERTICAL);c.setPadding(dp(a,16),dp(a,15),dp(a,16),dp(a,15));c.setBackground(round(a,SURFACE,Color.TRANSPARENT,radius));return c;}
     public static TextView chip(Activity a,String label,int color,boolean strong){TextView v=plain(a,label,strong?11:10,color);if(strong)medium(v);v.setGravity(Gravity.CENTER);v.setPadding(dp(a,11),0,dp(a,11),0);int fill=Color.argb(strong?24:12,Color.red(color),Color.green(color),Color.blue(color));int stroke=strong?Color.argb(52,Color.red(color),Color.green(color),Color.blue(color)):Color.TRANSPARENT;v.setBackground(round(a,fill,stroke,999));return v;}
     public static TextView section(Activity a,String title){TextView h=plain(a,title,11,MUTED);medium(h);h.setPadding(0,dp(a,22),0,dp(a,9));return h;}
-    public static TextView action(Activity a,String label,int color,boolean filled){TextView b=plain(a,label,12,filled?Color.rgb(8,9,12):color);medium(b);b.setGravity(Gravity.CENTER);b.setPadding(dp(a,14),0,dp(a,14),0);pressable(a,b,round(a,filled?color:Color.TRANSPARENT,filled?Color.TRANSPARENT:BORDER_SOFT,15));return b;}
+    public static TextView action(Activity a,String label,int color,boolean filled){TextView b=plain(a,label,12,filled?BG:color);medium(b);b.setGravity(Gravity.CENTER);b.setPadding(dp(a,14),0,dp(a,14),0);pressable(a,b,round(a,filled?color:Color.TRANSPARENT,filled?Color.TRANSPARENT:BORDER_SOFT,15));return b;}
 
     /** PRIME surfaces only. Legacy Home/Focus/Vault keys map to their owning PRIME surface. */
     public static void addBottomNav(Activity a,LinearLayout root,String selected,Runnable ignoredMoreAction){
-        String current=primeKey(selected);LinearLayout bar=new LinearLayout(a);bar.setOrientation(LinearLayout.HORIZONTAL);bar.setGravity(Gravity.CENTER);bar.setPadding(dp(a,6),dp(a,5),dp(a,6),dp(a,5));bar.setBackground(round(a,Color.rgb(14,16,20),Color.TRANSPARENT,22));
+        String current=primeKey(selected);LinearLayout bar=new LinearLayout(a);bar.setOrientation(LinearLayout.HORIZONTAL);bar.setGravity(Gravity.CENTER);bar.setPadding(dp(a,6),dp(a,5),dp(a,6),dp(a,5));bar.setBackground(round(a,Color.rgb(7,8,11),Color.argb(18,255,255,255),22));
         addNav(a,bar,"input","Input",current,InputActivity.class);
         addNav(a,bar,"brief","Brief",current,PremiumHomeActivity.class);
         addNav(a,bar,"people","People / Projects",current,PeopleProjectsActivity.class);
@@ -78,7 +84,7 @@ public final class CortexUi {
 
     private static void addNav(Activity a,LinearLayout row,String key,String label,String selected,Class<?> cls){
         boolean on=key.equals(selected);LinearLayout item=new LinearLayout(a);item.setOrientation(LinearLayout.VERTICAL);item.setGravity(Gravity.CENTER);item.setPadding(dp(a,2),dp(a,5),dp(a,2),dp(a,3));
-        if(on)item.setBackground(round(a,SURFACE_2,Color.TRANSPARENT,16));
+        if(on)item.setBackground(round(a,SURFACE_2,Color.argb(18,255,255,255),16));
         NavIcon icon=new NavIcon(a,key,on?ACCENT:MUTED);item.addView(icon,new LinearLayout.LayoutParams(dp(a,27),dp(a,25)));
         TextView l=plain(a,label,8,on?TEXT:MUTED);l.setGravity(Gravity.CENTER);l.setMaxLines(1);if(on)medium(l);item.addView(l,new LinearLayout.LayoutParams(-1,dp(a,18)));
         item.setOnClickListener(v->{if(on)return;Intent i=new Intent(a,cls);i.addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT|Intent.FLAG_ACTIVITY_SINGLE_TOP);a.startActivity(i);});
