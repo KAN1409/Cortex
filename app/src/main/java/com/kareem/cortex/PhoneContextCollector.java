@@ -79,7 +79,7 @@ public final class PhoneContextCollector {
             m.put("background_monitoring",true);
             m.put("local_only",!PrivacyPolicy.canUseCloud(app,"phone_context"));
 
-            PhoneContextStore.record(db,kind,"accessibility",pkg,label,cls,eventType,text,when,m);
+            long eventId=PhoneContextStore.record(db,kind,"accessibility",pkg,label,cls,eventType,text,when,m);
 
             if("app_transition".equals(kind)&&(!pkg.equals(lastPackage)||when-lastPackageAt>15_000L)){
                 lastPackage=pkg;
@@ -91,6 +91,10 @@ public final class PhoneContextCollector {
                     .putLong("current_at",when)
                     .apply();
             }
+
+            // Perception remains high-frequency evidence. Contextualization is intentionally
+            // debounced so the Context Engine reasons over a short burst instead of every UI event.
+            if(eventId!=0)ContextAwarenessScheduler.request(app);
         }catch(Throwable e){
             if(db!=null){
                 try{
