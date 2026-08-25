@@ -22,7 +22,8 @@ while IFS= read -r f; do
   case "$f" in
     *.java|*.kt|*.kts|*.xml|*.gradle|*.properties|*.sh|*.yml|*.yaml|*.json|*.md)
       SCANNED=$((SCANNED+1))
-      if grep -nE '^(<<<<<<< |>>>>>>> |=======$)' "$f" >/dev/null 2>&1; then bad "merge-conflict marker in $f"; fi
+      # Start/end markers are sufficient to prove a real unresolved merge and avoid false positives from Markdown separators.
+      if grep -nE '^(<<<<<<< |>>>>>>> )' "$f" >/dev/null 2>&1; then bad "merge-conflict marker in $f"; fi
       ;;
   esac
 done < <(git ls-files)
@@ -55,6 +56,7 @@ require_text app/src/main/java/com/kareem/cortex/ProposalBriefActivity.java 'Pro
 require_text app/src/main/java/com/kareem/cortex/ProposalPeopleProjectsActivity.java 'ProposalUi\.attach' 'People/Projects results are wired to micro proposals'
 require_text app/src/main/java/com/kareem/cortex/ProposalAskCortexActivity.java 'ProposalUi\.attach' 'Brain answers are wired to micro proposals'
 require_text app/src/main/java/com/kareem/cortex/ProposalCaptureResultActivity.java 'ProposalUi\.attach' 'Capture results are wired to micro proposals'
+require_text app/src/main/java/com/kareem/cortex/ProposalCaptureResultActivity.java 'hideLegacySuggestions' 'fixed legacy pseudo-suggestions are removed from final capture result'
 
 # Manifest routing: exactly one launcher and one Android share owner.
 MAN="app/src/main/AndroidManifest.xml"
@@ -67,6 +69,12 @@ send_multi_count="$(grep -o 'android.intent.action.SEND_MULTIPLE' "$MAN" | wc -l
 [ "$send_multi_count" = "1" ] && ok "exactly one ACTION_SEND_MULTIPLE owner" || bad "expected 1 ACTION_SEND_MULTIPLE owner, found $send_multi_count"
 require_text "$MAN" 'activity android:name="\.ProposalCaptureActivity" android:exported="true"' 'proposal-aware capture owns external share entry'
 require_text "$MAN" 'activity-alias android:name="\.PremiumHomeActivity" android:targetActivity="\.ProposalBriefActivity"' 'legacy Brief alias routes to final proposal Brief'
+
+# Every capture entry point must converge on the same proposal-aware pipeline.
+require_text app/src/main/java/com/kareem/cortex/InputActivity.java 'ProposalCaptureActivity\.class' 'Input capture routes to proposal-aware capture'
+require_text app/src/main/java/com/kareem/cortex/CortexQuickTileService.java 'ProposalCaptureActivity\.class' 'voice Quick Tile routes to proposal-aware capture'
+require_text app/src/main/java/com/kareem/cortex/UnderstandScreenTileService.java 'ProposalCaptureResultActivity\.class' 'Understand Screen opens proposal-aware result'
+require_text app/src/main/java/com/kareem/cortex/CortexRecordWidget.java 'ProposalCaptureActivity\.class' 'record widget setup routes to proposal-aware capture'
 
 # PRIME navigation must point to proposal-aware result surfaces.
 UI="app/src/main/java/com/kareem/cortex/CortexUi.java"
@@ -85,21 +93,22 @@ for n in 1 43; do grep -Fq "c($n," "$CAP" && : || bad "capability #$n missing"; 
 require_text app/src/main/java/com/kareem/cortex/ProposalUi.java 'CloudEvidencePolicy\.canSend' 'proposal cloud routing respects source privacy policy'
 require_text app/src/main/java/com/kareem/cortex/CortexActionDispatcher.java 'CALENDAR_RESCHEDULE' 'dispatcher handles calendar reschedule explicitly'
 require_text app/src/main/java/com/kareem/cortex/CortexActionExecutor.java 'Calendar app owns the final write' 'external calendar mutation remains user-confirmed draft'
+require_text app/src/main/java/com/kareem/cortex/BrainRouter.java 'CloudEvidencePolicy\.filter' 'Combined Brain still filters cloud evidence locally'
 
 # UI semantic color invariants: primary != recording signal.
 require_text "$UI" 'ACCENT = Color\.rgb\(126,158,255\)' 'icy-blue primary accent is centralized'
 require_text "$UI" 'SIGNAL = Color\.rgb\(255,82,76\)' 'coral signal color is centralized separately'
 require_text app/src/main/java/com/kareem/cortex/SatinCaptureActivity.java 'setAccent\(CortexUi\.SIGNAL\)' 'recording STOP ring uses signal color'
 
-# Non-fatal hygiene report. These may be intentional diagnostics or historical docs.
+# Non-fatal hygiene report. These may be intentional diagnostics or historical code paths.
 placeholder_hits="$(git grep -nEi '\b(TODO|FIXME|temporary stub|placeholder implementation)\b' -- '*.java' '*.kt' '*.xml' '*.gradle' '*.sh' 2>/dev/null | wc -l | tr -d ' ' || true)"
 [ "$placeholder_hits" = "0" ] || warn "$placeholder_hits TODO/FIXME/placeholder source hit(s) require human context review"
 
-printf '-----------------------------------------------------\n'
+printf '%s\n' '-----------------------------------------------------'
 printf 'Files scanned: %s  Warnings: %s  Failures: %s\n' "$SCANNED" "$WARN" "$FAIL"
 if [ "$FAIL" -ne 0 ]; then
   printf 'CORTEX_REPO_AUDIT=FAIL\n' >&2
   exit 2
 fi
 printf 'CORTEX_REPO_AUDIT=PASS\n'
-printf '=====================================================\n\n'
+printf '%s\n\n' '====================================================='
