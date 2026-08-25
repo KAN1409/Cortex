@@ -42,7 +42,7 @@ public final class VisualFailurePolicy {
     }
 
     private static Decision bounded(String kind,int previous,long wait,String action){
-        if(previous+1>=MAX_TRANSIENT_ATTEMPTS)return terminal(kind+"_exhausted","Automatic retries were exhausted. Use explicit Retry after checking the image/provider.");
+        if(previous+1>=MAX_TRANSIENT_ATTEMPTS)return new Decision(kind+"_exhausted",false,true,0,"Automatic retries were exhausted. Use explicit Retry after checking the image/provider.");
         return new Decision(kind,true,true,wait,action);
     }
     private static Decision terminal(String kind,String action){return new Decision(kind,false,false,0,action);}
