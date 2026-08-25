@@ -56,7 +56,7 @@ public final class ReliableDebugExporter {
 
     private static File buildRecovery(Context c,VaultDb db,Throwable cause)throws Exception{
         JSONObject root=new JSONObject();
-        root.put("schema_version",5);
+        root.put("schema_version",6);
         root.put("recovery_export",true);
         root.put("generated_at",System.currentTimeMillis());
         root.put("full_export_skipped",cause instanceof FullExportSkipped);
@@ -65,8 +65,23 @@ public final class ReliableDebugExporter {
         root.put("package",c.getPackageName());
         root.put("android_sdk",Build.VERSION.SDK_INT);
         root.put("device",Build.MANUFACTURER+" "+Build.MODEL);
-        root.put("brain_provider",safe(()->ExternalBrainProvider.configurationHint(c)));
-        root.put("brain_health",safe(()->ExternalBrainProvider.healthCheck(c).human()));
+
+        // Capture both the configured primary provider and the effective route after failover. A primary
+        // OX 429 marks the cooldown; the immediate second health check should therefore exercise Gemini
+        // when it is configured, matching the route Brain/Useful Next Moves will actually use.
+        try{
+            ExternalBrainProvider.HealthReport primary=ExternalBrainProvider.healthCheck(c);
+            root.put("brain_health_primary",primary.human());
+            ExternalBrainProvider.HealthReport effective=primary;
+            if(!primary.ok&&primary.httpCode==429&&GeminiKeyStore.has(c))effective=ExternalBrainProvider.healthCheck(c);
+            root.put("brain_provider",ExternalBrainProvider.configurationHint(c));
+            root.put("brain_health",effective.human());
+            root.put("brain_failover_active",primary.httpCode==429&&effective.ok&&"gemini".equalsIgnoreCase(effective.provider));
+        }catch(Throwable e){
+            root.put("brain_provider",safe(()->ExternalBrainProvider.configurationHint(c)));
+            root.put("brain_health","ERROR: "+error(e));
+        }
+
         root.put("access_gates",access(c));
         root.put("local_model",safe(()->LocalLlmRuntime.state(c).state+" · "+LocalLlmRuntime.state(c).error));
         root.put("db_file_bytes",c.getDatabasePath("cortex.db").exists()?c.getDatabasePath("cortex.db").length():0);
