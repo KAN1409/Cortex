@@ -7,8 +7,10 @@ import android.view.accessibility.AccessibilityNodeInfo;
 import java.util.*;
 
 /**
- * Accessibility is used only as an on-demand sensor for Understand Screen.
- * No event is persisted and no background monitoring occurs.
+ * Cortex phone-context sensor.
+ *
+ * Continuous accessibility events are stored only in the bounded local PhoneContext timeline.
+ * Explicit Understand Screen still performs the deeper on-demand tree snapshot below.
  */
 public final class CortexScreenAccessibilityService extends AccessibilityService {
     private static volatile CortexScreenAccessibilityService live;
@@ -21,9 +23,9 @@ public final class CortexScreenAccessibilityService extends AccessibilityService
         public boolean usable(){return !text.isEmpty();}
     }
 
-    @Override protected void onServiceConnected(){super.onServiceConnected();live=this;}
+    @Override protected void onServiceConnected(){super.onServiceConnected();live=this;PhoneContextScheduler.schedule(this);}
     @Override public void onDestroy(){if(live==this)live=null;super.onDestroy();}
-    @Override public void onAccessibilityEvent(AccessibilityEvent event){/* Explicit capture only. */}
+    @Override public void onAccessibilityEvent(AccessibilityEvent event){PhoneContextCollector.onAccessibilityEvent(this,event);}
     @Override public void onInterrupt(){}
 
     public static boolean connected(){return live!=null;}
