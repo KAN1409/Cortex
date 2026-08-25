@@ -21,10 +21,10 @@ public final class ProposalUi {
                 if(!error.isEmpty()){TextView unavailable=CortexUi.plain(activity,"✦ Suggestions waiting for an available model",8,CortexUi.FAINT);holder.addView(unavailable);}else holder.setVisibility(View.GONE);
                 return;
             }
-            holder.setVisibility(View.VISIBLE);TextView head=CortexUi.plain(activity,"✦ Cortex suggests",9,CortexUi.ACCENT);CortexUi.medium(head);holder.addView(head);
+            holder.setVisibility(View.VISIBLE);TextView head=CortexUi.plain(activity,"✦ Cortex suggests",9,CortexUi.ORANGE);CortexUi.medium(head);holder.addView(head);
             HorizontalScrollView scroller=new HorizontalScrollView(activity);scroller.setHorizontalScrollBarEnabled(false);LinearLayout row=new LinearLayout(activity);row.setOrientation(LinearLayout.HORIZONTAL);row.setPadding(0,6*dp,0,2*dp);scroller.addView(row,new HorizontalScrollView.LayoutParams(-2,-2));
             for(ResultProposalEngine.Proposal p:proposals){
-                int color=proposalColor(p);TextView chip=CortexUi.chip(activity,p.title,color,false);chip.setSingleLine(true);chip.setEllipsize(android.text.TextUtils.TruncateAt.END);chip.setMaxWidth(290*dp);CortexUi.pressable(activity,chip,CortexUi.round(activity,CortexUi.SURFACE_2,CortexUi.BORDER,999));
+                int color=proposalColor(p);TextView chip=CortexUi.chip(activity,p.title,color,false);chip.setSingleLine(true);chip.setEllipsize(android.text.TextUtils.TruncateAt.END);chip.setMaxWidth(290*dp);CortexUi.pressable(activity,chip,CortexUi.gradient(activity,CortexUi.SURFACE_3,CortexUi.SURFACE_2,android.graphics.Color.argb(58,android.graphics.Color.red(color),android.graphics.Color.green(color),android.graphics.Color.blue(color)),999));
                 LinearLayout.LayoutParams cp=new LinearLayout.LayoutParams(-2,38*dp);if(row.getChildCount()>0)cp.setMargins(7*dp,0,0,0);row.addView(chip,cp);chip.setOnClickListener(v->open(activity,db,target,p));
             }
             holder.addView(scroller,new LinearLayout.LayoutParams(-1,44*dp));
@@ -33,12 +33,12 @@ public final class ProposalUi {
     }
 
     private static int proposalColor(ResultProposalEngine.Proposal p){
-        if(p==null)return CortexUi.ACCENT;if("BRAIN_PROMPT".equals(p.execution))return CortexUi.VIOLET;String t=p.actionType==null?"":p.actionType;
-        if("WAIT_FOR".equals(t)||"REMINDER".equals(t)||"FOLLOW_UP".equals(t))return CortexUi.AMBER;
-        if("CALENDAR_EVENT".equals(t)||"CALENDAR_RESCHEDULE".equals(t))return CortexUi.ACCENT;
-        if("TASK".equals(t)||"PROJECT_LINK".equals(t)||"KNOWLEDGE_NOTE".equals(t))return CortexUi.SAGE;
-        if("CALL".equals(t)||"MESSAGE_DRAFT".equals(t)||"EMAIL_DRAFT".equals(t))return CortexUi.ACCENT;
-        return CortexUi.VIOLET;
+        if(p==null)return CortexUi.ORANGE;if("BRAIN_PROMPT".equals(p.execution))return CortexUi.RED;String t=p.actionType==null?"":p.actionType;
+        if("WAIT_FOR".equals(t)||"REMINDER".equals(t)||"FOLLOW_UP".equals(t))return CortexUi.YELLOW;
+        if("CALENDAR_EVENT".equals(t)||"CALENDAR_RESCHEDULE".equals(t))return CortexUi.ORANGE;
+        if("TASK".equals(t)||"PROJECT_LINK".equals(t)||"KNOWLEDGE_NOTE".equals(t))return CortexUi.GREEN;
+        if("CALL".equals(t)||"MESSAGE_DRAFT".equals(t)||"EMAIL_DRAFT".equals(t))return CortexUi.ORANGE;
+        return CortexUi.RED;
     }
 
     private static void open(Activity a,VaultDb db,ResultProposalEngine.Target target,ResultProposalEngine.Proposal p){
