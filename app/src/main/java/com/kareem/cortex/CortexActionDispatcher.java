@@ -38,11 +38,12 @@ public final class CortexActionDispatcher {
                 long when=parseWhen(x.payload,"CALENDAR_EVENT".equals(x.type)?"start_time":"trigger_time");
                 if(when<=0)when=parseWhen(x.payload,"due_at");
                 if(when<=0)when=parseDateTime(x.payload.optString("date",x.payload.optString("due_date","")),x.payload.optString("time",x.payload.optString("due_time","")));
+                if(when<=0){toast(a,"Cortex still needs an exact date and time");completeInBrain(a,x);return;}
                 String title=first(x.payload,"event_title","reminder_text","title");if(title.isEmpty())title=x.title;
                 String body=first(x.payload,"description","body");if(body.isEmpty())body=x.evidenceExcerpt;
                 if(CortexActionExecutor.calendarDraft(a,title,body,when))BrainActionStore.markStatus(db,x.rowId,"PREPARED");return;
             }
-            if("CALENDAR_RESCHEDULE".equals(x.type)){if(openCalendarEdit(a,x))BrainActionStore.markStatus(db,x.rowId,"PREPARED");return;}
+            if("CALENDAR_RESCHEDULE".equals(x.type)){completeInBrain(a,x);return;}
             if("CALL".equals(x.type)){String number=x.payload.optString("phone_number","").trim();if(!number.isEmpty()){a.startActivity(new Intent(Intent.ACTION_DIAL,Uri.parse("tel:"+Uri.encode(number))));BrainActionStore.markStatus(db,x.rowId,"PREPARED");}return;}
             if("MESSAGE_DRAFT".equals(x.type)){String to=first(x.payload,"phone_number","recipient"),body=first(x.payload,"body","message");if(CortexActionExecutor.messageDraft(a,to,body))BrainActionStore.markStatus(db,x.rowId,"PREPARED");return;}
             if("EMAIL_DRAFT".equals(x.type)){if(CortexActionExecutor.emailDraft(a,x.payload.optString("to",""),x.payload.optString("subject",x.title),first(x.payload,"body","message")))BrainActionStore.markStatus(db,x.rowId,"PREPARED");return;}
@@ -65,13 +66,10 @@ public final class CortexActionDispatcher {
         BrainActionStore.markStatus(db,x.rowId,"DONE");
     }
 
-    private static boolean openCalendarEdit(Activity a,BrainActionStore.Action x){
-        long id=x.payload.optLong("event_id",0);if(id<=0){completeInBrain(a,x);return false;}try{Uri u=ContentUris.withAppendedId(CalendarContract.Events.CONTENT_URI,id);Intent i=new Intent(Intent.ACTION_EDIT,u);long when=parseWhen(x.payload,"new_start_time");if(when<=0)when=parseDateTime(x.payload.optString("new_date",""),x.payload.optString("new_time",""));if(when>0)i.putExtra(CalendarContract.EXTRA_EVENT_BEGIN_TIME,when);a.startActivity(i);return true;}catch(Throwable e){toast(a,"Calendar could not open this event");return false;}}
-
     private static void completeInBrain(Activity a,BrainActionStore.Action x){String prompt="Complete this Cortex action without inventing missing information. Action: "+x.title+" ["+x.type+"]"+(x.missing.length()>0?". Missing: "+join(x.missing):"")+". Ask only for the minimum information needed, then return an executable action suggestion.";CortexActionExecutor.openBrain(a,x.sourceItemId,prompt);}
 
     private static long parseWhen(JSONObject p,String key){String s=p.optString(key,"").trim();if(s.isEmpty())return 0;String[] formats={"yyyy-MM-dd'T'HH:mm:ssXXX","yyyy-MM-dd'T'HH:mmXXX","yyyy-MM-dd'T'HH:mm:ss","yyyy-MM-dd'T'HH:mm","yyyy-MM-dd HH:mm"};for(String f:formats)try{SimpleDateFormat d=new SimpleDateFormat(f,Locale.US);d.setLenient(false);return d.parse(s).getTime();}catch(Exception ignored){}return 0;}
-    private static long parseDateTime(String date,String time){date=safe(date);time=safe(time);if(date.isEmpty())return 0;if(time.isEmpty())time="09:00";try{SimpleDateFormat d=new SimpleDateFormat("yyyy-MM-dd HH:mm",Locale.US);d.setLenient(false);return d.parse(date+" "+time).getTime();}catch(Exception e){return 0;}}
+    private static long parseDateTime(String date,String time){date=safe(date);time=safe(time);if(date.isEmpty()||time.isEmpty())return 0;try{SimpleDateFormat d=new SimpleDateFormat("yyyy-MM-dd HH:mm",Locale.US);d.setLenient(false);return d.parse(date+" "+time).getTime();}catch(Exception e){return 0;}}
     private static String first(JSONObject p,String... keys){for(String k:keys){String x=p.optString(k,"").trim();if(!x.isEmpty())return x;}return"";}
     private static String friendlyType(String t){return safe(t).replace('_',' ').toLowerCase(Locale.ROOT);}
     private static String primaryLabel(String t){if(localType(t))return"Add to Cortex";if("CALL".equals(t))return"Open dialer";if("WEB_SEARCH".equals(t))return"Search";if("OPEN_APP".equals(t))return"Open app";return"Prepare draft";}
