@@ -33,18 +33,19 @@ public final class ContextStateStore {
 
     /**
      * Conservative hysteresis: a fresh primary is not displaced unless the challenger is strong
-     * enough and clearly better, or the current context has gone stale. This is the guard against
-     * Cortex narrating every app switch as a new cognitive context.
+     * enough and clearly better, the current context is stale, or the resolver has identified an
+     * explicit semantic boundary such as INTERRUPT/RESUME. App switching alone is never a boundary.
      */
     public static Offer offerPrimary(VaultDb db,long contextId,double confidence,int priority,String reason,long evidenceAt,long anchorSignalId){
         if(db==null||contextId<=0)return new Offer(0,false,"REJECTED");ContextSchema.ensure(db);long now=System.currentTimeMillis(),when=evidenceAt>0?evidenceAt:now;ContextState current=primary(db);ContextState candidate=get(db,contextId);
         if(candidate==null)return new Offer(contextId,false,"REJECTED");
         if(current!=null&&current.id==contextId){touchStack(db,contextId,ROLE_PRIMARY,priority,confidence,when,"CONTINUE · "+safe(reason));ensureOpenEpisode(db,contextId,"CONTINUE",reason,confidence,anchorSignalId,when);return new Offer(contextId,true,"CONTINUE");}
         boolean stale=current==null||now-Math.max(current.lastEvidenceAt,current.lastActiveAt)>PRIMARY_HOLD_MS;
+        boolean explicitBoundary=ContextBoundaryDetector.strong(reason);
         boolean strong=confidence>=SWITCH_MIN&&(current==null||confidence>=Math.max(SWITCH_MIN,current.stackConfidence+SWITCH_MARGIN));
-        if(current==null||stale||strong){
+        if(current==null||stale||strong||explicitBoundary){
             if(current!=null){touchStack(db,current.id,ROLE_BACKGROUND,Math.max(20,current.priority-15),current.stackConfidence,Math.max(current.lastEvidenceAt,current.lastActiveAt),"SUSPEND · "+safe(reason));closeOpenEpisode(db,current.id,"SUSPEND",reason,now);setLifecycle(db,current.id,LIFE_SUSPENDED);}
-            setLifecycle(db,contextId,LIFE_ACTIVE);touchStack(db,contextId,ROLE_PRIMARY,priority,confidence,when,current==null?"START_NEW · "+safe(reason):"RESUME_OR_SWITCH · "+safe(reason));ensureOpenEpisode(db,contextId,current==null?"START_NEW":"RESUME",reason,confidence,anchorSignalId,when);return new Offer(contextId,true,current==null?"START_NEW":"SWITCH");
+            setLifecycle(db,contextId,LIFE_ACTIVE);touchStack(db,contextId,ROLE_PRIMARY,priority,confidence,when,current==null?"START_NEW · "+safe(reason):"RESUME_OR_SWITCH · "+safe(reason));ensureOpenEpisode(db,contextId,current==null?"START_NEW":explicitBoundary&&reason.startsWith(ContextBoundaryDetector.INTERRUPT)?"INTERRUPT":"RESUME",reason,confidence,anchorSignalId,when);return new Offer(contextId,true,current==null?"START_NEW":explicitBoundary&&reason.startsWith(ContextBoundaryDetector.INTERRUPT)?"INTERRUPT":explicitBoundary?"RESUME":"SWITCH");
         }
         touchStack(db,contextId,ROLE_BACKGROUND,Math.min(priority,65),confidence,when,"BACKGROUND_CANDIDATE · "+safe(reason));ensureOpenEpisode(db,contextId,"BACKGROUND",reason,confidence,anchorSignalId,when);return new Offer(contextId,false,"BACKGROUND");
     }
