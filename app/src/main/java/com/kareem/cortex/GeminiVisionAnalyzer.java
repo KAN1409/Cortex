@@ -47,6 +47,23 @@ public final class GeminiVisionAnalyzer {
         throw last==null?new IOException("Vision analysis failed without diagnostic detail"):last;
     }
 
+    /**
+     * Real end-to-end Vision check using a generated non-private image and the exact production analyzer/model.
+     * Nothing from the user's Vault is read or uploaded.
+     */
+    public static ExternalBrainProvider.HealthReport healthCheck(Context context){
+        long started=SystemClock.elapsedRealtime();String key=GeminiKeyStore.get(context);if(key.isEmpty())return new ExternalBrainProvider.HealthReport(false,false,"gemini-vision",MODEL,"API key missing","Gemini API key not configured","",0,0);
+        File f=null;Bitmap b=null;
+        try{
+            f=new File(context.getCacheDir(),"cortex_vision_health_"+System.nanoTime()+".jpg");
+            b=Bitmap.createBitmap(480,240,Bitmap.Config.ARGB_8888);Canvas canvas=new Canvas(b);canvas.drawColor(Color.WHITE);Paint p=new Paint(Paint.ANTI_ALIAS_FLAG);p.setColor(Color.BLACK);p.setTextSize(38f);p.setTypeface(Typeface.DEFAULT_BOLD);canvas.drawText("CORTEX VISION TEST",34,82,p);p.setStyle(Paint.Style.STROKE);p.setStrokeWidth(7f);canvas.drawRect(42,122,210,205,p);canvas.drawCircle(345,164,47,p);
+            try(FileOutputStream out=new FileOutputStream(f)){if(!b.compress(Bitmap.CompressFormat.JPEG,90,out))throw new IOException("Could not encode synthetic vision image");}
+            long now=System.currentTimeMillis();KnowledgeItem synthetic=new KnowledgeItem(-999,"IMAGE","diagnostic_vision","Cortex synthetic vision health check","","","","Diagnostics","synthetic,vision",f.getAbsolutePath(),"analyzed","","","{\"synthetic\":true}",now,now);
+            JSONObject result=analyze(context,synthetic);JSONObject d=result.optJSONObject("_diagnostics");int code=d==null?200:d.optInt("http_code",200);long latency=d==null?SystemClock.elapsedRealtime()-started:d.optLong("latency_ms",SystemClock.elapsedRealtime()-started);String description=result.optString("description","").trim();String type=result.optString("content_type","").trim();boolean ok=code>=200&&code<300&&!description.isEmpty()&&!type.isEmpty();String preview=(type.isEmpty()?"unknown":type)+(description.isEmpty()?"":" · "+compact(description));return new ExternalBrainProvider.HealthReport(true,ok,"gemini-vision",MODEL,ok?"Production vision pipeline returned structured understanding":"Vision response was incomplete",ok?"":"Missing content_type/description",preview,code,latency);
+        }catch(Throwable e){int code=e instanceof VisionException?((VisionException)e).httpCode:0;return new ExternalBrainProvider.HealthReport(true,false,"gemini-vision",MODEL,e instanceof VisionException&&((VisionException)e).rateLimited()?"Vision provider rate limited":"Vision request failed",e.getClass().getSimpleName()+": "+nz(e.getMessage()),"",code,SystemClock.elapsedRealtime()-started);}
+        finally{if(b!=null&&!b.isRecycled())try{b.recycle();}catch(Throwable ignored){}if(f!=null)try{f.delete();}catch(Throwable ignored){}}
+    }
+
     private static JSONObject requestOnce(Context context,String key,Prepared p,int attempt)throws Exception{
         long gateWait=VisionRateLimitGate.beforeRequest(context);if(gateWait>0)throw new VisionException("Gemini Vision provider cooldown • retry_after_ms="+gateWait,false,429,gateWait);
         long started=SystemClock.elapsedRealtime();String b64=Base64.encodeToString(p.bytes,Base64.NO_WRAP);
