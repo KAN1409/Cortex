@@ -27,17 +27,23 @@ public final class CortexTextUi {
         applyDirection(view,clean);
     }
 
+    /**
+     * Arabic-dominant Cortex text uses a forced RTL paragraph base. FIRST_STRONG is intentionally
+     * not used here: medical/product answers often begin with a Latin drug name, dose, model name,
+     * URL or other technical token even though the sentence and reading order are Arabic.
+     * MixedBidiText still isolates embedded Latin runs, so English stays readable inside RTL text.
+     */
     public static void applyDirection(TextView view,String text){
         boolean rtl=isArabicDominant(text);
         if(rtl){
-            view.setTextDirection(View.TEXT_DIRECTION_FIRST_STRONG_RTL);
+            view.setTextDirection(View.TEXT_DIRECTION_RTL);
             view.setTextAlignment(View.TEXT_ALIGNMENT_VIEW_END);
-            view.setGravity(Gravity.END|Gravity.CENTER_VERTICAL);
+            view.setGravity(Gravity.END|Gravity.TOP);
             view.setLayoutDirection(View.LAYOUT_DIRECTION_RTL);
         }else{
-            view.setTextDirection(View.TEXT_DIRECTION_FIRST_STRONG_LTR);
+            view.setTextDirection(View.TEXT_DIRECTION_LTR);
             view.setTextAlignment(View.TEXT_ALIGNMENT_VIEW_START);
-            view.setGravity(Gravity.START|Gravity.CENTER_VERTICAL);
+            view.setGravity(Gravity.START|Gravity.TOP);
             view.setLayoutDirection(View.LAYOUT_DIRECTION_LTR);
         }
     }
