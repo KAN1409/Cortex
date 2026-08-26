@@ -7,6 +7,7 @@ ok(){ printf 'HEALTH BRANCH AUDIT PASS: %s\n' "$*"; }
 bad(){ FAIL=$((FAIL+1)); printf 'HEALTH BRANCH AUDIT FAIL: %s\n' "$*" >&2; }
 need_file(){ [ -f "$1" ] && ok "$1 present" || bad "$1 missing"; }
 need(){ local f="$1" p="$2" label="$3"; grep -Eq "$p" "$f" 2>/dev/null && ok "$label" || bad "$label"; }
+forbid(){ local f="$1" p="$2" label="$3"; if grep -Eq "$p" "$f" 2>/dev/null; then bad "$label"; else ok "$label"; fi; }
 
 MAN="app/src/main/AndroidManifest.xml"
 INPUT="app/src/main/java/com/kareem/cortex/InputActivity.java"
@@ -21,6 +22,12 @@ TEXTUI="app/src/main/java/com/kareem/cortex/CortexTextUi.java"
 BIDI="app/src/main/java/com/kareem/cortex/MixedBidiText.java"
 AUTOTEST="app/src/main/java/com/kareem/cortex/CortexAutoTestSuite.java"
 AUTOEXPORT="app/src/main/java/com/kareem/cortex/CortexAutoTestExporter.java"
+SYN_AUDIO="app/src/main/java/com/kareem/cortex/SyntheticAudioFixture.java"
+AUDIO_ANALYZER="app/src/main/java/com/kareem/cortex/AudioAnalyzer.java"
+HEALTHUI="app/src/main/java/com/kareem/cortex/HealthFollowupActivity.java"
+HEALTHBRIDGE="app/src/main/java/com/kareem/cortex/HealthConnectBridge.kt"
+HEALTHRESULT="app/src/main/java/com/kareem/cortex/HealthSyncResult.java"
+SEMANTIC="app/src/main/java/com/kareem/cortex/CortexSemanticOperation.java"
 ROBOTMODE="app/src/main/java/com/kareem/cortex/CortexExperimentalTestMode.java"
 ROBOTFIX="app/src/main/java/com/kareem/cortex/CortexRobotFixtures.java"
 ROBOT="app/src/main/java/com/kareem/cortex/CortexRobotUserTest.java"
@@ -28,7 +35,7 @@ ROBOTEXPORT="app/src/main/java/com/kareem/cortex/CortexRobotTestExporter.java"
 ACCESSIBILITY="app/src/main/java/com/kareem/cortex/CortexScreenAccessibilityService.java"
 VAULT="app/src/main/java/com/kareem/cortex/VaultDb.java"
 
-for f in "$ONBOARD" "$ACCESS" "$PROVIDER" "$BRAIN" "$PUI" "$RDEBUG" "$ENV" "$TEXTUI" "$BIDI" "$AUTOTEST" "$AUTOEXPORT" "$ROBOTMODE" "$ROBOTFIX" "$ROBOT" "$ROBOTEXPORT" "$ACCESSIBILITY" "$VAULT"; do need_file "$f"; done
+for f in "$ONBOARD" "$ACCESS" "$PROVIDER" "$BRAIN" "$PUI" "$RDEBUG" "$ENV" "$TEXTUI" "$BIDI" "$AUTOTEST" "$AUTOEXPORT" "$SYN_AUDIO" "$AUDIO_ANALYZER" "$HEALTHUI" "$HEALTHBRIDGE" "$HEALTHRESULT" "$SEMANTIC" "$ROBOTMODE" "$ROBOTFIX" "$ROBOT" "$ROBOTEXPORT" "$ACCESSIBILITY" "$VAULT"; do need_file "$f"; done
 
 # First-run Android access walkthrough must stay wired to the same authoritative gate inventory.
 need "$MAN" 'activity android:name="\.AccessOnboardingActivity"' 'first-run Access onboarding is registered'
@@ -55,13 +62,27 @@ need "$PROVIDER" 'clearOpenRouterCooldown' 'successful OpenRouter recovery clear
 need "$RDEBUG" 'brain_health_primary' 'debug export retains primary provider health result'
 need "$RDEBUG" 'brain_failover_active' 'debug export reports effective Gemini failover state'
 
-# Attached-capture questions should answer from the focal evidence before doing broad cross-memory work.
+# Fast Answer First: attached captures avoid unnecessary broad retrieval; generic external questions do too.
+# The first provider call answers only the question. ProposalUi owns useful next moves after answer render.
 need "$BRAIN" 'fastFocal=true' 'Brain has explicit fast focal route'
 need "$BRAIN" '!needsBroadContext\(question\)' 'fast focal route is limited to direct capture questions'
-need "$BRAIN" 'modelQuestion=fastFocal\?question:BrainActionStore\.request' 'direct focal answers do not wait for structured-action JSON'
-need "$BRAIN" 'broad retrieval/actions deferred' 'fast route records deferred broad work explicitly'
+need "$BRAIN" 'fastGeneral=true' 'Combined has a generic fast route when broad Cortex history is unnecessary'
+need "$BRAIN" 'broadRetrieval=combined&&needsBroadContext\(question\)' 'broad Cortex retrieval is intent-gated'
+need "$BRAIN" 'String modelQuestion=question' 'first provider request answers the actual question only'
+forbid "$BRAIN" 'String modelQuestion=.*BrainActionStore\.request' 'structured-action JSON cannot block first-answer readiness'
+need "$BRAIN" 'actions_deferred.*true' 'Brain diagnostics state that next moves are deferred'
+need "$BRAIN" 'broad retrieval and next-move generation do not block answer readiness' 'fast focal route records independent enrichment explicitly'
 need "$PUI" 'target\.sourceItemId>0' 'attached proposal opens Brain with authoritative source item id'
 need "$PUI" 'Do not duplicate its OCR/transcript' 'attached evidence is not duplicated into the visible Brain prompt'
+
+# Health Connect sync has a real terminal semantic contract; installed/pressed is not success.
+need "$HEALTHRESULT" 'SUCCESS.*NEEDS_ACCESS.*UNAVAILABLE.*UPDATE_REQUIRED.*ERROR' 'Health sync result has structured terminal states'
+need "$HEALTHBRIDGE" 'syncRecentDetailed' 'Health Connect exposes detailed structured sync result'
+need "$HEALTHUI" 'CortexSemanticOperation\.begin\("HEALTH_SYNC"' 'visible Health sync starts a semantic operation'
+need "$HEALTHUI" 'result\.success\(\).*CortexSemanticOperation\.complete' 'Health sync success closes only from structured successful result'
+need "$HEALTHUI" 'CortexSemanticOperation\.fail' 'Health sync failures close explicitly'
+need "$HEALTHUI" 'Partial read:.*run not marked successful' 'partial Health reads cannot be presented as full success'
+need "$SEMANTIC" 'contains\("HEALTH"\).*50_000L' 'Health semantic operation has bounded terminal budget'
 
 # Arabic-dominant content must stay RTL even when a line begins with an English drug/model/dose token.
 need "$TEXTUI" 'TEXT_DIRECTION_RTL' 'Arabic-dominant TextViews use forced RTL paragraph direction'
@@ -92,6 +113,11 @@ need "$ENV" 'ReliableDebugExporter\.exportAndShare' 'Advanced diagnostics uses r
 need "$AUTOTEST" 'CortexCapabilityRegistry\.all' 'automatic verification walks all authoritative capabilities'
 need "$AUTOTEST" 'health\.metric_roundtrip' 'automatic verification includes synthetic health metric round-trip'
 need "$AUTOTEST" 'transcript\.manual_override' 'automatic verification includes transcript correction authority test'
+need "$AUTOTEST" 'audio\.synthetic_contract' 'automatic verification includes deterministic real-WAV ASR pipeline contract'
+need "$AUTOTEST" 'live_provider_tested' 'synthetic audio verification cannot masquerade as provider-quality validation'
+need "$SYN_AUDIO" 'robot_synthetic_voice\.wav' 'synthetic audio fixture creates a real WAV'
+need "$SYN_AUDIO" 'live_provider_tested",false' 'synthetic audio metadata labels provider quality as untested'
+need "$AUDIO_ANALYZER" 'CortexExperimentalTestMode\.active\(ctx\).*SyntheticAudioFixture\.matches\(item\)' 'deterministic ASR bypass requires both sandbox mode and exact fixture marker'
 need "$AUTOTEST" 'proposal\.parser' 'automatic verification tests structured proposal parsing'
 need "$AUTOTEST" 'rtl\.arabic_dominant' 'automatic verification tests Arabic-dominant mixed bidi behavior'
 need "$AUTOEXPORT" 'CortexAutoTest_.*\.md' 'automatic verification exports Markdown report'
