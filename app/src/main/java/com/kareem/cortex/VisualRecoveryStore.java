@@ -46,7 +46,16 @@ public final class VisualRecoveryStore {
      */
     public static int retryRecoverableNow(VaultDb db){
         if(db==null)return 0;ensure(db);long now=System.currentTimeMillis();SQLiteDatabase sql=db.getWritableDatabase();ArrayList<Long> ids=new ArrayList<>();Cursor c=sql.rawQuery("SELECT item_id FROM visual_recovery WHERE recoverable=1 ORDER BY updated_at DESC LIMIT 100",null);while(c.moveToNext())ids.add(c.getLong(0));c.close();if(ids.isEmpty())return 0;
-        int changed=0;sql.beginTransaction();try{for(long id:ids){ContentValues r=new ContentValues();r.put("next_retry_at",now);r.put("updated_at",now);sql.update("visual_recovery",r,"item_id=? AND recoverable=1",new String[]{String.valueOf(id)});ContentValues v=new ContentValues();v.put("pipeline_version",LEGACY_PIPELINE);v.put("status","failed");v.put("error","Explicit retry-now requested from Advanced diagnostics; bounded attempt history preserved");v.put("updated_at",now);changed+=sql.update("visual_insights",v,"item_id=? AND status NOT IN ('done','local_only','skipped')",new String[]{String.valueOf(id)});}sql.setTransactionSuccessful();}finally{sql.endTransaction();}return changed;
+        boolean own=!sql.inTransaction();if(own)sql.beginTransaction();int changed=0;try{for(long id:ids){ContentValues r=new ContentValues();r.put("next_retry_at",now);r.put("updated_at",now);sql.update("visual_recovery",r,"item_id=? AND recoverable=1",new String[]{String.valueOf(id)});ContentValues v=new ContentValues();v.put("pipeline_version",LEGACY_PIPELINE);v.put("status","failed");v.put("error","Explicit retry-now requested from Advanced diagnostics; bounded attempt history preserved");v.put("updated_at",now);changed+=sql.update("visual_insights",v,"item_id=? AND status NOT IN ('done','local_only','skipped')",new String[]{String.valueOf(id)});}if(own)sql.setTransactionSuccessful();}finally{if(own)sql.endTransaction();}return changed;
+    }
+
+    /**
+     * Explicit fresh budget for terminal items after the user fixes the underlying cause. This is the
+     * only bulk recovery operation that deletes terminal attempt history; successful/protected items
+     * remain untouched. Transaction-aware so deterministic verification can roll it back safely.
+     */
+    public static int resetTerminalBudget(VaultDb db,int limit){
+        if(db==null)return 0;ensure(db);SQLiteDatabase sql=db.getWritableDatabase();ArrayList<Long> ids=new ArrayList<>();Cursor c=sql.rawQuery("SELECT r.item_id FROM visual_recovery r LEFT JOIN visual_insights v ON v.item_id=r.item_id WHERE r.recoverable=0 AND COALESCE(v.status,'') NOT IN ('done','local_only','skipped') ORDER BY r.updated_at DESC LIMIT ?",new String[]{String.valueOf(Math.max(1,Math.min(100,limit)))});while(c.moveToNext())ids.add(c.getLong(0));c.close();if(ids.isEmpty())return 0;long now=System.currentTimeMillis();boolean own=!sql.inTransaction();if(own)sql.beginTransaction();int changed=0;try{for(long id:ids){sql.delete("visual_recovery","item_id=? AND recoverable=0",new String[]{String.valueOf(id)});ContentValues v=new ContentValues();v.put("pipeline_version",LEGACY_PIPELINE);v.put("status","failed");v.put("error","Explicit terminal retry budget reset after user review");v.put("updated_at",now);changed+=sql.update("visual_insights",v,"item_id=? AND status NOT IN ('done','local_only','skipped')",new String[]{String.valueOf(id)});}if(own)sql.setTransactionSuccessful();}finally{if(own)sql.endTransaction();}return changed;
     }
 
     /** Latest unresolved visual issue for an explicit per-item inspection/retry surface. */
