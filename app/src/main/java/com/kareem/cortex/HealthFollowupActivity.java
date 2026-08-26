@@ -1,17 +1,23 @@
 package com.kareem.cortex;
 
-import android.app.*;
 import android.content.*;
 import android.content.pm.PackageManager;
 import android.os.Bundle;
 import android.view.*;
 import android.widget.*;
+import androidx.activity.ComponentActivity;
+import androidx.activity.result.ActivityResultLauncher;
+import androidx.health.connect.client.contracts.HealthPermissionsRequestContract;
+import java.util.Set;
 
 /** Health follow-up hub: source access, evidence imports, timeline and grounded follow-up state. */
-public final class HealthFollowupActivity extends Activity {
-    static final int REQ_HEALTH_CONNECT=941;
+public final class HealthFollowupActivity extends ComponentActivity {
     LinearLayout body;TextView healthConnectState,samsungState,huaweiState,summary,timeline,trends,syncButton;
     volatile boolean healthReady=false;volatile long healthSyncToken=0;
+    final ActivityResultLauncher<Set<String>> healthPermissionLauncher=registerForActivityResult(
+        new HealthPermissionsRequestContract(HealthConnectBridge.PROVIDER),
+        granted->{if(!isFinishing()&&!isDestroyed())refresh();}
+    );
     int dp(int x){return CortexUi.dp(this,x);}
 
     @Override public void onCreate(Bundle b){super.onCreate(b);CortexUi.applyWindow(this);build();refresh();}
@@ -59,8 +65,7 @@ public final class HealthFollowupActivity extends Activity {
         HealthConnectBridge.permissionStatus(this,(granted,total,error)->{if(isFinishing()||isDestroyed())return;if(error!=null){healthReady=false;syncButton.setEnabled(false);healthConnectState.setText("AVAILABLE · permission check failed: "+error);healthConnectState.setTextColor(CortexUi.ORANGE);}else{healthReady=granted==total;syncButton.setEnabled(healthReady);healthConnectState.setText(healthReady?"READY · "+granted+"/"+total+" read scopes granted":"NEEDS ACCESS · "+granted+"/"+total+" read scopes granted · grant access before sync");healthConnectState.setTextColor(healthReady?CortexUi.GREEN:CortexUi.ORANGE);}});
     }
 
-    void requestHealthPermissions(){try{startActivityForResult(HealthConnectBridge.permissionIntent(this),REQ_HEALTH_CONNECT);}catch(Throwable e){Toast.makeText(this,"Could not open Health Connect permissions",Toast.LENGTH_LONG).show();}}
-    @Override protected void onActivityResult(int requestCode,int resultCode,Intent data){super.onActivityResult(requestCode,resultCode,data);if(requestCode==REQ_HEALTH_CONNECT)refresh();}
+    void requestHealthPermissions(){try{healthPermissionLauncher.launch(HealthConnectBridge.requiredReadPermissions());}catch(Throwable e){Toast.makeText(this,"Could not open Health Connect permissions",Toast.LENGTH_LONG).show();refresh();}}
     void syncHealth(){
         if(!healthReady){CortexHaptics.reject(syncButton);Toast.makeText(this,"Grant all Health Connect read scopes before syncing.",Toast.LENGTH_LONG).show();refresh();return;}
         healthReady=false;syncButton.setEnabled(false);syncButton.setText("Syncing health data…");final long token=CortexSemanticOperation.begin("HEALTH_SYNC","Health Connect 30-day sync");healthSyncToken=token;CortexSemanticOperation.progress(token,"Reading Health Connect",15,"Read scopes confirmed; sync started");
