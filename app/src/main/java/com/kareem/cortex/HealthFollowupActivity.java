@@ -14,7 +14,7 @@ import java.util.Set;
 public final class HealthFollowupActivity extends ComponentActivity {
     LinearLayout body;TextView healthConnectState,samsungState,huaweiState,summary,timeline,trends,syncButton;
     volatile boolean healthReady=false;volatile long healthSyncToken=0;
-    final ActivityResultLauncher<Set<String>> healthPermissionLauncher=registerForActivityResult(
+    final ActivityResultLauncher<Set<? extends String>> healthPermissionLauncher=registerForActivityResult(
         new HealthPermissionsRequestContract(HealthConnectBridge.PROVIDER),
         granted->{if(!isFinishing()&&!isDestroyed())refresh();}
     );
