@@ -9,6 +9,8 @@ import java.util.ArrayList;
 
 /** Brain surface locked to the approved matte warm premium language with per-answer proposals. */
 public final class ProposalAskCortexActivity extends AskCortexActivity {
+    private volatile long semanticBrainOp=0;
+
     @Override void build(){
         LinearLayout root=new LinearLayout(this);root.setOrientation(LinearLayout.VERTICAL);root.setBackgroundColor(CortexUi.BG);root.addView(header());
         modeBar=new LinearLayout(this);modeBar.setOrientation(LinearLayout.HORIZONTAL);modeBar.setPadding(dp(18),dp(2),dp(18),0);addMode("Your data","your_data");addMode("External","external");addMode("Combined","combined");root.addView(modeBar,new LinearLayout.LayoutParams(-1,dp(42)));
@@ -18,6 +20,19 @@ public final class ProposalAskCortexActivity extends AskCortexActivity {
     }
 
     View header(){LinearLayout row=new LinearLayout(this);row.setGravity(Gravity.CENTER_VERTICAL);row.setPadding(dp(23),dp(18),dp(20),dp(8));View dot=new View(this);dot.setBackground(CortexUi.round(this,CortexUi.RED,Color.TRANSPARENT,999));row.addView(dot,new LinearLayout.LayoutParams(dp(9),dp(9)));TextView c=CortexUi.plain(this,"C O R T E X",14,CortexUi.TEXT);CortexUi.bold(c);if(android.os.Build.VERSION.SDK_INT>=21)c.setLetterSpacing(.20f);LinearLayout.LayoutParams cp=new LinearLayout.LayoutParams(-2,dp(40));cp.setMargins(dp(12),0,0,0);row.addView(c,cp);View d=CortexUi.divider(this);LinearLayout.LayoutParams dv=new LinearLayout.LayoutParams(dp(1),dp(28));dv.setMargins(dp(12),0,dp(12),0);row.addView(d,dv);TextView sys=CortexUi.plain(this,"BRAIN",10,CortexUi.MUTED);if(android.os.Build.VERSION.SDK_INT>=21)sys.setLetterSpacing(.10f);row.addView(sys,new LinearLayout.LayoutParams(0,dp(40),1));CortexGlyphView settings=CortexUi.glyph(this,"settings",CortexUi.RED,false);settings.setOnClickListener(v->{try{startActivity(new Intent(this,SettingsActivity.class));}catch(Throwable ignored){}});row.addView(settings,new LinearLayout.LayoutParams(dp(46),dp(46)));return row;}
+
+    @Override void submit(){
+        if(busy||destroyed||input==null)return;String q=input.getText().toString().trim();if(q.isEmpty())return;
+        CortexSemanticOperation.Snapshot old=CortexSemanticOperation.get(semanticBrainOp);if(old!=null&&!old.terminal())CortexSemanticOperation.cancel(semanticBrainOp,"Superseded by a newer Brain request");
+        semanticBrainOp=CortexSemanticOperation.begin("BRAIN_ANSWER",q);CortexSemanticOperation.progress(semanticBrainOp,"Understanding request",0,"Brain request accepted by the visible Brain surface");
+        super.submit();
+    }
+
+    @Override void progress(TextView view,String label,int percent){long op=semanticBrainOp;if(op>0)CortexSemanticOperation.progress(op,label,percent,"Brain is still working; progress is not a terminal result");super.progress(view,label,percent);}
+
+    @Override void addFailure(String message,Throwable e){long op=semanticBrainOp;if(op>0){String detail=message+(e==null?"":" · "+e.getClass().getSimpleName()+(e.getMessage()==null?"":": "+e.getMessage()));CortexSemanticOperation.fail(op,detail);}super.addFailure(message,e);}
+
+    @Override void finishBusy(){long op=semanticBrainOp;CortexSemanticOperation.Snapshot s=CortexSemanticOperation.get(op);if(op>0&&s!=null&&!s.terminal())CortexSemanticOperation.fail(op,"Brain UI worker ended without a terminal answer");super.finishBusy();}
 
     @Override void styleModes(){if(modeBar==null)return;for(int i=0;i<modeBar.getChildCount();i++){TextView t=(TextView)modeBar.getChildAt(i);boolean on=sourceMode.equals(t.getTag());String key=(String)t.getTag();int color="your_data".equals(key)?CortexUi.GREEN:"external".equals(key)?CortexUi.ORANGE:CortexUi.RED;t.setTextColor(on?CortexUi.TEXT:CortexUi.MUTED);int wash=on?Color.argb(18,Color.red(color),Color.green(color),Color.blue(color)):Color.TRANSPARENT;t.setBackground(CortexUi.round(this,wash,on?Color.argb(82,Color.red(color),Color.green(color),Color.blue(color)):CortexUi.BORDER_SOFT,999));CortexUi.raised(this,t,on?3:1);if(on)CortexUi.medium(t);}if(modeNote!=null){if("combined".equals(sourceMode))modeNote.setText("Combined · cloud-allowed Cortex evidence + configured external AI, with local fallback");else if("external".equals(sourceMode))modeNote.setText("External AI only · your Cortex memory is not sent");else modeNote.setText("Private Cortex data only · no cloud memory upload");}refreshContextNote();}
 
@@ -50,10 +65,11 @@ public final class ProposalAskCortexActivity extends AskCortexActivity {
     private int actionColor(String type){if("WAIT_FOR".equals(type)||"REMINDER".equals(type))return CortexUi.ORANGE;if("CALENDAR_EVENT".equals(type)||"CALENDAR_RESCHEDULE".equals(type))return CortexUi.YELLOW;if("PROJECT_LINK".equals(type)||"TASK".equals(type)||"KNOWLEDGE_NOTE".equals(type))return CortexUi.GREEN;return CortexUi.RED;}
 
     @Override void addAnswer(LocalAskRouter.Result r,String q,boolean refined){
-        int before=conversation==null?0:conversation.getChildCount();super.addAnswer(r,q,refined);if(conversation==null||db==null||r==null||conversation.getChildCount()<=before)return;LinearLayout answerCard=null;
+        int before=conversation==null?0:conversation.getChildCount();super.addAnswer(r,q,refined);if(conversation==null||db==null||r==null||conversation.getChildCount()<=before){long op=semanticBrainOp;if(op>0)CortexSemanticOperation.fail(op,"Brain returned but the answer surface could not be rendered");return;}LinearLayout answerCard=null;
         for(int i=conversation.getChildCount()-1;i>=before;i--){View v=conversation.getChildAt(i);if(v instanceof LinearLayout){answerCard=(LinearLayout)v;break;}}
-        if(answerCard==null)return;answerCard.setPadding(dp(14),dp(13),dp(14),dp(13));answerCard.setBackground(CortexUi.velvet(this,20));CortexUi.raised(this,answerCard,4);
+        if(answerCard==null){long op=semanticBrainOp;if(op>0)CortexSemanticOperation.fail(op,"Brain returned but the answer card could not be located");return;}answerCard.setPadding(dp(14),dp(13),dp(14),dp(13));answerCard.setBackground(CortexUi.velvet(this,20));CortexUi.raised(this,answerCard,4);
         if(answerCard.getChildCount()>0&&answerCard.getChildAt(0) instanceof LinearLayout){LinearLayout labelRow=(LinearLayout)answerCard.getChildAt(0);labelRow.setGravity(Gravity.CENTER_VERTICAL);CortexGlyphView icon=CortexUi.glyph(this,"brain",CortexUi.RED,true);labelRow.addView(icon,0,new LinearLayout.LayoutParams(dp(36),dp(36)));if(labelRow.getChildCount()>1){View text=labelRow.getChildAt(1);if(text!=null){ViewGroup.LayoutParams raw=text.getLayoutParams();if(raw instanceof LinearLayout.LayoutParams)((LinearLayout.LayoutParams)raw).setMargins(dp(8),0,0,0);}}}
+        long op=semanticBrainOp;if(op>0){if("failed".equals(r.provider))CortexSemanticOperation.fail(op,"Brain route ended with a user-visible provider failure state");else CortexSemanticOperation.complete(op,"ANSWER_READY · "+r.provider+" · "+r.totalMs+" ms");}
         boolean cloudAllowed=!"your_data".equals(r.sourceMode);long sourceId="combined".equals(r.sourceMode)?Math.max(0,focalItemId):0;String title=q==null||q.trim().isEmpty()?"Brain answer":"Brain · "+proposalClip(q,72);ResultProposalEngine.Target target=new ResultProposalEngine.Target("Brain answer","brain_"+(r.jobId>0?r.jobId:System.nanoTime()),title,r.answer,sourceId,"BRAIN_RESULT",cloudAllowed);ProposalUi.attach(this,db,answerCard,target);
     }
 
