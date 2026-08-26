@@ -27,6 +27,7 @@ AUDIO_ANALYZER="app/src/main/java/com/kareem/cortex/AudioAnalyzer.java"
 HEALTHUI="app/src/main/java/com/kareem/cortex/HealthFollowupActivity.java"
 HEALTHBRIDGE="app/src/main/java/com/kareem/cortex/HealthConnectBridge.kt"
 HEALTHRESULT="app/src/main/java/com/kareem/cortex/HealthSyncResult.java"
+HEALTHTREND="app/src/main/java/com/kareem/cortex/HealthTrendEngine.java"
 SEMANTIC="app/src/main/java/com/kareem/cortex/CortexSemanticOperation.java"
 ROBOTMODE="app/src/main/java/com/kareem/cortex/CortexExperimentalTestMode.java"
 ROBOTFIX="app/src/main/java/com/kareem/cortex/CortexRobotFixtures.java"
@@ -35,7 +36,7 @@ ROBOTEXPORT="app/src/main/java/com/kareem/cortex/CortexRobotTestExporter.java"
 ACCESSIBILITY="app/src/main/java/com/kareem/cortex/CortexScreenAccessibilityService.java"
 VAULT="app/src/main/java/com/kareem/cortex/VaultDb.java"
 
-for f in "$ONBOARD" "$ACCESS" "$PROVIDER" "$BRAIN" "$PUI" "$RDEBUG" "$ENV" "$TEXTUI" "$BIDI" "$AUTOTEST" "$AUTOEXPORT" "$SYN_AUDIO" "$AUDIO_ANALYZER" "$HEALTHUI" "$HEALTHBRIDGE" "$HEALTHRESULT" "$SEMANTIC" "$ROBOTMODE" "$ROBOTFIX" "$ROBOT" "$ROBOTEXPORT" "$ACCESSIBILITY" "$VAULT"; do need_file "$f"; done
+for f in "$ONBOARD" "$ACCESS" "$PROVIDER" "$BRAIN" "$PUI" "$RDEBUG" "$ENV" "$TEXTUI" "$BIDI" "$AUTOTEST" "$AUTOEXPORT" "$SYN_AUDIO" "$AUDIO_ANALYZER" "$HEALTHUI" "$HEALTHBRIDGE" "$HEALTHRESULT" "$HEALTHTREND" "$SEMANTIC" "$ROBOTMODE" "$ROBOTFIX" "$ROBOT" "$ROBOTEXPORT" "$ACCESSIBILITY" "$VAULT"; do need_file "$f"; done
 
 # First-run Android access walkthrough must stay wired to the same authoritative gate inventory.
 need "$MAN" 'activity android:name="\.AccessOnboardingActivity"' 'first-run Access onboarding is registered'
@@ -83,6 +84,20 @@ need "$HEALTHUI" 'result\.success\(\).*CortexSemanticOperation\.complete' 'Healt
 need "$HEALTHUI" 'CortexSemanticOperation\.fail' 'Health sync failures close explicitly'
 need "$HEALTHUI" 'Partial read:.*run not marked successful' 'partial Health reads cannot be presented as full success'
 need "$SEMANTIC" 'contains\("HEALTH"\).*50_000L' 'Health semantic operation has bounded terminal budget'
+
+# Health trends are descriptive local arithmetic over grounded measurements, never a diagnostic model.
+need "$HEALTHTREND" 'never calls a model' 'health trend layer explicitly forbids model inference'
+need "$HEALTHTREND" 'one source per metric' 'health trend layer avoids silent cross-source double counting'
+need "$HEALTHTREND" 'PERIOD=7L\*DAY' 'health trend comparison uses explicit seven-day periods'
+need "$HEALTHTREND" 'stepStats' 'steps are aggregated by recorded local day rather than averaged per interval record'
+need "$HEALTHTREND" 'median|values\.size\(\)/2' 'high-frequency heart/oxygen readings use a robust central statistic'
+need "$HEALTHTREND" 'similar means less than 3% arithmetic difference|Similar means less than 3%' 'similar direction is documented as arithmetic, not a clinical normal range'
+need "$HEALTHTREND" 'sourceLabel' 'every health trend retains source transparency'
+forbid "$HEALTHTREND" 'ExternalBrainProvider|LocalLlm|Gemini|OpenRouter|diagnos|healthy|unhealthy|normal range|treatment' 'health trend engine contains no provider route or clinical verdict vocabulary'
+need "$HEALTHUI" 'TRENDS · LOCAL / GROUNDED' 'Health UI visibly separates grounded local trends'
+need "$HEALTHUI" 'HealthTrendEngine\.build' 'Health UI reads the deterministic trend engine'
+need "$HEALTHUI" 'Higher / lower / similar is descriptive|higher / lower / similar is descriptive' 'Health UI explains descriptive direction semantics'
+need "$HEALTHUI" 'one observed source.*avoid silent cross-source double counting' 'Health UI explains source de-duplication boundary'
 
 # Arabic-dominant content must stay RTL even when a line begins with an English drug/model/dose token.
 need "$TEXTUI" 'TEXT_DIRECTION_RTL' 'Arabic-dominant TextViews use forced RTL paragraph direction'
