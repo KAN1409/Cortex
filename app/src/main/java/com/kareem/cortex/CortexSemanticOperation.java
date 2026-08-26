@@ -56,7 +56,11 @@ public final class CortexSemanticOperation {
     /** Returns the earliest operation that began after the caller's pre-click cursor. */
     public static Snapshot firstAfter(long cursor){Map.Entry<Long,Entry> x=OPS.higherEntry(cursor);return x==null?null:new Snapshot(x.getValue());}
 
-    public static long defaultTimeoutMs(String kind){String k=n(kind).toUpperCase();if(k.contains("CAPTURE")||k.contains("ASR")||k.contains("VISUAL"))return 75_000L;if(k.contains("PROPOSAL"))return 35_000L;if(k.contains("BRAIN"))return 30_000L;if(k.contains("HEALTH"))return 45_000L;return 20_000L;}
+    /**
+     * Budgets describe the semantic function, not a screen animation. Keep them slightly above the
+     * queue watchdog for operations whose authoritative terminal state is produced by AnalysisQueue.
+     */
+    public static long defaultTimeoutMs(String kind){String k=n(kind).toUpperCase();if(k.contains("ASR")||k.contains("AUDIO"))return 245_000L;if(k.contains("VISUAL")||k.contains("OCR"))return 155_000L;if(k.contains("CAPTURE"))return 90_000L;if(k.contains("PROPOSAL"))return 35_000L;if(k.contains("BRAIN"))return 30_000L;if(k.contains("HEALTH"))return 50_000L;return 20_000L;}
 
     private static void finish(long token,String state,String stage,int percent,String detail){Entry e=OPS.get(token);if(e==null||!RUNNING.equals(e.state))return;e.detail=n(detail);e.stage=stage;e.percent=percent;e.state=state;e.finished=SystemClock.elapsedRealtime();}
     private static void prune(){while(OPS.size()>MAX_HISTORY){Map.Entry<Long,Entry> first=OPS.firstEntry();if(first==null)break;if(RUNNING.equals(first.getValue().state))break;OPS.remove(first.getKey(),first.getValue());}}
