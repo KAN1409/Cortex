@@ -10,7 +10,7 @@ import android.widget.*;
 /** Health follow-up hub: source access, evidence imports, timeline and grounded follow-up state. */
 public final class HealthFollowupActivity extends Activity {
     static final int REQ_HEALTH_CONNECT=941;
-    LinearLayout body;TextView healthConnectState,samsungState,huaweiState,summary,timeline,syncButton;
+    LinearLayout body;TextView healthConnectState,samsungState,huaweiState,summary,timeline,trends,syncButton;
     volatile boolean healthReady=false;volatile long healthSyncToken=0;
     int dp(int x){return CortexUi.dp(this,x);}
 
@@ -32,7 +32,8 @@ public final class HealthFollowupActivity extends Activity {
         TextView importNote=CortexUi.plain(this,"Imported items keep the original file/audio in Cortex and are linked into the health evidence timeline after capture.",10,CortexUi.MUTED);importNote.setPadding(dp(3),dp(7),dp(3),0);body.addView(importNote);
 
         body.addView(section("HEALTH TIMELINE",CortexUi.RED));summary=statusCard("Current health evidence");timeline=statusCard("Recent measurements");
-        body.addView(section("BOUNDARY",CortexUi.MUTED));TextView boundary=CortexUi.text(this,"Cortex can organize health evidence, surface trends and pending follow-ups, and keep every insight traceable to its source. It must not turn an inferred pattern into a confirmed diagnosis or silently alter medical care.",11,CortexUi.MUTED);body.addView(boundary);
+        body.addView(section("TRENDS · LOCAL / GROUNDED",CortexUi.GREEN));trends=statusCard("Descriptive trends");TextView trendBoundary=CortexUi.plain(this,"Compared locally from stored measurements only. Higher / lower / similar is descriptive, not a clinical range, diagnosis or treatment recommendation. Each metric uses one observed source to avoid silent cross-source double counting.",9,CortexUi.MUTED);trendBoundary.setPadding(dp(3),0,dp(3),dp(4));body.addView(trendBoundary);
+        body.addView(section("BOUNDARY",CortexUi.MUTED));TextView boundary=CortexUi.text(this,"Cortex can organize health evidence, surface descriptive trends and pending follow-ups, and keep every insight traceable to its source. It must not turn an inferred pattern into a confirmed diagnosis or silently alter medical care.",11,CortexUi.MUTED);body.addView(boundary);
 
         setContentView(root);CortexUi.fitSystemBars(this,root);
     }
@@ -47,11 +48,11 @@ public final class HealthFollowupActivity extends Activity {
         healthReady=false;syncButton.setEnabled(false);
         boolean samsungInstalled=installed("com.sec.android.app.shealth"),huaweiInstalled=installed("com.huawei.health");
         VaultDb db=null;try{
-            db=new VaultDb(this);HealthStore.Summary s=HealthStore.summary(db);summary.setText(s.metricCount+" measurements · "+s.evidenceCount+" imported evidence item"+(s.evidenceCount==1?"":"s")+" · "+s.openFollowups+" open follow-up"+(s.openFollowups==1?"":"s"));String recent=HealthStore.recentTimeline(db,8);timeline.setText(recent.isEmpty()?"No health measurements synced yet.":recent);
+            db=new VaultDb(this);HealthStore.Summary s=HealthStore.summary(db);summary.setText(s.metricCount+" measurements · "+s.evidenceCount+" imported evidence item"+(s.evidenceCount==1?"":"s")+" · "+s.openFollowups+" open follow-up"+(s.openFollowups==1?"":"s"));String recent=HealthStore.recentTimeline(db,8);timeline.setText(recent.isEmpty()?"No health measurements synced yet.":recent);HealthTrendEngine.Report trend=HealthTrendEngine.build(db);trends.setText(trend.available()?trend.text:"No comparable health trend yet. Sync or import more measurements over time; Cortex will only compare periods when there is enough stored data.");
             HealthStore.SourceState ss=HealthStore.sourceState(db,"samsung_health"),hs=HealthStore.sourceState(db,"huawei_health");
             if(ss!=null&&"active_via_health_connect".equals(ss.status)){samsungState.setText("ACTIVE VIA HEALTH CONNECT · Samsung-origin records observed"+(ss.lastSyncAt>0?" · "+friendlyAge(ss.lastSyncAt):""));samsungState.setTextColor(CortexUi.GREEN);}else{samsungState.setText(samsungInstalled?"INSTALLED · connect Samsung Health to Health Connect, then grant Cortex read access":"NOT INSTALLED · Health Connect may still contain data from other sources");samsungState.setTextColor(samsungInstalled?CortexUi.GREEN:CortexUi.MUTED);}
             if(hs!=null&&"active_via_health_connect".equals(hs.status)){huaweiState.setText("DATA OBSERVED VIA HEALTH CONNECT"+(hs.lastSyncAt>0?" · "+friendlyAge(hs.lastSyncAt):"")+" · direct Health Kit remains optional setup");huaweiState.setTextColor(CortexUi.GREEN);}else{huaweiState.setText(huaweiInstalled?"INSTALLED · DIRECT DATA ACCESS STILL NEEDS HEALTH KIT SETUP":"NOT INSTALLED · direct Health Kit connector remains optional");huaweiState.setTextColor(huaweiInstalled?CortexUi.ORANGE:CortexUi.MUTED);}
-        }catch(Throwable e){summary.setText("Health timeline unavailable: "+e.getClass().getSimpleName());timeline.setText("");samsungState.setText(samsungInstalled?"INSTALLED":"NOT INSTALLED");huaweiState.setText(huaweiInstalled?"INSTALLED · DIRECT SETUP REQUIRED":"NOT INSTALLED");}finally{if(db!=null)try{db.close();}catch(Throwable ignored){}}
+        }catch(Throwable e){summary.setText("Health timeline unavailable: "+e.getClass().getSimpleName());timeline.setText("");trends.setText("Health trend layer unavailable: "+e.getClass().getSimpleName());samsungState.setText(samsungInstalled?"INSTALLED":"NOT INSTALLED");huaweiState.setText(huaweiInstalled?"INSTALLED · DIRECT SETUP REQUIRED":"NOT INSTALLED");}finally{if(db!=null)try{db.close();}catch(Throwable ignored){}}
 
         int sdk=HealthConnectBridge.sdkStatus(this);HealthSyncPolicy.Failure sdkState=HealthSyncPolicy.sdk(sdk);if(!"READY".equals(sdkState.state)){healthConnectState.setText((HealthSyncResult.UPDATE_REQUIRED.equals(sdkState.state)?"PROVIDER UPDATE REQUIRED":"UNAVAILABLE ON THIS DEVICE")+" · "+sdkState.nextAction);healthConnectState.setTextColor(CortexUi.ORANGE);return;}
         healthConnectState.setText("AVAILABLE · checking read scopes…");healthConnectState.setTextColor(CortexUi.MUTED);
