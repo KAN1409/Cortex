@@ -22,6 +22,7 @@ public final class HealthTrendEngine {
         public final long latestAt;
         Trend(String metric,String label,String unit,String source,String direction,String detail,String quality,double latest,double recent,double previous,double delta,int rn,int pn,long latestAt){this.metric=n(metric);this.label=n(label);this.unit=n(unit);sourceKey=n(source);this.direction=n(direction);this.detail=n(detail);dataQuality=n(quality);this.latest=latest;recentValue=recent;previousValue=previous;deltaPercent=delta;recentSamples=rn;previousSamples=pn;this.latestAt=latestAt;}
         public boolean comparable(){return recentSamples>=minimum(metric)&&previousSamples>=minimum(metric)&&Double.isFinite(recentValue)&&Double.isFinite(previousValue);}
+        public int coverage(){return recentSamples+previousSamples;}
     }
 
     public static final class Report {
@@ -39,7 +40,12 @@ public final class HealthTrendEngine {
         return new Report(now,out,text.toString());
     }
 
-    private static Trend trend(VaultDb db,String metric,long now){String source=dominantSource(db,metric,now-2L*PERIOD);return source.isEmpty()?null:sourceTrend(db,metric,source,now);}
+    /**
+     * Pick exactly one source per metric. Comparable two-period coverage beats a merely newer source;
+     * among equally comparable candidates prefer more recorded coverage, then the freshest reading.
+     */
+    private static Trend trend(VaultDb db,String metric,long now){Trend best=null;for(String source:candidateSources(db,metric,now-2L*PERIOD)){Trend t=sourceTrend(db,metric,source,now);if(t==null)continue;if(best==null||better(t,best))best=t;}return best;}
+    private static boolean better(Trend a,Trend b){if(a.comparable()!=b.comparable())return a.comparable();if(a.coverage()!=b.coverage())return a.coverage()>b.coverage();return a.latestAt>b.latestAt;}
 
     /** Test-only deterministic entry: exact source prevents unrelated real metrics from affecting a rollback fixture. */
     static Trend diagnosticForSource(VaultDb db,String metric,String source,long now){if(db==null||n(metric).isEmpty()||n(source).isEmpty())return null;HealthStore.ensure(db);return sourceTrend(db,n(metric),n(source),now);}
@@ -53,8 +59,7 @@ public final class HealthTrendEngine {
         String detail=detail(metric,latest,recent,previous,direction,delta,quality);return new Trend(metric,label,unit,source,direction,detail,quality,latest.value,recent.value,previous.value,delta,recent.count,previous.count,latest.at);
     }
 
-    /** Select one origin per metric: most recent usable source, then sample count. */
-    private static String dominantSource(VaultDb db,String metric,long since){Cursor c=null;try{c=db.getReadableDatabase().rawQuery("SELECT source_key,COUNT(*) n,MAX(end_at) latest FROM health_metrics WHERE metric_type=? AND end_at>=? GROUP BY source_key ORDER BY latest DESC,n DESC LIMIT 1",new String[]{metric,String.valueOf(since)});return c.moveToFirst()?n(c.getString(0)):"";}catch(Throwable ignored){return"";}finally{if(c!=null)c.close();}}
+    private static ArrayList<String> candidateSources(VaultDb db,String metric,long since){ArrayList<String> out=new ArrayList<>();Cursor c=null;try{c=db.getReadableDatabase().rawQuery("SELECT source_key,MAX(end_at) latest FROM health_metrics WHERE metric_type=? AND end_at>=? GROUP BY source_key ORDER BY latest DESC LIMIT 12",new String[]{metric,String.valueOf(since)});while(c.moveToNext()){String s=n(c.getString(0));if(!s.isEmpty())out.add(s);}}catch(Throwable ignored){}finally{if(c!=null)c.close();}return out;}
 
     private static ArrayList<Point> points(VaultDb db,String metric,String source,long since,long until){ArrayList<Point> out=new ArrayList<>();Cursor c=null;try{c=db.getReadableDatabase().rawQuery("SELECT value_real,unit,end_at FROM health_metrics WHERE metric_type=? AND source_key=? AND end_at>=? AND end_at<=? ORDER BY end_at ASC,id ASC",new String[]{metric,source,String.valueOf(since),String.valueOf(until)});while(c.moveToNext()){double v=c.getDouble(0);if(Double.isFinite(v))out.add(new Point(v,n(c.getString(1)),c.getLong(2)));}}catch(Throwable ignored){}finally{if(c!=null)c.close();}return out;}
 
