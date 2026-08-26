@@ -104,8 +104,8 @@ public final class BrainRouter {
     static boolean operationalFastPathEligible(String q,long focalItemId){return focalItemId<=0||!explicitFocalReference(q);}
 
     private static boolean personalMemoryQuestion(String n){
-        String p=" "+n+" ";String[] en={" i "," me "," my "," mine "," we "," us "," our "};for(String x:en)if(p.contains(x))return true;
-        String[] ar={"انا","أنا","عندي","بتاعي","بتاعتي","كنت","عملت","رحت","كشفت","اشتريت","اخدت","أخدت","خدت","قلت","حجزت","قابلت","دكتوري","مشروعي","ميعادي","موعدي","عربيتي","ابني","مراتي","شغلي","دوائي","ادويتي","أدويتي"};for(String x:ar)if(n.contains(LocalSemanticEmbedder.norm(x)))return true;return false;
+        String p=" "+n+" ";String[] en={" my "," mine "," our "," did i "," have i "," was i "," i saw "," i used "," i went "," i bought "," i took "," i said "," i booked "," i met "," i visited "," i had "," i was "," we decided "," we agreed "};for(String x:en)if(p.contains(x))return true;
+        String[] ar={"عندي","بتاعي","بتاعتي","كنت","عملت","رحت","كشفت","اشتريت","اخدت","أخدت","خدت","قلت","حجزت","قابلت","دكتوري","مشروعي","ميعادي","موعدي","عربيتي","ابني","مراتي","شغلي","دوائي","ادويتي","أدويتي"};for(String x:ar)if(n.contains(LocalSemanticEmbedder.norm(x)))return true;return false;
     }
 
     private static boolean explicitFocalReference(String q){String n=LocalSemanticEmbedder.norm(q==null?"":q);String[] xs={"this capture","this attachment","attached capture","attached document","this document","this image","this photo","this file","the attached","المرفق","المرفقة","الصورة دي","الصوره دي","الصورة ده","الملف ده","المستند ده","السكرين شوت دي","التسجيل ده","الصوت ده"};for(String x:xs)if(n.contains(LocalSemanticEmbedder.norm(x)))return true;return false;}
