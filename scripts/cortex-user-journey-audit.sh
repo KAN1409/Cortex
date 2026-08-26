@@ -122,7 +122,9 @@ need "$SUITE" 'Grant health read access' 'Health journey uses the visible permis
 need "$SUITE" 'snapshotPackage' 'external permission surface is detected by active package'
 need "$SUITE" 'sandbox metrics .*→' 'Health permission round-trip verifies no silent sandbox data mutation'
 need "$SUITE" 'Real Health Connect provider sync after user grants scopes' 'real provider sync remains an explicit manual privacy boundary'
-need "$HEALTH" 'HealthConnectBridge\.permissionIntent' 'Health UI delegates permission ownership to Health Connect'
+need "$HEALTH" 'registerForActivityResult' 'Health UI delegates permission ownership through a lifecycle-safe Activity Result contract'
+need "$HEALTH" 'HealthPermissionsRequestContract\(HealthConnectBridge\.PROVIDER\)' 'Health UI uses the Health Connect permission contract'
+need "$HEALTH" 'healthPermissionLauncher\.launch\(HealthConnectBridge\.requiredReadPermissions\(\)\)' 'Health UI requests the exact required read scopes'
 need "$HEALTH" 'CortexSemanticOperation\.begin\("HEALTH_SYNC"' 'manual Health sync has semantic terminal tracking'
 
 # Known photo/PDF evidence is imported through the same ACTION_SEND entry the real Android share sheet uses.
