@@ -6,6 +6,7 @@ import android.content.pm.ResolveInfo;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Environment;
+import android.os.SystemClock;
 import android.provider.MediaStore;
 import androidx.core.content.FileProvider;
 import java.io.*;
@@ -21,6 +22,7 @@ public final class CortexAutoTestExporter {
         android.widget.Toast.makeText(a,"Running complete Cortex verification…",android.widget.Toast.LENGTH_SHORT).show();
         new Thread(()->{
             CortexAutoTestSuite.Report report=CortexAutoTestSuite.run(a.getApplicationContext());
+            appendVisualRecoveryContract(a.getApplicationContext(),report);
             File md=null,json=null;String savedMd="",savedJson="";Throwable err=null;
             try{
                 File dir=new File(a.getFilesDir(),"debug_exports/autotests");if(!dir.exists()&&!dir.mkdirs())throw new IOException("Could not create auto-test report directory");
@@ -41,6 +43,10 @@ public final class CortexAutoTestExporter {
             });
         },"CortexAutoVerification").start();
     }
+
+    /** Additional rollback fixture kept outside provider-heavy suite execution so it cannot affect live visual state. */
+    private static void appendVisualRecoveryContract(Context c,CortexAutoTestSuite.Report report){
+        CortexAutoTestSuite.CaseResult x=new CortexAutoTestSuite.CaseResult();x.id="visual.recovery_contract";x.area="Visual Intelligence";x.title="Bounded visual recovery semantics";x.fixture="rollback-only synthetic image + timeout recovery ledger";x.expected="retry-now preserves attempts; third transient attempt becomes terminal; explicit terminal reset alone starts a fresh budget";x.coverage="DEEP";long started=SystemClock.elapsedRealtime();VaultDb db=null;try{db=new VaultDb(c);x.actual=VisualRecoveryFixture.verify(db);x.verdict=CortexAutoTestSuite.PASS;}catch(Throwable e){x.actual=e.getClass().getSimpleName()+": "+safe(e.getMessage());x.error=x.actual;x.verdict=CortexAutoTestSuite.FAIL;}finally{if(db!=null)try{db.close();}catch(Throwable ignored){}}x.durationMs=SystemClock.elapsedRealtime()-started;report.deepCases.add(x);report.finishedAt=System.currentTimeMillis();report.recount();}
 
     private static void write(File f,String text)throws Exception{try(Writer w=new BufferedWriter(new OutputStreamWriter(new FileOutputStream(f),StandardCharsets.UTF_8),16384)){w.write(text==null?"":text);}}
 
@@ -65,4 +71,5 @@ public final class CortexAutoTestExporter {
     }
 
     private static String safe(Throwable e){if(e==null)return"unknown";String m=e.getMessage();return e.getClass().getSimpleName()+(m==null||m.isEmpty()?"":": "+m);}
+    private static String safe(String s){return s==null?"":s;}
 }
