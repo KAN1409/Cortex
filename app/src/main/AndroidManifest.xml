@@ -16,7 +16,7 @@
         <provider android:name="androidx.core.content.FileProvider" android:authorities="${applicationId}.feedback.files" android:exported="false" android:grantUriPermissions="true"><meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/feedback_file_paths" /></provider>
         <provider android:name="rikka.shizuku.ShizukuProvider" android:authorities="${applicationId}.shizuku" android:multiprocess="false" android:enabled="true" android:exported="true" android:permission="android.permission.INTERACT_ACROSS_USERS_FULL" />
 
-        <activity android:name=".InputActivity" android:exported="false" />
+        <activity android:name=".InputActivity" android:exported="false" android:theme="@style/CaptureSheetTheme" />
         <activity android:name=".SatinBriefActivity" android:exported="false" />
         <activity android:name=".CortexOrbBriefActivity" android:exported="false" />
         <activity android:name=".ProposalBriefActivity" android:exported="true"><intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter></activity>
