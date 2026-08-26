@@ -12,11 +12,21 @@ public final class RawSignalStore {
     public static void ensure(VaultDb db){CognitiveStore.ensure(db);}
 
     public static long capture(VaultDb db,MasterRelevanceFilter.Signal signal){
-        ensure(db);cleanup(db);String contentHash=Fingerprint.text(signal.text());String fp=Fingerprint.text(signal.kind+"|"+signal.source+"|"+signal.title+"|"+signal.body+"|"+(signal.occurredAt/60000));long existing=find(db,fp);if(existing>0)return existing;MasterRelevanceFilter.Decision fast=fastDecision(signal);long now=System.currentTimeMillis(),retention=retentionUntil(now,fast.disposition);
+        ensure(db);cleanup(db);String contentHash=Fingerprint.text(signal.text());String fp=Fingerprint.text(signal.kind+"|"+signal.source+"|"+signal.title+"|"+signal.body+"|"+(signal.occurredAt/60000));long existing=find(db,fp);
+        if(existing>0){
+            // Idempotent clean-slate sidecar: old/duplicate evidence still gets a canonical Event.
+            try{EventEngine.onRawSignal(db,existing,threadId(db,existing),signal);}catch(Throwable ignored){}
+            return existing;
+        }
+        MasterRelevanceFilter.Decision fast=fastDecision(signal);long now=System.currentTimeMillis(),retention=retentionUntil(now,fast.disposition);
         ContentValues v=new ContentValues();v.put("kind",signal.kind);v.put("source",signal.source);v.put("title",signal.title);v.put("body",signal.body);v.put("metadata_json",signal.metadataJson);v.put("fingerprint",fp);v.put("content_hash",contentHash);v.put("state","filtered");v.put("disposition",fast.disposition.name());v.put("importance",fast.importance);v.put("confidence",fast.confidence);v.put("policy_version",FAST_POLICY);v.put("filter_engine","deterministic_fast_gate");v.put("reason",fast.reason);v.put("occurred_at",signal.occurredAt>0?signal.occurredAt:now);v.put("retention_until",retention);v.put("created_at",now);v.put("updated_at",now);
         long signalId=db.getWritableDatabase().insert("raw_signals",null,v);if(signalId<=0){DiagnosticsLog.warn(db,"RawSignalStore","capture_insert","failed","RAW_SIGNAL_INSERT",0,0,0,0,0,null);return signalId;}
 
-        long threadId=SignalThreadStore.attach(db,signalId,signal);MasterRelevanceFilter.Decision authority=fast;boolean threadAuthority=false;
+        long threadId=SignalThreadStore.attach(db,signalId,signal);
+        // Raw evidence is already persisted. Truth interpretation is a failure-isolated sidecar and can never block capture.
+        try{EventEngine.onRawSignal(db,signalId,threadId,signal);}catch(Throwable ignored){}
+
+        MasterRelevanceFilter.Decision authority=fast;boolean threadAuthority=false;
         if(threadId>0){MasterRelevanceFilter.Decision threaded=ThreadRelevanceEngine.onSignal(db,threadId,signalId);if(threaded!=null){authority=threaded;threadAuthority=true;}}
 
         // Relevance decides meaning. ContextMemoryGate independently decides lifetime/promotion and
