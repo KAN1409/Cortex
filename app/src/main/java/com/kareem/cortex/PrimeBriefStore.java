@@ -3,7 +3,10 @@ package com.kareem.cortex;
 import android.database.Cursor;
 import java.util.*;
 
-/** Read model for PRIME Brief. Uses unified derived intelligence, never legacy task guesses. */
+/**
+ * Read model for Today. Derived relevance remains the source of candidates, while
+ * AttentionEngine decides the current ordering. Relevance != attention.
+ */
 public final class PrimeBriefStore {
     private PrimeBriefStore(){}
     public static final class Item {
