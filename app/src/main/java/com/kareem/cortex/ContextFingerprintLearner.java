@@ -19,6 +19,11 @@ public final class ContextFingerprintLearner {
 
     public static void reinforceResume(VaultDb db,ContextStateStore.ContextState chosen){if(db==null||chosen==null)return;ContextSchema.ensure(db);learn(db,chosen.id,"stable_key",chosen.stableKey,+.08,true);}
 
+    /** Explicit "Not this context" feedback is stronger than passive switch-away feedback. */
+    public static void reinforceRejection(VaultDb db,ContextStateStore.ContextState rejected){
+        if(db==null||rejected==null)return;ContextSchema.ensure(db);learn(db,rejected.id,"stable_key",rejected.stableKey,-.14,false);String p=prefix(rejected.stableKey);if(!p.isEmpty())learn(db,rejected.id,"context_kind",p,-.05,false);
+    }
+
     /** Small exact-fingerprint boost used after ordinary evidence scoring. */
     public static double boost(VaultDb db,String stableKey){
         if(db==null||stableKey==null||stableKey.trim().isEmpty())return 0;ContextSchema.ensure(db);double total=score(db,"stable_key",stableKey.trim());String p=prefix(stableKey);if(!p.isEmpty())total+=.35*score(db,"context_kind",p);return Math.max(-MAX_BOOST,Math.min(MAX_BOOST,total));
