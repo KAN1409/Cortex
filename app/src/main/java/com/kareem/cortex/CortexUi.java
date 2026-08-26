@@ -142,6 +142,7 @@ public final class CortexUi {
     }
 
     private static int navColor(String key){if("today".equals(key))return RED;if("memory".equals(key))return GREEN;if("capture".equals(key))return ORANGE;return YELLOW;}
+    private static String navGlyph(String key){if("today".equals(key))return"brief";if("memory".equals(key))return"people";if("cortex".equals(key))return"brain";return"info";}
 
     private static void addCaptureNav(Activity a,LinearLayout row,String selected){
         boolean on="capture".equals(selected);
@@ -159,7 +160,7 @@ public final class CortexUi {
         LinearLayout item=new LinearLayout(a);item.setOrientation(LinearLayout.VERTICAL);item.setGravity(Gravity.CENTER);item.setPadding(dp(a,3),dp(a,4),dp(a,3),dp(a,2));
         int fill=on?Color.argb(18,Color.red(semantic),Color.green(semantic),Color.blue(semantic)):Color.TRANSPARENT;
         int stroke=on?Color.argb(72,Color.red(semantic),Color.green(semantic),Color.blue(semantic)):Color.TRANSPARENT;item.setBackground(round(a,fill,stroke,15));if(on)raised(a,item,3);
-        CortexGlyphView icon=glyph(a,key,on?semantic:idle,on);item.addView(icon,new LinearLayout.LayoutParams(dp(a,30),dp(a,30)));
+        CortexGlyphView icon=glyph(a,navGlyph(key),on?semantic:idle,on);item.addView(icon,new LinearLayout.LayoutParams(dp(a,30),dp(a,30)));
         TextView l=plain(a,label,8,on?TEXT:MUTED);l.setGravity(Gravity.CENTER);l.setMaxLines(1);if(on)medium(l);item.addView(l,new LinearLayout.LayoutParams(-1,dp(a,18)));
         item.setOnClickListener(v->{if(on)return;Intent i=new Intent(a,cls);i.addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT|Intent.FLAG_ACTIVITY_SINGLE_TOP);a.startActivity(i);});row.addView(item,new LinearLayout.LayoutParams(0,-1,1));
     }
