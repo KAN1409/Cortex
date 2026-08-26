@@ -10,15 +10,20 @@ import android.os.*;
 import android.text.InputType;
 import android.view.*;
 import android.widget.*;
+import androidx.activity.ComponentActivity;
+import androidx.activity.result.ActivityResultLauncher;
+import androidx.activity.result.contract.ActivityResultContracts;
 import org.json.JSONObject;
 import java.io.File;
 import java.util.Locale;
 import java.util.concurrent.*;
 
 /** Fast capture sheet: capture first, then immediately show Cortex understanding. */
-public class CaptureActivity extends Activity {
+public class CaptureActivity extends ComponentActivity {
     static final int REQ_MIC=771,REQ_FILE=772,REQ_PHOTO=773;
     VaultDb db;AudioCapture recorder=new AudioCapture();long recordingStarted;long voiceSemanticToken=0;Handler handler=new Handler(Looper.getMainLooper());Runnable tick;FrameLayout root;LinearLayout sheet,recordPanel,choices;TextView timer,importState;volatile boolean destroyed=false;boolean healthContext=false;
+    final ActivityResultLauncher<String[]> filePickerLauncher=registerForActivityResult(new ActivityResultContracts.OpenDocument(),uri->handlePickedDocument(uri,REQ_FILE));
+    final ActivityResultLauncher<String[]> photoPickerLauncher=registerForActivityResult(new ActivityResultContracts.OpenDocument(),uri->handlePickedDocument(uri,REQ_PHOTO));
     final ExecutorService io=Executors.newSingleThreadExecutor(r->{Thread t=new Thread(r,"cortex-capture-io");t.setPriority(Thread.NORM_PRIORITY-1);return t;});
     int dp(int x){return CortexUi.dp(this,x);}
 
@@ -44,9 +49,14 @@ public class CaptureActivity extends Activity {
 
     void quickNote(){choices.setVisibility(View.GONE);final EditText e=new EditText(this);e.setHint(healthContext?"Health note, symptom, question or follow-up…":"Type or paste…");e.setHintTextColor(CortexUi.FAINT);e.setTextColor(CortexUi.TEXT);e.setTextSize(15);e.setGravity(Gravity.TOP);e.setMinLines(4);e.setMaxLines(8);e.setInputType(InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_FLAG_MULTI_LINE);e.setPadding(dp(14),dp(12),dp(14),dp(12));e.setBackground(CortexUi.round(this,CortexUi.SURFACE_2,Color.TRANSPARENT,18));sheet.addView(e,new LinearLayout.LayoutParams(-1,-2));LinearLayout actions=new LinearLayout(this);actions.setOrientation(LinearLayout.HORIZONTAL);actions.setPadding(0,dp(12),0,0);TextView cancel=CortexUi.action(this,"Cancel",CortexUi.MUTED,false),save=CortexUi.action(this,"Capture",CortexUi.ACCENT,true);actions.addView(cancel,new LinearLayout.LayoutParams(0,dp(46),1));LinearLayout.LayoutParams saveParams=new LinearLayout.LayoutParams(0,dp(46),1);saveParams.setMargins(dp(8),0,0,0);actions.addView(save,saveParams);sheet.addView(actions);cancel.setOnClickListener(v->{sheet.removeView(e);sheet.removeView(actions);choices.setVisibility(View.VISIBLE);});save.setOnClickListener(v->{String s=e.getText().toString().trim();if(s.isEmpty()){e.setError("Write something first");return;}String cat=healthContext?"Health":AutoClassifier.category(s,"text/plain");String tags=healthContext?"health,note,evidence":AutoClassifier.tags(s,cat);long id=db.insert("TEXT",healthContext?"health_manual":"manual",AutoClassifier.title(s,"text/plain"),s,cat,tags,"",Fingerprint.text(s),healthContext?"{\"health_context\":true}":"{}");if(id<0)Toast.makeText(this,"Already in Cortex",Toast.LENGTH_SHORT).show();else{if(healthContext)try{HealthStore.linkKnowledgeEvidence(db,id,"text_note","health_import");}catch(Throwable ignored){}AnalysisQueue.kick(this,null,null);showResult(id);}});e.requestFocus();handler.postDelayed(()->{try{((android.view.inputmethod.InputMethodManager)getSystemService(INPUT_METHOD_SERVICE)).showSoftInput(e,android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT);}catch(Throwable ignored){}},120);}
 
-    void pickFile(){Intent i=new Intent(Intent.ACTION_OPEN_DOCUMENT);i.addCategory(Intent.CATEGORY_OPENABLE);i.setType("*/*");i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);startActivityForResult(i,REQ_FILE);}
-    void pickPhoto(){Intent i=new Intent(Intent.ACTION_OPEN_DOCUMENT);i.addCategory(Intent.CATEGORY_OPENABLE);i.setType("image/*");i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);startActivityForResult(i,REQ_PHOTO);}
-    @Override protected void onActivityResult(int req,int result,Intent data){super.onActivityResult(req,result,data);if(result!=RESULT_OK||data==null||data.getData()==null)return;Uri uri=data.getData();try{int take=data.getFlags()&(Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_WRITE_URI_PERMISSION);if((data.getFlags()&Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)!=0)getContentResolver().takePersistableUriPermission(uri,take&Intent.FLAG_GRANT_READ_URI_PERMISSION);}catch(Throwable ignored){}String mime=null;try{mime=getContentResolver().getType(uri);}catch(Throwable ignored){}importUriAsync(uri,mime,req);}
+    void pickFile(){setImporting(true,"Opening Android file picker…");try{filePickerLauncher.launch(new String[]{"*/*"});}catch(Throwable e){setImporting(false,"");Toast.makeText(this,"Could not open file picker",Toast.LENGTH_LONG).show();}}
+    void pickPhoto(){setImporting(true,"Opening Android photo picker…");try{photoPickerLauncher.launch(new String[]{"image/*"});}catch(Throwable e){setImporting(false,"");Toast.makeText(this,"Could not open photo picker",Toast.LENGTH_LONG).show();}}
+    void handlePickedDocument(Uri uri,int req){
+        if(destroyed||isFinishing()||isDestroyed())return;
+        if(uri==null){setImporting(false,"");return;}
+        try{getContentResolver().takePersistableUriPermission(uri,Intent.FLAG_GRANT_READ_URI_PERMISSION);}catch(Throwable ignored){}
+        String mime=null;try{mime=getContentResolver().getType(uri);}catch(Throwable ignored){}importUriAsync(uri,mime,req);
+    }
 
     void importUriAsync(Uri uri,String mime,int req){setImporting(true,"Importing safely…");final String type=mime;final boolean health=healthContext;io.execute(()->{VaultDb local=null;long id=0;Throwable error=null;try{local=new VaultDb(getApplicationContext());ShareImporter importer=new ShareImporter(getApplicationContext(),local);if(req==REQ_FILE&&type!=null&&type.startsWith("audio/"))id=importer.importAudio(uri,type);else{Intent share=new Intent(Intent.ACTION_SEND);share.setType(type==null?"application/octet-stream":type);share.putExtra(Intent.EXTRA_STREAM,uri);share.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);id=importer.importSingle(share);}if(health&&id>0)HealthStore.linkKnowledgeEvidence(local,id,req==REQ_PHOTO?"scan_or_photo":(type!=null&&type.startsWith("audio/")?"audio_import":"document"),"health_import");}catch(Throwable t){error=t;}finally{if(local!=null)try{local.close();}catch(Throwable ignored){}}final long itemId=id;final Throwable failure=error;runOnUiThread(()->{if(destroyed||isFinishing()||isDestroyed())return;if(itemId>0){AnalysisQueue.kick(this,null,null);showResult(itemId);}else{setImporting(false,"");Toast.makeText(this,failure==null?"Could not import or it already exists":"Import failed safely",Toast.LENGTH_LONG).show();}});});}
 
@@ -67,7 +77,6 @@ public class CaptureActivity extends Activity {
         setImporting(true,"Creating deterministic voice fixture…");final long token=CortexSemanticOperation.begin("CAPTURE_ASR","Synthetic voice capture");CortexSemanticOperation.progress(token,"Creating fixture",5,"Generating deterministic WAV without microphone access");
         io.execute(()->{VaultDb local=null;long id=0;Throwable error=null;try{File f=SyntheticAudioFixture.create(getApplicationContext());CortexSemanticOperation.progress(token,"Persisting fixture",9,"WAV ready; saving through the production AUDIO contract");local=new VaultDb(getApplicationContext());id=local.insert("AUDIO",SyntheticAudioFixture.SOURCE,"Synthetic voice journey","","Voice & Audio","voice,audio,transcript,synthetic,test",f.getAbsolutePath(),Fingerprint.file(f.getAbsolutePath()),SyntheticAudioFixture.metadata(f));}catch(Throwable t){error=t;}finally{if(local!=null)try{local.close();}catch(Throwable ignored){}}final long itemId=id;final Throwable failure=error;if(itemId>0){AnalysisQueue.trackSemantic(itemId,token);AnalysisQueue.kick(getApplicationContext(),null,null);}else CortexSemanticOperation.fail(token,failure==null?"Synthetic audio fixture already exists":"Synthetic audio fixture failed: "+errorText(failure));runOnUiThread(()->{if(destroyed||isFinishing()||isDestroyed())return;if(itemId>0)showResult(itemId);else{setImporting(false,"");Toast.makeText(this,"Synthetic voice fixture failed safely",Toast.LENGTH_LONG).show();}});});
     }
-
     static String errorText(Throwable e){if(e==null)return "unknown error";String m=e.getMessage();return m==null||m.trim().isEmpty()?e.getClass().getSimpleName():m.trim();}
 
     void showResult(long id){try{Intent i=new Intent(this,CaptureResultActivity.class);i.putExtra("item_id",id);startActivity(i);finish();}catch(Throwable e){Toast.makeText(this,"Captured successfully. Open Brief to see it.",Toast.LENGTH_LONG).show();try{startActivity(new Intent(this,PremiumHomeActivity.class));}catch(Throwable ignored){}finish();}}
