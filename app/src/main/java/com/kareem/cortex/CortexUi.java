@@ -25,23 +25,22 @@ public final class CortexUi {
     public static final int MUTED = Color.rgb(164,163,160);
     public static final int FAINT = Color.rgb(103,103,106);
 
-    public static final int RED = Color.rgb(255,72,62);         // Cortex signal / Brain / record / urgent
-    public static final int ORANGE = Color.rgb(255,146,42);     // active interaction / playback / change
-    public static final int YELLOW = Color.rgb(241,188,52);     // waiting / reminders / decisions
-    public static final int GREEN = Color.rgb(105,194,82);      // useful / confirmed / complete / people
+    public static final int RED = Color.rgb(255,72,62);
+    public static final int ORANGE = Color.rgb(255,146,42);
+    public static final int YELLOW = Color.rgb(241,188,52);
+    public static final int GREEN = Color.rgb(105,194,82);
 
     public static final int ACCENT = RED;
     public static final int SIGNAL = RED;
     public static final int AMBER = ORANGE;
     public static final int SAGE = GREEN;
     public static final int INFO = GREEN;
-    public static final int VIOLET = YELLOW; // compatibility name only; intentionally not purple.
+    public static final int VIOLET = YELLOW;
 
     public static final int BORDER = Color.rgb(45,45,48);
     public static final int BORDER_SOFT = Color.rgb(31,31,34);
     public static final int HAIRLINE = Color.argb(40,255,255,255);
 
-    // Legacy aliases deliberately map into the locked warm palette.
     public static final int COPPER = ORANGE;
     public static final int CORAL = RED;
     public static final int GOLD = YELLOW;
@@ -72,7 +71,6 @@ public final class CortexUi {
     public static GradientDrawable gradient(Activity a,int start,int end,int stroke,int radius){
         GradientDrawable g=new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,new int[]{start,end});g.setCornerRadius(dp(a,radius));if(stroke!=Color.TRANSPARENT)g.setStroke(dp(a,1),stroke);return g;
     }
-    /** Very low-contrast vertical shading: depth without reflective/glass highlights. */
     public static GradientDrawable velvet(Activity a,int radius){return gradient(a,SURFACE_2,SURFACE,HAIRLINE,radius);}
     public static GradientDrawable matte(Activity a,int radius){return round(a,SURFACE,HAIRLINE,radius);}
     public static View divider(Activity a){View v=new View(a);v.setBackgroundColor(BORDER_SOFT);return v;}
@@ -119,22 +117,42 @@ public final class CortexUi {
         if(key==null)return RED;String k=key.toLowerCase();
         if(k.contains("wait")||k.contains("remind"))return ORANGE;
         if(k.contains("decision"))return YELLOW;
-        if(k.contains("people")||k.contains("project")||k.contains("info")||k.contains("useful")||k.contains("complete"))return GREEN;
+        if(k.contains("people")||k.contains("project")||k.contains("memory")||k.contains("info")||k.contains("useful")||k.contains("complete"))return GREEN;
         if(k.contains("input")||k.contains("capture")||k.contains("play")||k.contains("change"))return ORANGE;
         return RED;
     }
 
-    /** PRIME navigation stays functional but visually follows the approved compact matte control language. */
+    /** Product navigation: Today is the home, Memory groups retained context, Capture is an action, Cortex is intelligence. */
     public static void addBottomNav(Activity a,LinearLayout root,String selected,Runnable ignoredMoreAction){
-        String current=primeKey(selected);LinearLayout bar=new LinearLayout(a);bar.setOrientation(LinearLayout.HORIZONTAL);bar.setGravity(Gravity.CENTER);bar.setPadding(dp(a,6),dp(a,5),dp(a,6),dp(a,5));bar.setBackground(matte(a,20));raised(a,bar,6);
-        addNav(a,bar,"input","Input",current,InputActivity.class);
-        addNav(a,bar,"brief","Brief",current,ProposalBriefActivity.class);
-        addNav(a,bar,"people","People / Projects",current,ProposalPeopleProjectsActivity.class);
-        addNav(a,bar,"brain","Brain",current,ProposalAskCortexActivity.class);
+        String current=primeKey(selected);
+        LinearLayout bar=new LinearLayout(a);bar.setOrientation(LinearLayout.HORIZONTAL);bar.setGravity(Gravity.CENTER);bar.setPadding(dp(a,6),dp(a,5),dp(a,6),dp(a,5));bar.setBackground(matte(a,20));raised(a,bar,6);
+        addNav(a,bar,"today","Today",current,ProposalBriefActivity.class);
+        addNav(a,bar,"memory","Memory",current,ProposalPeopleProjectsActivity.class);
+        addCaptureNav(a,bar,current);
+        addNav(a,bar,"cortex","Cortex",current,ProposalAskCortexActivity.class);
         LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,dp(a,68));p.setMargins(dp(a,14),dp(a,7),dp(a,14),dp(a,10));root.addView(bar,p);fitSystemBars(a,root);
     }
-    private static String primeKey(String s){if("home".equals(s)||"focus".equals(s)||"brief".equals(s))return"brief";if("vault".equals(s)||"people".equals(s))return"people";if("ask".equals(s)||"brain".equals(s))return"brain";if("input".equals(s))return"input";return s==null?"":s;}
-    private static int navColor(String key){if("input".equals(key))return ORANGE;if("brief".equals(key))return RED;if("people".equals(key))return GREEN;return YELLOW;}
+
+    private static String primeKey(String s){
+        if("home".equals(s)||"focus".equals(s)||"brief".equals(s)||"today".equals(s))return"today";
+        if("vault".equals(s)||"people".equals(s)||"memory".equals(s))return"memory";
+        if("ask".equals(s)||"brain".equals(s)||"cortex".equals(s))return"cortex";
+        if("input".equals(s)||"capture".equals(s))return"capture";
+        return s==null?"":s;
+    }
+
+    private static int navColor(String key){if("today".equals(key))return RED;if("memory".equals(key))return GREEN;if("capture".equals(key))return ORANGE;return YELLOW;}
+
+    private static void addCaptureNav(Activity a,LinearLayout row,String selected){
+        boolean on="capture".equals(selected);
+        LinearLayout item=new LinearLayout(a);item.setOrientation(LinearLayout.VERTICAL);item.setGravity(Gravity.CENTER);item.setPadding(dp(a,3),0,dp(a,3),0);
+        CortexGlyphView icon=glyph(a,"input",ORANGE,true);
+        icon.setBackground(round(a,Color.argb(on?34:22,Color.red(ORANGE),Color.green(ORANGE),Color.blue(ORANGE)),Color.argb(on?150:96,Color.red(ORANGE),Color.green(ORANGE),Color.blue(ORANGE)),999));
+        raised(a,icon,on?8:6);item.addView(icon,new LinearLayout.LayoutParams(dp(a,42),dp(a,42)));
+        TextView l=plain(a,"Capture",8,on?TEXT:MUTED);l.setGravity(Gravity.CENTER);if(on)medium(l);item.addView(l,new LinearLayout.LayoutParams(-1,dp(a,18)));
+        item.setOnClickListener(v->{Intent i=new Intent(a,InputActivity.class);i.addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT|Intent.FLAG_ACTIVITY_SINGLE_TOP);a.startActivity(i);});
+        row.addView(item,new LinearLayout.LayoutParams(0,-1,1));
+    }
 
     private static void addNav(Activity a,LinearLayout row,String key,String label,String selected,Class<?> cls){
         boolean on=key.equals(selected);int semantic=navColor(key);int idle=mix(semantic,MUTED,.72f);
