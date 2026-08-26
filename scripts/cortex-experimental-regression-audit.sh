@@ -21,7 +21,11 @@ done
 # J04: BRAIN_ANSWER terminal state must not be visually replaced by deferred proposal loading.
 need "$PUI" 'holder\.setVisibility\(View\.GONE\)' 'proposal strip is absent while deferred enrichment is running'
 need "$PUI" 'Fast Answer First invariant' 'proposal UI documents answer-first ownership boundary'
-need "$PUI" 'renderRecoverableState.*holder\.setVisibility\(View\.VISIBLE\)|holder\.setVisibility\(View\.VISIBLE\).*renderRecoverableState' 'proposal terminal recovery can reveal its own surface'
+if awk '/private static void renderRecoverableState/{inside=1} /private static void renderProposals/{if(inside)exit} inside' "$PUI" | grep -Eq 'holder\.setVisibility\(View\.VISIBLE\)'; then
+  ok 'proposal terminal recovery can reveal its own surface'
+else
+  bad 'proposal terminal recovery can reveal its own surface'
+fi
 need "$PUI" 'renderProposals' 'proposal terminal success renders separately from Brain answer readiness'
 forbid "$PUI" 'CortexUi\.plain\(activity,"Generating useful next moves…"' 'deferred proposal generation cannot paint a visible busy label after answer readiness'
 need "$SUITE" 'Semantic operation completed but the visible Brain surface still shows a busy/progress state' 'J04 continues to detect terminal-answer UI regressions'
