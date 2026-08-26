@@ -44,6 +44,24 @@ public final class LocalAskRouter {
         }
     }
 
+    /** Exact local route for an attached Cortex capture. Semantic neighbors can supplement later, never replace M1. */
+    public static Result fastFocal(Context ctx,VaultDb db,String question,long focalItemId,Progress progress){
+        long wall=SystemClock.elapsedRealtime();long job=createJob(db,"ask_fast_focal",question,"your_data");
+        AiJobStore.start(db,job,"Understanding attached capture","understanding");emit(progress,job,"Understanding attached capture",8);
+        InteractionTelemetry.log(db,"Brain","ask_cortex","request_started",focalItemId,0,"running","Exact focal grounded ask received",null);
+        try{
+            AiJobStore.progress(db,job,"Reading attached Cortex capture","focal_retrieval",28,"Exact attached item is authoritative M1");emit(progress,job,"Reading attached Cortex capture",28);
+            long rt=SystemClock.elapsedRealtime();GroundedAnswer g=SecondBrainEngine.askFocal(db,question,focalItemId);long retrieval=SystemClock.elapsedRealtime()-rt;
+            AiJobStore.linkSources(db,job,g);long total=SystemClock.elapsedRealtime()-wall;
+            JSONObject out=answerJson(g.answer,"grounded-focal","your_data",g.sources.size(),total).put("focal_item_id",focalItemId).put("focal_authoritative",true);
+            AiJobStore.complete(db,job,out.toString(),"Answer ready",g.sources.isEmpty()?"Attached capture unavailable":"Exact attached capture remained M1");emit(progress,job,"Answer ready",100);
+            try{InteractionTelemetry.log(db,"Brain","ask_cortex","complete",focalItemId,total,"grounded-focal",g.sources.size()+" grounded source(s)",new JSONObject().put("job_id",job).put("focal_item_id",focalItemId).put("source_count",g.sources.size()).put("retrieval_ms",retrieval));}catch(Exception ignored){}
+            return new Result(job,g,g.answer,"grounded-focal","","your_data",0,0,0,total,retrieval,0,0,0,false);
+        }catch(Throwable t){
+            long total=SystemClock.elapsedRealtime()-wall;String err=t.getClass().getSimpleName()+(t.getMessage()==null?"":": "+t.getMessage());AiJobStore.fail(db,job,err,"Attached focal retrieval failed");emit(progress,job,"Could not read attached capture",100);GroundedAnswer g=failedGrounding(question);return new Result(job,g,g.answer,"failed",err,"your_data",0,0,0,total,0,0,0,0,false);
+        }
+    }
+
     public static Result ask(Context ctx,VaultDb db,String question){return ask(ctx,db,question,null);}
 
     /** Optional local-Qwen refinement. The deterministic grounded result remains the fallback. */
