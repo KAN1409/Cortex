@@ -3,10 +3,7 @@ package com.kareem.cortex;
 import android.database.Cursor;
 import org.json.JSONObject;
 
-/**
- * Personal attention calibration. This learns whether an already-valid signal deserves
- * interruption/visibility, independently from the relevance classifier that created it.
- */
+/** Personal calibration over an already-valid attention candidate. */
 public final class AttentionLearning {
     public static final String VERSION="attention_learning_001";
     private AttentionLearning(){}
@@ -14,7 +11,7 @@ public final class AttentionLearning {
     public static AttentionEngine.Decision apply(VaultDb db,PrimeBriefStore.Item item,AttentionEngine.Decision d){
         if(db==null||item==null||d==null||item.id<=0)return d;CognitiveStore.ensure(db);int positive=0,negative=0,snooze=0,acted=0;
         Cursor c=db.getReadableDatabase().query("feedback_events",new String[]{"event_type"},"target_type='derived' AND target_id=?",new String[]{String.valueOf(item.id)},null,null,"created_at DESC","40");
-        while(c.moveToNext()){String e=n(c.getString(0));if("attention_opened".equals(e)||"confirm".equals(e))positive++;else if("attention_acted".equals(e)||"complete".equals(e))acted++;else if("attention_snoozed".equals(e))snooze++;else if("attention_dismissed".equals(e)||"not_important".equals(e)||"dismiss".equals(e)||"ignore_similar".equals(e))negative++;}c.close();
+        while(c.moveToNext()){String e=n(c.getString(0));if("attention_opened".equals(e)||"confirm".equals(e))positive++;else if("attention_acted".equals(e)||"resolved_by_user".equals(e)||"complete".equals(e))acted++;else if("attention_snoozed".equals(e))snooze++;else if("attention_dismissed".equals(e)||"not_important".equals(e)||"dismiss".equals(e)||"ignore_similar".equals(e))negative++;}c.close();
         if(acted>0)return new AttentionEngine.Decision(Math.min(24,d.score),AttentionEngine.Band.QUIET,"You already acted on this, so Cortex is suppressing it unless new evidence reopens the loop.",d.urgency,d.consequence,d.responsibility,d.temporalPressure,d.openLoopPressure,d.novelty,d.confidence);
         int delta=Math.min(8,positive*2)-Math.min(22,negative*8)-Math.min(12,snooze*5);if(delta==0)return d;int score=Math.max(0,Math.min(100,d.score+delta));return new AttentionEngine.Decision(score,band(score),learningReason(d.whyNow,positive,negative,snooze),d.urgency,d.consequence,d.responsibility,d.temporalPressure,d.openLoopPressure,d.novelty,d.confidence);
     }
