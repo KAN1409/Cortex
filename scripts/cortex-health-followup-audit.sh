@@ -72,7 +72,7 @@ need "$RDEBUG" 'brain_failover_active' 'debug export reports effective Gemini fa
 # Fast Answer First: attached captures avoid unnecessary broad retrieval; generic external questions do too.
 # The first provider call answers only the question. ProposalUi owns useful next moves after answer render.
 need "$BRAIN" 'fastFocal=true' 'Brain has explicit fast focal route'
-need "$BRAIN" '!needsBroadContext\(question\)' 'fast focal route is limited to direct capture questions'
+need "$BRAIN" 'focal!=null.*!broadRetrieval.*fastFocal=true' 'fast focal route is limited to attached cloud-allowed captures that do not require broad retrieval'
 need "$BRAIN" 'fastGeneral=true' 'Combined has a generic fast route when broad Cortex history is unnecessary'
 need "$BRAIN" 'broadRetrieval=combined&&needsBroadContext\(question\)' 'broad Cortex retrieval is intent-gated'
 need "$BRAIN" 'String modelQuestion=question' 'first provider request answers the actual question only'
