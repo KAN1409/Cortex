@@ -13,7 +13,7 @@ public final class BrainRouter {
 
     /** focalItemId keeps "Ask Brain about this" attached to the exact Cortex capture instead of only copying OCR text. */
     public static LocalAskRouter.Result fast(Context ctx,VaultDb db,String question,String mode,long focalItemId,LocalAskRouter.Progress progress){
-        String m=normalize(mode);if("your_data".equals(m))return LocalAskRouter.fast(ctx,db,question,progress);return cloud(ctx,db,question,m,focalItemId,progress);
+        String m=normalize(mode);if("your_data".equals(m))return focalItemId>0?LocalAskRouter.fastFocal(ctx,db,question,focalItemId,progress):LocalAskRouter.fast(ctx,db,question,progress);return cloud(ctx,db,question,m,focalItemId,progress);
     }
 
     private static LocalAskRouter.Result cloud(Context ctx,VaultDb db,String question,String mode,long focalItemId,LocalAskRouter.Progress progress){
@@ -28,17 +28,17 @@ public final class BrainRouter {
             if(combined)try{contextPacket=ContextPacketBuilder.buildLocal(db,520);}catch(Throwable ignored){}
 
             // Exact state/context questions are already answered authoritatively by Cortex's local
-            // operational ledger and Context Engine. Sending them to cloud adds latency and can lose
-            // local-only derived state. Combined returns the authoritative local result immediately.
-            if(combined&&focalItemId<=0){
+            // operational ledger and Context Engine. An unrelated attachment must not suppress that
+            // authority; explicit "this attachment/document/image" wording keeps focal ownership.
+            if(combined&&operationalFastPathEligible(question,focalItemId)){
                 long rt=SystemClock.elapsedRealtime();GroundedAnswer operational=AskOperationalEngine.tryAnswer(db,question);retrieval=SystemClock.elapsedRealtime()-rt;
                 if(operational!=null){
                     grounded=operational;AiJobStore.linkSources(db,job,grounded);long total=SystemClock.elapsedRealtime()-wall;long contextId=contextPacket==null?0:contextPacket.contextId;
                     String detail="Combined operational/context fast path · authoritative Cortex state answered locally · no operational private state sent to cloud";
                     AiJobStore.progress(db,job,"Using current Cortex state","operational_local",72,detail);emit(progress,job,"Using current Cortex state",72);
-                    JSONObject out=new JSONObject().put("answer",operational.answer).put("provider","cortex-operational").put("model","deterministic-local").put("source_mode",mode).put("source_count",operational.sources.size()).put("private_found",operational.sources.size()).put("focal_item_id",0).put("focal_sent",false).put("fast_focal",false).put("fast_general",false).put("broad_retrieval",false).put("operational_fast_path",true).put("context_id",contextId).put("context_cloud_sent",false).put("phone_context_available",false).put("phone_context_sent",false).put("withheld_local_only",0).put("actions_count",0).put("actions_deferred",true).put("total_ms",total);
+                    JSONObject out=new JSONObject().put("answer",operational.answer).put("provider","cortex-operational").put("model","deterministic-local").put("source_mode",mode).put("source_count",operational.sources.size()).put("private_found",operational.sources.size()).put("focal_item_id",focalItemId).put("focal_sent",false).put("fast_focal",false).put("fast_general",false).put("broad_retrieval",false).put("operational_fast_path",true).put("context_id",contextId).put("context_cloud_sent",false).put("phone_context_available",false).put("phone_context_sent",false).put("withheld_local_only",0).put("actions_count",0).put("actions_deferred",true).put("total_ms",total);
                     AiJobStore.complete(db,job,out.toString(),"Answer ready",detail);emit(progress,job,"Answer ready",100);
-                    try{DiagnosticsLog.info(db,"BrainRouter","operational_answer","ok",0,0,0,job,0,total,new JSONObject().put("provider","cortex-operational").put("mode",mode).put("source_count",operational.sources.size()).put("context_id",contextId).put("cloud_sent",false).put("actions_deferred",true));}catch(Throwable ignored){}
+                    try{DiagnosticsLog.info(db,"BrainRouter","operational_answer","ok",focalItemId,0,0,job,0,total,new JSONObject().put("provider","cortex-operational").put("mode",mode).put("source_count",operational.sources.size()).put("context_id",contextId).put("cloud_sent",false).put("actions_deferred",true));}catch(Throwable ignored){}
                     return new LocalAskRouter.Result(job,operational,operational.answer,"cortex-operational-combined","",mode,0,0,0,total,retrieval,0,0,0,false);
                 }
             }
@@ -85,20 +85,30 @@ public final class BrainRouter {
             long total=SystemClock.elapsedRealtime()-wall;String err=t.getClass().getSimpleName()+(t.getMessage()==null?"":": "+t.getMessage());AiJobStore.fail(db,job,err,"External route unavailable");
             try{DiagnosticsLog.error(db,"BrainRouter","external_route",t,"EXTERNAL_MODEL",focalItemId,0,0,job,0,new JSONObject().put("mode",mode).put("provider",ExternalBrainProvider.activeProviderId(ctx)).put("model",ExternalBrainProvider.activeModel(ctx)));}catch(Throwable ignored){}
             if(combined){
-                try{emit(progress,job,"External unavailable · using your Cortex",72);LocalAskRouter.Result local=LocalAskRouter.fast(ctx,db,question,progress);String answer="External AI is unavailable right now, so Brain answered from your Cortex data only.\n\n"+local.answer;return new LocalAskRouter.Result(local.jobId,local.grounded,answer,"combined-local-fallback",err,"combined",local.tokensPerSecond,local.tokensGenerated,local.durationMs,SystemClock.elapsedRealtime()-wall,local.retrievalMs,local.promptBuildMs,local.modelLoadMs,local.generationMs,local.cacheHit);}catch(Throwable fallbackError){err=err+" | local fallback: "+fallbackError.getClass().getSimpleName();}
+                try{emit(progress,job,"External unavailable · using your Cortex",72);LocalAskRouter.Result local=focalItemId>0?LocalAskRouter.fastFocal(ctx,db,question,focalItemId,progress):LocalAskRouter.fast(ctx,db,question,progress);String answer="External AI is unavailable right now, so Brain answered from your Cortex data only.\n\n"+local.answer;return new LocalAskRouter.Result(local.jobId,local.grounded,answer,"combined-local-fallback",err,"combined",local.tokensPerSecond,local.tokensGenerated,local.durationMs,SystemClock.elapsedRealtime()-wall,local.retrievalMs,local.promptBuildMs,local.modelLoadMs,local.generationMs,local.cacheHit);}catch(Throwable fallbackError){err=err+" | local fallback: "+fallbackError.getClass().getSimpleName();}
             }
             emit(progress,job,"External route unavailable",100);String answer=ExternalBrainProvider.configured(ctx)?"Brain couldn't reach the configured external AI right now. Your Cortex data was not changed.":"External AI isn't configured yet. Add an OpenRouter API key in Settings.";return new LocalAskRouter.Result(job,grounded,answer,"failed",err,mode,0,0,0,total,retrieval,0,0,0,false);
         }
     }
 
     /** Broad memory retrieval is reserved for questions that actually ask Cortex to connect/history/reason across sources. */
-    private static boolean needsBroadContext(String q){
+    static boolean needsBroadContext(String q){
         if(phoneQuestion(q))return true;
         String n=LocalSemanticEmbedder.norm(q==null?"":q);
         String[] xs={"project","history","previous","recently","recent","remember","decision","decide","related","connect","compare","follow up","follow-up","appointment","calendar","what do i know","what did i","what have i","before","earlier","مشروع","فاكر","قبل كده","قبل كدة","قرار","قررت","قارن","مقارنة","اربط","ربط","متابعة","تابع","موعد","ميعاد","فكرني","كنت عملت","كنت قلت","إيه اللي أعرفه","ايه اللي اعرفه"};
         for(String x:xs)if(n.contains(LocalSemanticEmbedder.norm(x)))return true;
-        return false;
+        return personalMemoryQuestion(n);
     }
+
+    /** An unrelated attachment must not disable authoritative local operational answers. */
+    static boolean operationalFastPathEligible(String q,long focalItemId){return focalItemId<=0||!explicitFocalReference(q);}
+
+    private static boolean personalMemoryQuestion(String n){
+        String p=" "+n+" ";String[] en={" i "," me "," my "," mine "," we "," us "," our "};for(String x:en)if(p.contains(x))return true;
+        String[] ar={"انا","أنا","عندي","بتاعي","بتاعتي","كنت","عملت","رحت","كشفت","اشتريت","اخدت","أخدت","خدت","قلت","حجزت","قابلت","دكتوري","مشروعي","ميعادي","موعدي","عربيتي","ابني","مراتي","شغلي","دوائي","ادويتي","أدويتي"};for(String x:ar)if(n.contains(LocalSemanticEmbedder.norm(x)))return true;return false;
+    }
+
+    private static boolean explicitFocalReference(String q){String n=LocalSemanticEmbedder.norm(q==null?"":q);String[] xs={"this capture","this attachment","attached capture","attached document","this document","this image","this photo","this file","the attached","المرفق","المرفقة","الصورة دي","الصوره دي","الصورة ده","الملف ده","المستند ده","السكرين شوت دي","التسجيل ده","الصوت ده"};for(String x:xs)if(n.contains(LocalSemanticEmbedder.norm(x)))return true;return false;}
 
     private static boolean phoneQuestion(String q){String n=LocalSemanticEmbedder.norm(q==null?"":q);String[] xs={"phone context","current app","recent apps","last apps","running apps","running processes","background apps","what was i doing on my phone","what apps are running","what is running on my phone","كنت فاتح ايه","كنت فاتح إيه","كنت بعمل ايه على الموبايل","كنت بعمل إيه على الموبايل","ايه شغال على الموبايل","إيه شغال على الموبايل","آخر تطبيقات","اخر تطبيقات","آخر ابلكيشنات","اخر ابلكيشنات"};for(String x:xs)if(n.contains(LocalSemanticEmbedder.norm(x)))return true;return false;}
     private static long createJob(VaultDb db,String q,String mode,long focalItemId){try{return AiJobStore.create(db,"brain_"+mode,mode,new JSONObject().put("question",q).put("explicit_cloud_route",true).put("focal_item_id",focalItemId).toString(),70);}catch(Exception e){return AiJobStore.create(db,"brain_"+mode,mode,"{}",70);}}
