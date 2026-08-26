@@ -29,6 +29,11 @@ HEALTHBRIDGE="app/src/main/java/com/kareem/cortex/HealthConnectBridge.kt"
 HEALTHRESULT="app/src/main/java/com/kareem/cortex/HealthSyncResult.java"
 HEALTHTREND="app/src/main/java/com/kareem/cortex/HealthTrendEngine.java"
 HEALTHTRENDFIX="app/src/main/java/com/kareem/cortex/HealthTrendFixture.java"
+CAPREG="app/src/main/java/com/kareem/cortex/CortexCapabilityRegistry.java"
+VISUALSTORE="app/src/main/java/com/kareem/cortex/VisualInsightStore.java"
+VISUALRECOVERY="app/src/main/java/com/kareem/cortex/VisualRecoveryStore.java"
+VISUALRECOVERYUI="app/src/main/java/com/kareem/cortex/VisualRecoveryActivity.java"
+VISUALRECOVERYFIX="app/src/main/java/com/kareem/cortex/VisualRecoveryFixture.java"
 SEMANTIC="app/src/main/java/com/kareem/cortex/CortexSemanticOperation.java"
 ROBOTMODE="app/src/main/java/com/kareem/cortex/CortexExperimentalTestMode.java"
 ROBOTFIX="app/src/main/java/com/kareem/cortex/CortexRobotFixtures.java"
@@ -37,7 +42,7 @@ ROBOTEXPORT="app/src/main/java/com/kareem/cortex/CortexRobotTestExporter.java"
 ACCESSIBILITY="app/src/main/java/com/kareem/cortex/CortexScreenAccessibilityService.java"
 VAULT="app/src/main/java/com/kareem/cortex/VaultDb.java"
 
-for f in "$ONBOARD" "$ACCESS" "$PROVIDER" "$BRAIN" "$PUI" "$RDEBUG" "$ENV" "$TEXTUI" "$BIDI" "$AUTOTEST" "$AUTOEXPORT" "$SYN_AUDIO" "$AUDIO_ANALYZER" "$HEALTHUI" "$HEALTHBRIDGE" "$HEALTHRESULT" "$HEALTHTREND" "$HEALTHTRENDFIX" "$SEMANTIC" "$ROBOTMODE" "$ROBOTFIX" "$ROBOT" "$ROBOTEXPORT" "$ACCESSIBILITY" "$VAULT"; do need_file "$f"; done
+for f in "$ONBOARD" "$ACCESS" "$PROVIDER" "$BRAIN" "$PUI" "$RDEBUG" "$ENV" "$TEXTUI" "$BIDI" "$AUTOTEST" "$AUTOEXPORT" "$SYN_AUDIO" "$AUDIO_ANALYZER" "$HEALTHUI" "$HEALTHBRIDGE" "$HEALTHRESULT" "$HEALTHTREND" "$HEALTHTRENDFIX" "$CAPREG" "$VISUALSTORE" "$VISUALRECOVERY" "$VISUALRECOVERYUI" "$VISUALRECOVERYFIX" "$SEMANTIC" "$ROBOTMODE" "$ROBOTFIX" "$ROBOT" "$ROBOTEXPORT" "$ACCESSIBILITY" "$VAULT"; do need_file "$f"; done
 
 # First-run Android access walkthrough must stay wired to the same authoritative gate inventory.
 need "$MAN" 'activity android:name="\.AccessOnboardingActivity"' 'first-run Access onboarding is registered'
@@ -106,6 +111,31 @@ need "$HEALTHTRENDFIX" '60,61,200.*70,71,300' 'health trend fixture includes out
 need "$HEALTHTRENDFIX" 'diagnosticForSource' 'health trend fixture isolates its exact synthetic source'
 need "$AUTOTEST" 'health\.trend_contract' 'complete automatic verification runs the health trend contract'
 need "$AUTOTEST" 'HealthTrendFixture\.verify' 'automatic verification executes rollback trend arithmetic'
+
+# Visual recovery must distinguish active recovery from terminal failure and must never hide bounded retry history.
+need "$MAN" 'activity android:name="\.VisualRecoveryActivity"' 'Visual recovery activity is registered'
+need "$ENV" 'VisualRecoveryActivity\.class' 'Advanced diagnostics opens Visual recovery'
+need "$ENV" 'countRecoverable\(db\).*countTerminal\(db\)' 'Advanced diagnostics reports recovering and terminal counts separately'
+need "$VISUALSTORE" 'countRecovering\(VaultDb db\)' 'visual store exposes recoverable/rate-limited backlog separately'
+need "$VISUALSTORE" "status IN \('retry_wait','rate_limited'\).*recoverable" 'recovering count includes retry-wait/rate-limited and retry-ledger state'
+need "$CAPREG" 'case"visual_intelligence".*countRecovering.*terminal.*return ready' 'Visual Intelligence capability marks recoverable backlog READY instead of ACTIVE'
+need "$CAPREG" 'case"background_visual".*countRecovering.*return ready' 'Background Visual capability marks recovery-in-progress READY'
+need "$CAPREG" 'VisualRecoveryActivity\.class' 'core component verification includes Visual recovery activity'
+forbid "$CAPREG" 'visual understanding result\(s\) · no current failures' 'capability matrix cannot use the old misleading visual healthy copy'
+need "$VISUALRECOVERY" 'retryRecoverableNow\(VaultDb db,long exactItemId\)' 'visual recovery has exact-item retry path for deterministic isolation'
+need "$VISUALRECOVERY" 'bounded attempt history preserved' 'retry-now explicitly preserves bounded attempt history'
+need "$VISUALRECOVERY" 'resetTerminalBudget\(VaultDb db,long exactItemId\)' 'terminal recovery has exact-item fresh-budget path'
+need "$VISUALRECOVERYUI" 'Retry recoverable now' 'visual recovery UI exposes explicit recoverable retry'
+need "$VISUALRECOVERYUI" 'Open latest issue' 'visual recovery UI can inspect the latest unresolved item'
+need "$VISUALRECOVERYUI" 'Reset terminal retry budget' 'terminal retry reset requires a separate explicit action'
+need "$VISUALRECOVERYFIX" 'sql\.beginTransaction' 'visual recovery fixture is rollback-only'
+need "$VISUALRECOVERYFIX" 'retryRecoverableNow\(db,id\)' 'visual fixture retries only its exact synthetic item'
+need "$VISUALRECOVERYFIX" 'afterRetry\.attempts!=1' 'visual fixture verifies retry-now does not reset attempt history'
+need "$VISUALRECOVERYFIX" 's3\.recoverable.*s3\.attempts!=3' 'visual fixture verifies bounded retries become terminal on attempt three'
+need "$VISUALRECOVERYFIX" 'resetTerminalBudget\(db,id\)' 'visual fixture resets only its exact synthetic terminal item'
+need "$AUTOTEST" 'visual\.recovery_contract' 'complete automatic verification runs visual recovery contract'
+need "$AUTOTEST" 'VisualRecoveryFixture\.verify' 'automatic verification executes rollback visual recovery semantics'
+need "$AUTOTEST" '"visual_intelligence".*"background_visual"' 'visual capability states are marked STATE+DEEP'
 
 # Arabic-dominant content must stay RTL even when a line begins with an English drug/model/dose token.
 need "$TEXTUI" 'TEXT_DIRECTION_RTL' 'Arabic-dominant TextViews use forced RTL paragraph direction'
