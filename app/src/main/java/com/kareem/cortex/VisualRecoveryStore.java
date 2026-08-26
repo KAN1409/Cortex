@@ -11,8 +11,8 @@ public final class VisualRecoveryStore {
     private VisualRecoveryStore(){}
 
     public static final class State {
-        public final long itemId,nextRetryAt,updatedAt;public final int attempts;public final String failureKind,nextAction,lastError;public final boolean recoverable;
-        State(long id,int a,String kind,boolean r,long next,String action,String error,long at){itemId=id;attempts=a;failureKind=n(kind);recoverable=r;nextRetryAt=next;nextAction=n(action);lastError=n(error);updatedAt=at;}
+        public final long itemId,nextRetryAt,createdAt,updatedAt;public final int attempts;public final String failureKind,nextAction,lastError;public final boolean recoverable;
+        State(long id,int a,String kind,boolean r,long next,String action,String error,long created,long updated){itemId=id;attempts=a;failureKind=n(kind);recoverable=r;nextRetryAt=next;nextAction=n(action);lastError=n(error);createdAt=created;updatedAt=updated;}
     }
 
     public static void ensure(VaultDb db){
@@ -20,12 +20,12 @@ public final class VisualRecoveryStore {
         db.getWritableDatabase().execSQL("CREATE INDEX IF NOT EXISTS idx_visual_recovery_due ON visual_recovery(recoverable,next_retry_at)");
     }
 
-    public static State get(VaultDb db,long itemId){ensure(db);Cursor c=db.getReadableDatabase().rawQuery("SELECT item_id,attempt_count,failure_kind,recoverable,next_retry_at,next_action,last_error,updated_at FROM visual_recovery WHERE item_id=?",new String[]{String.valueOf(itemId)});State s=c.moveToFirst()?new State(c.getLong(0),c.getInt(1),c.getString(2),c.getInt(3)!=0,c.getLong(4),c.getString(5),c.getString(6),c.getLong(7)):null;c.close();return s;}
+    public static State get(VaultDb db,long itemId){ensure(db);Cursor c=db.getReadableDatabase().rawQuery("SELECT item_id,attempt_count,failure_kind,recoverable,next_retry_at,next_action,last_error,created_at,updated_at FROM visual_recovery WHERE item_id=?",new String[]{String.valueOf(itemId)});State s=c.moveToFirst()?new State(c.getLong(0),c.getInt(1),c.getString(2),c.getInt(3)!=0,c.getLong(4),c.getString(5),c.getString(6),c.getLong(7),c.getLong(8)):null;c.close();return s;}
     public static int attempts(VaultDb db,long itemId){State s=get(db,itemId);return s==null?0:s.attempts;}
 
     public static State record(VaultDb db,long itemId,VisualFailurePolicy.Decision d,Throwable error){
         if(db==null||itemId<=0||d==null)return null;ensure(db);State old=get(db,itemId);int attempts=(old==null?0:old.attempts)+(d.countsAttempt?1:0);boolean recoverable=d.recoverable&&(attempts<VisualFailurePolicy.MAX_TRANSIENT_ATTEMPTS||!d.countsAttempt);long now=System.currentTimeMillis(),next=recoverable?now+Math.max(1_000L,d.retryAfterMs):0;
-        ContentValues v=new ContentValues();v.put("item_id",itemId);v.put("attempt_count",attempts);v.put("failure_kind",d.kind);v.put("recoverable",recoverable?1:0);v.put("next_retry_at",next);v.put("next_action",d.nextAction);v.put("last_error",message(error));v.put("created_at",old==null?now:Math.min(now,old.updatedAt));v.put("updated_at",now);db.getWritableDatabase().insertWithOnConflict("visual_recovery",null,v,SQLiteDatabase.CONFLICT_REPLACE);return get(db,itemId);
+        ContentValues v=new ContentValues();v.put("item_id",itemId);v.put("attempt_count",attempts);v.put("failure_kind",d.kind);v.put("recoverable",recoverable?1:0);v.put("next_retry_at",next);v.put("next_action",d.nextAction);v.put("last_error",message(error));v.put("created_at",old==null?now:old.createdAt);v.put("updated_at",now);db.getWritableDatabase().insertWithOnConflict("visual_recovery",null,v,SQLiteDatabase.CONFLICT_REPLACE);return get(db,itemId);
     }
 
     public static void clear(VaultDb db,long itemId){if(db==null||itemId<=0)return;ensure(db);db.getWritableDatabase().delete("visual_recovery","item_id=?",new String[]{String.valueOf(itemId)});}
