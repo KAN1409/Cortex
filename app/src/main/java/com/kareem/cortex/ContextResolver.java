@@ -28,7 +28,10 @@ public final class ContextResolver {
         if(best.sourceId>0)ContextStateStore.linkEvidence(db,best.sourceType,best.sourceId,id,"supports_context",best.confidence,json("resolver",best.reason));
         ContextStateStore.ContextState current=ContextStateStore.primary(db);
         if(current!=null&&current.id==id&&shouldSnapshot(db,current.id,offer.transition,now)){
-            String loop=openLoop(db,current),next=nextStep(db,current);ContextStateStore.recordSnapshot(db,current.id,best.summary,loop,next,evidenceLine(best),"{\"local_only\":true,\"cloud_summary_allowed\":false}");
+            // Snapshot only obligations already grounded to this exact Context. Never borrow a
+            // globally open ACTION/WAITING/DECISION merely because Cortex happens to have one.
+            ContextOpenLoopResolver.State resume=ContextOpenLoopResolver.resolve(db,current.id);
+            ContextStateStore.recordSnapshot(db,current.id,best.summary,resume.openLoop,resume.nextStep,evidenceLine(best),"{\"local_only\":true,\"cloud_summary_allowed\":false,\"obligation_provenance\":\"context_bound_only\"}");
         }
         return current;
     }
@@ -68,10 +71,6 @@ public final class ContextResolver {
 
     private static String meaningful(ArrayList<PhoneContextStore.Event> xs){for(PhoneContextStore.Event e:xs){String t=n(e.text);if(t.isEmpty()||t.startsWith("<sensitive"))continue;if(t.length()>=5)return t;}return"";}
     private static String topic(String text){String n=LocalSemanticEmbedder.norm(text);StringBuilder b=new StringBuilder();int z=0;for(String w:n.split(" ")){if(w.length()<3)continue;if(b.length()>0)b.append(' ');b.append(w);if(++z>=6)break;}return b.toString();}
-
-    private static String openLoop(VaultDb db,ContextStateStore.ContextState c){return derived(db,c,"WAITING","ACTION","DECISION");}
-    private static String nextStep(VaultDb db,ContextStateStore.ContextState c){return derived(db,c,"ACTION","WAITING","DECISION");}
-    private static String derived(VaultDb db,ContextStateStore.ContextState context,String...kinds){Cursor c=null;try{String thread="";if(context.stableKey.startsWith("thread:"))thread=context.stableKey.substring(7);StringBuilder in=new StringBuilder();for(int i=0;i<kinds.length;i++){if(i>0)in.append(',');in.append('\'').append(kinds[i]).append('\'');}String base="SELECT title,body FROM derived_items WHERE state='open' AND kind IN ("+in+")";boolean found=false;if(!thread.isEmpty()){c=db.getReadableDatabase().rawQuery(base+" AND thread_id=? ORDER BY importance DESC,updated_at DESC LIMIT 1",new String[]{thread});found=c.moveToFirst();if(!found){c.close();c=null;}}if(!found){c=db.getReadableDatabase().rawQuery(base+" ORDER BY importance DESC,updated_at DESC LIMIT 1",null);found=c.moveToFirst();}if(!found)return"";String title=n(c.getString(0)),body=n(c.getString(1));return !body.isEmpty()?clip(body,220):clip(title,220);}catch(Throwable ignored){return"";}finally{if(c!=null)c.close();}}
 
     private static boolean shouldSnapshot(VaultDb db,long contextId,String transition,long now){if(!"CONTINUE".equals(transition))return true;Cursor c=null;try{c=db.getReadableDatabase().rawQuery("SELECT created_at FROM context_snapshots WHERE context_id=? ORDER BY created_at DESC LIMIT 1",new String[]{String.valueOf(contextId)});long last=c.moveToFirst()?c.getLong(0):0;return last==0||now-last>=20L*60L*1000L;}catch(Throwable ignored){return true;}finally{if(c!=null)c.close();}}
     private static String evidenceLine(Candidate x){return x.reason+" · confidence "+Math.round(x.confidence*100)+"%";}
