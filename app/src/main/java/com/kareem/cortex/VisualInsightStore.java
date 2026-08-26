@@ -17,18 +17,14 @@ public final class VisualInsightStore {
     public static int countSkipped(VaultDb db){ensure(db);return count(db,"SELECT COUNT(*) FROM visual_insights WHERE status IN ('skipped','local_only')");}
     /** Only terminal visual failures count as FAILED. Recoverable retry-ledger rows are not terminal. */
     public static int countFailed(VaultDb db){ensure(db);VisualRecoveryStore.ensure(db);return count(db,"SELECT COUNT(*) FROM visual_insights v WHERE v.status='failed' AND NOT EXISTS(SELECT 1 FROM visual_recovery r WHERE r.item_id=v.item_id AND r.recoverable=1)");}
-    public static int countRecovering(VaultDb db){ensure(db);VisualRecoveryStore.ensure(db);return count(db,"SELECT COUNT(DISTINCT v.item_id) FROM visual_insights v LEFT JOIN visual_recovery r ON r.item_id=v.item_id WHERE v.status IN ('retry_wait','rate_limited') OR COALESCE(r.recoverable,0)=1");}
+    /** Recovering excludes resolved/protected results; provider-setup waits are counted separately. */
+    public static int countRecovering(VaultDb db){ensure(db);VisualRecoveryStore.ensure(db);return count(db,"SELECT COUNT(DISTINCT v.item_id) FROM visual_insights v LEFT JOIN visual_recovery r ON r.item_id=v.item_id WHERE v.status NOT IN ('done','local_only','skipped','waiting_provider') AND (v.status IN ('retry_wait','rate_limited') OR COALESCE(r.recoverable,0)=1)");}
+    public static int countWaitingProvider(VaultDb db){ensure(db);return count(db,"SELECT COUNT(*) FROM visual_insights WHERE status='waiting_provider'");}
     public static int countRateLimited(VaultDb db){ensure(db);return count(db,"SELECT COUNT(*) FROM visual_insights WHERE status='rate_limited'");}
     public static int countPendingSince(VaultDb db,long start){ensure(db);Cursor c=db.getReadableDatabase().rawQuery("SELECT COUNT(*) FROM knowledge_items k WHERE k.type IN ('SCREENSHOT','IMAGE') AND k.status='analyzed' AND ((k.source='screenshot-folder' AND k.created_at>=? AND NOT EXISTS(SELECT 1 FROM visual_insights v WHERE v.item_id=k.id)) OR EXISTS(SELECT 1 FROM visual_insights v WHERE v.item_id=k.id AND (((v.status='failed' AND v.pipeline_version<?) OR v.status='rate_limited' OR v.status='waiting_provider'))))",new String[]{String.valueOf(start),String.valueOf(PIPELINE_VERSION)});int n=c.moveToFirst()?c.getInt(0):0;c.close();return n;}
 
-    /**
-     * Marks a bounded newest set for explicit retry. Explicit user retry starts a fresh retry budget;
-     * successful/protected/skipped results are never touched.
-     */
-    public static int requeueFailed(VaultDb db,int limit){
-        ensure(db);VisualRecoveryStore.ensure(db);int n=Math.max(1,Math.min(100,limit));ArrayList<Long> ids=new ArrayList<>();Cursor c=db.getReadableDatabase().rawQuery("SELECT item_id FROM visual_insights WHERE status='failed' ORDER BY updated_at DESC LIMIT ?",new String[]{String.valueOf(n)});while(c.moveToNext())ids.add(c.getLong(0));c.close();if(ids.isEmpty())return 0;
-        SQLiteDatabase sql=db.getWritableDatabase();sql.beginTransaction();int changed=0;try{for(long id:ids){sql.delete("visual_recovery","item_id=?",new String[]{String.valueOf(id)});ContentValues v=new ContentValues();v.put("pipeline_version",PIPELINE_VERSION-1);v.put("status","failed");v.put("error","Explicit retry requested from Advanced Diagnostics");v.put("updated_at",System.currentTimeMillis());changed+=sql.update("visual_insights",v,"item_id=?",new String[]{String.valueOf(id)});}sql.setTransactionSuccessful();}finally{sql.endTransaction();}return changed;
-    }
+    /** Explicit fresh-budget retry is terminal-only; recoverable attempt history stays intact. */
+    public static int requeueFailed(VaultDb db,int limit){VisualRecoveryStore.ensure(db);VisualRecoveryStore.adoptLegacyFailures(db);return VisualRecoveryStore.resetTerminalBudget(db,limit);}
 
     /** Convenience overload for the direct capture-result path, which is currently Gemini vision. */
     public static void saveModel(VaultDb db,long itemId,JSONObject root){saveModel(db,itemId,"gemini",root);}
