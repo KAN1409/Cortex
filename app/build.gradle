@@ -45,6 +45,9 @@ dependencies {
     implementation 'com.google.mlkit:text-recognition:16.0.1'
     implementation 'cz.adaptech.tesseract4android:tesseract4android:4.9.0'
     implementation 'androidx.work:work-runtime:2.11.2'
+    // Explicit Activity API is used for lifecycle-safe Health Connect and document picker contracts.
+    // 1.10.1 remains compatible with Cortex's compileSdk 35 / AGP 8.7.3 toolchain.
+    implementation 'androidx.activity:activity:1.10.1'
     // Health Connect alpha10 brings Guava on its runtime graph while Gradle selects the intentionally
     // empty listenablefuture-9999 conflict-avoidance artifact. Expose Guava Android itself on Cortex's
     // compile classpath so WorkManager's public ListenableFuture signatures remain resolvable.
