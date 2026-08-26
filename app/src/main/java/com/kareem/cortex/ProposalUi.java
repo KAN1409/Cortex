@@ -19,7 +19,7 @@ public final class ProposalUi {
 
     public static void attach(Activity activity,VaultDb db,LinearLayout parent,ResultProposalEngine.Target target){
         if(activity==null||db==null||parent==null||target==null||target.text.trim().isEmpty())return;
-        final int dp=CortexUi.dp(activity,1);LinearLayout holder=new LinearLayout(activity);holder.setOrientation(LinearLayout.VERTICAL);holder.setPadding(0,8*dp,0,2*dp);parent.addView(holder);requestInto(activity,db,holder,target);
+        final int dp=CortexUi.dp(activity,1);LinearLayout holder=new LinearLayout(activity);holder.setOrientation(LinearLayout.VERTICAL);holder.setPadding(0,8*dp,0,2*dp);holder.setVisibility(View.GONE);parent.addView(holder);requestInto(activity,db,holder,target);
     }
 
     private static long beginRequest(LinearLayout holder){synchronized(REQUEST_TOKENS){long t=++tokenSeq;REQUEST_TOKENS.put(holder,t);return t;}}
@@ -28,8 +28,11 @@ public final class ProposalUi {
     private static boolean currentSemantic(LinearLayout holder,long op){synchronized(SEMANTIC_TOKENS){Long x=SEMANTIC_TOKENS.get(holder);return x!=null&&x==op;}}
 
     private static void requestInto(Activity activity,VaultDb db,LinearLayout holder,ResultProposalEngine.Target target){
-        if(activity==null||db==null||holder==null||target==null)return;final int dp=CortexUi.dp(activity,1);final long requestToken=beginRequest(holder);final long semanticToken=beginSemantic(holder,target);CortexSemanticOperation.progress(semanticToken,"Generating useful next moves",3,"Proposal generation is independent from the already-visible result");holder.setVisibility(View.VISIBLE);holder.removeAllViews();
-        LinearLayout waiting=new LinearLayout(activity);waiting.setGravity(Gravity.CENTER_VERTICAL);waiting.addView(CortexUi.glyph(activity,"brain",CortexUi.RED,true),new LinearLayout.LayoutParams(28*dp,28*dp));TextView thinking=CortexUi.plain(activity,"Generating useful next moves…",9,CortexUi.MUTED);LinearLayout.LayoutParams tp=new LinearLayout.LayoutParams(0,-2,1);tp.setMargins(7*dp,0,0,0);waiting.addView(thinking,tp);holder.addView(waiting);
+        if(activity==null||db==null||holder==null||target==null)return;final long requestToken=beginRequest(holder);final long semanticToken=beginSemantic(holder,target);CortexSemanticOperation.progress(semanticToken,"Generating useful next moves",3,"Proposal generation is independent from the already-visible result");
+        // Fast Answer First invariant: once the owning result is visible/terminal, deferred proposal
+        // enrichment must never make that surface look busy again. Keep the strip absent while work is
+        // in flight; reveal it only at a proposal terminal state (suggestions, no-op, or recoverable error).
+        holder.removeAllViews();holder.setVisibility(View.GONE);
         Handler main=new Handler(Looper.getMainLooper());
         Runnable timeout=()->{if(!isCurrent(holder,requestToken)||!currentSemantic(holder,semanticToken)||activity.isFinishing()||activity.isDestroyed()||holder.getParent()==null)return;CortexSemanticOperation.timeout(semanticToken,"Proposal UI timeout after "+UI_TIMEOUT_MS+" ms · stale callbacks will be ignored");holder.removeAllViews();renderRecoverableState(activity,db,holder,target,"Suggestions are taking too long","Cortex exhausted the remote and fallback budgets. Retry starts a fresh generation; stale responses are ignored.",ExternalBrainProvider.configurationHint(activity),true);};
         main.postDelayed(timeout,UI_TIMEOUT_MS);
