@@ -44,16 +44,20 @@ for f in \
   app/src/main/java/com/kareem/cortex/ProposalBriefActivity.java \
   app/src/main/java/com/kareem/cortex/ProposalPeopleProjectsActivity.java \
   app/src/main/java/com/kareem/cortex/ProposalAskCortexActivity.java \
-  app/src/main/java/com/kareem/cortex/CortexGlyphView.java; do require_file "$f"; done
+  app/src/main/java/com/kareem/cortex/CortexGlyphView.java \
+  app/src/main/java/com/kareem/cortex/CortexTruthPolicy.java; do require_file "$f"; done
 
 require_text app/src/main/java/com/kareem/cortex/ResultProposalEngine.java 'ExternalBrainProvider\.ask' 'proposal engine can use configured external reasoning model'
 require_text app/src/main/java/com/kareem/cortex/ResultProposalEngine.java 'LocalLlmBridge\.completeCached' 'proposal engine has local/private model fallback'
 require_text app/src/main/java/com/kareem/cortex/ResultProposalEngine.java 'Zero proposals is allowed' 'proposal prompt permits no-op instead of fake suggestions'
-require_text app/src/main/java/com/kareem/cortex/ProposalBriefActivity.java 'ProposalUi\.attach' 'Brief results are wired to micro proposals'
-require_text app/src/main/java/com/kareem/cortex/ProposalPeopleProjectsActivity.java 'ProposalUi\.attach' 'People/Projects results are wired to micro proposals'
+require_text app/src/main/java/com/kareem/cortex/ProposalBriefActivity.java 'consequence-first' 'NOW is consequence-first rather than proposal-first'
+if grep -Eq 'ProposalUi\.attach' app/src/main/java/com/kareem/cortex/ProposalBriefActivity.java; then bad "NOW must not generate per-card micro proposals"; else ok "NOW does not generate per-card micro proposals"; fi
+require_text app/src/main/java/com/kareem/cortex/ProposalPeopleProjectsActivity.java 'ProposalUi\.attach' 'legacy People/Projects detail view retains proposal support outside primary navigation'
 require_text app/src/main/java/com/kareem/cortex/ProposalAskCortexActivity.java 'ProposalUi\.attach' 'Brain answers are wired to micro proposals'
 require_text app/src/main/java/com/kareem/cortex/ProposalCaptureResultActivity.java 'ProposalUi\.attach' 'Capture results are wired to micro proposals'
 require_text app/src/main/java/com/kareem/cortex/ProposalCaptureResultActivity.java 'hideLegacySuggestions' 'fixed legacy pseudo-suggestions are removed from final capture result'
+require_text app/src/main/java/com/kareem/cortex/CortexTruthPolicy.java 'confirmedDecision' 'product reset has a central user-decision truth gate'
+require_text app/src/main/java/com/kareem/cortex/CortexTruthPolicy.java 'ambientContext' 'product reset has a central ambient-context truth gate'
 
 # Capture correction + recoverable proposal contract.
 TC="app/src/main/java/com/kareem/cortex/TranscriptCorrectionStore.java"
@@ -77,7 +81,7 @@ send_multi_count="$(grep -o 'android.intent.action.SEND_MULTIPLE' "$MAN" | wc -l
 [ "$send_count" = "1" ] && ok "exactly one ACTION_SEND owner" || bad "expected 1 ACTION_SEND owner, found $send_count"
 [ "$send_multi_count" = "1" ] && ok "exactly one ACTION_SEND_MULTIPLE owner" || bad "expected 1 ACTION_SEND_MULTIPLE owner, found $send_multi_count"
 require_text "$MAN" 'activity android:name="\.ProposalCaptureActivity" android:exported="true"' 'proposal-aware capture owns external share entry'
-require_text "$MAN" 'activity-alias android:name="\.PremiumHomeActivity" android:targetActivity="\.ProposalBriefActivity"' 'legacy Brief alias routes to final proposal Brief'
+require_text "$MAN" 'activity-alias android:name="\.PremiumHomeActivity" android:targetActivity="\.ProposalBriefActivity"' 'legacy Brief alias routes to final NOW surface'
 
 require_text app/src/main/java/com/kareem/cortex/InputActivity.java 'ProposalCaptureActivity\.class' 'Input capture routes to proposal-aware capture'
 require_text app/src/main/java/com/kareem/cortex/CortexQuickTileService.java 'ProposalCaptureActivity\.class' 'voice Quick Tile routes to proposal-aware capture'
@@ -85,9 +89,10 @@ require_text app/src/main/java/com/kareem/cortex/UnderstandScreenTileService.jav
 require_text app/src/main/java/com/kareem/cortex/CortexRecordWidget.java 'ProposalCaptureActivity\.class' 'record widget setup routes to proposal-aware capture'
 
 UI="app/src/main/java/com/kareem/cortex/CortexUi.java"
-require_text "$UI" 'ProposalBriefActivity\.class' 'bottom nav routes to proposal Brief'
-require_text "$UI" 'ProposalPeopleProjectsActivity\.class' 'bottom nav routes to proposal People/Projects'
-require_text "$UI" 'ProposalAskCortexActivity\.class' 'bottom nav routes to proposal Brain'
+require_text "$UI" '"brief","Now".*ProposalBriefActivity\.class' 'bottom nav routes to NOW'
+require_text "$UI" '"input","Capture".*InputActivity\.class' 'bottom nav routes to Capture'
+require_text "$UI" '"brain","Ask".*ProposalAskCortexActivity\.class' 'bottom nav routes to Ask'
+require_text "$UI" '"history","History".*VaultActivity\.class' 'bottom nav routes to History instead of People/Projects'
 
 CAP="app/src/main/java/com/kareem/cortex/CortexCapabilityRegistry.java"
 require_file "$CAP"
@@ -110,7 +115,7 @@ require_text "$UI" 'public static GradientDrawable matte' 'matte surface helper 
 require_text "$UI" 'public static GradientDrawable velvet' 'low-reflection depth helper is centralized'
 require_text "$UI" 'public static <T extends View> T raised' 'raised elevation helper is centralized'
 require_text app/src/main/java/com/kareem/cortex/CortexGlyphView.java 'monoline white glyph' 'custom raised monoline icon language is present'
-require_text app/src/main/java/com/kareem/cortex/ProposalBriefActivity.java 'CortexUi\.glyph' 'Brief uses shared custom icon plates'
+require_text app/src/main/java/com/kareem/cortex/ProposalBriefActivity.java 'CortexUi\.glyph' 'NOW uses shared custom icon plates'
 require_text app/src/main/java/com/kareem/cortex/InputActivity.java 'CortexUi\.glyph' 'Input uses shared custom icon plates'
 require_text app/src/main/java/com/kareem/cortex/ProposalPeopleProjectsActivity.java 'CortexUi\.glyph' 'People/Projects uses shared custom icon plates'
 require_text app/src/main/java/com/kareem/cortex/ProposalAskCortexActivity.java 'CortexUi\.glyph' 'Brain uses shared custom icon plates'
