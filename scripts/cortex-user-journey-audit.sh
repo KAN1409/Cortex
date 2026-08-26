@@ -12,10 +12,14 @@ SUITE="app/src/main/java/com/kareem/cortex/CortexExperimentalUserSuite.java"
 EXPORT="app/src/main/java/com/kareem/cortex/CortexUserJourneyTestExporter.java"
 COMPAT="app/src/main/java/com/kareem/cortex/CortexRobotTestExporter.java"
 FIX="app/src/main/java/com/kareem/cortex/CortexRobotFixtures.java"
+AUTOTEST="app/src/main/java/com/kareem/cortex/CortexAutoTestSuite.java"
 SYN_AUDIO="app/src/main/java/com/kareem/cortex/SyntheticAudioFixture.java"
 AUDIO_ANALYZER="app/src/main/java/com/kareem/cortex/AudioAnalyzer.java"
 ANALYSIS_QUEUE="app/src/main/java/com/kareem/cortex/AnalysisQueue.java"
 CAPTURE="app/src/main/java/com/kareem/cortex/CaptureActivity.java"
+VISUAL_UI="app/src/main/java/com/kareem/cortex/VisualIntelligenceActivity.java"
+VISUAL_POLICY="app/src/main/java/com/kareem/cortex/VisualFailurePolicy.java"
+VISUAL_RECOVERY="app/src/main/java/com/kareem/cortex/VisualRecoveryStore.java"
 ACCESS="app/src/main/java/com/kareem/cortex/CortexScreenAccessibilityService.java"
 ROBOT="app/src/main/java/com/kareem/cortex/CortexRobotUserTest.java"
 SEMANTIC="app/src/main/java/com/kareem/cortex/CortexSemanticOperation.java"
@@ -26,7 +30,7 @@ ONBOARD="app/src/main/java/com/kareem/cortex/AccessOnboardingActivity.java"
 HEALTH="app/src/main/java/com/kareem/cortex/HealthFollowupActivity.java"
 TRANSCRIPT="app/src/main/java/com/kareem/cortex/TranscriptCorrectionStore.java"
 
-for f in "$SUITE" "$EXPORT" "$COMPAT" "$FIX" "$SYN_AUDIO" "$AUDIO_ANALYZER" "$ANALYSIS_QUEUE" "$CAPTURE" "$ACCESS" "$ROBOT" "$SEMANTIC" "$BRAIN_UI" "$DISPATCH" "$BRAIN" "$ONBOARD" "$HEALTH" "$TRANSCRIPT"; do need_file "$f"; done
+for f in "$SUITE" "$EXPORT" "$COMPAT" "$FIX" "$AUTOTEST" "$SYN_AUDIO" "$AUDIO_ANALYZER" "$ANALYSIS_QUEUE" "$CAPTURE" "$VISUAL_UI" "$VISUAL_POLICY" "$VISUAL_RECOVERY" "$ACCESS" "$ROBOT" "$SEMANTIC" "$BRAIN_UI" "$DISPATCH" "$BRAIN" "$ONBOARD" "$HEALTH" "$TRANSCRIPT"; do need_file "$f"; done
 
 # The primary test contract is user goals + expected terminal outcome, not click/screen counts.
 need "$SUITE" 'enum Status \{ PASS, CONFIRMED_APP_BUG, QUALITY_PROBLEM, TEST_GAP, HARNESS_ISSUE \}' 'suite separates product bugs, quality issues, gaps and harness issues'
@@ -83,13 +87,27 @@ need "$ANALYSIS_QUEUE" 'trackSemantic\(long itemId,long token\)' 'analysis queue
 need "$ANALYSIS_QUEUE" 'TRANSCRIPT_READY' 'audio completion is emitted only after transcript persistence'
 need "$ANALYSIS_QUEUE" 'semanticTimeout\(item\.id' 'audio/visual watchdog timeout closes semantic work explicitly'
 need "$SEMANTIC" 'contains\("ASR"\).*245_000L' 'ASR semantic budget sits above the 240-second queue watchdog'
-need "$SEMANTIC" 'contains\("VISUAL"\).*155_000L' 'visual semantic budget sits above the 150-second queue watchdog'
+need "$AUTOTEST" 'audio\.synthetic_contract' 'deterministic AutoTest verifies real-WAV post-provider contract without inflating user-journey PASS counts'
+need "$AUTOTEST" 'live_provider_tested' 'AutoTest explicitly verifies live ASR provider quality was not claimed'
+
+# Manual Visual understanding and background Visual recovery must share the same failure truth.
+need "$VISUAL_POLICY" 'MAX_TRANSIENT_ATTEMPTS=3' 'visual transient retries are bounded'
+need "$VISUAL_RECOVERY" 'record\(' 'visual recovery state is persisted'
+need "$VISUAL_UI" 'CortexSemanticOperation\.begin\("VISUAL_UNDERSTAND"' 'manual visual understanding starts semantic work'
+need "$VISUAL_UI" 'VisualRecoveryStore\.record' 'manual visual failures enter the shared recovery ledger'
+need "$VISUAL_UI" 'VisualFailurePolicy\.classify' 'manual visual failures use the shared classification policy'
+need "$VISUAL_UI" 'retry_wait' 'recoverable manual visual failure is distinct from terminal failure'
+need "$VISUAL_UI" 'VisualIntelligenceScheduler\.continueChain' 'recoverable visual failure schedules bounded retry work'
+need "$VISUAL_UI" 'VisualRecoveryStore\.clear.*CortexSemanticOperation\.complete|CortexSemanticOperation\.complete.*VISUAL_READY' 'visual success reaches terminal only around persisted ready state'
+need "$VISUAL_UI" 'VISUAL_FAILED' 'manual visual terminal failure is explicit'
+need "$SEMANTIC" 'contains\("VISUAL"\).*155_000L' 'visual semantic budget sits above the 150-second queue/manual watchdog'
 
 # Combined state questions use authoritative local Cortex state rather than discarding derived state in a cloud prompt.
 need "$BRAIN" 'AskOperationalEngine\.tryAnswer' 'Combined Brain checks authoritative operational state first'
 need "$BRAIN" 'cortex-operational-combined' 'Combined operational state has an explicit local provider result'
 need "$BRAIN" 'no operational private state sent to cloud' 'operational fast path documents the privacy boundary'
 need "$BRAIN" 'operational_fast_path' 'operational fast path is visible in job diagnostics'
+need "$BRAIN" 'actions_deferred.*true' 'Brain first answer does not wait for next-move generation'
 
 # First-run is tested through its visible UI while restoring the real onboarding preference afterward.
 need "$SUITE" 'journeyOnboardingRoundTrip' 'suite exercises first-run onboarding as a user journey'
@@ -105,6 +123,7 @@ need "$SUITE" 'snapshotPackage' 'external permission surface is detected by acti
 need "$SUITE" 'sandbox metrics .*→' 'Health permission round-trip verifies no silent sandbox data mutation'
 need "$SUITE" 'Real Health Connect provider sync after user grants scopes' 'real provider sync remains an explicit manual privacy boundary'
 need "$HEALTH" 'HealthConnectBridge\.permissionIntent' 'Health UI delegates permission ownership to Health Connect'
+need "$HEALTH" 'CortexSemanticOperation\.begin\("HEALTH_SYNC"' 'manual Health sync has semantic terminal tracking'
 
 # Known photo/PDF evidence is imported through the same ACTION_SEND entry the real Android share sheet uses.
 need "$FIX" 'PdfDocument' 'fixtures include a valid synthetic PDF'
