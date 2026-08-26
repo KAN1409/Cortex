@@ -25,23 +25,22 @@ public final class CortexUi {
     public static final int MUTED = Color.rgb(164,163,160);
     public static final int FAINT = Color.rgb(103,103,106);
 
-    public static final int RED = Color.rgb(255,72,62);         // Cortex signal / Brain / record / urgent
-    public static final int ORANGE = Color.rgb(255,146,42);     // active interaction / playback / change
-    public static final int YELLOW = Color.rgb(241,188,52);     // waiting / reminders / decisions
-    public static final int GREEN = Color.rgb(105,194,82);      // useful / confirmed / complete / people
+    public static final int RED = Color.rgb(255,72,62);
+    public static final int ORANGE = Color.rgb(255,146,42);
+    public static final int YELLOW = Color.rgb(241,188,52);
+    public static final int GREEN = Color.rgb(105,194,82);
 
     public static final int ACCENT = RED;
     public static final int SIGNAL = RED;
     public static final int AMBER = ORANGE;
     public static final int SAGE = GREEN;
     public static final int INFO = GREEN;
-    public static final int VIOLET = YELLOW; // compatibility name only; intentionally not purple.
+    public static final int VIOLET = YELLOW;
 
     public static final int BORDER = Color.rgb(45,45,48);
     public static final int BORDER_SOFT = Color.rgb(31,31,34);
     public static final int HAIRLINE = Color.argb(40,255,255,255);
 
-    // Legacy aliases deliberately map into the locked warm palette.
     public static final int COPPER = ORANGE;
     public static final int CORAL = RED;
     public static final int GOLD = YELLOW;
@@ -66,48 +65,19 @@ public final class CortexUi {
         });root.requestApplyInsets();
     }
 
-    public static GradientDrawable round(Activity a,int fill,int stroke,int radius){
-        GradientDrawable g=new GradientDrawable();g.setColor(fill);g.setCornerRadius(dp(a,radius));if(stroke!=Color.TRANSPARENT)g.setStroke(dp(a,1),stroke);return g;
-    }
-    public static GradientDrawable gradient(Activity a,int start,int end,int stroke,int radius){
-        GradientDrawable g=new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,new int[]{start,end});g.setCornerRadius(dp(a,radius));if(stroke!=Color.TRANSPARENT)g.setStroke(dp(a,1),stroke);return g;
-    }
-    /** Very low-contrast vertical shading: depth without reflective/glass highlights. */
+    public static GradientDrawable round(Activity a,int fill,int stroke,int radius){GradientDrawable g=new GradientDrawable();g.setColor(fill);g.setCornerRadius(dp(a,radius));if(stroke!=Color.TRANSPARENT)g.setStroke(dp(a,1),stroke);return g;}
+    public static GradientDrawable gradient(Activity a,int start,int end,int stroke,int radius){GradientDrawable g=new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,new int[]{start,end});g.setCornerRadius(dp(a,radius));if(stroke!=Color.TRANSPARENT)g.setStroke(dp(a,1),stroke);return g;}
     public static GradientDrawable velvet(Activity a,int radius){return gradient(a,SURFACE_2,SURFACE,HAIRLINE,radius);}
     public static GradientDrawable matte(Activity a,int radius){return round(a,SURFACE,HAIRLINE,radius);}
     public static View divider(Activity a){View v=new View(a);v.setBackgroundColor(BORDER_SOFT);return v;}
 
-    public static <T extends View> T raised(Activity a,T v,int elevationDp){
-        if(Build.VERSION.SDK_INT>=21){v.setElevation(dp(a,elevationDp));v.setTranslationZ(0f);}
-        return v;
-    }
+    public static <T extends View> T raised(Activity a,T v,int elevationDp){if(Build.VERSION.SDK_INT>=21){v.setElevation(dp(a,elevationDp));v.setTranslationZ(0f);}return v;}
     public static CortexGlyphView glyph(Activity a,String kind,int color,boolean dot){CortexGlyphView g=new CortexGlyphView(a,kind,color,dot);raised(a,g,4);return g;}
 
-    /**
-     * Shared tactile behavior for actionable surfaces. The haptic fires only for a completed tap,
-     * not when the finger turns into a scroll gesture, so dense Cortex lists do not buzz while scrolling.
-     */
     public static View pressable(Activity a,View v,GradientDrawable base){
         if(Build.VERSION.SDK_INT>=21)v.setBackground(new RippleDrawable(ColorStateList.valueOf(Color.argb(18,255,255,255)),base,null));else v.setBackground(base);
-        v.setClickable(true);v.setFocusable(true);raised(a,v,3);
-        final int slop=ViewConfiguration.get(a).getScaledTouchSlop();
-        v.setOnTouchListener(new View.OnTouchListener(){float downX,downY;boolean moved;
-            @Override public boolean onTouch(View x,MotionEvent e){
-                switch(e.getActionMasked()){
-                    case MotionEvent.ACTION_DOWN:
-                        downX=e.getX();downY=e.getY();moved=false;
-                        if(Build.VERSION.SDK_INT>=21){x.setTranslationZ(-dp(a,1));x.setScaleX(.992f);x.setScaleY(.992f);}break;
-                    case MotionEvent.ACTION_MOVE:
-                        if(Math.abs(e.getX()-downX)>slop||Math.abs(e.getY()-downY)>slop)moved=true;break;
-                    case MotionEvent.ACTION_UP:
-                        if(Build.VERSION.SDK_INT>=21){x.setTranslationZ(0f);x.setScaleX(1f);x.setScaleY(1f);}
-                        if(!moved&&e.getX()>=0&&e.getX()<=x.getWidth()&&e.getY()>=0&&e.getY()<=x.getHeight())CortexHaptics.press(x);break;
-                    case MotionEvent.ACTION_CANCEL:
-                        if(Build.VERSION.SDK_INT>=21){x.setTranslationZ(0f);x.setScaleX(1f);x.setScaleY(1f);}break;
-                }
-                return false;
-            }
-        });return v;
+        v.setClickable(true);v.setFocusable(true);raised(a,v,3);final int slop=ViewConfiguration.get(a).getScaledTouchSlop();
+        v.setOnTouchListener(new View.OnTouchListener(){float downX,downY;boolean moved;@Override public boolean onTouch(View x,MotionEvent e){switch(e.getActionMasked()){case MotionEvent.ACTION_DOWN:downX=e.getX();downY=e.getY();moved=false;if(Build.VERSION.SDK_INT>=21){x.setTranslationZ(-dp(a,1));x.setScaleX(.992f);x.setScaleY(.992f);}break;case MotionEvent.ACTION_MOVE:if(Math.abs(e.getX()-downX)>slop||Math.abs(e.getY()-downY)>slop)moved=true;break;case MotionEvent.ACTION_UP:if(Build.VERSION.SDK_INT>=21){x.setTranslationZ(0f);x.setScaleX(1f);x.setScaleY(1f);}if(!moved&&e.getX()>=0&&e.getX()<=x.getWidth()&&e.getY()>=0&&e.getY()<=x.getHeight())CortexHaptics.press(x);break;case MotionEvent.ACTION_CANCEL:if(Build.VERSION.SDK_INT>=21){x.setTranslationZ(0f);x.setScaleX(1f);x.setScaleY(1f);}break;}return false;}});return v;
     }
 
     public static TextView text(Activity a,String s,int sp,int color){TextView v=new TextView(a);v.setTextSize(sp);v.setTextColor(color);v.setLineSpacing(0,1.05f);CortexTextUi.setReadable(v,s==null?"":s);return v;}
@@ -115,49 +85,25 @@ public final class CortexUi {
     public static void medium(TextView v){v.setTypeface(Typeface.create("sans-serif-medium",Typeface.NORMAL));}
     public static void bold(TextView v){v.setTypeface(Typeface.create("sans-serif",Typeface.BOLD));}
 
-    public static LinearLayout card(Activity a,int radius){
-        LinearLayout c=new LinearLayout(a);c.setOrientation(LinearLayout.VERTICAL);c.setPadding(dp(a,16),dp(a,15),dp(a,16),dp(a,15));c.setBackground(velvet(a,radius));raised(a,c,4);return c;
-    }
-    public static TextView chip(Activity a,String label,int color,boolean strong){
-        TextView v=plain(a,label,strong?11:10,color);if(strong)medium(v);v.setGravity(Gravity.CENTER);v.setPadding(dp(a,11),0,dp(a,11),0);
-        int fill=Color.argb(strong?18:10,Color.red(color),Color.green(color),Color.blue(color));int stroke=Color.argb(strong?86:58,Color.red(color),Color.green(color),Color.blue(color));
-        v.setBackground(round(a,fill,stroke,999));raised(a,v,strong?3:2);return v;
-    }
+    public static LinearLayout card(Activity a,int radius){LinearLayout c=new LinearLayout(a);c.setOrientation(LinearLayout.VERTICAL);c.setPadding(dp(a,16),dp(a,15),dp(a,16),dp(a,15));c.setBackground(velvet(a,radius));raised(a,c,4);return c;}
+    public static TextView chip(Activity a,String label,int color,boolean strong){TextView v=plain(a,label,strong?11:10,color);if(strong)medium(v);v.setGravity(Gravity.CENTER);v.setPadding(dp(a,11),0,dp(a,11),0);int fill=Color.argb(strong?18:10,Color.red(color),Color.green(color),Color.blue(color));int stroke=Color.argb(strong?86:58,Color.red(color),Color.green(color),Color.blue(color));v.setBackground(round(a,fill,stroke,999));raised(a,v,strong?3:2);return v;}
     public static TextView section(Activity a,String title){TextView h=plain(a,title,11,MUTED);medium(h);h.setPadding(0,dp(a,22),0,dp(a,9));return h;}
-    public static TextView action(Activity a,String label,int color,boolean filled){
-        TextView b=plain(a,label,12,color);medium(b);b.setGravity(Gravity.CENTER);b.setPadding(dp(a,14),0,dp(a,14),0);
-        int wash=Color.argb(filled?22:8,Color.red(color),Color.green(color),Color.blue(color));int stroke=Color.argb(filled?110:64,Color.red(color),Color.green(color),Color.blue(color));
-        pressable(a,b,round(a,wash,stroke,15));raised(a,b,filled?5:3);return b;
-    }
+    public static TextView action(Activity a,String label,int color,boolean filled){TextView b=plain(a,label,12,color);medium(b);b.setGravity(Gravity.CENTER);b.setPadding(dp(a,14),0,dp(a,14),0);int wash=Color.argb(filled?22:8,Color.red(color),Color.green(color),Color.blue(color));int stroke=Color.argb(filled?110:64,Color.red(color),Color.green(color),Color.blue(color));pressable(a,b,round(a,wash,stroke,15));raised(a,b,filled?5:3);return b;}
 
-    public static int semanticFor(String key){
-        if(key==null)return RED;String k=key.toLowerCase();
-        if(k.contains("wait")||k.contains("remind"))return ORANGE;
-        if(k.contains("decision"))return YELLOW;
-        if(k.contains("people")||k.contains("project")||k.contains("info")||k.contains("useful")||k.contains("complete"))return GREEN;
-        if(k.contains("input")||k.contains("capture")||k.contains("play")||k.contains("change"))return ORANGE;
-        return RED;
-    }
+    public static int semanticFor(String key){if(key==null)return RED;String k=key.toLowerCase();if(k.contains("wait")||k.contains("remind"))return ORANGE;if(k.contains("decision"))return YELLOW;if(k.contains("people")||k.contains("project")||k.contains("info")||k.contains("useful")||k.contains("complete"))return GREEN;if(k.contains("input")||k.contains("capture")||k.contains("play")||k.contains("change"))return ORANGE;return RED;}
 
-    /** PRIME navigation stays functional but visually follows the approved compact matte control language. */
+    /** Lightweight fixed navigation: a quiet hairline + four destinations, not a floating card stack. */
     public static void addBottomNav(Activity a,LinearLayout root,String selected,Runnable ignoredMoreAction){
-        String current=primeKey(selected);LinearLayout bar=new LinearLayout(a);bar.setOrientation(LinearLayout.HORIZONTAL);bar.setGravity(Gravity.CENTER);bar.setPadding(dp(a,6),dp(a,5),dp(a,6),dp(a,5));bar.setBackground(matte(a,20));raised(a,bar,6);
-        addNav(a,bar,"input","Input",current,InputActivity.class);
-        addNav(a,bar,"brief","Brief",current,ProposalBriefActivity.class);
-        addNav(a,bar,"people","People / Projects",current,ProposalPeopleProjectsActivity.class);
-        addNav(a,bar,"brain","Brain",current,ProposalAskCortexActivity.class);
-        LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,dp(a,68));p.setMargins(dp(a,14),dp(a,7),dp(a,14),dp(a,10));root.addView(bar,p);fitSystemBars(a,root);
+        String current=primeKey(selected);View line=divider(a);root.addView(line,new LinearLayout.LayoutParams(-1,dp(a,1)));LinearLayout bar=new LinearLayout(a);bar.setOrientation(LinearLayout.HORIZONTAL);bar.setGravity(Gravity.CENTER);bar.setPadding(dp(a,8),dp(a,3),dp(a,8),dp(a,4));bar.setBackgroundColor(BG);
+        addNav(a,bar,"input","Input",current,InputActivity.class);addNav(a,bar,"brief","Brief",current,ProposalBriefActivity.class);addNav(a,bar,"people","People / Projects",current,ProposalPeopleProjectsActivity.class);addNav(a,bar,"brain","Brain",current,ProposalAskCortexActivity.class);
+        root.addView(bar,new LinearLayout.LayoutParams(-1,dp(a,57)));fitSystemBars(a,root);
     }
     private static String primeKey(String s){if("home".equals(s)||"focus".equals(s)||"brief".equals(s))return"brief";if("vault".equals(s)||"people".equals(s))return"people";if("ask".equals(s)||"brain".equals(s))return"brain";if("input".equals(s))return"input";return s==null?"":s;}
     private static int navColor(String key){if("input".equals(key))return ORANGE;if("brief".equals(key))return RED;if("people".equals(key))return GREEN;return YELLOW;}
 
     private static void addNav(Activity a,LinearLayout row,String key,String label,String selected,Class<?> cls){
-        boolean on=key.equals(selected);int semantic=navColor(key);int idle=mix(semantic,MUTED,.72f);
-        LinearLayout item=new LinearLayout(a);item.setOrientation(LinearLayout.VERTICAL);item.setGravity(Gravity.CENTER);item.setPadding(dp(a,3),dp(a,4),dp(a,3),dp(a,2));
-        int fill=on?Color.argb(18,Color.red(semantic),Color.green(semantic),Color.blue(semantic)):Color.TRANSPARENT;
-        int stroke=on?Color.argb(72,Color.red(semantic),Color.green(semantic),Color.blue(semantic)):Color.TRANSPARENT;item.setBackground(round(a,fill,stroke,15));if(on)raised(a,item,3);
-        CortexGlyphView icon=glyph(a,key,on?semantic:idle,on);item.addView(icon,new LinearLayout.LayoutParams(dp(a,30),dp(a,30)));
-        TextView l=plain(a,label,8,on?TEXT:MUTED);l.setGravity(Gravity.CENTER);l.setMaxLines(1);if(on)medium(l);item.addView(l,new LinearLayout.LayoutParams(-1,dp(a,18)));
+        boolean on=key.equals(selected);int semantic=navColor(key),idle=mix(semantic,FAINT,.84f);LinearLayout item=new LinearLayout(a);item.setOrientation(LinearLayout.VERTICAL);item.setGravity(Gravity.CENTER);item.setPadding(dp(a,2),dp(a,2),dp(a,2),0);item.setBackgroundColor(Color.TRANSPARENT);
+        CortexGlyphView icon=glyph(a,key,on?semantic:idle,on);if(!on&&Build.VERSION.SDK_INT>=21)icon.setElevation(0);item.addView(icon,new LinearLayout.LayoutParams(dp(a,27),dp(a,27)));TextView l=plain(a,label,8,on?TEXT:FAINT);l.setGravity(Gravity.CENTER);l.setMaxLines(1);if(on)medium(l);item.addView(l,new LinearLayout.LayoutParams(-1,dp(a,17)));
         item.setOnClickListener(v->{CortexHaptics.press(v);if(on)return;Intent i=new Intent(a,cls);i.addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT|Intent.FLAG_ACTIVITY_SINGLE_TOP);a.startActivity(i);});row.addView(item,new LinearLayout.LayoutParams(0,-1,1));
     }
 
