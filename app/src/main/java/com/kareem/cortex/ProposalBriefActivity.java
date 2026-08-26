@@ -6,7 +6,7 @@ import android.view.*;
 import android.widget.*;
 import java.util.*;
 
-/** Final PRIME Brief locked to the approved matte warm premium preview. */
+/** PRIME Today surface: current attention, changes and useful next actions. */
 public final class ProposalBriefActivity extends CortexOrbBriefActivity {
     LinearLayout audioProposalHost;
 
@@ -15,7 +15,7 @@ public final class ProposalBriefActivity extends CortexOrbBriefActivity {
         ScrollView sv=new ScrollView(this);sv.setFillViewport(true);sv.setClipToPadding(false);
         content=new LinearLayout(this);content.setOrientation(LinearLayout.VERTICAL);content.setPadding(dp(18),dp(10),dp(18),dp(24));sv.addView(content);
         root.addView(sv,new LinearLayout.LayoutParams(-1,0,1));systemHeader();
-        TextView loading=CortexUi.plain(this,"BUILDING CURRENT BRIEF…",9,CortexUi.FAINT);loading.setPadding(dp(4),dp(24),0,dp(10));content.addView(loading);
+        TextView loading=CortexUi.plain(this,"BUILDING TODAY…",9,CortexUi.FAINT);loading.setPadding(dp(4),dp(24),0,dp(10));content.addView(loading);
         addSatinNav(root);setContentView(root);CortexUi.fitSystemBars(this,root);
     }
 
@@ -24,7 +24,7 @@ public final class ProposalBriefActivity extends CortexOrbBriefActivity {
         View dot=new View(this);dot.setBackground(CortexUi.round(this,CortexUi.RED,Color.TRANSPARENT,999));CortexUi.raised(this,dot,3);row.addView(dot,new LinearLayout.LayoutParams(dp(9),dp(9)));
         TextView cortex=CortexUi.plain(this,"C O R T E X",14,CortexUi.TEXT);CortexUi.bold(cortex);if(android.os.Build.VERSION.SDK_INT>=21)cortex.setLetterSpacing(.20f);LinearLayout.LayoutParams cp=new LinearLayout.LayoutParams(-2,dp(40));cp.setMargins(dp(12),0,0,0);row.addView(cortex,cp);
         View divider=CortexUi.divider(this);LinearLayout.LayoutParams dpv=new LinearLayout.LayoutParams(dp(1),dp(28));dpv.setMargins(dp(12),0,dp(12),0);row.addView(divider,dpv);
-        TextView sys=CortexUi.plain(this,"SYSTEM",10,CortexUi.MUTED);if(android.os.Build.VERSION.SDK_INT>=21)sys.setLetterSpacing(.10f);row.addView(sys,new LinearLayout.LayoutParams(0,dp(40),1));
+        TextView sys=CortexUi.plain(this,"TODAY",10,CortexUi.MUTED);if(android.os.Build.VERSION.SDK_INT>=21)sys.setLetterSpacing(.10f);row.addView(sys,new LinearLayout.LayoutParams(0,dp(40),1));
         CortexGlyphView settings=CortexUi.glyph(this,"settings",CortexUi.RED,false);settings.setOnClickListener(v->{try{startActivity(new Intent(this,SettingsActivity.class));}catch(Throwable ignored){}});row.addView(settings,new LinearLayout.LayoutParams(dp(46),dp(46)));
         content.addView(row);
     }
@@ -49,12 +49,11 @@ public final class ProposalBriefActivity extends CortexOrbBriefActivity {
         View rail=new View(this);rail.setBackground(CortexUi.round(this,CortexUi.RED,Color.TRANSPARENT,999));LinearLayout.LayoutParams rp=new LinearLayout.LayoutParams(dp(2),dp(58));rp.setMargins(0,0,dp(12),0);core.addView(rail,rp);
         core.addView(CortexUi.glyph(this,"wave",CortexUi.RED,true),new LinearLayout.LayoutParams(dp(52),dp(52)));
         LinearLayout text=new LinearLayout(this);text.setOrientation(LinearLayout.VERTICAL);LinearLayout.LayoutParams txp=new LinearLayout.LayoutParams(0,-2,1);txp.setMargins(dp(13),0,dp(8),0);core.addView(text,txp);
-        TextView h=CortexUi.plain(this,"AUDIO BRIEFING SIGNAL",10,CortexUi.RED);CortexUi.medium(h);if(android.os.Build.VERSION.SDK_INT>=21)h.setLetterSpacing(.09f);text.addView(h);
-        int attention=s.actions.size()+s.waiting.size()+s.decisions.size();TextView b=CortexUi.text(this,attention>0?"Cortex has "+attention+" current signal"+(attention==1?"":"s")+" that may need you.":"Voice transcript & context stream active.",13,CortexUi.TEXT);b.setPadding(0,dp(5),0,0);text.addView(b);
+        TextView h=CortexUi.plain(this,"CURRENT SIGNAL",10,CortexUi.RED);CortexUi.medium(h);if(android.os.Build.VERSION.SDK_INT>=21)h.setLetterSpacing(.09f);text.addView(h);
+        int attention=s.actions.size()+s.waiting.size()+s.decisions.size();TextView b=CortexUi.text(this,attention>0?"Cortex has "+attention+" current signal"+(attention==1?"":"s")+" that may need you.":"Your current context is quiet. Cortex is still watching for useful changes.",13,CortexUi.TEXT);b.setPadding(0,dp(5),0,0);text.addView(b);
         TextView meta=CortexUi.plain(this,"LIVE  •  CONTEXT  •  CURRENT",8,CortexUi.MUTED);meta.setPadding(0,dp(7),0,0);text.addView(meta);core.addView(statusChip("● LIVE",CortexUi.RED),new LinearLayout.LayoutParams(-2,dp(34)));card.addView(core);card.setOnClickListener(v->showComposed(false));card.setOnLongClickListener(v->{showComposed(true);return true;});return card;
     }
 
-    /** Playback is the hero inside the audio card; recording remains a separate tactile control in the dock. */
     @Override View audioCard(PrimeBriefStore.Snapshot s){
         LinearLayout card=CortexUi.card(this,24);card.setPadding(dp(15),dp(15),dp(15),dp(14));
         LinearLayout top=new LinearLayout(this);top.setGravity(Gravity.CENTER_VERTICAL);top.addView(CortexUi.glyph(this,"wave",CortexUi.RED,true),new LinearLayout.LayoutParams(dp(64),dp(64)));
@@ -80,7 +79,7 @@ public final class ProposalBriefActivity extends CortexOrbBriefActivity {
     @Override void selectAudio(int index){super.selectAudio(index);refreshAudioProposal();}
     void refreshAudioProposal(){
         if(audioProposalHost==null||db==null||audioItems.isEmpty())return;audioProposalHost.removeAllViews();int i=Math.max(0,Math.min(audioIndex,audioItems.size()-1));KnowledgeItem k=audioItems.get(i);String text=!blank(k.summary)?k.summary:(!blank(k.extractedText)?k.extractedText:k.rawText);if(blank(text))text="Voice recording captured in Cortex; analysis status: "+(k.status==null?"":k.status);
-        ResultProposalEngine.Target target=new ResultProposalEngine.Target("Brief / Voice result","brief_audio_"+k.id,k.title==null||k.title.trim().isEmpty()?"Voice recording":k.title,text,k.id,k.type,ProposalUi.cloudAllowedForMemory(this,k));ProposalUi.attach(this,db,audioProposalHost,target);
+        ResultProposalEngine.Target target=new ResultProposalEngine.Target("Today / Voice result","today_audio_"+k.id,k.title==null||k.title.trim().isEmpty()?"Voice recording":k.title,text,k.id,k.type,ProposalUi.cloudAllowedForMemory(this,k));ProposalUi.attach(this,db,audioProposalHost,target);
     }
 
     @Override void derivedSection(String title,int color,List<PrimeBriefStore.Item> xs,String glyph,int limit){
@@ -92,7 +91,7 @@ public final class ProposalBriefActivity extends CortexOrbBriefActivity {
             String iconKind="waiting".equals(glyph)?"clock":"decision".equals(glyph)?"decision":"action".equals(glyph)?"open":"info";main.addView(CortexUi.glyph(this,iconKind,color,true),new LinearLayout.LayoutParams(dp(46),dp(46)));
             LinearLayout txt=new LinearLayout(this);txt.setOrientation(LinearLayout.VERTICAL);LinearLayout.LayoutParams tp=new LinearLayout.LayoutParams(0,-2,1);tp.setMargins(dp(11),0,dp(8),0);main.addView(txt,tp);TextView h=CortexUi.text(this,clipLocal(tt,84),14,CortexUi.TEXT);CortexUi.medium(h);h.setMaxLines(2);txt.addView(h);TextView m=CortexUi.plain(this,(body.isEmpty()?ageLocal(x.updatedAt):clipLocal(body,94)+"  •  "+ageLocal(x.updatedAt)),10,CortexUi.MUTED);m.setMaxLines(2);m.setPadding(0,dp(4),0,0);txt.addView(m);main.addView(statusChip(chipLabel(x.kind),color),new LinearLayout.LayoutParams(-2,dp(32)));card.addView(main);main.setOnClickListener(v->derivedDetail(x));
             long evidenceId=sourceEvidenceId(x);boolean cloud=false;String sourceType="BRIEF_"+(x.kind==null?"RESULT":x.kind);if(evidenceId>0)try{KnowledgeItem k=db.getById(evidenceId);cloud=ProposalUi.cloudAllowedForMemory(this,k);if(k!=null&&!blank(k.type))sourceType=k.type;}catch(Throwable ignored){}
-            String result=tt+(body.isEmpty()?"":"\n"+body)+"\nState: "+x.state+" · confidence "+Math.round(x.confidence*100)+"%";LinearLayout host=new LinearLayout(this);host.setOrientation(LinearLayout.VERTICAL);host.setPadding(dp(13),0,dp(11),dp(8));card.addView(host);ProposalUi.attach(this,db,host,new ResultProposalEngine.Target("Brief / "+title,"brief_"+x.kind+"_"+x.id,tt,result,evidenceId,sourceType,cloud));
+            String result=tt+(body.isEmpty()?"":"\n"+body)+"\nState: "+x.state+" · confidence "+Math.round(x.confidence*100)+"%";LinearLayout host=new LinearLayout(this);host.setOrientation(LinearLayout.VERTICAL);host.setPadding(dp(13),0,dp(11),dp(8));card.addView(host);ProposalUi.attach(this,db,host,new ResultProposalEngine.Target("Today / "+title,"today_"+x.kind+"_"+x.id,tt,result,evidenceId,sourceType,cloud));
             LinearLayout.LayoutParams cp=new LinearLayout.LayoutParams(-1,-2);if(i>0)cp.setMargins(0,dp(8),0,0);content.addView(card,cp);
         }
         if(xs.size()>n){TextView more=CortexUi.plain(this,"+ "+(xs.size()-n)+" MORE",8,CortexUi.FAINT);more.setGravity(Gravity.RIGHT);more.setPadding(0,dp(7),dp(4),0);content.addView(more);}
@@ -102,7 +101,7 @@ public final class ProposalBriefActivity extends CortexOrbBriefActivity {
         sectionTitle("NEEDS REVIEW",CortexUi.YELLOW);int n=Math.min(limit,xs.size());
         for(int i=0;i<n;i++){
             ReviewQueueStore.Item x=xs.get(i);String tt=blank(x.title)?"Review this signal":x.title;String body=blank(x.body)?x.reason:x.body;LinearLayout card=CortexUi.card(this,18);card.setPadding(0,0,0,0);LinearLayout main=new LinearLayout(this);main.setGravity(Gravity.CENTER_VERTICAL);main.setPadding(dp(11),dp(11),dp(10),dp(10));View rail=new View(this);rail.setBackground(CortexUi.round(this,CortexUi.YELLOW,Color.TRANSPARENT,999));LinearLayout.LayoutParams rp=new LinearLayout.LayoutParams(dp(2),dp(46));rp.setMargins(0,0,dp(10),0);main.addView(rail,rp);main.addView(CortexUi.glyph(this,"note",CortexUi.YELLOW,true),new LinearLayout.LayoutParams(dp(46),dp(46)));LinearLayout tx=new LinearLayout(this);tx.setOrientation(LinearLayout.VERTICAL);LinearLayout.LayoutParams xp=new LinearLayout.LayoutParams(0,-2,1);xp.setMargins(dp(11),0,dp(8),0);main.addView(tx,xp);TextView h=CortexUi.text(this,clipLocal(tt,84),14,CortexUi.TEXT);CortexUi.medium(h);h.setMaxLines(2);tx.addView(h);TextView m=CortexUi.plain(this,blank(body)?"Cortex needs your judgement":clipLocal(body,94),10,CortexUi.MUTED);m.setPadding(0,dp(4),0,0);m.setMaxLines(2);tx.addView(m);main.addView(statusChip("REVIEW",CortexUi.YELLOW),new LinearLayout.LayoutParams(-2,dp(32)));card.addView(main);main.setOnClickListener(v->{try{startActivity(new Intent(this,ReviewQueueActivity.class));}catch(Throwable ignored){}});
-            String result=tt+(blank(body)?"":"\n"+body)+(blank(x.reason)?"":"\nWhy review: "+x.reason)+"\nCandidate: "+x.candidateKind;LinearLayout host=new LinearLayout(this);host.setOrientation(LinearLayout.VERTICAL);host.setPadding(dp(13),0,dp(11),dp(8));card.addView(host);ProposalUi.attach(this,db,host,new ResultProposalEngine.Target("Brief / Review","review_"+x.id,tt,result,0,"REVIEW_"+x.candidateKind,false));LinearLayout.LayoutParams cp=new LinearLayout.LayoutParams(-1,-2);if(i>0)cp.setMargins(0,dp(8),0,0);content.addView(card,cp);
+            String result=tt+(blank(body)?"":"\n"+body)+(blank(x.reason)?"":"\nWhy review: "+x.reason)+"\nCandidate: "+x.candidateKind;LinearLayout host=new LinearLayout(this);host.setOrientation(LinearLayout.VERTICAL);host.setPadding(dp(13),0,dp(11),dp(8));card.addView(host);ProposalUi.attach(this,db,host,new ResultProposalEngine.Target("Today / Review","today_review_"+x.id,tt,result,0,"REVIEW_"+x.candidateKind,false));LinearLayout.LayoutParams cp=new LinearLayout.LayoutParams(-1,-2);if(i>0)cp.setMargins(0,dp(8),0,0);content.addView(card,cp);
         }
         if(xs.size()>n){TextView more=CortexUi.plain(this,"+ "+(xs.size()-n)+" MORE",8,CortexUi.FAINT);more.setGravity(Gravity.RIGHT);more.setPadding(0,dp(7),dp(4),0);content.addView(more);}
     }
@@ -110,11 +109,11 @@ public final class ProposalBriefActivity extends CortexOrbBriefActivity {
     @Override void sectionTitle(String title,int color){LinearLayout row=new LinearLayout(this);row.setGravity(Gravity.CENTER_VERTICAL);row.setPadding(dp(1),dp(18),dp(1),dp(8));TextView h=CortexUi.plain(this,title,10,color);CortexUi.medium(h);if(android.os.Build.VERSION.SDK_INT>=21)h.setLetterSpacing(.09f);row.addView(h,new LinearLayout.LayoutParams(0,-2,1));content.addView(row);}
 
     @Override View promptDock(){
-        LinearLayout dock=new LinearLayout(this);dock.setGravity(Gravity.CENTER_VERTICAL);dock.setPadding(dp(9),dp(7),dp(7),dp(7));dock.setBackground(CortexUi.matte(this,22));CortexUi.raised(this,dock,5);CortexGlyphView nodes=CortexUi.glyph(this,"brain",CortexUi.RED,true);dock.addView(nodes,new LinearLayout.LayoutParams(dp(42),dp(42)));TextView ask=CortexUi.plain(this,"Ask Cortex about this briefing…",12,CortexUi.MUTED);LinearLayout.LayoutParams ap=new LinearLayout.LayoutParams(0,dp(48),1);ap.setMargins(dp(9),0,dp(6),0);ask.setGravity(Gravity.CENTER_VERTICAL);dock.addView(ask,ap);recordOrb=new CortexRingButton(this);recordOrb.setGlyph(CortexRingButton.Glyph.RECORD);recordOrb.setAccent(CortexUi.RED);recordOrb.setProgress(0f);dock.addView(recordOrb,new LinearLayout.LayoutParams(dp(64),dp(64)));recordStatus=null;recordOrb.setOnClickListener(v->toggleRecordOrb());syncRecordOrb();ui.removeCallbacks(recordPulse);ui.post(recordPulse);View.OnClickListener brain=v->{long id=audioItems.isEmpty()?0:audioItems.get(Math.max(0,Math.min(audioIndex,audioItems.size()-1))).id;CortexActionExecutor.openBrain(this,id,"Analyze my current Cortex Brief. Connect the audio/context with what needs me, what is waiting, decisions, and useful next actions. Be concise and executable.");};ask.setOnClickListener(brain);nodes.setOnClickListener(brain);return dock;
+        LinearLayout dock=new LinearLayout(this);dock.setGravity(Gravity.CENTER_VERTICAL);dock.setPadding(dp(9),dp(7),dp(7),dp(7));dock.setBackground(CortexUi.matte(this,22));CortexUi.raised(this,dock,5);CortexGlyphView nodes=CortexUi.glyph(this,"brain",CortexUi.RED,true);dock.addView(nodes,new LinearLayout.LayoutParams(dp(42),dp(42)));TextView ask=CortexUi.plain(this,"Ask Cortex about today…",12,CortexUi.MUTED);LinearLayout.LayoutParams ap=new LinearLayout.LayoutParams(0,dp(48),1);ap.setMargins(dp(9),0,dp(6),0);ask.setGravity(Gravity.CENTER_VERTICAL);dock.addView(ask,ap);recordOrb=new CortexRingButton(this);recordOrb.setGlyph(CortexRingButton.Glyph.RECORD);recordOrb.setAccent(CortexUi.RED);recordOrb.setProgress(0f);dock.addView(recordOrb,new LinearLayout.LayoutParams(dp(64),dp(64)));recordStatus=null;recordOrb.setOnClickListener(v->toggleRecordOrb());syncRecordOrb();ui.removeCallbacks(recordPulse);ui.post(recordPulse);View.OnClickListener brain=v->{long id=audioItems.isEmpty()?0:audioItems.get(Math.max(0,Math.min(audioIndex,audioItems.size()-1))).id;CortexActionExecutor.openBrain(this,id,"Analyze my current Cortex Today view. Connect the current context with what needs me, what is waiting, decisions, and useful next actions. Be concise and executable.");};ask.setOnClickListener(brain);nodes.setOnClickListener(brain);return dock;
     }
 
     @Override LinearLayout satinCard(int radius){return CortexUi.card(this,radius);}
     @Override TextView statusChip(String text,int color){return CortexUi.chip(this,text,color,true);}
-    @Override void addSatinNav(LinearLayout root){CortexUi.addBottomNav(this,root,"brief",null);}
+    @Override void addSatinNav(LinearLayout root){CortexUi.addBottomNav(this,root,"today",null);}
     private static boolean blank(String s){return s==null||s.trim().isEmpty();}
 }
