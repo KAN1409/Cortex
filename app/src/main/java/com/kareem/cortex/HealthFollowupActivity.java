@@ -11,7 +11,7 @@ import android.widget.*;
 public final class HealthFollowupActivity extends Activity {
     static final int REQ_HEALTH_CONNECT=941;
     LinearLayout body;TextView healthConnectState,samsungState,huaweiState,summary,timeline,syncButton;
-    volatile boolean healthReady=false;
+    volatile boolean healthReady=false;volatile long healthSyncToken=0;
     int dp(int x){return CortexUi.dp(this,x);}
 
     @Override public void onCreate(Bundle b){super.onCreate(b);CortexUi.applyWindow(this);build();refresh();}
@@ -60,10 +60,16 @@ public final class HealthFollowupActivity extends Activity {
 
     void requestHealthPermissions(){try{startActivityForResult(HealthConnectBridge.permissionIntent(this),REQ_HEALTH_CONNECT);}catch(Throwable e){Toast.makeText(this,"Could not open Health Connect permissions",Toast.LENGTH_LONG).show();}}
     @Override protected void onActivityResult(int requestCode,int resultCode,Intent data){super.onActivityResult(requestCode,resultCode,data);if(requestCode==REQ_HEALTH_CONNECT)refresh();}
-    void syncHealth(){if(!healthReady){CortexHaptics.reject(syncButton);Toast.makeText(this,"Grant all Health Connect read scopes before syncing.",Toast.LENGTH_LONG).show();refresh();return;}healthReady=false;syncButton.setEnabled(false);syncButton.setText("Syncing health data…");HealthConnectBridge.syncRecentDetailed(this,30,result->{if(isFinishing()||isDestroyed())return;syncButton.setText("Sync last 30 days");if(result.success()){CortexHaptics.confirm(syncButton);Toast.makeText(this,"Health sync complete · "+result.added+" new / "+result.seen+" seen",Toast.LENGTH_LONG).show();}else{CortexHaptics.reject(syncButton);String msg="Health sync stopped · "+(result.failureKind.isEmpty()?result.state:result.failureKind)+(result.nextAction.isEmpty()?"":"\n"+result.nextAction);if(result.seen>0)msg+="\nPartial read: "+result.seen+" seen / "+result.added+" added; run not marked successful.";Toast.makeText(this,msg,Toast.LENGTH_LONG).show();}refresh();});}
+    void syncHealth(){
+        if(!healthReady){CortexHaptics.reject(syncButton);Toast.makeText(this,"Grant all Health Connect read scopes before syncing.",Toast.LENGTH_LONG).show();refresh();return;}
+        healthReady=false;syncButton.setEnabled(false);syncButton.setText("Syncing health data…");final long token=CortexSemanticOperation.begin("HEALTH_SYNC","Health Connect 30-day sync");healthSyncToken=token;CortexSemanticOperation.progress(token,"Reading Health Connect",15,"Read scopes confirmed; sync started");
+        try{HealthConnectBridge.syncRecentDetailed(this,30,result->{String terminal="state="+result.state+" · seen="+result.seen+" · added="+result.added+(result.failureKind.isEmpty()?"":" · "+result.failureKind);if(result.success())CortexSemanticOperation.complete(token,"HEALTH_SYNC_READY · "+terminal);else CortexSemanticOperation.fail(token,"HEALTH_SYNC_FAILED · "+terminal+(result.nextAction.isEmpty()?"":" · "+result.nextAction));if(healthSyncToken==token)healthSyncToken=0;if(isFinishing()||isDestroyed())return;syncButton.setText("Sync last 30 days");if(result.success()){CortexHaptics.confirm(syncButton);Toast.makeText(this,"Health sync complete · "+result.added+" new / "+result.seen+" seen",Toast.LENGTH_LONG).show();}else{CortexHaptics.reject(syncButton);String msg="Health sync stopped · "+(result.failureKind.isEmpty()?result.state:result.failureKind)+(result.nextAction.isEmpty()?"":"\n"+result.nextAction);if(result.seen>0)msg+="\nPartial read: "+result.seen+" seen / "+result.added+" added; run not marked successful.";Toast.makeText(this,msg,Toast.LENGTH_LONG).show();}refresh();});}
+        catch(Throwable e){CortexSemanticOperation.fail(token,"HEALTH_SYNC_FAILED · "+errorText(e));if(healthSyncToken==token)healthSyncToken=0;syncButton.setText("Sync last 30 days");Toast.makeText(this,"Health sync could not start",Toast.LENGTH_LONG).show();refresh();}
+    }
     void launchHealthCapture(String mode){Intent i=new Intent(this,ProposalCaptureActivity.class);i.putExtra("mode",mode);i.putExtra("health_context",true);startActivity(i);}
     boolean installed(String pkg){try{getPackageManager().getPackageInfo(pkg,0);return true;}catch(PackageManager.NameNotFoundException e){return false;}catch(Throwable e){return false;}}
     void openPackage(String pkg,String missing){try{Intent i=getPackageManager().getLaunchIntentForPackage(pkg);if(i!=null){startActivity(i);return;}}catch(Throwable ignored){}Toast.makeText(this,missing,Toast.LENGTH_LONG).show();}
+    static String errorText(Throwable e){if(e==null)return"unknown error";String m=e.getMessage();return m==null||m.trim().isEmpty()?e.getClass().getSimpleName():m.trim();}
     String friendlyAge(long at){long d=Math.max(0,System.currentTimeMillis()-at);if(d<60_000)return"just now";if(d<60L*60L*1000L)return(d/60_000)+"m ago";if(d<24L*60L*60L*1000L)return(d/(60L*60L*1000L))+"h ago";return(d/(24L*60L*60L*1000L))+"d ago";}
     LinearLayout.LayoutParams buttonParams(){LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,dp(43));p.setMargins(0,dp(7),0,0);return p;}
     LinearLayout.LayoutParams margins(int l,int t,int r,int b){LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,-2);p.setMargins(dp(l),dp(t),dp(r),dp(b));return p;}
