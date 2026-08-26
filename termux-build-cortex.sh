@@ -75,6 +75,17 @@ if [ -f "$REPO_DIR/scripts/cortex-user-journey-audit.sh" ]; then
   fi
 fi
 
+# The latest real experimental run found three lifecycle/terminal blockers. Keep their exact
+# architectural fixes as a small fail-fast gate so they cannot regress while broader work continues.
+if [ -f "$REPO_DIR/scripts/cortex-experimental-regression-audit.sh" ]; then
+  log "Running experimental journey blocker regression audit"
+  if ! bash "$REPO_DIR/scripts/cortex-experimental-regression-audit.sh" "$REPO_DIR"; then
+    printf '\nCORTEX BUILD STOPPED: experimental journey blocker regression audit failed before Gradle.\n' >&2
+    if [ "$AUTO_STASHED" = "1" ]; then printf 'Local pre-build edits remain safely stashed as: %s\n' "$AUTO_STASH_NAME" >&2; fi
+    exit 2
+  fi
+fi
+
 # Context is now a first-class cognitive layer. Fail before Gradle if the schema, hysteresis,
 # provenance, privacy boundary or Brain routing contract is accidentally removed.
 if [ -f "$REPO_DIR/scripts/cortex-context-core-audit.sh" ]; then
