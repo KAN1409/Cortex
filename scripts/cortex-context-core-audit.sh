@@ -7,11 +7,14 @@ ok(){ printf 'CONTEXT CORE AUDIT PASS: %s\n' "$*"; }
 bad(){ FAIL=$((FAIL+1)); printf 'CONTEXT CORE AUDIT FAIL: %s\n' "$*" >&2; }
 need_file(){ [ -f "$1" ] && ok "$1 present" || bad "$1 missing"; }
 need(){ local f="$1" p="$2" label="$3"; grep -Eq "$p" "$f" 2>/dev/null && ok "$label" || bad "$label"; }
+forbid(){ local f="$1" p="$2" label="$3"; if grep -Eq "$p" "$f" 2>/dev/null; then bad "$label"; else ok "$label"; fi; }
 
 SCHEMA="app/src/main/java/com/kareem/cortex/ContextSchema.java"
 STATE="app/src/main/java/com/kareem/cortex/ContextStateStore.java"
 RESOLVER="app/src/main/java/com/kareem/cortex/ContextResolver.java"
 BOUNDARY="app/src/main/java/com/kareem/cortex/ContextBoundaryDetector.java"
+OPENLOOP="app/src/main/java/com/kareem/cortex/ContextOpenLoopResolver.java"
+ACTION="app/src/main/java/com/kareem/cortex/ContextActionEngine.java"
 PACKET="app/src/main/java/com/kareem/cortex/ContextPacketBuilder.java"
 ASK="app/src/main/java/com/kareem/cortex/ContextAskEngine.java"
 OPS="app/src/main/java/com/kareem/cortex/AskOperationalEngine.java"
@@ -20,9 +23,10 @@ PHONE="app/src/main/java/com/kareem/cortex/PhoneContextCollector.java"
 BRAIN="app/src/main/java/com/kareem/cortex/BrainRouter.java"
 BUDGET="app/src/main/java/com/kareem/cortex/BrainAnswerBudget.java"
 BRAINUI="app/src/main/java/com/kareem/cortex/ProposalAskCortexActivity.java"
+CONTEXTUI="app/src/main/java/com/kareem/cortex/ContextNowActivity.java"
 BRIEFUI="app/src/main/java/com/kareem/cortex/ProposalBriefActivity.java"
 
-for f in "$SCHEMA" "$STATE" "$RESOLVER" "$BOUNDARY" "$PACKET" "$ASK" "$OPS" "$AWARE" "$PHONE" "$BRAIN" "$BUDGET" "$BRAINUI" "$BRIEFUI"; do need_file "$f"; done
+for f in "$SCHEMA" "$STATE" "$RESOLVER" "$BOUNDARY" "$OPENLOOP" "$ACTION" "$PACKET" "$ASK" "$OPS" "$AWARE" "$PHONE" "$BRAIN" "$BUDGET" "$BRAINUI" "$CONTEXTUI" "$BRIEFUI"; do need_file "$f"; done
 need "$SCHEMA" 'CREATE TABLE IF NOT EXISTS contexts' 'first-class context identity exists'
 need "$SCHEMA" 'context_episodes' 'context episodes are persisted'
 need "$SCHEMA" 'context_stack_state' 'primary/background context stack exists'
@@ -52,14 +56,40 @@ need "$RESOLVER" 'shouldSnapshot' 'snapshots are event-driven with periodic safe
 need "$AWARE" '2200' 'raw phone evidence is debounced before contextualization'
 need "$PHONE" 'ContextAwarenessScheduler\.request' 'phone evidence continuously feeds the Context Engine'
 
+# Resume/open-loop state must belong to the exact Context. No global obligation may be borrowed as a fallback.
+need "$OPENLOOP" 'latest snapshot recorded for this exact context' 'resume authority starts with the exact Context snapshot'
+need "$OPENLOOP" "l\.from_type='derived'.*l\.to_type='context'" 'direct derived-to-context provenance is accepted'
+need "$OPENLOOP" "l\.from_type='raw_signal'.*d\.anchor_signal_id.*l\.to_type='context'" 'anchor raw-signal provenance can ground a Context obligation'
+need "$OPENLOOP" 'No title similarity and no global-open-loop fallback' 'resolver explicitly forbids similarity/global obligation adoption'
+need "$OPENLOOP" 'linkedOpenCount' 'Context completion can inspect unresolved linked obligations'
+need "$ACTION" 'never calls a model and never manufactures an external action' 'Context next-move layer is deterministic and local'
+need "$ACTION" 'Resume my work' 'Context next-move button routes through the local Context question contract'
+need "$CONTEXTUI" 'linked open obligation.*will NOT silently resolve' 'Done UI preserves unresolved obligation truth'
+need "$CONTEXTUI" 'GROUNDED NEXT MOVE' 'Current Context exposes a grounded next move when one exists'
+need "$CONTEXTUI" 'no model inference' 'Current Context distinguishes deterministic resume state from model inference'
+
 need "$PACKET" 'CURRENT CORTEX CONTEXT' 'Brain/Brief receive a compact context passport'
+need "$PACKET" 'ContextOpenLoopResolver\.resolve' 'Context Passport uses provenance-aware resume state'
 need "$PACKET" 'cloudText' 'context packet separates local and cloud representations'
 need "$PACKET" 'exports no derived context summary to cloud' 'v1 prevents privacy laundering through derived summaries'
+forbid "$PACKET" 'globalOpenLoops|globalNextStep' 'Context Passport cannot borrow unrelated global obligations'
 need "$ASK" 'where did i leave off|اكمل منين' 'Brain recognizes resume/current-context questions'
+need "$ASK" 'will not borrow one from another context' 'Brain states when no grounded Context next step exists'
+need "$ASK" 'local only; no model inference' 'Brain exposes local provenance for Context resume state'
 need "$OPS" 'ContextAskEngine\.tryAnswer' 'operational Brain routes context questions locally first'
+
+# Fast Answer First: operational state stays local; generic external questions skip broad retrieval;
+# next-move generation is separate from BRAIN_ANSWER and must not block the first visible answer.
 need "$BRAIN" 'context_cloud_sent.*false' 'Brain diagnostics prove the live Context Passport stays local in v1'
-need "$BRAIN" '12_000L.*18_000L|fastFocal\?12_000L:18_000L' 'external Brain has explicit answer budgets'
+need "$BRAIN" 'fastGeneral' 'Combined has a fast route for questions that do not need broad Cortex retrieval'
+need "$BRAIN" 'broadRetrieval=combined&&needsBroadContext' 'broad retrieval is explicitly budgeted by question intent'
+need "$BRAIN" 'actions_deferred.*true' 'Brain first-answer diagnostics record deferred next moves'
+need "$BRAIN" 'String modelQuestion=question' 'first external provider call answers the user question only'
+forbid "$BRAIN" 'String modelQuestion=.*BrainActionStore\.request' 'structured action JSON cannot block the first Brain answer'
+need "$BRAIN" '\(fastFocal\|\|fastGeneral\)\?12_000L:18_000L' 'external Brain has explicit fast/general answer budgets'
 need "$BUDGET" 'ArrayBlockingQueue' 'stalled provider calls have bounded concurrency and queueing'
+need "$BRAINUI" 'ANSWER_READY' 'Brain answer semantic terminal occurs at rendered answer readiness'
+need "$BRAINUI" 'ProposalUi\.attach' 'useful next moves start only after the answer card exists'
 need "$BRAINUI" 'LOCAL CONTEXT' 'Brain visibly exposes the live local context'
 need "$BRAINUI" 'ATTACHED' 'attached capture remains visible beside live context'
 need "$BRIEFUI" 'CURRENT CONTEXT' 'Brief is context-first instead of modality-first'
