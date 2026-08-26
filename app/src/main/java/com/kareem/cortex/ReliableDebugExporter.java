@@ -56,7 +56,7 @@ public final class ReliableDebugExporter {
 
     private static File buildRecovery(Context c,VaultDb db,Throwable cause)throws Exception{
         JSONObject root=new JSONObject();
-        root.put("schema_version",6);
+        root.put("schema_version",7);
         root.put("recovery_export",true);
         root.put("generated_at",System.currentTimeMillis());
         root.put("full_export_skipped",cause instanceof FullExportSkipped);
@@ -88,6 +88,7 @@ public final class ReliableDebugExporter {
         if(db!=null){
             try{root.put("capability_matrix",capabilities(c,db));}catch(Throwable e){root.put("capability_matrix_error",error(e));}
             try{CortexAuditStore.Run r=CortexAuditStore.latest(db);if(r!=null)root.put("latest_audit","#"+r.id+" · "+r.status+" · "+r.progress()+"%");}catch(Throwable e){root.put("audit_error",error(e));}
+            try{ContextDiagnostics.Report r=ContextDiagnostics.build(db,24L*60L*60L*1000L,80);root.put("context_replay",new JSONObject(r.json));}catch(Throwable e){root.put("context_replay_error",error(e));}
         }
         File dir=new File(c.getFilesDir(),"debug_exports");if(!dir.exists()&&!dir.mkdirs())throw new IOException("Could not create debug export directory");
         File out=new File(dir,"CortexDebug_RECOVERY_"+stamp()+".json");
