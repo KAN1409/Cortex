@@ -13,6 +13,7 @@ public final class ProposalUi {
     /** Absolute UI safety cap; provider/fallback budgets inside ResultProposalEngine are much shorter. */
     private static final long UI_TIMEOUT_MS=45_000L;
     private static final WeakHashMap<LinearLayout,Long> REQUEST_TOKENS=new WeakHashMap<>();
+    private static final WeakHashMap<LinearLayout,Long> SEMANTIC_TOKENS=new WeakHashMap<>();
     private static long tokenSeq=0;
     private ProposalUi(){}
 
@@ -23,17 +24,19 @@ public final class ProposalUi {
 
     private static long beginRequest(LinearLayout holder){synchronized(REQUEST_TOKENS){long t=++tokenSeq;REQUEST_TOKENS.put(holder,t);return t;}}
     private static boolean isCurrent(LinearLayout holder,long token){synchronized(REQUEST_TOKENS){Long x=REQUEST_TOKENS.get(holder);return x!=null&&x==token;}}
+    private static long beginSemantic(LinearLayout holder,ResultProposalEngine.Target target){synchronized(SEMANTIC_TOKENS){Long old=SEMANTIC_TOKENS.get(holder);if(old!=null){CortexSemanticOperation.Snapshot s=CortexSemanticOperation.get(old);if(s!=null&&!s.terminal())CortexSemanticOperation.cancel(old,"Superseded by a fresh proposal generation");}long op=CortexSemanticOperation.begin("PROPOSALS",target==null?"":target.resultKey);SEMANTIC_TOKENS.put(holder,op);return op;}}
+    private static boolean currentSemantic(LinearLayout holder,long op){synchronized(SEMANTIC_TOKENS){Long x=SEMANTIC_TOKENS.get(holder);return x!=null&&x==op;}}
 
     private static void requestInto(Activity activity,VaultDb db,LinearLayout holder,ResultProposalEngine.Target target){
-        if(activity==null||db==null||holder==null||target==null)return;final int dp=CortexUi.dp(activity,1);final long requestToken=beginRequest(holder);holder.setVisibility(View.VISIBLE);holder.removeAllViews();
+        if(activity==null||db==null||holder==null||target==null)return;final int dp=CortexUi.dp(activity,1);final long requestToken=beginRequest(holder);final long semanticToken=beginSemantic(holder,target);CortexSemanticOperation.progress(semanticToken,"Generating useful next moves",3,"Proposal generation is independent from the already-visible result");holder.setVisibility(View.VISIBLE);holder.removeAllViews();
         LinearLayout waiting=new LinearLayout(activity);waiting.setGravity(Gravity.CENTER_VERTICAL);waiting.addView(CortexUi.glyph(activity,"brain",CortexUi.RED,true),new LinearLayout.LayoutParams(28*dp,28*dp));TextView thinking=CortexUi.plain(activity,"Generating useful next moves…",9,CortexUi.MUTED);LinearLayout.LayoutParams tp=new LinearLayout.LayoutParams(0,-2,1);tp.setMargins(7*dp,0,0,0);waiting.addView(thinking,tp);holder.addView(waiting);
         Handler main=new Handler(Looper.getMainLooper());
-        Runnable timeout=()->{if(!isCurrent(holder,requestToken)||activity.isFinishing()||activity.isDestroyed()||holder.getParent()==null)return;holder.removeAllViews();renderRecoverableState(activity,db,holder,target,"Suggestions are taking too long","Cortex exhausted the remote and fallback budgets. Retry starts a fresh generation; stale responses are ignored.",ExternalBrainProvider.configurationHint(activity),true);};
+        Runnable timeout=()->{if(!isCurrent(holder,requestToken)||!currentSemantic(holder,semanticToken)||activity.isFinishing()||activity.isDestroyed()||holder.getParent()==null)return;CortexSemanticOperation.timeout(semanticToken,"Proposal UI timeout after "+UI_TIMEOUT_MS+" ms · stale callbacks will be ignored");holder.removeAllViews();renderRecoverableState(activity,db,holder,target,"Suggestions are taking too long","Cortex exhausted the remote and fallback budgets. Retry starts a fresh generation; stale responses are ignored.",ExternalBrainProvider.configurationHint(activity),true);};
         main.postDelayed(timeout,UI_TIMEOUT_MS);
         ResultProposalEngine.request(activity,target,(proposals,provider,error)->{
-            if(!isCurrent(holder,requestToken))return;main.removeCallbacks(timeout);if(activity.isFinishing()||activity.isDestroyed()||holder.getParent()==null)return;holder.removeAllViews();
-            if(proposals.isEmpty()){boolean failed=error!=null&&!error.trim().isEmpty();String title=failed?"Couldn’t generate suggestions":"No useful next move found";String detail=failed?clip(error,240):"Cortex checked this result but did not find a meaningful next move yet.";renderRecoverableState(activity,db,holder,target,title,detail,provider,failed);return;}
-            renderProposals(activity,db,holder,target,proposals,provider);
+            if(!isCurrent(holder,requestToken)||!currentSemantic(holder,semanticToken))return;main.removeCallbacks(timeout);if(activity.isFinishing()||activity.isDestroyed()||holder.getParent()==null){CortexSemanticOperation.cancel(semanticToken,"Proposal result arrived after its UI surface was gone");return;}holder.removeAllViews();
+            if(proposals.isEmpty()){boolean failed=error!=null&&!error.trim().isEmpty();String title=failed?"Couldn’t generate suggestions":"No useful next move found";String detail=failed?clip(error,240):"Cortex checked this result but did not find a meaningful next move yet.";if(failed)CortexSemanticOperation.fail(semanticToken,"PROPOSALS_FAILED · "+clip(error,280));else CortexSemanticOperation.complete(semanticToken,"PROPOSALS_READY · 0 useful proposals · "+safeProvider(provider));renderRecoverableState(activity,db,holder,target,title,detail,provider,failed);return;}
+            CortexSemanticOperation.complete(semanticToken,"PROPOSALS_READY · "+proposals.size()+" proposal(s) · "+safeProvider(provider));renderProposals(activity,db,holder,target,proposals,provider);
         });
     }
 
@@ -60,5 +63,6 @@ public final class ProposalUi {
     private static JSONArray normalizedMissing(ResultProposalEngine.Proposal p,ResultProposalEngine.Target target){LinkedHashSet<String> xs=new LinkedHashSet<>();for(int i=0;i<p.missing.length();i++){String x=p.missing.optString(i,"").trim();if(!x.isEmpty())xs.add(x);}if("PROJECT_LINK".equals(p.actionType)){xs.remove("confirmed project selection");if(target.sourceItemId<=0)xs.add("source capture");}if("OPEN_APP".equals(p.actionType)){String pkg=p.payload.optString("package","").trim();if(pkg.isEmpty())xs.add("exact app package");}JSONArray out=new JSONArray();for(String x:xs)out.put(x);return out;}
     public static boolean cloudAllowedForMemory(Activity a,KnowledgeItem k){if(a==null||k==null)return false;try{return CloudEvidencePolicy.canSend(a,k);}catch(Throwable ignored){return false;}}
     private static String safeKey(String s){String x=s==null?"":s.replaceAll("[^A-Za-z0-9_-]","");return x.isEmpty()?"result":x;}
+    private static String safeProvider(String s){String x=s==null?"":s.trim();return x.isEmpty()?"provider unknown":x;}
     private static String clip(String s,int n){String x=s==null?"":s.replaceAll("\\s+"," ").trim();return x.length()>n?x.substring(0,n)+"…":x;}
 }
