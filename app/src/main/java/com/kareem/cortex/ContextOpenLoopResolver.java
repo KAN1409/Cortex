@@ -10,6 +10,7 @@ import java.util.*;
  * 1) the latest snapshot recorded for this exact context supplies activity only;
  * 2) an open ACTION/WAITING/DECISION explicitly linked to this context owns obligations;
  * 3) an open derived item whose anchor raw signal is linked to this context owns obligations.
+ * No title similarity and no global-open-loop fallback.
  *
  * Snapshot open_loop/next_step fields are historical observations, not authority. This prevents a
  * previously contaminated snapshot from re-infecting future Context state.
