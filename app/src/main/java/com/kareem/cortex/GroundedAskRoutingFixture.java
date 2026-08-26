@@ -10,7 +10,7 @@ import java.util.*;
  * This deliberately creates conflicting evidence so the test can catch routing bugs that ordinary
  * happy-path tests miss: losing an attached focal item, treating personal-memory questions as
  * generic external questions, letting an unrelated attachment suppress authoritative local state,
- * or aliasing a missing citation source to M1.
+ * over-grounding generic first-person questions, or aliasing a missing citation source to M1.
  */
 public final class GroundedAskRoutingFixture {
     private GroundedAskRoutingFixture(){}
@@ -65,7 +65,12 @@ public final class GroundedAskRoutingFixture {
             "اسم الدكتور اللي كشفت عنده كان إيه؟",
             "أنا اشتريت العربية منين؟"
         };
-        String[] general={"What is the capital of France?","Explain photosynthesis simply."};
+        String[] general={
+            "What is the capital of France?",
+            "Explain photosynthesis simply.",
+            "I want to know the capital of France.",
+            "أنا عايز أعرف عاصمة فرنسا."
+        };
         ArrayList<String> misses=new ArrayList<>(),falsePositives=new ArrayList<>();
         for(String q:personal)if(!BrainRouter.needsBroadContext(q))misses.add(q);
         for(String q:general)if(BrainRouter.needsBroadContext(q))falsePositives.add(q);
