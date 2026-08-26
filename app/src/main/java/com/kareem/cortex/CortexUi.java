@@ -90,16 +90,16 @@ public final class CortexUi {
     public static TextView section(Activity a,String title){TextView h=plain(a,title,11,MUTED);medium(h);h.setPadding(0,dp(a,22),0,dp(a,9));return h;}
     public static TextView action(Activity a,String label,int color,boolean filled){TextView b=plain(a,label,12,color);medium(b);b.setGravity(Gravity.CENTER);b.setPadding(dp(a,14),0,dp(a,14),0);int wash=Color.argb(filled?22:8,Color.red(color),Color.green(color),Color.blue(color));int stroke=Color.argb(filled?110:64,Color.red(color),Color.green(color),Color.blue(color));pressable(a,b,round(a,wash,stroke,15));raised(a,b,filled?5:3);return b;}
 
-    public static int semanticFor(String key){if(key==null)return RED;String k=key.toLowerCase();if(k.contains("wait")||k.contains("remind"))return ORANGE;if(k.contains("decision"))return YELLOW;if(k.contains("people")||k.contains("project")||k.contains("info")||k.contains("useful")||k.contains("complete"))return GREEN;if(k.contains("input")||k.contains("capture")||k.contains("play")||k.contains("change"))return ORANGE;return RED;}
+    public static int semanticFor(String key){if(key==null)return RED;String k=key.toLowerCase();if(k.contains("wait")||k.contains("remind"))return ORANGE;if(k.contains("decision"))return YELLOW;if(k.contains("people")||k.contains("project")||k.contains("info")||k.contains("useful")||k.contains("complete")||k.contains("history"))return GREEN;if(k.contains("input")||k.contains("capture")||k.contains("play")||k.contains("change"))return ORANGE;return RED;}
 
-    /** Lightweight fixed navigation: a quiet hairline + four destinations, not a floating card stack. */
+    /** Product-reset navigation: NOW / CAPTURE / ASK / HISTORY. People/Projects are derived views, not primary destinations. */
     public static void addBottomNav(Activity a,LinearLayout root,String selected,Runnable ignoredMoreAction){
         String current=primeKey(selected);View line=divider(a);root.addView(line,new LinearLayout.LayoutParams(-1,dp(a,1)));LinearLayout bar=new LinearLayout(a);bar.setOrientation(LinearLayout.HORIZONTAL);bar.setGravity(Gravity.CENTER);bar.setPadding(dp(a,8),dp(a,3),dp(a,8),dp(a,4));bar.setBackgroundColor(BG);
-        addNav(a,bar,"input","Input",current,InputActivity.class);addNav(a,bar,"brief","Brief",current,ProposalBriefActivity.class);addNav(a,bar,"people","People / Projects",current,ProposalPeopleProjectsActivity.class);addNav(a,bar,"brain","Brain",current,ProposalAskCortexActivity.class);
+        addNav(a,bar,"brief","Now",current,ProposalBriefActivity.class);addNav(a,bar,"input","Capture",current,InputActivity.class);addNav(a,bar,"brain","Ask",current,ProposalAskCortexActivity.class);addNav(a,bar,"history","History",current,VaultActivity.class);
         root.addView(bar,new LinearLayout.LayoutParams(-1,dp(a,57)));fitSystemBars(a,root);
     }
-    private static String primeKey(String s){if("home".equals(s)||"focus".equals(s)||"brief".equals(s))return"brief";if("vault".equals(s)||"people".equals(s))return"people";if("ask".equals(s)||"brain".equals(s))return"brain";if("input".equals(s))return"input";return s==null?"":s;}
-    private static int navColor(String key){if("input".equals(key))return ORANGE;if("brief".equals(key))return RED;if("people".equals(key))return GREEN;return YELLOW;}
+    private static String primeKey(String s){if("home".equals(s)||"focus".equals(s)||"brief".equals(s)||"now".equals(s))return"brief";if("vault".equals(s)||"people".equals(s)||"history".equals(s))return"history";if("ask".equals(s)||"brain".equals(s))return"brain";if("input".equals(s)||"capture".equals(s))return"input";return s==null?"":s;}
+    private static int navColor(String key){if("input".equals(key))return ORANGE;if("brief".equals(key))return RED;if("history".equals(key))return GREEN;return YELLOW;}
 
     private static void addNav(Activity a,LinearLayout row,String key,String label,String selected,Class<?> cls){
         boolean on=key.equals(selected);int semantic=navColor(key),idle=mix(semantic,FAINT,.84f);LinearLayout item=new LinearLayout(a);item.setOrientation(LinearLayout.VERTICAL);item.setGravity(Gravity.CENTER);item.setPadding(dp(a,2),dp(a,2),dp(a,2),0);item.setBackgroundColor(Color.TRANSPARENT);
