@@ -39,8 +39,13 @@ public final class HealthTrendEngine {
         return new Report(now,out,text.toString());
     }
 
-    private static Trend trend(VaultDb db,String metric,long now){
-        String source=dominantSource(db,metric,now-2L*PERIOD);if(source.isEmpty())return null;ArrayList<Point> points=points(db,metric,source,now-2L*PERIOD,now);if(points.isEmpty())return null;
+    private static Trend trend(VaultDb db,String metric,long now){String source=dominantSource(db,metric,now-2L*PERIOD);return source.isEmpty()?null:sourceTrend(db,metric,source,now);}
+
+    /** Test-only deterministic entry: exact source prevents unrelated real metrics from affecting a rollback fixture. */
+    static Trend diagnosticForSource(VaultDb db,String metric,String source,long now){if(db==null||n(metric).isEmpty()||n(source).isEmpty())return null;HealthStore.ensure(db);return sourceTrend(db,n(metric),n(source),now);}
+
+    private static Trend sourceTrend(VaultDb db,String metric,String source,long now){
+        ArrayList<Point> points=points(db,metric,source,now-2L*PERIOD,now);if(points.isEmpty())return null;
         Point latest=points.get(points.size()-1);Stats recent=stats(metric,points,now-PERIOD,now),previous=stats(metric,points,now-2L*PERIOD,now-PERIOD);String unit=n(latest.unit),label=label(metric),direction="insufficient data",quality=quality(metric,recent.count,previous.count);double delta=Double.NaN;
         if(recent.count>=minimum(metric)&&previous.count>=minimum(metric)&&Double.isFinite(recent.value)&&Double.isFinite(previous.value)){
             double denom=Math.abs(previous.value);delta=denom<0.000001?Double.NaN:((recent.value-previous.value)/denom)*100.0;direction=direction(recent.value,previous.value,delta);
