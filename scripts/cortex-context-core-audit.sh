@@ -89,14 +89,16 @@ need "$RESOLVER" 'rejected>=evidenceAt' 'newer evidence can legitimately reactiv
 need "$CONTEXTUI" 'Not this' 'Current Context exposes an explicit wrong-context correction control'
 need "$CONTEXTUI" 'does not mark the work Done or close linked actions' 'wrong-context UI preserves action/open-loop truth'
 
-# Context replay is read-only and exportable for diagnosis.
-need "$DIAG" 'Read-only Context diagnostics/replay' 'Context replay implementation declares read-only semantics'
-need "$DIAG" 'cortex_context_replay_v1' 'Context replay has a versioned diagnostic schema'
+# Context replay must be SQLite-read-only. Diagnostics are not allowed to initialize schema or rerun inference.
+need "$DIAG" 'SQLite reads only' 'Context replay declares strict SQLite-read-only behavior'
+need "$DIAG" 'cortex_context_replay_v2' 'Context replay has the strict read-only diagnostic schema version'
+need "$DIAG" 'sqlite_reads_only.*true' 'Context replay machine output records the read-only boundary'
+need "$DIAG" 'hasTables' 'Context replay checks ledger existence instead of initializing it'
 need "$DIAG" 'context_episodes' 'Context replay includes transition episodes'
 need "$DIAG" 'context_snapshots' 'Context replay includes resume snapshots'
 need "$DIAG" 'context_feedback' 'Context replay includes explicit corrections'
 need "$DIAG" "to_type='context'" 'Context replay includes evidence provenance'
-forbid "$DIAG" 'ContextResolver\.refresh|offerPrimary|recordSnapshot|feedback\(' 'read-only replay cannot mutate or rerun Context inference'
+forbid "$DIAG" 'ContextSchema\.ensure|CognitiveStore\.ensure|ContextResolver\.refresh|ContextOpenLoopResolver\.resolve|ContextStateStore\.primary|ContextStateStore\.stack|offerPrimary|recordSnapshot|feedback\(' 'read-only replay cannot initialize schema, mutate or rerun Context inference'
 need "$DIAGUI" 'READ ONLY' 'Context replay UI visibly states read-only behavior'
 need "$DIAGUI" 'Copy replay' 'Context replay can be copied for diagnosis'
 need "$CONTEXTUI" 'ContextDiagnosticsActivity\.class' 'Current Context exposes replay diagnostics'
