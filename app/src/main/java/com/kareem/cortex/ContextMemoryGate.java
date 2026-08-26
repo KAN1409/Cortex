@@ -65,9 +65,11 @@ public final class ContextMemoryGate {
             relevance.disposition==MasterRelevanceFilter.Disposition.REVIEW?"ambiguous candidate stays contextual until review resolves it":"useful evidence belongs to the live/recent Context, not durable memory");
     }
 
-    /** Attach raw evidence to the active Context without promoting it to the Vault. */
+    /** Attach useful raw evidence to the active Context without promoting it to the Vault. */
     public static void linkEvidence(VaultDb db,long signalId,Decision d){
-        if(db==null||signalId<=0||d==null||d.contextId<=0)return;
+        // Truth firewall: EPHEMERAL means ignored/noise or operation-only sensitive evidence. It may
+        // exist transiently in the raw ledger, but it can never become Context authority.
+        if(db==null||signalId<=0||d==null||d.contextId<=0||d.tier==Tier.EPHEMERAL)return;
         try{
             JSONObject meta=new JSONObject();meta.put("memory_tier",d.tier.name());meta.put("gate_reason",d.reason);meta.put("local_only",true);
             ContextStateStore.linkEvidence(db,"raw_signal",signalId,d.contextId,"supports_context",Math.max(.45,d.contextConfidence),meta);

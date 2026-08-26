@@ -29,6 +29,8 @@ public final class StartupMaintenance {
             CognitiveSchema.ensure(db.getWritableDatabase());
             RelevanceDecisionStatusStore.ensure(db);
             PhoneContextStore.ensure(db);
+            // Repair only mechanically contradictory Context ledger state left by older builds.
+            ContextTruthIntegrity.reconcile(db);
             if(PhoneUsageAccess.has(context))PhoneUsageAccess.syncRecent(context,db,System.currentTimeMillis()-2L*60L*60L*1000L);
             importLastCrash(context,db);
             AdjudicationRecovery.run(context,db);

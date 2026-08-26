@@ -7,12 +7,12 @@ import java.util.*;
  * Resolves resumable work for one Context without borrowing unrelated global obligations.
  *
  * Authority order:
- * 1) the latest snapshot recorded for this exact context;
- * 2) an open ACTION/WAITING/DECISION explicitly linked to this context;
- * 3) an open derived item whose anchor raw signal is linked to this context.
+ * 1) the latest snapshot recorded for this exact context supplies activity only;
+ * 2) an open ACTION/WAITING/DECISION explicitly linked to this context owns obligations;
+ * 3) an open derived item whose anchor raw signal is linked to this context owns obligations.
  *
- * No title similarity and no global-open-loop fallback is allowed here. A context may explain why
- * an obligation matters, but it may not adopt an unrelated obligation merely because both are open.
+ * Snapshot open_loop/next_step fields are historical observations, not authority. This prevents a
+ * previously contaminated snapshot from re-infecting future Context state.
  */
 public final class ContextOpenLoopResolver {
     public static final String SNAPSHOT="SNAPSHOT",LINKED_DERIVED="LINKED_DERIVED",NONE="NONE";
@@ -35,10 +35,10 @@ public final class ContextOpenLoopResolver {
     public static State resolve(VaultDb db,long contextId){
         if(db==null||contextId<=0)return empty(contextId);ContextSchema.ensure(db);CognitiveStore.ensure(db);
         Snapshot snap=latestSnapshot(db,contextId);Derived linked=bestLinkedDerived(db,contextId);
-        String activity=snap.activity,loop=snap.openLoop,next=snap.nextStep,source=snap.id>0?SNAPSHOT:NONE;
-        if(loop.isEmpty()&&linked.id>0)loop=obligationText(linked);
-        if(next.isEmpty()&&linked.id>0&&"ACTION".equals(linked.kind))next=obligationText(linked);
-        if(source.equals(NONE)&&linked.id>0)source=LINKED_DERIVED;
+        String activity=snap.activity,loop="",next="",source=snap.id>0?SNAPSHOT:NONE;
+        // Obligation authority must be current provenance, never copied snapshot text. A snapshot may
+        // describe activity, while ACTION/WAITING/DECISION ownership comes only from an exact link.
+        if(linked.id>0){loop=obligationText(linked);if("ACTION".equals(linked.kind))next=obligationText(linked);if(source.equals(NONE))source=LINKED_DERIVED;}
         double conf=linked.id>0?linked.confidence:(snap.id>0?1.0:0.0);
         return new State(contextId,snap.id,linked.id,activity,loop,next,linked.kind,linked.title,linked.body,source,conf);
     }

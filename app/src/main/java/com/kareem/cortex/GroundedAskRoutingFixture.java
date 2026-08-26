@@ -1,16 +1,17 @@
 package com.kareem.cortex;
 
 import android.content.Context;
+import android.database.Cursor;
 import android.database.sqlite.SQLiteDatabase;
 import java.util.*;
 
 /**
- * Rollback-only adversarial verifier for Grounded Ask routing.
+ * Rollback-only adversarial verifier for Grounded Ask and Cortex truth integrity.
  *
- * This deliberately creates conflicting evidence so the test can catch routing bugs that ordinary
- * happy-path tests miss: losing an attached focal item, treating personal-memory questions as
- * generic external questions, letting an unrelated attachment suppress authoritative local state,
- * over-grounding generic first-person questions, or aliasing a missing citation source to M1.
+ * This deliberately creates conflicting/corrupt evidence so the test can catch bugs that ordinary
+ * happy-path tests miss: losing an attached focal item, routing personal memory externally,
+ * suppressing operational authority, aliasing citations, snapshot obligation leakage, promoting
+ * noise into Context authority, or leaving stale ACTIVE Context episodes behind.
  */
 public final class GroundedAskRoutingFixture {
     private GroundedAskRoutingFixture(){}
@@ -34,6 +35,9 @@ public final class GroundedAskRoutingFixture {
             personalMemoryPolicy(r);
             operationalPrecedence(r);
             citationIdentity(db,r);
+            snapshotObligationIsolation(db,r);
+            noiseAuthorityFirewall(db,r);
+            truthReconciliation(db,sql,r);
             return r;
         }finally{sql.endTransaction();}
     }
@@ -95,5 +99,44 @@ public final class GroundedAskRoutingFixture {
         else r.fail.add("citation alias detected · present="+present+" · absent_resolved_to="+missing);
     }
 
+    private static void snapshotObligationIsolation(VaultDb db,Report r){
+        String nonce=Long.toHexString(System.nanoTime());
+        long contextId=ContextStateStore.upsert(db,"truth:snapshot:"+nonce,"Truth snapshot fixture","TASK",ContextStateStore.LIFE_SUSPENDED,.8,"","Synthetic activity","{\"synthetic\":true}",System.currentTimeMillis());
+        if(contextId<=0){r.fail.add("truth fixture could not create snapshot context");return;}
+        ContextStateStore.recordSnapshot(db,contextId,"Synthetic activity","LEAKED_OPEN_LOOP_"+nonce,"LEAKED_NEXT_STEP_"+nonce,"synthetic contaminated historical snapshot","{\"synthetic\":true}");
+        ContextOpenLoopResolver.State x=ContextOpenLoopResolver.resolve(db,contextId);
+        if("Synthetic activity".equals(x.currentActivity)&&x.openLoop.isEmpty()&&x.nextStep.isEmpty()&&!x.hasObligation())
+            r.pass.add("historical snapshot text cannot become obligation authority without exact linked provenance");
+        else r.fail.add("snapshot obligation leak · open_loop="+clip(x.openLoop,120)+" · next_step="+clip(x.nextStep,120)+" · derived="+x.derivedId);
+    }
+
+    private static void noiseAuthorityFirewall(VaultDb db,Report r){
+        String nonce=Long.toHexString(System.nanoTime());
+        long contextId=ContextStateStore.upsert(db,"truth:noise:"+nonce,"Truth noise fixture","TASK",ContextStateStore.LIFE_SUSPENDED,.92,"","","{\"synthetic\":true}",System.currentTimeMillis());
+        long signalId=800000000L+(Math.abs(System.nanoTime())%100000000L);
+        ContextMemoryGate.Decision d=new ContextMemoryGate.Decision(ContextMemoryGate.Tier.EPHEMERAL,contextId,.92,0,"relevance governor marked signal as noise");
+        ContextMemoryGate.linkEvidence(db,signalId,d);
+        int n=count(db,"SELECT COUNT(*) FROM source_links WHERE from_type='raw_signal' AND from_id=? AND to_type='context' AND to_id=? AND relation='supports_context'",new String[]{String.valueOf(signalId),String.valueOf(contextId)});
+        if(n==0)r.pass.add("EPHEMERAL/noise evidence is hard-blocked from supports_context authority");
+        else r.fail.add("truth firewall failed · noise supports_context links="+n);
+    }
+
+    private static void truthReconciliation(VaultDb db,SQLiteDatabase sql,Report r){
+        String nonce=Long.toHexString(System.nanoTime());long now=System.currentTimeMillis();
+        long contextId=ContextStateStore.upsert(db,"truth:reconcile:"+nonce,"Truth reconcile fixture","TASK",ContextStateStore.LIFE_SUSPENDED,.9,"","","{\"synthetic\":true}",now);
+        long signalId=700000000L+(Math.abs(System.nanoTime())%100000000L);
+        if(contextId<=0){r.fail.add("truth reconciliation fixture could not create context");return;}
+        sql.execSQL("INSERT OR REPLACE INTO source_links(from_type,from_id,to_type,to_id,relation,confidence,metadata_json,created_at) VALUES('raw_signal',?,'context',?,'supports_context',0.92,?,?)",new Object[]{signalId,contextId,"{\"memory_tier\":\"EPHEMERAL\",\"gate_reason\":\"relevance governor marked signal as noise\",\"synthetic\":true}",now});
+        sql.execSQL("INSERT OR REPLACE INTO context_stack_state(context_id,role,priority,confidence,last_evidence_at,last_transition_at,transition_reason) VALUES(?,'BACKGROUND',40,0.9,?,?,?)",new Object[]{contextId,now,now,"synthetic stale background"});
+        sql.execSQL("INSERT INTO context_episodes(context_id,state,transition,reason,confidence,anchor_signal_id,started_at,ended_at,metadata_json) VALUES(?,'ACTIVE','BACKGROUND','synthetic stale episode',0.9,0,?,0,'{\"synthetic\":true}')",new Object[]{contextId,now-60000L});
+        ContextTruthIntegrity.ReconcileResult x=ContextTruthIntegrity.reconcile(db);
+        int noise=count(db,"SELECT COUNT(*) FROM source_links WHERE from_type='raw_signal' AND from_id=? AND to_type='context' AND to_id=? AND relation='supports_context'",new String[]{String.valueOf(signalId),String.valueOf(contextId)});
+        int active=count(db,"SELECT COUNT(*) FROM context_episodes WHERE context_id=? AND state='ACTIVE' AND ended_at=0",new String[]{String.valueOf(contextId)});
+        if(noise==0&&active==0&&x.noiseLinksRemoved>0&&x.staleEpisodesClosed>0)
+            r.pass.add("truth reconciler removes contradictory noise authority and closes stale non-primary ACTIVE episodes");
+        else r.fail.add("truth reconciliation incomplete · "+x.summary()+" · synthetic_noise="+noise+" · synthetic_active="+active);
+    }
+
+    private static int count(VaultDb db,String sql,String[] args){Cursor c=null;try{c=db.getReadableDatabase().rawQuery(sql,args);return c.moveToFirst()?Math.max(0,c.getInt(0)):0;}finally{if(c!=null)c.close();}}
     private static String clip(String s,int n){String x=s==null?"":s.replaceAll("\\s+"," ").trim();return x.length()<=n?x:x.substring(0,n)+"…";}
 }
