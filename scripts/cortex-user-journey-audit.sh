@@ -12,6 +12,10 @@ SUITE="app/src/main/java/com/kareem/cortex/CortexExperimentalUserSuite.java"
 EXPORT="app/src/main/java/com/kareem/cortex/CortexUserJourneyTestExporter.java"
 COMPAT="app/src/main/java/com/kareem/cortex/CortexRobotTestExporter.java"
 FIX="app/src/main/java/com/kareem/cortex/CortexRobotFixtures.java"
+SYN_AUDIO="app/src/main/java/com/kareem/cortex/SyntheticAudioFixture.java"
+AUDIO_ANALYZER="app/src/main/java/com/kareem/cortex/AudioAnalyzer.java"
+ANALYSIS_QUEUE="app/src/main/java/com/kareem/cortex/AnalysisQueue.java"
+CAPTURE="app/src/main/java/com/kareem/cortex/CaptureActivity.java"
 ACCESS="app/src/main/java/com/kareem/cortex/CortexScreenAccessibilityService.java"
 ROBOT="app/src/main/java/com/kareem/cortex/CortexRobotUserTest.java"
 SEMANTIC="app/src/main/java/com/kareem/cortex/CortexSemanticOperation.java"
@@ -22,7 +26,7 @@ ONBOARD="app/src/main/java/com/kareem/cortex/AccessOnboardingActivity.java"
 HEALTH="app/src/main/java/com/kareem/cortex/HealthFollowupActivity.java"
 TRANSCRIPT="app/src/main/java/com/kareem/cortex/TranscriptCorrectionStore.java"
 
-for f in "$SUITE" "$EXPORT" "$COMPAT" "$FIX" "$ACCESS" "$ROBOT" "$SEMANTIC" "$BRAIN_UI" "$DISPATCH" "$BRAIN" "$ONBOARD" "$HEALTH" "$TRANSCRIPT"; do need_file "$f"; done
+for f in "$SUITE" "$EXPORT" "$COMPAT" "$FIX" "$SYN_AUDIO" "$AUDIO_ANALYZER" "$ANALYSIS_QUEUE" "$CAPTURE" "$ACCESS" "$ROBOT" "$SEMANTIC" "$BRAIN_UI" "$DISPATCH" "$BRAIN" "$ONBOARD" "$HEALTH" "$TRANSCRIPT"; do need_file "$f"; done
 
 # The primary test contract is user goals + expected terminal outcome, not click/screen counts.
 need "$SUITE" 'enum Status \{ PASS, CONFIRMED_APP_BUG, QUALITY_PROBLEM, TEST_GAP, HARNESS_ISSUE \}' 'suite separates product bugs, quality issues, gaps and harness issues'
@@ -61,6 +65,25 @@ need "$BRAIN_UI" 'CortexSemanticOperation\.fail' 'Brain surface records terminal
 need "$ROBOT" 'schema_version",3' 'low-level Robot report schema records semantic-terminal generation'
 need "$ROBOT" 'observeSemantic\(semanticCursor,deadline\)' 'Robot waits for semantic completion caused by the clicked action'
 need "$ROBOT" 'FAILED_RESULT|terminalState|terminal_kind' 'Robot distinguishes click success from functional terminal failure'
+
+# Capture/ASR terminal semantics: generic automation must never open the real microphone just to test Cortex.
+# A real WAV is generated in the sandbox, then the normal AUDIO persistence/queue/post-analysis path is used.
+# Only the external provider response is deterministic, explicitly marked as NOT testing live ASR quality.
+need "$SYN_AUDIO" 'CortexExperimentalTestMode\.active' 'synthetic WAV generation is hard-gated to explicit experimental mode'
+need "$SYN_AUDIO" 'robot_synthetic_voice\.wav' 'generic voice fixture creates a real WAV file'
+need "$SYN_AUDIO" 'live_provider_tested",false' 'synthetic fixture cannot masquerade as live-provider validation'
+need "$SYN_AUDIO" 'synthetic_asr_fixture' 'synthetic audio carries an explicit provider-bypass marker'
+need "$AUDIO_ANALYZER" 'CortexExperimentalTestMode\.active\(ctx\).*SyntheticAudioFixture\.matches\(item\)' 'AudioAnalyzer accepts deterministic provider output only behind both sandbox guards'
+need "$AUDIO_ANALYZER" 'cortex_deterministic_asr_fixture' 'deterministic ASR result is explicitly identifiable in diagnostics'
+need "$AUDIO_ANALYZER" 'live_provider_tested",false' 'deterministic ASR result declares that provider quality was not tested'
+need "$CAPTURE" '"synthetic_voice"\.equals\(mode\).*beginSyntheticVoiceFixture' 'capture exposes a hidden test-only synthetic voice route'
+need "$CAPTURE" 'CortexSemanticOperation\.begin\("CAPTURE_ASR"' 'real/synthetic voice capture registers semantic ASR work'
+need "$CAPTURE" 'AnalysisQueue\.trackSemantic\(itemId' 'voice evidence token is attached before analysis is kicked'
+need "$ANALYSIS_QUEUE" 'trackSemantic\(long itemId,long token\)' 'analysis queue owns item-to-operation terminal linkage'
+need "$ANALYSIS_QUEUE" 'TRANSCRIPT_READY' 'audio completion is emitted only after transcript persistence'
+need "$ANALYSIS_QUEUE" 'semanticTimeout\(item\.id' 'audio/visual watchdog timeout closes semantic work explicitly'
+need "$SEMANTIC" 'contains\("ASR"\).*245_000L' 'ASR semantic budget sits above the 240-second queue watchdog'
+need "$SEMANTIC" 'contains\("VISUAL"\).*155_000L' 'visual semantic budget sits above the 150-second queue watchdog'
 
 # Combined state questions use authoritative local Cortex state rather than discarding derived state in a cloud prompt.
 need "$BRAIN" 'AskOperationalEngine\.tryAnswer' 'Combined Brain checks authoritative operational state first'
