@@ -15,6 +15,10 @@ RESOLVER="app/src/main/java/com/kareem/cortex/ContextResolver.java"
 BOUNDARY="app/src/main/java/com/kareem/cortex/ContextBoundaryDetector.java"
 OPENLOOP="app/src/main/java/com/kareem/cortex/ContextOpenLoopResolver.java"
 ACTION="app/src/main/java/com/kareem/cortex/ContextActionEngine.java"
+CONTROL="app/src/main/java/com/kareem/cortex/ContextControls.java"
+LEARN="app/src/main/java/com/kareem/cortex/ContextFingerprintLearner.java"
+DIAG="app/src/main/java/com/kareem/cortex/ContextDiagnostics.java"
+DIAGUI="app/src/main/java/com/kareem/cortex/ContextDiagnosticsActivity.java"
 PACKET="app/src/main/java/com/kareem/cortex/ContextPacketBuilder.java"
 ASK="app/src/main/java/com/kareem/cortex/ContextAskEngine.java"
 OPS="app/src/main/java/com/kareem/cortex/AskOperationalEngine.java"
@@ -25,8 +29,10 @@ BUDGET="app/src/main/java/com/kareem/cortex/BrainAnswerBudget.java"
 BRAINUI="app/src/main/java/com/kareem/cortex/ProposalAskCortexActivity.java"
 CONTEXTUI="app/src/main/java/com/kareem/cortex/ContextNowActivity.java"
 BRIEFUI="app/src/main/java/com/kareem/cortex/ProposalBriefActivity.java"
+DEBUG="app/src/main/java/com/kareem/cortex/ReliableDebugExporter.java"
+MAN="app/src/main/AndroidManifest.xml"
 
-for f in "$SCHEMA" "$STATE" "$RESOLVER" "$BOUNDARY" "$OPENLOOP" "$ACTION" "$PACKET" "$ASK" "$OPS" "$AWARE" "$PHONE" "$BRAIN" "$BUDGET" "$BRAINUI" "$CONTEXTUI" "$BRIEFUI"; do need_file "$f"; done
+for f in "$SCHEMA" "$STATE" "$RESOLVER" "$BOUNDARY" "$OPENLOOP" "$ACTION" "$CONTROL" "$LEARN" "$DIAG" "$DIAGUI" "$PACKET" "$ASK" "$OPS" "$AWARE" "$PHONE" "$BRAIN" "$BUDGET" "$BRAINUI" "$CONTEXTUI" "$BRIEFUI" "$DEBUG" "$MAN"; do need_file "$f"; done
 need "$SCHEMA" 'CREATE TABLE IF NOT EXISTS contexts' 'first-class context identity exists'
 need "$SCHEMA" 'context_episodes' 'context episodes are persisted'
 need "$SCHEMA" 'context_stack_state' 'primary/background context stack exists'
@@ -41,6 +47,8 @@ need "$STATE" 'PRIMARY_HOLD_MS=10L\*60L\*1000L' 'fresh primary context has a hol
 need "$STATE" 'ContextBoundaryDetector\.strong' 'explicit interruption/resume can override ordinary score hysteresis'
 need "$STATE" 'recordSnapshot' 'context can be resumed from event snapshots'
 need "$STATE" 'linkEvidence' 'context retains provenance links'
+need "$STATE" 'public static void suspend\(' 'explicit wrong-context correction can non-destructively suspend inferred context'
+need "$STATE" 'USER_REJECT' 'explicit suspension is distinguishable in transition diagnostics'
 
 need "$BOUNDARY" 'BOUNDARY_INTERRUPT' 'interruption is a first-class transition'
 need "$BOUNDARY" 'BOUNDARY_RESUME' 'resume is a first-class transition'
@@ -52,6 +60,9 @@ need "$RESOLVER" 'intentional Cortex capture' 'intentional capture evidence is c
 need "$RESOLVER" 'group\.size\(\)>=3' 'phone activity needs repeated evidence before becoming a context candidate'
 need "$RESOLVER" 'phone_context' 'phone activity remains an evidence source, not the context model itself'
 need "$RESOLVER" 'shouldSnapshot' 'snapshots are event-driven with periodic safety refresh'
+need "$RESOLVER" 'ContextOpenLoopResolver\.resolve' 'resolver snapshots use exact-context obligation grounding'
+need "$RESOLVER" 'obligation_provenance.*context_bound_only' 'snapshot records that obligations were context-bound'
+forbid "$RESOLVER" 'ORDER BY importance DESC,updated_at DESC LIMIT 1.*derived_items' 'resolver cannot borrow a global derived obligation while snapshotting'
 
 need "$AWARE" '2200' 'raw phone evidence is debounced before contextualization'
 need "$PHONE" 'ContextAwarenessScheduler\.request' 'phone evidence continuously feeds the Context Engine'
@@ -67,6 +78,30 @@ need "$ACTION" 'Resume my work' 'Context next-move button routes through the loc
 need "$CONTEXTUI" 'linked open obligation.*will NOT silently resolve' 'Done UI preserves unresolved obligation truth'
 need "$CONTEXTUI" 'GROUNDED NEXT MOVE' 'Current Context exposes a grounded next move when one exists'
 need "$CONTEXTUI" 'no model inference' 'Current Context distinguishes deterministic resume state from model inference'
+
+# Explicit corrections must override old inference without erasing unfinished work.
+need "$CONTROL" 'REJECT_CURRENT' 'wrong-context correction is persisted as explicit feedback'
+need "$CONTROL" 'ContextFingerprintLearner\.reinforceRejection' 'wrong-context correction teaches the fingerprint learner'
+need "$CONTROL" 'ContextStateStore\.suspend' 'wrong-context correction suspends instead of completing work'
+need "$LEARN" 'reinforceRejection' 'fingerprint learner has explicit negative learning path'
+need "$RESOLVER" 'REJECT_HOLD_MS=20L\*60L\*1000L' 'wrong-context evidence has a bounded rejection hold'
+need "$RESOLVER" 'rejected>=evidenceAt' 'newer evidence can legitimately reactivate a previously rejected context'
+need "$CONTEXTUI" 'Not this' 'Current Context exposes an explicit wrong-context correction control'
+need "$CONTEXTUI" 'does not mark the work Done or close linked actions' 'wrong-context UI preserves action/open-loop truth'
+
+# Context replay is read-only and exportable for diagnosis.
+need "$DIAG" 'Read-only Context diagnostics/replay' 'Context replay implementation declares read-only semantics'
+need "$DIAG" 'cortex_context_replay_v1' 'Context replay has a versioned diagnostic schema'
+need "$DIAG" 'context_episodes' 'Context replay includes transition episodes'
+need "$DIAG" 'context_snapshots' 'Context replay includes resume snapshots'
+need "$DIAG" 'context_feedback' 'Context replay includes explicit corrections'
+need "$DIAG" "to_type='context'" 'Context replay includes evidence provenance'
+forbid "$DIAG" 'ContextResolver\.refresh|offerPrimary|recordSnapshot|feedback\(' 'read-only replay cannot mutate or rerun Context inference'
+need "$DIAGUI" 'READ ONLY' 'Context replay UI visibly states read-only behavior'
+need "$DIAGUI" 'Copy replay' 'Context replay can be copied for diagnosis'
+need "$CONTEXTUI" 'ContextDiagnosticsActivity\.class' 'Current Context exposes replay diagnostics'
+need "$MAN" 'activity android:name="\.ContextDiagnosticsActivity"' 'Context replay activity is registered'
+need "$DEBUG" 'context_replay' 'recovery debug export preserves Context replay even when exhaustive export is skipped'
 
 need "$PACKET" 'CURRENT CORTEX CONTEXT' 'Brain/Brief receive a compact context passport'
 need "$PACKET" 'ContextOpenLoopResolver\.resolve' 'Context Passport uses provenance-aware resume state'
