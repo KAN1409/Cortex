@@ -2,17 +2,17 @@ package com.kareem.cortex;
 
 import java.util.*;
 
-/** Compact local context passport for Brain/Brief. Field-level cloud export is deliberately separate. */
+/** Compact local context passport for Brain/NOW. Field-level cloud export is deliberately separate. */
 public final class ContextPacketBuilder {
     private ContextPacketBuilder(){}
     public static final class Packet {
         public final long contextId;public final String title,goal,currentActivity,openLoops,nextStep,resumeProvenance,localText,cloudText;public final double confidence;public final ArrayList<String> background;
         Packet(long id,String title,String goal,String activity,String loops,String next,String provenance,String local,String cloud,double confidence,ArrayList<String> background){contextId=id;this.title=n(title);this.goal=n(goal);currentActivity=n(activity);openLoops=n(loops);nextStep=n(next);resumeProvenance=n(provenance);localText=n(local);cloudText=n(cloud);this.confidence=confidence;this.background=background;}
-        public boolean available(){return contextId>0&&!title.isEmpty();}
+        public boolean available(){return contextId>0&&!title.isEmpty()&&!CortexTruthPolicy.ambientContext(title+" "+currentActivity,"");}
     }
 
     public static Packet buildLocal(VaultDb db,int tokenBudget){
-        if(db==null)return empty();ContextStateStore.ContextState primary=ContextResolver.refresh(db);if(primary==null)return empty();int chars=Math.max(500,Math.min(6400,tokenBudget*4));ArrayList<ContextStateStore.ContextState> stack=ContextStateStore.stack(db,5);ArrayList<String> bg=new ArrayList<>();for(ContextStateStore.ContextState x:stack)if(x.id!=primary.id&&!ContextStateStore.ROLE_AMBIENT.equals(x.role))bg.add(x.title);
+        if(db==null)return empty();ContextStateStore.ContextState primary=ContextResolver.refresh(db);if(primary==null||CortexTruthPolicy.ambientContext(primary.title+" "+primary.summary,""))return empty();int chars=Math.max(500,Math.min(6400,tokenBudget*4));ArrayList<ContextStateStore.ContextState> stack=ContextStateStore.stack(db,5);ArrayList<String> bg=new ArrayList<>();for(ContextStateStore.ContextState x:stack)if(x.id!=primary.id&&!ContextStateStore.ROLE_AMBIENT.equals(x.role)&&!n(x.title).isEmpty()&&!CortexTruthPolicy.ambientContext(x.title+" "+x.summary,""))bg.add(x.title);
         ContextOpenLoopResolver.State resume=ContextOpenLoopResolver.resolve(db,primary.id);String activity=!resume.currentActivity.isEmpty()?resume.currentActivity:primary.summary;String loops=resume.openLoop;String next=resume.nextStep;String provenance=resume.provenance();StringBuilder b=new StringBuilder();b.append("CURRENT CORTEX CONTEXT\n");b.append("Context: ").append(primary.title).append("\n");b.append("Confidence: ").append(Math.round(primary.stackConfidence*100)).append("%\n");if(!primary.goal.isEmpty())b.append("Goal: ").append(primary.goal).append("\n");if(!activity.isEmpty())b.append("Current activity: ").append(activity).append("\n");if(!loops.isEmpty())b.append("Open loop: ").append(loops).append("\n");if(!next.isEmpty())b.append("Grounded next: ").append(next).append("\n");if(!provenance.isEmpty())b.append("Resume provenance: ").append(provenance).append("\n");if(!bg.isEmpty())b.append("Suspended/background: ").append(join(bg,3)).append("\n");b.append("Privacy: local context passport; do not treat it as cloud-shareable unless each source is separately approved.");String local=clip(b.toString(),chars);
         // v1 intentionally exports no derived context summary to cloud. This prevents local-only phone,
         // thread or memory evidence from being laundered into a cloud-safe summary. Cloud packets will
