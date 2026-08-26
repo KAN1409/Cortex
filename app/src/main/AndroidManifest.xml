@@ -72,6 +72,7 @@
         <activity android:name=".CortexAuditActivity" android:exported="false" />
         <activity android:name=".ExternalModelCheckActivity" android:exported="false" />
         <activity android:name=".VisualIntelligenceActivity" android:exported="false" />
+        <activity android:name=".VisualRecoveryActivity" android:exported="false" />
         <activity android:name=".OcrTestActivity" android:exported="false" />
         <activity android:name=".AsrSettingsActivity" android:exported="false" android:label="Cortex ASR Setup" />
         <activity android:name=".BrainActivity" android:exported="false" />
