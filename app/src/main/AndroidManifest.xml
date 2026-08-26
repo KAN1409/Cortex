@@ -36,6 +36,7 @@
         <activity android:name=".CortexOrbBriefActivity" android:exported="false" />
         <activity android:name=".ProposalBriefActivity" android:exported="false" />
         <activity android:name=".ContextNowActivity" android:exported="false" />
+        <activity android:name=".ContextDiagnosticsActivity" android:exported="false" />
         <activity-alias android:name=".PremiumHomeActivity" android:targetActivity=".ProposalBriefActivity" android:exported="false" />
 
         <activity android:name=".SatinCaptureActivity" android:exported="false" android:theme="@style/CaptureSheetTheme" android:windowSoftInputMode="adjustResize" />
