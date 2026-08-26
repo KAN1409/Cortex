@@ -17,7 +17,7 @@ public class SettingsActivity extends Activity {
         LinearLayout head=new LinearLayout(this);head.setOrientation(LinearLayout.HORIZONTAL);head.setGravity(Gravity.CENTER_VERTICAL);TextView back=CortexUi.plain(this,"‹",34,CortexUi.TEXT);back.setGravity(Gravity.CENTER);back.setOnClickListener(v->finish());head.addView(back,new LinearLayout.LayoutParams(dp(42),dp(48)));TextView h=CortexUi.plain(this,"Settings",29,CortexUi.TEXT);CortexUi.medium(h);head.addView(h,new LinearLayout.LayoutParams(0,-2,1));body.addView(head);
 
         body.addView(CortexUi.section(this,"Brain"));
-        String remote=OpenRouterKeyStore.has(this)?"Primary · "+OpenRouterModelConfig.generationModel(this)+" via OpenRouter":"Configure OpenRouter · default model stealth/ox-alpha";
+        String remote=OpenRouterKeyStore.has(this)?"Primary · "+OpenRouterModelConfig.generationModel(this)+" via OpenRouter":"Configure OpenRouter · default model z-ai/glm-5.3";
         row(body,"Reasoning model",remote,OpenRouterSettingsActivity.class);
         row(body,"Vision / fallback",GeminiKeyStore.has(this)?"Gemini configured · retained for vision and provider fallback":"Optional Gemini fallback and cloud vision",GeminiSettingsActivity.class);
 
