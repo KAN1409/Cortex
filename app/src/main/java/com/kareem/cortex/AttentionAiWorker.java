@@ -20,6 +20,7 @@ public final class AttentionAiWorker extends Worker {
             try{AttentionAiAdjudicator.Result r=AttentionAiAdjudicator.adjudicate(ctx,item,baseline,pack);if(r!=null)AttentionAdjudicationStore.save(db,item,baseline,r.modelScore,r.merged,r.confidence,r.provider,r.evidence);}catch(Throwable ignored){}
             done++;
         }}finally{c.close();}
+        if(done>=BATCH&&!isStopped())AttentionAiScheduler.continueChain(ctx);
         return Result.success();
     }catch(Throwable e){return Result.success();}finally{try{db.close();}catch(Throwable ignored){}}
     }
