@@ -46,7 +46,7 @@ public final class PrimeBriefStore {
     private static Item from(Cursor c,VaultDb db){
         long id=c.getLong(0),thread=c.getLong(8),signal=c.getLong(9),updated=c.getLong(10);String kind=c.getString(1),title=c.getString(2),body=c.getString(3),source=c.getString(4),state=c.getString(5);double confidence=c.getDouble(6);int importance=c.getInt(7);
         Item raw=new Item(id,kind,title,body,source,state,confidence,importance,thread,signal,updated);String k=n(kind).toUpperCase(Locale.ROOT);if(!("ACTION".equals(k)||"WAITING".equals(k)||"DECISION".equals(k)))return raw;
-        AttentionEngine.Decision baseline=AttentionEngine.evaluate(raw,System.currentTimeMillis());AttentionEngine.Decision merged=AttentionAdjudicationStore.applyFresh(db,raw,baseline);return new Item(id,kind,title,body,source,state,confidence,importance,thread,signal,updated,merged);
+        AttentionEngine.Decision baseline=AttentionEngine.evaluate(raw,System.currentTimeMillis());AttentionEngine.Decision merged=AttentionAdjudicationStore.applyFresh(db,raw,baseline);AttentionEngine.Decision learned=AttentionLearning.apply(db,raw,merged);return new Item(id,kind,title,body,source,state,confidence,importance,thread,signal,updated,learned);
     }
     private static String n(String s){return s==null?"":s.trim();}
 }
