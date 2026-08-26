@@ -17,6 +17,7 @@ public final class CortexSemanticOperation {
     private static final AtomicLong SEQ=new AtomicLong();
     private static final ConcurrentSkipListMap<Long,Entry> OPS=new ConcurrentSkipListMap<>();
     private static final int MAX_HISTORY=160;
+    private static final long ABANDON_GRACE_MS=30_000L;
 
     public static final class Snapshot {
         public final long token,startedElapsedMs,finishedElapsedMs;
@@ -39,11 +40,11 @@ public final class CortexSemanticOperation {
     public static long cursor(){return SEQ.get();}
 
     public static long begin(String kind,String label){
-        long token=SEQ.incrementAndGet();Entry e=new Entry(token,kind,label);OPS.put(token,e);prune();return token;
+        sweepAbandoned();long token=SEQ.incrementAndGet();Entry e=new Entry(token,kind,label);OPS.put(token,e);prune();return token;
     }
 
     public static void progress(long token,String stage,int percent,String detail){
-        Entry e=OPS.get(token);if(e==null||!RUNNING.equals(e.state))return;e.stage=n(stage);e.percent=Math.max(0,Math.min(99,percent));e.detail=n(detail);
+        Entry e=OPS.get(token);if(e==null)return;expireIfAbandoned(e);if(!RUNNING.equals(e.state))return;e.stage=n(stage);e.percent=Math.max(0,Math.min(99,percent));e.detail=n(detail);
     }
 
     public static void complete(long token,String detail){finish(token,COMPLETED,"Complete",100,detail);}
@@ -51,10 +52,10 @@ public final class CortexSemanticOperation {
     public static void timeout(long token,String detail){finish(token,TIMEOUT,"Timed out",100,detail);}
     public static void cancel(long token,String detail){finish(token,CANCELLED,"Cancelled",100,detail);}
 
-    public static Snapshot get(long token){Entry e=OPS.get(token);return e==null?null:new Snapshot(e);}
+    public static Snapshot get(long token){Entry e=OPS.get(token);if(e==null)return null;expireIfAbandoned(e);return new Snapshot(e);}
 
     /** Returns the earliest operation that began after the caller's pre-click cursor. */
-    public static Snapshot firstAfter(long cursor){Map.Entry<Long,Entry> x=OPS.higherEntry(cursor);return x==null?null:new Snapshot(x.getValue());}
+    public static Snapshot firstAfter(long cursor){sweepAbandoned();Map.Entry<Long,Entry> x=OPS.higherEntry(cursor);if(x==null)return null;expireIfAbandoned(x.getValue());return new Snapshot(x.getValue());}
 
     /**
      * Budgets describe the semantic function, not a screen animation. Keep them slightly above the
@@ -62,7 +63,11 @@ public final class CortexSemanticOperation {
      */
     public static long defaultTimeoutMs(String kind){String k=n(kind).toUpperCase();if(k.contains("ASR")||k.contains("AUDIO"))return 245_000L;if(k.contains("VISUAL")||k.contains("OCR"))return 155_000L;if(k.contains("CAPTURE"))return 90_000L;if(k.contains("PROPOSAL"))return 35_000L;if(k.contains("BRAIN"))return 30_000L;if(k.contains("HEALTH"))return 50_000L;return 20_000L;}
 
-    private static void finish(long token,String state,String stage,int percent,String detail){Entry e=OPS.get(token);if(e==null||!RUNNING.equals(e.state))return;e.detail=n(detail);e.stage=stage;e.percent=percent;e.state=state;e.finished=SystemClock.elapsedRealtime();}
-    private static void prune(){while(OPS.size()>MAX_HISTORY){Map.Entry<Long,Entry> first=OPS.firstEntry();if(first==null)break;if(RUNNING.equals(first.getValue().state))break;OPS.remove(first.getKey(),first.getValue());}}
+    /** Converts genuinely abandoned RUNNING entries to TIMEOUT so one stale token cannot pin history forever. */
+    public static int sweepAbandoned(){int n=0;for(Entry e:OPS.values())if(expireIfAbandoned(e))n++;prune();return n;}
+
+    private static boolean expireIfAbandoned(Entry e){if(e==null||!RUNNING.equals(e.state))return false;long age=Math.max(0,SystemClock.elapsedRealtime()-e.started),budget=defaultTimeoutMs(e.kind)+ABANDON_GRACE_MS;if(age<=budget)return false;synchronized(e){if(!RUNNING.equals(e.state))return false;e.detail="Semantic operation exceeded its function budget + abandonment grace without a terminal owner";e.stage="Timed out";e.percent=100;e.state=TIMEOUT;e.finished=SystemClock.elapsedRealtime();return true;}}
+    private static void finish(long token,String state,String stage,int percent,String detail){Entry e=OPS.get(token);if(e==null)return;synchronized(e){if(!RUNNING.equals(e.state))return;e.detail=n(detail);e.stage=stage;e.percent=percent;e.state=state;e.finished=SystemClock.elapsedRealtime();}prune();}
+    private static void prune(){if(OPS.size()<=MAX_HISTORY)return;for(Map.Entry<Long,Entry> x:OPS.entrySet()){if(OPS.size()<=MAX_HISTORY)break;Entry e=x.getValue();expireIfAbandoned(e);if(!RUNNING.equals(e.state))OPS.remove(x.getKey(),e);}}
     private static String n(String s){return s==null?"":s.trim();}
 }
