@@ -3,6 +3,7 @@ package com.kareem.cortex;
 import android.content.ContentValues;
 import android.database.Cursor;
 import android.database.sqlite.SQLiteDatabase;
+import java.util.ArrayList;
 
 /** Persistent retry ledger kept separate from visual_insights so recovery state survives workers/restarts. */
 public final class VisualRecoveryStore {
@@ -37,6 +38,19 @@ public final class VisualRecoveryStore {
         ensure(db);long now=System.currentTimeMillis();ContentValues v=new ContentValues();v.put("pipeline_version",LEGACY_PIPELINE);v.put("status","failed");v.put("updated_at",now);
         return db.getWritableDatabase().update("visual_insights",v,"item_id IN (SELECT item_id FROM visual_recovery WHERE recoverable=1 AND next_retry_at>0 AND next_retry_at<=? AND (attempt_count<? OR failure_kind='provider_rate_limit')) AND status NOT IN ('done','local_only','skipped')",new String[]{String.valueOf(now),String.valueOf(VisualFailurePolicy.MAX_TRANSIENT_ATTEMPTS)});
     }
+
+    /**
+     * Explicit diagnostics retry for recoverable items. Attempts are deliberately preserved so a
+     * manual "retry now" cannot turn bounded recovery into an infinite retry loop. Provider cooldown
+     * remains owned by VisualIntelligenceScheduler/VisionRateLimitGate.
+     */
+    public static int retryRecoverableNow(VaultDb db){
+        if(db==null)return 0;ensure(db);long now=System.currentTimeMillis();SQLiteDatabase sql=db.getWritableDatabase();ArrayList<Long> ids=new ArrayList<>();Cursor c=sql.rawQuery("SELECT item_id FROM visual_recovery WHERE recoverable=1 ORDER BY updated_at DESC LIMIT 100",null);while(c.moveToNext())ids.add(c.getLong(0));c.close();if(ids.isEmpty())return 0;
+        int changed=0;sql.beginTransaction();try{for(long id:ids){ContentValues r=new ContentValues();r.put("next_retry_at",now);r.put("updated_at",now);sql.update("visual_recovery",r,"item_id=? AND recoverable=1",new String[]{String.valueOf(id)});ContentValues v=new ContentValues();v.put("pipeline_version",LEGACY_PIPELINE);v.put("status","failed");v.put("error","Explicit retry-now requested from Advanced diagnostics; bounded attempt history preserved");v.put("updated_at",now);changed+=sql.update("visual_insights",v,"item_id=? AND status NOT IN ('done','local_only','skipped')",new String[]{String.valueOf(id)});}sql.setTransactionSuccessful();}finally{sql.endTransaction();}return changed;
+    }
+
+    /** Latest unresolved visual issue for an explicit per-item inspection/retry surface. */
+    public static long latestIssueId(VaultDb db){if(db==null)return 0;ensure(db);Cursor c=null;try{c=db.getReadableDatabase().rawQuery("SELECT r.item_id FROM visual_recovery r LEFT JOIN visual_insights v ON v.item_id=r.item_id WHERE COALESCE(v.status,'') NOT IN ('done','local_only','skipped') ORDER BY r.recoverable DESC,r.updated_at DESC LIMIT 1",null);return c.moveToFirst()?c.getLong(0):0;}catch(Throwable ignored){return 0;}finally{if(c!=null)c.close();}}
 
     public static long nextDelayMs(VaultDb db){ensure(db);long now=System.currentTimeMillis();Cursor c=db.getReadableDatabase().rawQuery("SELECT MIN(next_retry_at) FROM visual_recovery WHERE recoverable=1 AND next_retry_at>?",new String[]{String.valueOf(now)});long at=c.moveToFirst()&&!c.isNull(0)?c.getLong(0):0;c.close();return at<=0?-1:Math.max(1_000L,at-now);}
     public static int countRecoverable(VaultDb db){ensure(db);return count(db,"SELECT COUNT(*) FROM visual_recovery WHERE recoverable=1");}
