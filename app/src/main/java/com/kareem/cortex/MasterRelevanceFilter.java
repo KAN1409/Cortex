@@ -50,6 +50,8 @@ public final class MasterRelevanceFilter {
         "ordinary chat messages, ordinary email previews, social notifications and app updates should first become thread context. Promote only when grouped context contains a durable fact, request, commitment, decision, deadline, address/reference, meaningful relationship/project development, or other future value.\n\n"+
         "ACTION RULES\n"+
         "ACTION requires clear responsibility or intent for the user. WAITING requires evidence that completion depends on somebody/something else. If either is plausible but unclear, use REVIEW.\n\n"+
+        "DECISION RULES\n"+
+        "DECISION means a choice the user actually made or explicitly joined. Incoming approvals/rejections, bank declines, delivery states and other external outcomes are events or memories, never the user's decision merely because they contain words like approved/rejected.\n\n"+
         "SCREENSHOTS AND IMAGES\n"+
         "A screenshot is evidence by default, not a task. OCR text must never automatically become ACTION without strong explicit evidence.\n\n"+
         "CALENDAR\n"+
@@ -103,14 +105,16 @@ public final class MasterRelevanceFilter {
     }
 
     private static Decision evaluateRuleText(String t){
+        if(CortexTruthPolicy.explicitUserDecision(t))
+            return new Decision(Disposition.DECISION,70,"explicit user-owned choice or agreement","",0.93);
         if(has(t,"ممكن تبعت","ممكن تبعتلي","ابعتلي","ابعت لي","محتاج منك","محتاجك تبعت","لو سمحت ابعت","متنساش تبعت","please send","can you send","could you send","need you to send","please review","can you review","could you review","please confirm","can you confirm"))
             return new Decision(Disposition.ACTION,68,"explicit incoming request directed to the user","",0.90);
         if(has(t,"هبعتلك","هابعتلك","هبعتهولك","هراجع وارجعلك","هراجع و ارد عليك","هرد عليك","هرجعلك","هكلمك لما","i'll send you","i will send you","i'll get back to you","i will get back to you","i'll reply","i will reply"))
             return new Decision(Disposition.WAITING,64,"explicit commitment from the other party","",0.88);
         if(tentativeDecision(t))
             return review("DECISION",51,"possible decision, but wording is tentative",0.61);
-        if(has(t,"تمت الموافقه","تم الرفض","موافق علي","approved","has been approved","rejected","has been rejected"))
-            return new Decision(Disposition.DECISION,66,"explicit approval or rejection in the thread","",0.87);
+        if(CortexTruthPolicy.externalApprovalOrRejection(t))
+            return new Decision(Disposition.MEMORY,58,"external approval/rejection outcome; useful event but not the user's decision","",0.86);
         if(has(t,"لازم يتبعت","لازم تبعت","المفروض تبعت","يفضل تبعت","لما تقدر ابعت","when you can send","we need the drawing","we need the file","needs your review","needs your approval","محتاج مراجعتك","محتاج موافقتك"))
             return review("ACTION",52,"possible user responsibility, but direction/ownership is not explicit enough",0.64);
         if(has(t,"هحاول ابعت","مفروض ابعتلك","المفروض يرد","مفروض يرد","should get back to you","should reply","probably send you","expect a reply"))
