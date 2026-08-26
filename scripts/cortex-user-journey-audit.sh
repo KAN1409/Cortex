@@ -13,13 +13,16 @@ EXPORT="app/src/main/java/com/kareem/cortex/CortexUserJourneyTestExporter.java"
 COMPAT="app/src/main/java/com/kareem/cortex/CortexRobotTestExporter.java"
 FIX="app/src/main/java/com/kareem/cortex/CortexRobotFixtures.java"
 ACCESS="app/src/main/java/com/kareem/cortex/CortexScreenAccessibilityService.java"
+ROBOT="app/src/main/java/com/kareem/cortex/CortexRobotUserTest.java"
+SEMANTIC="app/src/main/java/com/kareem/cortex/CortexSemanticOperation.java"
+BRAIN_UI="app/src/main/java/com/kareem/cortex/ProposalAskCortexActivity.java"
 DISPATCH="app/src/main/java/com/kareem/cortex/CortexActionDispatcher.java"
 BRAIN="app/src/main/java/com/kareem/cortex/BrainRouter.java"
 ONBOARD="app/src/main/java/com/kareem/cortex/AccessOnboardingActivity.java"
 HEALTH="app/src/main/java/com/kareem/cortex/HealthFollowupActivity.java"
 TRANSCRIPT="app/src/main/java/com/kareem/cortex/TranscriptCorrectionStore.java"
 
-for f in "$SUITE" "$EXPORT" "$COMPAT" "$FIX" "$ACCESS" "$DISPATCH" "$BRAIN" "$ONBOARD" "$HEALTH" "$TRANSCRIPT"; do need_file "$f"; done
+for f in "$SUITE" "$EXPORT" "$COMPAT" "$FIX" "$ACCESS" "$ROBOT" "$SEMANTIC" "$BRAIN_UI" "$DISPATCH" "$BRAIN" "$ONBOARD" "$HEALTH" "$TRANSCRIPT"; do need_file "$f"; done
 
 # The primary test contract is user goals + expected terminal outcome, not click/screen counts.
 need "$SUITE" 'enum Status \{ PASS, CONFIRMED_APP_BUG, QUALITY_PROBLEM, TEST_GAP, HARNESS_ISSUE \}' 'suite separates product bugs, quality issues, gaps and harness issues'
@@ -40,13 +43,24 @@ need "$SUITE" "source='robot_fixture' AND type='AUDIO'" 'Vault journey validates
 need "$SUITE" 'Robot Test Person' 'People journey uses a known confirmed identity fixture'
 need "$SUITE" 'Robot Test Project' 'Projects journey uses a known confirmed project fixture'
 
-# Brain is judged only after a terminal state, and grounding failure is distinct from slow progress.
+# Brain is judged only after the semantic operation triggered by Ask reaches a terminal outcome.
+# Progress text remains useful UI evidence, but it is never the success oracle.
 need "$SUITE" 'journeyBrainTerminal' 'suite has a dedicated Brain terminal-answer journey'
-need "$SUITE" '30000' 'Brain journey has an explicit bounded terminal wait'
-need "$SUITE" '!busy\(x\)' 'Brain journey waits for busy/progress state to end'
-need "$SUITE" 'Brain did not reach a stable terminal UI state' 'Brain latency/stuck state is reported separately'
+need "$SUITE" 'CortexSemanticOperation\.cursor\(\)' 'Brain journey captures a pre-action semantic operation cursor'
+need "$SUITE" 'waitSemantic\(cursor,32_000L\)' 'Brain journey has an explicit bounded semantic terminal wait'
+need "$SUITE" 'op\.terminal\(\)' 'Brain journey requires a terminal semantic operation'
+need "$SUITE" 'op\.success\(\)' 'Brain journey distinguishes successful terminal completion from failure/timeout'
+need "$SUITE" 'remained RUNNING past its terminal budget' 'Brain latency/stuck state is reported separately'
+need "$SUITE" 'semantic operation ended' 'Brain journey recognizes explicit terminal failure'
+need "$SUITE" 'visible Brain surface still shows a busy/progress state' 'Brain journey detects UI that remains busy after semantic completion'
 need "$SUITE" 'ignored known ACTION/WAITING fixture state' 'terminal but ungrounded Brain answer is a confirmed functional bug'
-need "$SUITE" 'Brain stopped safely' 'Brain journey recognizes explicit terminal failure'
+need "$SEMANTIC" 'RUNNING="RUNNING",COMPLETED="COMPLETED",FAILED="FAILED",TIMEOUT="TIMEOUT",CANCELLED="CANCELLED"' 'semantic operation ledger defines explicit terminal states'
+need "$BRAIN_UI" 'CortexSemanticOperation\.begin\("BRAIN_ANSWER"' 'visible Brain surface registers BRAIN_ANSWER work'
+need "$BRAIN_UI" 'CortexSemanticOperation\.complete\(op,"ANSWER_READY' 'Brain surface marks answer-ready only after result rendering'
+need "$BRAIN_UI" 'CortexSemanticOperation\.fail' 'Brain surface records terminal failures explicitly'
+need "$ROBOT" 'schema_version",3' 'low-level Robot report schema records semantic-terminal generation'
+need "$ROBOT" 'observeSemantic\(semanticCursor,deadline\)' 'Robot waits for semantic completion caused by the clicked action'
+need "$ROBOT" 'FAILED_RESULT|terminalState|terminal_kind' 'Robot distinguishes click success from functional terminal failure'
 
 # Combined state questions use authoritative local Cortex state rather than discarding derived state in a cloud prompt.
 need "$BRAIN" 'AskOperationalEngine\.tryAnswer' 'Combined Brain checks authoritative operational state first'
@@ -99,6 +113,7 @@ need "$DISPATCH" 'Experimental test intercepted external action safely' 'externa
 # Accessibility is only the test hand. The report/export naming must make the new purpose unmistakable.
 need "$ACCESS" 'robotClick' 'suite can operate the same visible controls as a user'
 need "$ACCESS" 'robotSetText' 'suite can enter known test data through visible fields'
+need "$ACCESS" 'pruneDerivedAncestors' 'robot accessibility removes synthesized whole-container actions'
 need "$EXPORT" 'CortexExperimentalUserTest_.*\.md' 'goal-driven suite exports Markdown problem report'
 need "$EXPORT" 'CortexExperimentalUserTest_.*\.json' 'goal-driven suite exports JSON evidence'
 need "$EXPORT" 'CortexExperimentalUserTest_.*\.zip' 'goal-driven suite exports ZIP bundle'
