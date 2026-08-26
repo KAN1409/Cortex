@@ -14,6 +14,14 @@ public final class AudioAnalyzer {
         try{
             if(item.attachmentPath==null||item.attachmentPath.isEmpty())throw new IllegalArgumentException("Missing audio file");
             File f=new File(item.attachmentPath);if(!f.exists())throw new IllegalArgumentException("Audio file not found");
+
+            // The deterministic fixture is allowed only inside the explicit sandbox and only when
+            // the item carries the exact fixture marker. It exercises the production post-provider
+            // transcript path without touching the microphone or claiming live-provider quality.
+            if(CortexExperimentalTestMode.active(ctx)&&SyntheticAudioFixture.matches(item)){
+                finish(ctx,syntheticTranscript(item),cb);return;
+            }
+
             if(!PrivacyPolicy.canUseCloud(ctx,"audio")){cb.fail(retryable("Audio privacy is set to "+PrivacyPolicy.label(PrivacyPolicy.mode(ctx,"audio"))+"; cloud transcription is disabled",null));return;}
             boolean groq=GroqKeyStore.has(ctx),gemini=GeminiKeyStore.has(ctx);
             if(!groq&&!gemini){cb.fail(retryable("No ASR provider configured. Add Gemini and/or Groq API key",null));return;}
@@ -33,6 +41,12 @@ public final class AudioAnalyzer {
             }
             runGroqFallback(ctx,f,cb,"Gemini API key not configured");
         }catch(Throwable e){cb.fail(e instanceof Exception?(Exception)e:retryable("Audio analysis stopped safely: "+e.getClass().getSimpleName(),e));}
+    }
+
+    private static TranscriptResult syntheticTranscript(KnowledgeItem item)throws Exception{
+        JSONObject meta=new JSONObject(item.metadataJson==null?"{}":item.metadataJson);String text=meta.optString("synthetic_transcript",SyntheticAudioFixture.TRANSCRIPT).trim();if(text.isEmpty())throw new IllegalArgumentException("Synthetic ASR fixture has no transcript");long duration=Math.max(1L,meta.optLong("synthetic_duration_ms",SyntheticAudioFixture.DURATION_MS));
+        TranscriptResult t=new TranscriptResult();t.text=text;t.rawTranscript=text;t.providerMergedTranscript=text;t.language=meta.optString("synthetic_language",SyntheticAudioFixture.LANGUAGE);t.engine="cortex_deterministic_asr_fixture";t.version="1";t.durationMs=duration;t.processedDurationMs=duration;t.coverage=1.0;t.segments.add(new TranscriptResult.Segment(0,duration,text,1.0f));
+        JSONObject raw=new JSONObject();raw.put("provider","synthetic_test_fixture");raw.put("fixture",SyntheticAudioFixture.MARKER);raw.put("selected",true);raw.put("coverage",1.0);raw.put("live_provider_tested",false);raw.put("purpose","deterministic capture/queue/transcript terminal contract only");raw.put("text",text);t.rawProviderResponse=raw.toString();return t;
     }
 
     private static void runGroqFallback(Context ctx,File f,Callback cb,String geminiStatus){
