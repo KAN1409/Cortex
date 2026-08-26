@@ -12,7 +12,7 @@ import java.util.*;
  */
 public final class ContextResolver {
     private static final long PROJECT_WINDOW=60L*60L*1000L,THREAD_WINDOW=45L*60L*1000L,CAPTURE_WINDOW=25L*60L*1000L,PHONE_WINDOW=15L*60L*1000L;
-    private static final long ACTIVE_INTERRUPT_WINDOW=6L*60L*1000L,RESUME_BACKGROUND_WINDOW=2L*60L*60L*1000L;
+    private static final long ACTIVE_INTERRUPT_WINDOW=6L*60L*1000L,RESUME_BACKGROUND_WINDOW=2L*60L*60L*1000L,REJECT_HOLD_MS=20L*60L*1000L;
     private ContextResolver(){}
 
     private static final class Candidate {
@@ -37,7 +37,7 @@ public final class ContextResolver {
     }
 
     private static Candidate best(VaultDb db,long now){
-        Candidate project=projectCandidate(db,now),thread=threadCandidate(db,now),capture=captureCandidate(db,now),phone=phoneCandidate(db,now);ContextStateStore.ContextState current=ContextStateStore.primary(db);
+        Candidate project=allowAfterExplicitRejection(db,projectCandidate(db,now),now),thread=allowAfterExplicitRejection(db,threadCandidate(db,now),now),capture=allowAfterExplicitRejection(db,captureCandidate(db,now),now),phone=allowAfterExplicitRejection(db,phoneCandidate(db,now),now);ContextStateStore.ContextState current=ContextStateStore.primary(db);
         // A fresh communication thread that begins after a project/context anchor is treated as a
         // temporary interruption, not as permanent project replacement.
         long anchorAt=project!=null?project.evidenceAt:(current==null?0:current.lastEvidenceAt);
@@ -53,9 +53,13 @@ public final class ContextResolver {
         ArrayList<Candidate> xs=new ArrayList<>();if(project!=null)xs.add(project);if(thread!=null)xs.add(thread);if(capture!=null)xs.add(capture);if(phone!=null)xs.add(phone);if(xs.isEmpty())return null;for(Candidate x:xs)learned(db,x);xs.sort((a,b)->{int c=Double.compare(b.confidence,a.confidence);if(c!=0)return c;return Long.compare(b.evidenceAt,a.evidenceAt);});return xs.get(0);
     }
 
+    /** User rejection holds only against the evidence that caused it; genuinely newer evidence may reactivate the context. */
+    private static Candidate allowAfterExplicitRejection(VaultDb db,Candidate x,long now){if(x==null)return null;return rejectedAfterEvidence(db,x.key,x.evidenceAt,now)?null:x;}
+    private static boolean rejectedAfterEvidence(VaultDb db,String stableKey,long evidenceAt,long now){Cursor c=null;try{c=db.getReadableDatabase().rawQuery("SELECT MAX(f.created_at) FROM context_feedback f JOIN contexts x ON x.id=f.context_id WHERE x.stable_key=? AND f.event_type='REJECT_CURRENT' AND f.created_at>=?",new String[]{stableKey,String.valueOf(now-REJECT_HOLD_MS)});long rejected=c.moveToFirst()&&!c.isNull(0)?c.getLong(0):0;return rejected>0&&rejected>=evidenceAt;}catch(Throwable ignored){return false;}finally{if(c!=null)c.close();}}
+
     private static Candidate learned(VaultDb db,Candidate x){if(x==null)return null;double boost=0;try{boost=ContextFingerprintLearner.boost(db,x.key);}catch(Throwable ignored){}if(Math.abs(boost)>=.005){x.confidence=Math.max(.55,Math.min(.99,x.confidence+boost));x.reason=x.reason+" · learned fingerprint "+(boost>0?"+":"")+Math.round(boost*100)+"%";}return x;}
 
-    private static Candidate backgroundResumeCandidate(VaultDb db,long now,long excludeId){try{for(ContextStateStore.ContextState s:ContextStateStore.stack(db,8)){if(s.id==excludeId||!ContextStateStore.ROLE_BACKGROUND.equals(s.role))continue;long seen=Math.max(s.lastEvidenceAt,s.lastActiveAt);if(seen<=0||now-seen>RESUME_BACKGROUND_WINDOW)continue;Candidate x=new Candidate();x.key=s.stableKey;x.title=s.title;x.goal=s.goal;x.summary=s.summary;x.evidenceAt=now;x.confidence=Math.max(.86,Math.min(.95,s.stackConfidence));x.priority=Math.max(86,s.priority);x.reason=ContextBoundaryDetector.resume("Resume the most recent suspended working context after a short interruption");x.sourceType="context";x.metadata="{\"resolver\":\"background_resume\",\"local_only\":true}";return x;}}catch(Throwable ignored){}return null;}
+    private static Candidate backgroundResumeCandidate(VaultDb db,long now,long excludeId){try{for(ContextStateStore.ContextState s:ContextStateStore.stack(db,8)){if(s.id==excludeId||!ContextStateStore.ROLE_BACKGROUND.equals(s.role))continue;long seen=Math.max(s.lastEvidenceAt,s.lastActiveAt);if(seen<=0||now-seen>RESUME_BACKGROUND_WINDOW||rejectedAfterEvidence(db,s.stableKey,seen,now))continue;Candidate x=new Candidate();x.key=s.stableKey;x.title=s.title;x.goal=s.goal;x.summary=s.summary;x.evidenceAt=now;x.confidence=Math.max(.86,Math.min(.95,s.stackConfidence));x.priority=Math.max(86,s.priority);x.reason=ContextBoundaryDetector.resume("Resume the most recent suspended working context after a short interruption");x.sourceType="context";x.metadata="{\"resolver\":\"background_resume\",\"local_only\":true}";return x;}}catch(Throwable ignored){}return null;}
 
     /** A confirmed Project entity linked to recent evidence is the strongest stable context identity. */
     private static Candidate projectCandidate(VaultDb db,long now){Cursor c=null;try{String sql="SELECT n.id,n.canonical_name,k.id,k.title,k.summary,k.extracted_text,k.raw_text,k.created_at FROM source_links sl JOIN entity_nodes n ON n.id=sl.to_id JOIN knowledge_items k ON k.id=sl.from_id WHERE sl.from_type='memory' AND sl.to_type='entity' AND n.kind='PROJECT' AND n.status='active' AND k.created_at>=? ORDER BY k.created_at DESC,sl.confidence DESC LIMIT 1";c=db.getReadableDatabase().rawQuery(sql,new String[]{String.valueOf(now-PROJECT_WINDOW)});if(!c.moveToFirst())return null;long entityId=c.getLong(0),memoryId=c.getLong(2);String project=n(c.getString(1)),title=n(c.getString(3)),summary=n(c.getString(4)),extracted=n(c.getString(5)),raw=n(c.getString(6)),body=!summary.isEmpty()?summary:!extracted.isEmpty()?extracted:raw;Candidate x=new Candidate();x.sourceId=memoryId;x.key="project:"+entityId;x.title=!project.isEmpty()?project:(!title.isEmpty()?title:"Current project");x.goal=clip(body,200);x.summary=(!title.isEmpty()?title+(body.isEmpty()?"":" · "):"")+clip(body,320);x.evidenceAt=c.getLong(7);x.confidence=.94;x.priority=96;x.reason="Recent evidence linked to a confirmed Project entity";x.sourceType="memory";x.metadata="{\"resolver\":\"project_entity\",\"project_entity_id\":"+entityId+",\"local_only\":true}";return x;}catch(Throwable ignored){return null;}finally{if(c!=null)c.close();}}
