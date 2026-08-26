@@ -6,7 +6,11 @@ import java.io.*;
 import java.net.*;
 import java.nio.charset.StandardCharsets;
 
-/** Optional model refinement over an explainable deterministic baseline. */
+/**
+ * Optional model refinement over an explainable deterministic baseline.
+ * Network/provider failure, malformed output or confidence below 0.72 means no override.
+ * Positive boosts require grounded evidence and are bounded; relevance remains authoritative.
+ */
 public final class AttentionAiAdjudicator {
     private static final int MIN_CONFIDENCE_PCT=72;
     private AttentionAiAdjudicator(){}
