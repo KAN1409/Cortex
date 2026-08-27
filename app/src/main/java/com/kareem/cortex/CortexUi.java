@@ -12,7 +12,7 @@ import android.view.*;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
-/** Exact approved Cortex reference system: AMOLED, faded lime, restrained hierarchy. */
+/** Approved Cortex AMOLED system: near-black, restrained surfaces, semantic accents. */
 public final class CortexUi {
     public static final int BG=Color.rgb(10,10,9);
     public static final int SURFACE=Color.rgb(26,28,25);
@@ -21,7 +21,7 @@ public final class CortexUi {
     public static final int TEXT=Color.rgb(245,247,241);
     public static final int MUTED=Color.rgb(161,163,154);
     public static final int FAINT=Color.argb(138,161,163,154);
-    public static final int BRAND=Color.rgb(185,217,74);
+    public static final int BRAND=Color.rgb(137,217,74); // #89D94A
     public static final int AURORA=Color.rgb(190,170,46);
     public static final int LIME=BRAND,OLIVE=AURORA;
 
@@ -51,7 +51,7 @@ public final class CortexUi {
     public static CortexGlyphView glyph(Activity a,String k,int c,boolean d){return new CortexGlyphView(a,k,c,d);}
 
     public static View pressable(Activity a,View v,GradientDrawable base){
-        if(Build.VERSION.SDK_INT>=21)v.setBackground(new RippleDrawable(ColorStateList.valueOf(Color.argb(26,185,217,74)),base,null));else v.setBackground(base);
+        if(Build.VERSION.SDK_INT>=21)v.setBackground(new RippleDrawable(ColorStateList.valueOf(Color.argb(28,137,217,74)),base,null));else v.setBackground(base);
         v.setClickable(true);v.setFocusable(true);v.setOnTouchListener((x,e)->{if(Build.VERSION.SDK_INT>=21){if(e.getActionMasked()==MotionEvent.ACTION_DOWN){x.setScaleX(.985f);x.setScaleY(.985f);}else if(e.getActionMasked()==MotionEvent.ACTION_UP||e.getActionMasked()==MotionEvent.ACTION_CANCEL){x.animate().scaleX(1f).scaleY(1f).setDuration(100).start();}}return false;});return v;
     }
 
@@ -69,8 +69,8 @@ public final class CortexUi {
     public static LinearLayout card(Activity a,int r){LinearLayout c=new LinearLayout(a);c.setOrientation(LinearLayout.VERTICAL);c.setPadding(dp(a,16),dp(a,14),dp(a,16),dp(a,14));c.setBackground(velvet(a,r));return c;}
     public static TextView chip(Activity a,String l,int c,boolean strong){TextView v=plain(a,l,strong?12:11,strong?TEXT:c);if(strong)medium(v);v.setGravity(Gravity.CENTER);v.setPadding(dp(a,11),0,dp(a,11),0);int fill=Color.argb(strong?24:12,Color.red(c),Color.green(c),Color.blue(c));int stroke=Color.argb(strong?72:46,Color.red(c),Color.green(c),Color.blue(c));v.setBackground(round(a,fill,stroke,10));return v;}
     public static TextView section(Activity a,String t){TextView h=overline(a,t);h.setPadding(0,dp(a,22),0,dp(a,9));return h;}
-    public static TextView action(Activity a,String l,int c,boolean filled){TextView b=plain(a,l,14,filled?BG:c);medium(b);b.setGravity(Gravity.CENTER);b.setPadding(dp(a,14),0,dp(a,14),0);GradientDrawable base=filled?gradient(a,BRAND,AURORA,Color.argb(70,245,247,241),14):round(a,Color.argb(10,Color.red(c),Color.green(c),Color.blue(c)),Color.argb(60,Color.red(c),Color.green(c),Color.blue(c)),14);pressable(a,b,base);return b;}
-    public static int semanticFor(String key){if(key==null)return BRAND;String k=key.toLowerCase();if(k.contains("review")||k.contains("urgent")||k.contains("error"))return RED;if(k.contains("attention")||k.contains("wait")||k.contains("remind"))return ORANGE;if(k.contains("new")||k.contains("recent"))return BLUE;if(k.contains("archive")||k.contains("inactive"))return PURPLE;if(k.contains("connected")||k.contains("complete")||k.contains("good"))return GREEN;return BRAND;}
+    public static TextView action(Activity a,String l,int c,boolean filled){TextView b=plain(a,l,14,filled?BG:c);medium(b);b.setGravity(Gravity.CENTER);b.setPadding(dp(a,14),0,dp(a,14),0);GradientDrawable base=filled?round(a,BRAND,Color.argb(62,245,247,241),14):round(a,Color.argb(10,Color.red(c),Color.green(c),Color.blue(c)),Color.argb(60,Color.red(c),Color.green(c),Color.blue(c)),14);pressable(a,b,base);return b;}
+    public static int semanticFor(String key){if(key==null)return BRAND;String k=key.toLowerCase();if(k.contains("review")||k.contains("urgent")||k.contains("error"))return RED;if(k.contains("attention")||k.contains("wait")||k.contains("remind"))return ORANGE;if(k.contains("new")||k.contains("recent"))return BLUE;if(k.contains("project")||k.contains("archive")||k.contains("inactive"))return PURPLE;if(k.contains("connected")||k.contains("complete")||k.contains("good")||k.contains("insight"))return GREEN;return BRAND;}
 
     /** Approved reference dock: compact, quiet, icon-led. */
     public static void addBottomNav(Activity a,LinearLayout root,String selected,Runnable ignored){
@@ -79,8 +79,8 @@ public final class CortexUi {
         LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,dp(a,72));p.setMargins(dp(a,14),dp(a,3),dp(a,14),dp(a,8));root.addView(bar,p);fitSystemBars(a,root);
     }
     private static void addCapture(Activity a,LinearLayout bar){
-        LinearLayout outer=new LinearLayout(a);outer.setGravity(Gravity.CENTER);outer.setBackground(round(a,Color.rgb(18,19,16),Color.argb(92,185,217,74),999));
-        TextView plus=plain(a,"+",35,BG);plus.setTypeface(Typeface.create("sans-serif-light",Typeface.NORMAL));plus.setGravity(Gravity.CENTER);pressable(a,plus,gradient(a,BRAND,AURORA,Color.argb(110,245,247,241),999));raised(a,outer,4);
+        LinearLayout outer=new LinearLayout(a);outer.setGravity(Gravity.CENTER);outer.setBackground(round(a,Color.rgb(14,15,13),Color.argb(86,137,217,74),999));
+        TextView plus=plain(a,"+",35,BG);plus.setTypeface(Typeface.create("sans-serif-light",Typeface.NORMAL));plus.setGravity(Gravity.CENTER);pressable(a,plus,round(a,BRAND,Color.argb(110,245,247,241),999));raised(a,outer,3);
         plus.setOnClickListener(x->{try{Intent i=new Intent(a,InputActivity.class);i.addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT|Intent.FLAG_ACTIVITY_SINGLE_TOP);a.startActivity(i);}catch(Throwable ignored){}});
         outer.addView(plus,new LinearLayout.LayoutParams(dp(a,58),dp(a,58)));LinearLayout wrap=new LinearLayout(a);wrap.setGravity(Gravity.CENTER);wrap.addView(outer,new LinearLayout.LayoutParams(dp(a,64),dp(a,64)));bar.addView(wrap,new LinearLayout.LayoutParams(dp(a,72),-1));
     }
