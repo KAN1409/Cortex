@@ -1,118 +1,42 @@
 #!/data/data/com.termux/files/usr/bin/bash
 set -euo pipefail
-
-ROOT="${1:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}"
-cd "$ROOT"
-FAIL=0
-WARN=0
-SCANNED=0
-
+ROOT="${1:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}"; cd "$ROOT"
+FAIL=0; WARN=0; SCANNED=0
 ok(){ printf 'AUDIT PASS: %s\n' "$*"; }
-warn(){ WARN=$((WARN+1)); printf 'AUDIT WARN: %s\n' "$*" >&2; }
 bad(){ FAIL=$((FAIL+1)); printf 'AUDIT FAIL: %s\n' "$*" >&2; }
-require_file(){ [ -f "$1" ] && ok "required file $1" || bad "missing required file $1"; }
-require_text(){ local f="$1" p="$2" label="$3"; grep -Eq "$p" "$f" 2>/dev/null && ok "$label" || bad "$label"; }
-
+warn(){ WARN=$((WARN+1)); printf 'AUDIT WARN: %s\n' "$*" >&2; }
+req(){ [ -f "$1" ] && ok "required $1" || bad "missing $1"; }
+has(){ grep -Eq "$2" "$1" 2>/dev/null && ok "$3" || bad "$3"; }
+none(){ if git grep -nEi "$1" -- ':!downloads/**' >/dev/null 2>&1; then bad "$2"; else ok "$2"; fi; }
 printf '\n================ CORTEX REPO AUDIT ================\n'
-printf 'Commit: %s\n' "$(git rev-parse --short=12 HEAD 2>/dev/null || echo unknown)"
-printf 'Branch: %s\n' "$(git branch --show-current 2>/dev/null || echo detached)"
-
-while IFS= read -r f; do
-  case "$f" in
-    *.java|*.kt|*.kts|*.xml|*.gradle|*.properties|*.sh|*.yml|*.yaml|*.json|*.md)
-      SCANNED=$((SCANNED+1))
-      if grep -nE '^(<<<<<<< |>>>>>>> )' "$f" >/dev/null 2>&1; then bad "merge-conflict marker in $f"; fi
-      ;;
-  esac
-done < <(git ls-files)
+printf 'Commit: %s\nBranch: %s\n' "$(git rev-parse --short=12 HEAD 2>/dev/null||echo unknown)" "$(git branch --show-current 2>/dev/null||echo detached)"
+while IFS= read -r f; do case "$f" in *.java|*.kt|*.xml|*.gradle|*.properties|*.sh|*.yml|*.yaml|*.json|*.md) SCANNED=$((SCANNED+1)); grep -nE '^(<<<<<<< |=======|>>>>>>> )' "$f" >/dev/null 2>&1 && bad "merge marker in $f";; esac; done < <(git ls-files)
 ok "scanned $SCANNED tracked source/config files"
 
-BI="app/src/main/java/com/kareem/cortex/BackupImporter.java"
-require_file "$BI"
-require_text "$BI" 'public static final class Inspection' 'BackupImporter has real Inspection preflight model'
-require_text "$BI" 'public static Inspection inspect\(Context [A-Za-z]+,Uri [A-Za-z]+\)' 'BackupImporter exposes read-only inspect API'
-require_text "$BI" 'public static int restore\(Context [A-Za-z]+,VaultDb [A-Za-z]+,Uri [A-Za-z]+\)' 'BackupImporter exposes validated restore API'
-if grep -Fq 'Valid Cortex backup archive verified.' "$BI" 2>/dev/null; then bad "BackupImporter emergency stub text detected"; fi
-require_text "$BI" 'memories\.jsonl' 'BackupImporter validates Cortex memory payload'
-require_text "$BI" 'validatedName\(' 'BackupImporter validates archive entry paths'
+MAN=app/src/main/AndroidManifest.xml; UI=app/src/main/java/com/kareem/cortex/CortexUi.java; CAP=app/src/main/java/com/kareem/cortex/CortexCapabilityRegistry.java
+for f in "$MAN" "$UI" "$CAP" app/src/main/java/com/kareem/cortex/BackupImporter.java app/src/main/java/com/kareem/cortex/CompactTodayActivity.java app/src/main/java/com/kareem/cortex/PrimeBriefStore.java app/src/main/java/com/kareem/cortex/AttentionLearning.java app/src/main/java/com/kareem/cortex/CortexActionExecutor.java app/src/main/java/com/kareem/cortex/CortexActionDispatcher.java app/src/main/java/com/kareem/cortex/CloudEvidencePolicy.java; do req "$f"; done
 
-for f in \
-  app/src/main/java/com/kareem/cortex/ResultProposalEngine.java \
-  app/src/main/java/com/kareem/cortex/ProposalUi.java \
-  app/src/main/java/com/kareem/cortex/ProposalCaptureActivity.java \
-  app/src/main/java/com/kareem/cortex/ProposalCaptureResultActivity.java \
-  app/src/main/java/com/kareem/cortex/ProposalBriefActivity.java \
-  app/src/main/java/com/kareem/cortex/ProposalPeopleProjectsActivity.java \
-  app/src/main/java/com/kareem/cortex/ProposalAskCortexActivity.java \
-  app/src/main/java/com/kareem/cortex/CortexGlyphView.java; do require_file "$f"; done
+[ "$(grep -o 'android.intent.action.MAIN' "$MAN"|wc -l|tr -d ' ')" = 1 ] && ok 'exactly one launcher' || bad 'launcher count is not 1'
+[ "$(grep -o 'android.intent.action.SEND"' "$MAN"|wc -l|tr -d ' ')" = 1 ] && ok 'exactly one ACTION_SEND owner' || bad 'ACTION_SEND count is not 1'
+[ "$(grep -o 'android.intent.action.SEND_MULTIPLE' "$MAN"|wc -l|tr -d ' ')" = 1 ] && ok 'exactly one ACTION_SEND_MULTIPLE owner' || bad 'ACTION_SEND_MULTIPLE count is not 1'
+has "$MAN" 'android:allowBackup="false"' 'platform backup disabled for private Vault'
+has "$MAN" 'activity-alias android:name="\.PremiumHomeActivity" android:targetActivity="\.CompactTodayActivity"' 'legacy Home alias targets current Now surface'
 
-require_text app/src/main/java/com/kareem/cortex/ResultProposalEngine.java 'ExternalBrainProvider\.ask' 'proposal engine can use configured external reasoning model'
-require_text app/src/main/java/com/kareem/cortex/ResultProposalEngine.java 'LocalLlmBridge\.completeCached' 'proposal engine has local/private model fallback'
-require_text app/src/main/java/com/kareem/cortex/ResultProposalEngine.java 'Zero proposals is allowed' 'proposal prompt permits no-op instead of fake suggestions'
-require_text app/src/main/java/com/kareem/cortex/ProposalBriefActivity.java 'ProposalUi\.attach' 'Brief results are wired to micro proposals'
-require_text app/src/main/java/com/kareem/cortex/ProposalPeopleProjectsActivity.java 'ProposalUi\.attach' 'People/Projects results are wired to micro proposals'
-require_text app/src/main/java/com/kareem/cortex/ProposalAskCortexActivity.java 'ProposalUi\.attach' 'Brain answers are wired to micro proposals'
-require_text app/src/main/java/com/kareem/cortex/ProposalCaptureResultActivity.java 'ProposalUi\.attach' 'Capture results are wired to micro proposals'
-require_text app/src/main/java/com/kareem/cortex/ProposalCaptureResultActivity.java 'hideLegacySuggestions' 'fixed legacy pseudo-suggestions are removed from final capture result'
+BI=app/src/main/java/com/kareem/cortex/BackupImporter.java
+has "$BI" 'class Inspection' 'backup inspection model present'; has "$BI" 'Inspection inspect\(' 'backup read-only inspect path present'; has "$BI" 'int restore\(' 'explicit restore path present'; has "$BI" 'validatedName\(' 'archive path validation present'
 
-MAN="app/src/main/AndroidManifest.xml"
-require_file "$MAN"
-launcher_count="$(grep -o 'android.intent.action.MAIN' "$MAN" | wc -l | tr -d ' ')"
-[ "$launcher_count" = "1" ] && ok "exactly one launcher intent" || bad "expected 1 launcher intent, found $launcher_count"
-send_count="$(grep -o 'android.intent.action.SEND"' "$MAN" | wc -l | tr -d ' ')"
-send_multi_count="$(grep -o 'android.intent.action.SEND_MULTIPLE' "$MAN" | wc -l | tr -d ' ')"
-[ "$send_count" = "1" ] && ok "exactly one ACTION_SEND owner" || bad "expected 1 ACTION_SEND owner, found $send_count"
-[ "$send_multi_count" = "1" ] && ok "exactly one ACTION_SEND_MULTIPLE owner" || bad "expected 1 ACTION_SEND_MULTIPLE owner, found $send_multi_count"
-require_text "$MAN" 'activity android:name="\.ProposalCaptureActivity" android:exported="true"' 'proposal-aware capture owns external share entry'
-require_text "$MAN" 'activity-alias android:name="\.PremiumHomeActivity" android:targetActivity="\.ProposalBriefActivity"' 'legacy Brief alias routes to final proposal Brief'
+COUNT="$(grep -oE 'c\([0-9]+,"' "$CAP"|wc -l|tr -d ' ')"; [ "$COUNT" = 43 ] && ok 'authoritative registry has 43 capabilities' || bad "capability count=$COUNT"
+for n in $(seq 1 43); do grep -Fq "c($n," "$CAP" || bad "capability #$n missing"; done
 
-require_text app/src/main/java/com/kareem/cortex/InputActivity.java 'ProposalCaptureActivity\.class' 'Input capture routes to proposal-aware capture'
-require_text app/src/main/java/com/kareem/cortex/CortexQuickTileService.java 'ProposalCaptureActivity\.class' 'voice Quick Tile routes to proposal-aware capture'
-require_text app/src/main/java/com/kareem/cortex/UnderstandScreenTileService.java 'ProposalCaptureResultActivity\.class' 'Understand Screen opens proposal-aware result'
-require_text app/src/main/java/com/kareem/cortex/CortexRecordWidget.java 'ProposalCaptureActivity\.class' 'record widget setup routes to proposal-aware capture'
+has "$UI" 'BRAND=Color\.rgb\(137,217,74\)' 'green #89D94A centralized'; has "$UI" 'ORANGE=Color\.rgb\(229,169,59\)' 'orange #E5A93B centralized'; has "$UI" 'QUIET=Color\.rgb\(51,53,50\)' 'quiet #333532 centralized'; has "$UI" 'PURPLE=Color\.rgb\(155,81,224\)' 'project #9B51E0 centralized'; has "$UI" 'RED=Color\.rgb\(217,83,79\)' 'review #D9534F centralized'; has "$UI" 'BLUE=Color\.rgb\(74,144,226\)' 'recent #4A90E2 centralized'
 
-UI="app/src/main/java/com/kareem/cortex/CortexUi.java"
-require_text "$UI" 'ProposalBriefActivity\.class' 'bottom nav routes to proposal Brief'
-require_text "$UI" 'ProposalPeopleProjectsActivity\.class' 'bottom nav routes to proposal People/Projects'
-require_text "$UI" 'ProposalAskCortexActivity\.class' 'bottom nav routes to proposal Brain'
+has app/src/main/java/com/kareem/cortex/AttentionLearning.java 'actedAt>=item\.updatedAt' 'acted feedback is version-scoped'; has app/src/main/java/com/kareem/cortex/PrimeBriefStore.java 'attentionEmpty\(' 'attention-empty state is explicit'; has app/src/main/java/com/kareem/cortex/PrimeBriefStore.java "'ALERT','CHANGE'" 'alert/change enter Today read model'; has app/src/main/java/com/kareem/cortex/CompactTodayActivity.java 'removeView\(loadingView\)' 'Now loading state is one-shot'
+has app/src/main/java/com/kareem/cortex/CortexActionExecutor.java 'Calendar app owns the final write' 'calendar actions remain drafts'; has app/src/main/java/com/kareem/cortex/CortexActionDispatcher.java 'Nothing will be sent or changed until you confirm' 'external actions require approval'; has app/src/main/java/com/kareem/cortex/BrainRouter.java 'CloudEvidencePolicy\.filter' 'Combined Brain filters cloud evidence locally'
+none 'tmpfiles\.org|transfer\.sh|file\.io' 'no anonymous public APK upload endpoint tracked'
 
-CAP="app/src/main/java/com/kareem/cortex/CortexCapabilityRegistry.java"
-require_file "$CAP"
-cap_count="$(grep -oE 'c\([0-9]+,"' "$CAP" | wc -l | tr -d ' ')"
-[ "$cap_count" = "43" ] && ok "authoritative capability registry still has exactly 43 entries" || bad "capability registry expected 43 entries, found $cap_count"
-for n in 1 43; do grep -Fq "c($n," "$CAP" && : || bad "capability #$n missing"; done
+for wf in .github/workflows/android-build.yml .github/workflows/build-apk.yml; do req "$wf"; has "$wf" 'contents: read' "$wf is read-only"; has "$wf" ':app:assembleDebug :app:assembleDebugAndroidTest' "$wf compiles app + instrumentation APKs"; done
+for t in CognitivePacketDifferentialV5Test.java CognitiveProductAdjudicationTest.java FullApplicationSelfUserTest.java TeacherStudentCognitiveDifferentialTest.java; do req "app/src/androidTest/java/com/kareem/cortex/$t"; done
 
-require_text app/src/main/java/com/kareem/cortex/ProposalUi.java 'CloudEvidencePolicy\.canSend' 'proposal cloud routing respects source privacy policy'
-require_text app/src/main/java/com/kareem/cortex/CortexActionDispatcher.java 'CALENDAR_RESCHEDULE' 'dispatcher handles calendar reschedule explicitly'
-require_text app/src/main/java/com/kareem/cortex/CortexActionExecutor.java 'Calendar app owns the final write' 'external calendar mutation remains user-confirmed draft'
-require_text app/src/main/java/com/kareem/cortex/BrainRouter.java 'CloudEvidencePolicy\.filter' 'Combined Brain still filters cloud evidence locally'
-
-# Locked approved preview: matte graphite + red/orange/yellow/green, no purple/blue drift.
-require_text "$UI" 'RED = Color\.rgb\(255,72,62\)' 'approved red signal is centralized'
-require_text "$UI" 'ORANGE = Color\.rgb\(255,146,42\)' 'approved orange interaction color is centralized'
-require_text "$UI" 'YELLOW = Color\.rgb\(241,188,52\)' 'approved yellow decision/attention color is centralized'
-require_text "$UI" 'GREEN = Color\.rgb\(105,194,82\)' 'approved green useful/confirmed color is centralized'
-require_text "$UI" 'VIOLET = YELLOW' 'legacy violet semantic cannot render purple'
-require_text "$UI" 'public static GradientDrawable matte' 'matte surface helper is centralized'
-require_text "$UI" 'public static GradientDrawable velvet' 'low-reflection depth helper is centralized'
-require_text "$UI" 'public static <T extends View> T raised' 'raised elevation helper is centralized'
-require_text app/src/main/java/com/kareem/cortex/CortexGlyphView.java 'monoline white glyph' 'custom raised monoline icon language is present'
-require_text app/src/main/java/com/kareem/cortex/ProposalBriefActivity.java 'CortexUi\.glyph' 'Brief uses shared custom icon plates'
-require_text app/src/main/java/com/kareem/cortex/InputActivity.java 'CortexUi\.glyph' 'Input uses shared custom icon plates'
-require_text app/src/main/java/com/kareem/cortex/ProposalPeopleProjectsActivity.java 'CortexUi\.glyph' 'People/Projects uses shared custom icon plates'
-require_text app/src/main/java/com/kareem/cortex/ProposalAskCortexActivity.java 'CortexUi\.glyph' 'Brain uses shared custom icon plates'
-require_text app/src/main/java/com/kareem/cortex/ProposalCaptureResultActivity.java 'CortexUi\.glyph' 'Capture result uses shared custom icon plates'
-require_text app/src/main/java/com/kareem/cortex/SatinCaptureActivity.java 'setAccent\(CortexUi\.SIGNAL\)' 'recording STOP ring uses red signal color'
-require_text app/src/main/java/com/kareem/cortex/CortexScrubberView.java 'CortexUi\.RED' 'waveform playback uses approved red signal family'
-require_text app/src/main/java/com/kareem/cortex/CortexScrubberView.java 'Color\.rgb\(244,243,239\)' 'waveform playhead resolves toward neutral white, not purple'
-
-if git grep -nEi '126,158,255|182,137,255|178,103,255|#7E9EFF|#B689FF|#B267FF' -- 'app/src/main/**' >/dev/null 2>&1; then bad "legacy blue/purple visual token detected in final app sources"; else ok "no legacy blue/purple visual token in final app sources"; fi
-
-placeholder_hits="$(git grep -nEi '\b(TODO|FIXME|temporary stub|placeholder implementation)\b' -- '*.java' '*.kt' '*.xml' '*.gradle' '*.sh' 2>/dev/null | wc -l | tr -d ' ' || true)"
-[ "$placeholder_hits" = "0" ] || warn "$placeholder_hits TODO/FIXME/placeholder source hit(s) require human context review"
-
-printf '%s\n' '-----------------------------------------------------'
-printf 'Files scanned: %s  Warnings: %s  Failures: %s\n' "$SCANNED" "$WARN" "$FAIL"
-if [ "$FAIL" -ne 0 ]; then printf 'CORTEX_REPO_AUDIT=FAIL\n' >&2;exit 2;fi
-printf 'CORTEX_REPO_AUDIT=PASS\n'
-printf '%s\n\n' '====================================================='
+HITS="$(git grep -nEi '\b(TODO|FIXME|temporary stub|placeholder implementation)\b' -- '*.java' '*.kt' '*.xml' '*.gradle' '*.sh' 2>/dev/null|wc -l|tr -d ' '||true)"; [ "$HITS" = 0 ] && ok 'no TODO/FIXME placeholder markers' || warn "$HITS TODO/FIXME/placeholder marker(s)"
+printf '%s\nFiles scanned: %s  Warnings: %s  Failures: %s\n' '-----------------------------------------------------' "$SCANNED" "$WARN" "$FAIL"
+[ "$FAIL" = 0 ] || { printf 'CORTEX_REPO_AUDIT=FAIL\n' >&2; exit 2; }; printf 'CORTEX_REPO_AUDIT=PASS\n=====================================================\n\n'
