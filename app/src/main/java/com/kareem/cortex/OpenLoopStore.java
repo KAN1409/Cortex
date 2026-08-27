@@ -4,6 +4,7 @@ import android.content.ContentValues;
 import android.database.Cursor;
 import android.database.sqlite.SQLiteDatabase;
 import org.json.JSONObject;
+import java.util.*;
 
 /** Durable unresolved obligations. Distinguishes waiting, resolved, cancelled and dismissed state. */
 public final class OpenLoopStore {
@@ -18,7 +19,7 @@ public final class OpenLoopStore {
     }
 
     public static long upsertIncomingRequest(VaultDb db,long signalId,long threadId,String source,String title,String body,double confidence){
-        CortexAttentionSchema.ensure(db);String subject=requestSubject(title,body),semantic=DerivedSemanticIdentity.key("ACTION",body),fp=Fingerprint.text("open-loop|incoming_request|"+threadId+"|"+semantic);SQLiteDatabase sql=db.getWritableDatabase();long now=System.currentTimeMillis();
+        CortexAttentionSchema.ensure(db);String subject=requestSubject(title,body),semantic=DerivedSemanticIdentity.key("ACTION",body),scope=threadId>0?"thread:"+threadId:"source:"+n(source)+"|person:"+n(title),fp=Fingerprint.text("open-loop|incoming_request|"+scope+"|"+semantic);SQLiteDatabase sql=db.getWritableDatabase();long now=System.currentTimeMillis();
         Cursor c=sql.query("open_loops",new String[]{"id","state"},"fingerprint=?",new String[]{fp},null,null,null,"1");long id=0;String state="";if(c.moveToFirst()){id=c.getLong(0);state=n(c.getString(1));}c.close();
         JSONObject resolution=new JSONObject();try{resolution.put("expected","reply_or_matching_outgoing_action");resolution.put("thread_id",threadId);resolution.put("topic",semantic);}catch(Exception ignored){}
         if(id>0&&active(state)){ContentValues v=new ContentValues();v.put("subject",subject);v.put("anchor_signal_id",signalId);v.put("confidence",Math.max(confidence,0.55));v.put("updated_at",now);sql.update("open_loops",v,"id=?",new String[]{String.valueOf(id)});}else{
@@ -29,6 +30,7 @@ public final class OpenLoopStore {
     }
 
     public static boolean markUserCommitted(VaultDb db,long loopId,long signalId){if(loopId<=0)return false;ContentValues v=new ContentValues();v.put("user_committed",1);v.put("updated_at",System.currentTimeMillis());boolean ok=db.getWritableDatabase().update("open_loops",v,"id=? AND state IN ('OPEN','WAITING','DUE','OVERDUE')",new String[]{String.valueOf(loopId)})>0;if(ok)attachEvidence(db,loopId,signalId,"commitment",0.9);return ok;}
+    public static boolean setState(VaultDb db,long loopId,String state){if(db==null||loopId<=0||!active(state))return false;ContentValues v=new ContentValues();v.put("state",state);return db.getWritableDatabase().update("open_loops",v,"id=? AND state IN ('OPEN','WAITING','DUE','OVERDUE')",new String[]{String.valueOf(loopId)})>0;}
     public static boolean resolve(VaultDb db,long loopId,long signalId,String relation,double confidence){return terminal(db,loopId,signalId,RESOLVED,relation,confidence);}
     public static boolean cancel(VaultDb db,long loopId,long signalId,double confidence){return terminal(db,loopId,signalId,CANCELLED,"cancels",confidence);}
     public static boolean dismiss(VaultDb db,long loopId){return terminal(db,loopId,0,DISMISSED,"dismissed_by_user",1.0);}
@@ -37,6 +39,7 @@ public final class OpenLoopStore {
 
     public static Loop get(VaultDb db,long id){CortexAttentionSchema.ensure(db);Cursor c=db.getReadableDatabase().query("open_loops",cols(),"id=?",new String[]{String.valueOf(id)},null,null,null,"1");Loop x=c.moveToFirst()?new Loop(c):null;c.close();return x;}
     public static Loop activeForThread(VaultDb db,long threadId){CortexAttentionSchema.ensure(db);Cursor c=db.getReadableDatabase().query("open_loops",cols(),"thread_id=? AND state IN ('OPEN','WAITING','DUE','OVERDUE')",new String[]{String.valueOf(threadId)},null,null,"updated_at DESC","1");Loop x=c.moveToFirst()?new Loop(c):null;c.close();return x;}
+    public static List<Loop> active(VaultDb db,int limit){CortexAttentionSchema.ensure(db);ArrayList<Loop> out=new ArrayList<>();Cursor c=db.getReadableDatabase().query("open_loops",cols(),"state IN ('OPEN','WAITING','DUE','OVERDUE')",null,null,null,"updated_at DESC",String.valueOf(Math.max(1,limit)));while(c.moveToNext())out.add(new Loop(c));c.close();return out;}
 
     public static void attachEvidence(VaultDb db,long loopId,long signalId,String relation,double confidence){if(loopId<=0||signalId<=0)return;ContentValues v=new ContentValues();v.put("loop_id",loopId);v.put("signal_id",signalId);v.put("relation",n(relation));v.put("confidence",confidence);v.put("created_at",System.currentTimeMillis());db.getWritableDatabase().insertWithOnConflict("open_loop_evidence",null,v,SQLiteDatabase.CONFLICT_IGNORE);}
     private static String[] cols(){return new String[]{"id","fingerprint","type","state","subject","owner","person_key","project_key","thread_id","anchor_signal_id","user_committed","due_at","follow_up_at","confidence","resolution_kind","resolution_json","created_at","updated_at"};}
