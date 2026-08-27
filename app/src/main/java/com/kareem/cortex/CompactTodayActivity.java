@@ -63,7 +63,7 @@ public final class CompactTodayActivity extends CortexOrbBriefActivity {
         }if(xs.size()>n){TextView more=CortexUi.plain(this,"+ "+(xs.size()-n)+" MORE",8,CortexUi.FAINT);more.setGravity(Gravity.RIGHT);more.setPadding(0,dp(6),dp(3),0);content.addView(more);}
     }
 
-    private String friendlyTiming(PrimeBriefStore.Item x){String band=x.attentionBand==null?"":x.attentionBand.trim().toUpperCase();if("NOW".equals(band))return"Needs attention now";if("WATCHING".equals(band))return"Watching for a change";if("LATER".equals(band))return"Keep in view";return"Relevant context";}
+    private String friendlyTiming(PrimeBriefStore.Item x){String band=x.attentionBand==null?"":x.attentionBand.name();if("NOW".equals(band))return"Needs attention now";if("WATCHING".equals(band))return"Watching for a change";if("LATER".equals(band))return"Keep in view";return"Relevant context";}
 
     View compactActions(PrimeBriefStore.Item x){
         LinearLayout row=new LinearLayout(this);row.setGravity(Gravity.CENTER_VERTICAL);row.setPadding(dp(8),0,dp(8),dp(6));TextView why=small("WHY",CortexUi.MUTED),done=small("DONE",CortexUi.GREEN),snooze=small("SNOOZE",CortexUi.ORANGE),dismiss=small("HIDE",CortexUi.FAINT);
