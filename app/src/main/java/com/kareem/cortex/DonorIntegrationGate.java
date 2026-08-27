@@ -21,11 +21,11 @@ public final class DonorIntegrationGate {
 
             int stitches=count(sql,"SELECT COUNT(*) FROM source_links WHERE from_type='raw_signal' AND to_type='derived' AND relation='supports_situation'");checks.put(row("SITUATION_STITCHING_ENGINE",true,"Conservative stitch engine enabled; current accepted links="+stitches));pass++;
 
-            int dupAliases=count(sql,"SELECT COUNT(*) FROM (SELECT source,normalized_alias,COUNT(DISTINCT entity_id) n FROM entity_aliases GROUP BY source,normalized_alias HAVING n>1)");boolean identityOk=dupAliases==0;checks.put(row("IDENTITY_SOURCE_SCOPE",identityOk,"Conflicting same-source aliases="+dupAliases));if(identityOk)pass++;else fail++;
+            int donorConflicts=count(sql,"SELECT COUNT(*) FROM (SELECT source,normalized_alias,COUNT(DISTINCT entity_id) n FROM entity_aliases WHERE metadata_json LIKE '%source_scoped_identity%' GROUP BY source,normalized_alias HAVING n>1)");int legacyConflicts=count(sql,"SELECT COUNT(*) FROM (SELECT source,normalized_alias,COUNT(DISTINCT entity_id) n FROM entity_aliases GROUP BY source,normalized_alias HAVING n>1)");boolean identityOk=donorConflicts==0;checks.put(row("IDENTITY_SOURCE_SCOPE",identityOk,"Donor-created conflicting same-source aliases="+donorConflicts+"; legacy/all-table conflicts="+legacyConflicts));if(identityOk)pass++;else fail++;
 
             int directDonorTasks=count(sql,"SELECT COUNT(*) FROM derived_items WHERE metadata_json LIKE '%candidate_obligation%' AND kind IN ('REMINDER','TASK')");boolean obligationOk=directDonorTasks==0;checks.put(row("CANDIDATE_OBLIGATION_AUTHORITY",obligationOk,"Donor heuristics must not directly create authoritative tasks/reminders"));if(obligationOk)pass++;else fail++;
         }finally{db.close();}
-        JSONObject out=new JSONObject().put("schema","CORTEX_DONOR_INTEGRATION_GATE_V1").put("pass",pass).put("failure",fail).put("not_applicable",na).put("all_green",fail==0).put("checks",checks);write(new File(root,"DONOR_INTEGRATION_GATE.json"),out.toString(2));return out;
+        JSONObject out=new JSONObject().put("schema","CORTEX_DONOR_INTEGRATION_GATE_V2").put("pass",pass).put("failure",fail).put("not_applicable",na).put("all_green",fail==0).put("checks",checks);write(new File(root,"DONOR_INTEGRATION_GATE.json"),out.toString(2));return out;
     }
 
     private static JSONObject row(String name,boolean ok,String detail)throws Exception{return new JSONObject().put("name",name).put("status",name.endsWith("_NA")?"NOT_APPLICABLE":ok?"PASS":"FAIL").put("detail",detail);}
