@@ -21,6 +21,7 @@ public final class RawSignalStore {
 
         // The fast gate is only authoritative when there is no thread-aware policy. Never promote from a stale fast decision.
         if(authority.durable()&&(!threadAuthority||RelevanceDecisionStatusStore.isApplied(db,signalId)))promote(db,signalId,threadId,signal,authority,!threadAuthority);
+        CortexAttentionOrchestrator.onSignalCaptured(db,signalId,threadId);
         return signalId;
     }
 
