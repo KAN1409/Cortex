@@ -2,7 +2,7 @@ package com.kareem.cortex;
 
 /** Bridges existing raw-signal/thread pipeline into open-loop state, attention scoring and the materialized feed. */
 public final class CortexAttentionOrchestrator {
-    public static final String VERSION="attention_orchestrator_003";
+    public static final String VERSION="attention_orchestrator_004";
     private CortexAttentionOrchestrator(){}
 
     public static void onSignalCaptured(VaultDb db,long signalId,long threadId){
@@ -11,13 +11,15 @@ public final class CortexAttentionOrchestrator {
             if(existing!=null&&s.cancellation){OpenLoopStore.cancel(db,existing.id,signalId,Math.max(.80,s.confidence));closeMaterialized(db,existing.id,"CANCELLED");return;}
             if(existing!=null&&s.intent==AttentionSemantics.Intent.COMMITMENT&&s.outgoing){OpenLoopStore.markUserCommitted(db,existing.id,signalId);evaluateAndPersist(db,OpenLoopStore.get(db,existing.id),Math.max(55,s.importance));return;}
             if(existing!=null&&isLikelyResolution(s,existing)){OpenLoopStore.resolve(db,existing.id,signalId,"matching_outgoing_action",Math.max(.78,s.confidence));closeMaterialized(db,existing.id,"RESOLVED");return;}
+            if("WAITING".equalsIgnoreCase(s.finalDisposition)&&s.confidence>=.55){long id=SemanticOpenLoopStore.upsertWaiting(db,s);if(id>0)evaluateAndPersist(db,OpenLoopStore.get(db,id),Math.max(45,s.importance));return;}
+            if("DECISION".equalsIgnoreCase(s.finalDisposition)&&s.confidence>=.55){long id=SemanticOpenLoopStore.upsertDecision(db,s);if(id>0)evaluateAndPersist(db,OpenLoopStore.get(db,id),Math.max(55,s.importance));return;}
             if(s.actionExpected&&(!s.outgoing||s.incoming)){
                 long loopId=OpenLoopStore.upsertIncomingRequest(db,signalId,effectiveThread,s.source,s.title,s.body,Math.max(.60,s.confidence));if(loopId>0)evaluateAndPersist(db,OpenLoopStore.get(db,loopId),Math.max(55,s.importance));
             }else if(existing!=null)evaluateAndPersist(db,existing,Math.max(45,s.importance));
         }catch(Throwable e){try{DiagnosticsLog.error(db,"CortexAttentionOrchestrator","signal",e,"ATTENTION_PIPELINE",0,threadId,signalId,0,0,null);}catch(Throwable ignored){}}
     }
 
-    public static void reevaluateThread(VaultDb db,long threadId){if(db==null||threadId<=0)return;OpenLoopStore.Loop l=OpenLoopStore.activeForThread(db,threadId);if(l!=null)evaluateAndPersist(db,l,60);}
+    public static void reevaluateThread(VaultDb db,long threadId){if(db==null||threadId<=0)return;for(OpenLoopStore.Loop l:OpenLoopStore.activeForThreadAll(db,threadId,20))evaluateAndPersist(db,l,60);}
 
     private static boolean isLikelyResolution(AttentionSemantics.Result s,OpenLoopStore.Loop loop){if(!s.outgoing)return false;String x=s.body.toLowerCase(),sub=loop.subject.toLowerCase();boolean attachment=x.contains("pdf")||x.contains("attachment")||x.contains("file")||x.contains("ملف")||x.contains("document");boolean topic=wordOverlap(x,sub)>=1;return s.completion||(attachment&&topic);}
     private static void evaluateAndPersist(VaultDb db,OpenLoopStore.Loop loop,int importance){if(loop==null)return;long now=System.currentTimeMillis();AttentionModels.Decision d=AttentionEngine.evaluate(loop,importance,now,interruptionCost(now),contextRelevance(loop));persistAssessment(db,loop.id,d);AttentionActionStore.replaceForLoop(db,loop.id,AttentionActionPlanner.plan(loop,d.assessment));AttentionFeedStore.upsertLoop(db,loop,d);}
