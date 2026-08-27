@@ -19,8 +19,9 @@
         <activity android:name=".InputActivity" android:exported="false" android:theme="@style/CaptureSheetTheme" />
         <activity android:name=".SatinBriefActivity" android:exported="false" />
         <activity android:name=".CortexOrbBriefActivity" android:exported="false" />
-        <activity android:name=".ProposalBriefActivity" android:exported="true"><intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter></activity>
-        <activity-alias android:name=".PremiumHomeActivity" android:targetActivity=".ProposalBriefActivity" android:exported="false" />
+        <activity android:name=".ProposalBriefActivity" android:exported="false" />
+        <activity android:name=".CompactTodayActivity" android:exported="true"><intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter></activity>
+        <activity-alias android:name=".PremiumHomeActivity" android:targetActivity=".CompactTodayActivity" android:exported="false" />
 
         <activity android:name=".SatinCaptureActivity" android:exported="false" android:theme="@style/CaptureSheetTheme" android:windowSoftInputMode="adjustResize" />
         <activity android:name=".CaptureActivity" android:exported="false" android:theme="@style/CaptureSheetTheme" android:windowSoftInputMode="adjustResize" />
