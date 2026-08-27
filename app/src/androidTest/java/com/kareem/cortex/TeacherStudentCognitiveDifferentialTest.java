@@ -16,10 +16,11 @@ import java.util.Date;
 import java.util.Locale;
 
 /**
- * V3 Teacher/Student differential.
+ * V4 Teacher/Student differential.
  * Full-fidelity by design: no field-name or content redaction is performed.
  * The pre-run snapshot is the teacher evidence world; post-run captures the exact
- * AI job/model traces produced by the student probes.
+ * AI job/model traces produced by the student probes. V4 additionally probes lifecycle
+ * truth reconciliation so dismissed/resolved obligations cannot be resurrected by similarity.
  */
 @RunWith(AndroidJUnit4.class)
 public class TeacherStudentCognitiveDifferentialTest {
@@ -30,7 +31,7 @@ public class TeacherStudentCognitiveDifferentialTest {
     vault=new VaultDb(ctx); CognitiveSchema.ensure(vault.getWritableDatabase());
     String stamp=new SimpleDateFormat("yyyyMMdd_HHmmss",Locale.US).format(new Date());
     out=new File(ctx.getExternalFilesDir(null),"self-user-test/TeacherStudentCognitiveDifferential_"+stamp);
-    if(!out.mkdirs()&&!out.isDirectory()) throw new IllegalStateException("cannot create V3 output");
+    if(!out.mkdirs()&&!out.isDirectory()) throw new IllegalStateException("cannot create V4 output");
     exportDatabase(new File(out,"database_pre"));
     exportSharedPreferences(new File(out,"shared_preferences_pre"));
     exportInternalFileManifest(new File(out,"internal_file_manifest_pre.json"));
@@ -89,7 +90,8 @@ public class TeacherStudentCognitiveDifferentialTest {
       "What ongoing situations or episodes are visible in my data? Group related evidence together.",
       "What work or project threads are still open, even if Cortex has not confirmed a project name?",
       "What upcoming deadlines, appointments, or reminders matter most and why?",
-      "Which retrieved items are probably noise or context rather than actions?"
+      "Which retrieved items are probably noise or context rather than actions?",
+      "Audit lifecycle truth: which obligations are genuinely still live, and which similar memories must NOT be resurfaced because they were dismissed, resolved, done, or closed?"
     };
     for(String q:qs){JSONObject o=new JSONObject().put("question",q);long start=System.currentTimeMillis();try{
       LocalAskRouter.Result r=LocalAskRouter.ask(ctx,vault,q);
@@ -98,13 +100,13 @@ public class TeacherStudentCognitiveDifferentialTest {
       JSONArray loops=new JSONArray();if(r.grounded!=null)for(String x:r.grounded.openLoops)loops.put(x);o.put("open_loops",loops);
       JSONArray dec=new JSONArray();if(r.grounded!=null)for(String x:r.grounded.decisions)dec.put(x);o.put("decisions",dec);
     }catch(Throwable t){o.put("error",t.getClass().getSimpleName()+": "+String.valueOf(t.getMessage()));}cases.put(o);}
-    write(new File(out,"student_cases.json"),new JSONObject().put("schema","CORTEX_TEACHER_STUDENT_V3").put("cases",cases).toString(2));
+    write(new File(out,"student_cases.json"),new JSONObject().put("schema","CORTEX_TEACHER_STUDENT_V4").put("cases",cases).toString(2));
   }
 
   private void writeManifest() throws Exception {
-    JSONObject m=new JSONObject().put("schema","CORTEX_TEACHER_STUDENT_COGNITIVE_DIFFERENTIAL_V3").put("generated_at",System.currentTimeMillis()).put("full_fidelity",true).put("redaction",false).put("purpose","Give ChatGPT the same full application evidence world, then compare an independent teacher model against Cortex student retrieval, linking, temporal reasoning, suppression, prioritization, synthesis and action choice.");
+    JSONObject m=new JSONObject().put("schema","CORTEX_TEACHER_STUDENT_COGNITIVE_DIFFERENTIAL_V4").put("generated_at",System.currentTimeMillis()).put("full_fidelity",true).put("redaction",false).put("purpose","Give ChatGPT the same full application evidence world, independently construct the best cognitive answer, then compare against Cortex retrieval, situation construction, lifecycle reconciliation, linking, temporal reasoning, suppression, prioritization, synthesis and action choice.");
     write(new File(out,"README.json"),m.toString(2));
-    write(new File(out,"README.md"),"# Cortex V3 — Teacher/Student Cognitive Differential\n\nFULL-FIDELITY export. No sensitive-field redaction is performed. database_pre is the teacher evidence world before probes. student_cases.json contains Cortex answers plus the exact evidence Cortex retrieved. database_post captures resulting ai_jobs/model_runs and any other state changes caused by the probes. SharedPreferences are copied verbatim. Send the combined ZIP to ChatGPT; the teacher analysis must be constructed independently from database_pre before reading student_cases.json.\n");
+    write(new File(out,"README.md"),"# Cortex V4 — Teacher/Student Cognitive Differential\n\nFULL-FIDELITY export. No sensitive-field redaction is performed. database_pre is the teacher evidence world before probes. student_cases.json contains Cortex answers plus the exact evidence Cortex retrieved. database_post captures resulting ai_jobs/model_runs and any other state changes caused by the probes. V4 explicitly tests lifecycle truth: closed/dismissed/resolved obligations must not be resurrected by semantic similarity. SharedPreferences are copied verbatim. Send the combined ZIP to ChatGPT; the teacher analysis must be constructed independently from database_pre before reading student_cases.json.\n");
   }
 
   private static void copy(File a,File b)throws Exception{try(InputStream in=new FileInputStream(a);OutputStream out=new FileOutputStream(b)){byte[] buf=new byte[65536];int n;while((n=in.read(buf))>0)out.write(buf,0,n);}}
