@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
-echo "Cortex full instrumented self-user test"
+echo "Cortex instrumented self-user test V1 + Cognitive/Product Adjudication V2"
 echo "repo: $ROOT"
 echo "branch: $(git branch --show-current 2>/dev/null || true)"
 echo "head: $(git rev-parse --short HEAD 2>/dev/null || true)"
@@ -24,7 +24,7 @@ if [[ ! -d "$HOME/storage/downloads" ]]; then
 fi
 
 echo
-echo "[1/4] Building app + instrumentation APK..."
+echo "[1/5] Building app + instrumentation APK..."
 gradle :app:assembleDebug :app:assembleDebugAndroidTest --stacktrace
 
 APP_APK="$ROOT/app/build/outputs/apk/debug/app-debug.apk"
@@ -32,9 +32,6 @@ TEST_APK="$ROOT/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.ap
 [[ -f "$APP_APK" ]] || { echo "Missing $APP_APK"; exit 4; }
 [[ -f "$TEST_APK" ]] || { echo "Missing $TEST_APK"; exit 5; }
 
-# rish runs as Android shell and cannot read Termux's private tree. First put
-# APKs in shared storage, then copy them as shell into /data/local/tmp. Package
-# Manager can reliably install from /data/local/tmp even on newer Android/SELinux.
 STAGE_TERMUX="$HOME/storage/downloads/CortexSelfUserTestStage"
 STAGE_ANDROID="/sdcard/Download/CortexSelfUserTestStage"
 SHELL_STAGE="/data/local/tmp/cortex-self-user-test"
@@ -43,17 +40,14 @@ cp -f "$APP_APK" "$STAGE_TERMUX/cortex-app-debug.apk"
 cp -f "$TEST_APK" "$STAGE_TERMUX/cortex-test-debug.apk"
 
 echo
-echo "[2/4] Installing update-in-place app and test APK..."
+echo "[2/5] Installing update-in-place app and test APK..."
 echo "staging APKs for Android shell..."
 rish -c "rm -rf '$SHELL_STAGE'; mkdir -p '$SHELL_STAGE'; cp '$STAGE_ANDROID/cortex-app-debug.apk' '$SHELL_STAGE/cortex-app-debug.apk'; cp '$STAGE_ANDROID/cortex-test-debug.apk' '$SHELL_STAGE/cortex-test-debug.apk'; chmod 644 '$SHELL_STAGE/'*.apk; ls -lh '$SHELL_STAGE/'*.apk" || {
   echo "ERROR: Android shell could not stage the APKs into /data/local/tmp"
-  echo "Shared-stage visibility:"
   rish -c "ls -lh '$STAGE_ANDROID'" || true
   exit 7
 }
 
-# -r preserves app data; -t allows test/debug packages; -d permits a debug
-# downgrade if the phone happens to have a higher versionCode from another build.
 set +e
 APP_INSTALL="$(rish -c "pm install -r -t -d '$SHELL_STAGE/cortex-app-debug.apk'" 2>&1 | tr -d '\r')"
 APP_STATUS=$?
@@ -62,7 +56,6 @@ echo "app install output:"
 echo "${APP_INSTALL:-<no output>}"
 if [[ $APP_STATUS -ne 0 || "$APP_INSTALL" != *"Success"* ]]; then
   echo "ERROR: app APK install failed (exit=$APP_STATUS)"
-  echo "Installed Cortex package summary:"
   rish -c "dumpsys package com.kareem.cortex | grep -E 'versionCode=|versionName=|signatures=|Package \\[' | head -n 20" || true
   exit 8
 fi
@@ -81,33 +74,52 @@ fi
 INSTRUMENTATION="$(rish -c "pm list instrumentation" 2>&1 | tr -d '\r')"
 echo "$INSTRUMENTATION" | grep -F "com.kareem.cortex.test/androidx.test.runner.AndroidJUnitRunner" >/dev/null || {
   echo "ERROR: AndroidJUnitRunner was not registered after install."
-  echo "Installed instrumentation entries:"
   echo "$INSTRUMENTATION"
-  echo "Test package info:"
   rish -c "dumpsys package com.kareem.cortex.test | head -n 100" || true
   exit 10
 }
 echo "instrumentation: registered"
 
-echo
-echo "[3/4] Running full Android instrumentation..."
 mkdir -p "$ROOT/build"
+
+echo
+echo "[3/5] Running V1 runtime / navigation / surface health..."
 set +e
-rish -c "am instrument -w -r -e class com.kareem.cortex.FullApplicationSelfUserTest com.kareem.cortex.test/androidx.test.runner.AndroidJUnitRunner" | tee "$ROOT/build/instrumented-self-user-test-console.txt"
-STATUS=${PIPESTATUS[0]}
+rish -c "am instrument -w -r -e class com.kareem.cortex.FullApplicationSelfUserTest com.kareem.cortex.test/androidx.test.runner.AndroidJUnitRunner" | tee "$ROOT/build/instrumented-self-user-test-v1-console.txt"
+V1_STATUS=${PIPESTATUS[0]}
 set -e
 
 echo
-echo "[4/4] Exporting evidence package..."
-LATEST="$(rish -c "ls -td /sdcard/Android/data/com.kareem.cortex/files/self-user-test/FullCortexSelfUserTest_* 2>/dev/null | head -n 1" | tr -d '\r')"
-if [[ -z "$LATEST" ]]; then
-  echo "ERROR: no self-user-test report directory was produced. Instrumentation exit=$STATUS"
-  echo "Instrumentation console: $ROOT/build/instrumented-self-user-test-console.txt"
+echo "[4/5] Running V2 Cognitive / Product Adjudication..."
+set +e
+rish -c "am instrument -w -r -e class com.kareem.cortex.CognitiveProductAdjudicationTest com.kareem.cortex.test/androidx.test.runner.AndroidJUnitRunner" | tee "$ROOT/build/instrumented-self-user-test-v2-console.txt"
+V2_STATUS=${PIPESTATUS[0]}
+set -e
+
+echo
+echo "[5/5] Exporting combined evidence package..."
+LATEST_V1="$(rish -c "ls -td /sdcard/Android/data/com.kareem.cortex/files/self-user-test/FullCortexSelfUserTest_* 2>/dev/null | head -n 1" | tr -d '\r')"
+LATEST_V2="$(rish -c "ls -td /sdcard/Android/data/com.kareem.cortex/files/self-user-test/CognitiveProductAdjudication_* 2>/dev/null | head -n 1" | tr -d '\r')"
+if [[ -z "$LATEST_V1" || -z "$LATEST_V2" ]]; then
+  echo "ERROR: expected report directories were not both produced. V1=$V1_STATUS V2=$V2_STATUS"
+  echo "V1 dir: ${LATEST_V1:-missing}"
+  echo "V2 dir: ${LATEST_V2:-missing}"
   exit 6
 fi
 
-NAME="$(basename "$LATEST")"
-rish -c "rm -rf '/sdcard/Download/$NAME'; cp -R '$LATEST' '/sdcard/Download/$NAME'; rm -rf '$SHELL_STAGE'"
+STAMP="$(date +%Y%m%d_%H%M%S)"
+BUNDLE="FullCortexInstrumentedReview_${STAMP}"
+ANDROID_BUNDLE="/sdcard/Download/$BUNDLE"
+rish -c "rm -rf '$ANDROID_BUNDLE'; mkdir -p '$ANDROID_BUNDLE'; cp -R '$LATEST_V1' '$ANDROID_BUNDLE/'; cp -R '$LATEST_V2' '$ANDROID_BUNDLE/'; rm -rf '$SHELL_STAGE'"
+
+cat > "$HOME/storage/downloads/$BUNDLE/README.txt" <<EOF
+Cortex Instrumented Review Bundle
+V1 = Android/runtime/navigation/surface health
+V2 = Cognitive/Product Adjudication
+V1 instrumentation exit: $V1_STATUS
+V2 instrumentation exit: $V2_STATUS
+Git head: $(git rev-parse HEAD 2>/dev/null || true)
+EOF
 
 if ! command -v zip >/dev/null 2>&1; then
   echo "zip is not installed; installing it in Termux..."
@@ -115,20 +127,19 @@ if ! command -v zip >/dev/null 2>&1; then
 fi
 
 cd "$HOME/storage/downloads"
-rm -f "$NAME.zip"
-zip -qr "$NAME.zip" "$NAME"
+rm -f "$BUNDLE.zip"
+zip -qr "$BUNDLE.zip" "$BUNDLE"
 rm -rf "$STAGE_TERMUX"
 
 echo
 echo "DONE"
-echo "Report folder: Downloads/$NAME"
-echo "ZIP: Downloads/$NAME.zip"
-echo "Instrumentation exit: $STATUS"
-if [[ -f "$NAME/report.md" ]]; then
-  echo
-  sed -n '1,35p' "$NAME/report.md"
-fi
-
+echo "Bundle folder: Downloads/$BUNDLE"
+echo "ZIP: Downloads/$BUNDLE.zip"
+echo "V1 instrumentation exit: $V1_STATUS"
+echo "V2 instrumentation exit: $V2_STATUS"
 echo
-echo "Send $NAME.zip back to ChatGPT for full product critique, bug diagnosis, and brainstorming."
-exit "$STATUS"
+find "$BUNDLE" -name report.md -maxdepth 3 -print -exec sh -c 'echo; sed -n "1,28p" "$1"; echo' _ {} \;
+echo "Send $BUNDLE.zip back to ChatGPT. V1 tells us whether Cortex works; V2 tells us whether Cortex thinks and behaves like the right product."
+
+if [[ $V1_STATUS -ne 0 ]]; then exit "$V1_STATUS"; fi
+exit "$V2_STATUS"
