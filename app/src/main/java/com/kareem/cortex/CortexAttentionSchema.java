@@ -4,7 +4,7 @@ import android.database.sqlite.SQLiteDatabase;
 
 /** Persistent attention/open-loop layer. Kept additive so existing cognitive schema remains backward compatible. */
 public final class CortexAttentionSchema {
-    public static final String REVISION="attention_002";
+    public static final String REVISION="attention_003";
     private CortexAttentionSchema(){}
 
     public static void ensure(VaultDb db){if(db!=null)ensure(db.getWritableDatabase());}
@@ -19,7 +19,7 @@ public final class CortexAttentionSchema {
         db.execSQL("CREATE INDEX IF NOT EXISTS idx_attention_score ON attention_assessments(score DESC,evaluated_at DESC)");
         db.execSQL("CREATE TABLE IF NOT EXISTS attention_action_proposals(id INTEGER PRIMARY KEY AUTOINCREMENT,entity_type TEXT NOT NULL,entity_id INTEGER NOT NULL,action_type TEXT NOT NULL,label TEXT NOT NULL,reason TEXT DEFAULT '',expected_outcome TEXT DEFAULT '',risk TEXT NOT NULL,confidence REAL NOT NULL,status TEXT NOT NULL DEFAULT 'AVAILABLE',planner_version TEXT NOT NULL,created_at INTEGER NOT NULL,updated_at INTEGER NOT NULL,UNIQUE(entity_type,entity_id,action_type))");
         db.execSQL("CREATE INDEX IF NOT EXISTS idx_attention_actions_entity ON attention_action_proposals(entity_type,entity_id,status,confidence DESC)");
-        db.execSQL("CREATE TABLE IF NOT EXISTS attention_feed(id INTEGER PRIMARY KEY AUTOINCREMENT,entity_type TEXT NOT NULL,entity_id INTEGER NOT NULL UNIQUE,semantic_group TEXT DEFAULT '',person_key TEXT DEFAULT '',project_key TEXT DEFAULT '',thread_id INTEGER DEFAULT 0,section TEXT NOT NULL,title TEXT NOT NULL,subtitle TEXT DEFAULT '',rank REAL NOT NULL,confidence REAL NOT NULL,variant TEXT NOT NULL DEFAULT 'ACTIVE',status_dot TEXT DEFAULT '',primary_action TEXT DEFAULT '',explanation TEXT DEFAULT '',source_count INTEGER DEFAULT 1,created_at INTEGER NOT NULL,updated_at INTEGER NOT NULL)");
+        db.execSQL("CREATE TABLE IF NOT EXISTS attention_feed(id INTEGER PRIMARY KEY AUTOINCREMENT,entity_type TEXT NOT NULL,entity_id INTEGER NOT NULL,semantic_group TEXT DEFAULT '',person_key TEXT DEFAULT '',project_key TEXT DEFAULT '',thread_id INTEGER DEFAULT 0,section TEXT NOT NULL,title TEXT NOT NULL,subtitle TEXT DEFAULT '',rank REAL NOT NULL,confidence REAL NOT NULL,variant TEXT NOT NULL DEFAULT 'ACTIVE',status_dot TEXT DEFAULT '',primary_action TEXT DEFAULT '',explanation TEXT DEFAULT '',source_count INTEGER DEFAULT 1,created_at INTEGER NOT NULL,updated_at INTEGER NOT NULL,UNIQUE(entity_type,entity_id))");
         db.execSQL("CREATE INDEX IF NOT EXISTS idx_attention_feed_section ON attention_feed(section,rank DESC)");
         db.execSQL("CREATE INDEX IF NOT EXISTS idx_attention_feed_group ON attention_feed(semantic_group,updated_at DESC)");
         db.execSQL("CREATE TABLE IF NOT EXISTS attention_history(entity_type TEXT NOT NULL,entity_id INTEGER NOT NULL,first_surfaced_at INTEGER DEFAULT 0,last_surfaced_at INTEGER DEFAULT 0,surface_count INTEGER DEFAULT 0,opened_count INTEGER DEFAULT 0,dismissed_count INTEGER DEFAULT 0,snoozed_until INTEGER DEFAULT 0,last_action_at INTEGER DEFAULT 0,PRIMARY KEY(entity_type,entity_id))");
