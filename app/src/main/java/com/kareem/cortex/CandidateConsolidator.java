@@ -1,7 +1,8 @@
 package com.kareem.cortex;
 
+import java.text.SimpleDateFormat;
 import java.util.*;
-import java.util.regex.Pattern;
+import java.util.regex.*;
 
 /**
  * Presentation-time consolidation of durable derived candidates into canonical events.
@@ -11,6 +12,7 @@ import java.util.regex.Pattern;
 public final class CandidateConsolidator {
     private static final Pattern URL=Pattern.compile("https?://\\S+",Pattern.CASE_INSENSITIVE);
     private static final Pattern REF=Pattern.compile("\\[(?:\\d+|[^\\]]{0,12})\\]");
+    private static final Pattern MONEY=Pattern.compile("(?i)(?:egp|جنيه|جم)?\\s*([0-9]{2,}(?:[.,][0-9]{1,2})?)");
     private CandidateConsolidator(){}
 
     public static String effectiveKind(PrimeBriefStore.Item x){
@@ -22,9 +24,11 @@ public final class CandidateConsolidator {
         return stored.isEmpty()?"CONTEXT":stored;
     }
 
-    /** Conservative event fingerprint. Keeps meaningful numbers/amounts, removes transport noise. */
+    /** Canonical event identity used for grouping repeated evidence. */
     public static String eventKey(PrimeBriefStore.Item x){
         if(x==null)return "";
+        String strong=strongSignature(x);
+        if(!strong.isEmpty())return strong;
         String t=canonicalText(x.title+" "+x.body);
         String source=sourceFamily(x.source);
         return effectiveKind(x)+"|"+source+"|"+t;
@@ -32,17 +36,20 @@ public final class CandidateConsolidator {
 
     public static boolean sameEvent(PrimeBriefStore.Item a,PrimeBriefStore.Item b){
         if(a==null||b==null)return false;
-        if(!effectiveKind(a).equals(effectiveKind(b)))return false;
+        String ka=effectiveKind(a),kb=effectiveKind(b);if(!ka.equals(kb))return false;
+
+        String strongA=strongSignature(a),strongB=strongSignature(b);
+        if(!strongA.isEmpty()&&!strongB.isEmpty())return strongA.equals(strongB);
+
         String sa=sourceFamily(a.source),sb=sourceFamily(b.source);
         if(!sa.isEmpty()&&!sb.isEmpty()&&!sa.equals(sb))return false;
         String x=canonicalText(a.title+" "+a.body),y=canonicalText(b.title+" "+b.body);
         if(x.equals(y))return true;
         if(x.length()<24||y.length()<24)return false;
-        // Conservative near-duplicate test: one canonical rendering largely contains the other.
         int min=Math.min(x.length(),y.length()),max=Math.max(x.length(),y.length());
-        if(min*100/max<88)return false;
+        if(min*100/max<72)return false;
         if(x.contains(y)||y.contains(x))return true;
-        return tokenOverlap(x,y)>=0.92;
+        return tokenOverlap(x,y)>=0.72;
     }
 
     public static <T> ArrayList<T> consolidate(List<T> rows,ItemAccessor<T> access){
@@ -62,6 +69,61 @@ public final class CandidateConsolidator {
 
     public interface ItemAccessor<T>{PrimeBriefStore.Item item(T x);int priority(T x);}
 
+    /**
+     * Semantic signature for event types where renderings vary a lot. It intentionally uses
+     * only strong anchors so unrelated events are not merged accidentally.
+     */
+    private static String strongSignature(PrimeBriefStore.Item x){
+        String kind=effectiveKind(x),text=canonicalText(x.title+" "+x.body),src=sourceFamily(x.source);
+        if("ALERT".equals(kind)){
+            String bank=bankAnchor(text,src),amount=amountAnchor(text),merchant=merchantAnchor(text);
+            if(!bank.isEmpty()&&!amount.isEmpty())return "ALERT|"+bank+"|"+amount+"|"+merchant;
+            if(!bank.isEmpty()&&!merchant.isEmpty())return "ALERT|"+bank+"|"+merchant;
+        }
+        if("REMINDER".equals(kind)){
+            long when=TemporalResolver.resolveForAttention(x.title+" "+x.body,x.updatedAt>0?x.updatedAt:System.currentTimeMillis());
+            String time=when>0?new SimpleDateFormat("yyyy-MM-dd-HH",Locale.US).format(new Date(when)):"";
+            String place=placeAnchor(text),subject=subjectAnchor(text);
+            if(!time.isEmpty()&&!place.isEmpty())return "REMINDER|"+time+"|"+place;
+            if(!time.isEmpty()&&!subject.isEmpty())return "REMINDER|"+time+"|"+subject;
+        }
+        return "";
+    }
+
+    private static String bankAnchor(String t,String src){
+        if(has(t,"cib","commercial international bank")||src.contains("cib"))return "cib";
+        if(has(t,"nbe","national bank of egypt","البنك الاهلي","البنك الأهلي")||src.contains("nbe"))return "nbe";
+        if(has(t,"qnb")||src.contains("qnb"))return "qnb";
+        if(has(t,"banque misr","بنك مصر"))return "banque_misr";
+        return src.contains("bank")?src:"";
+    }
+    private static String amountAnchor(String t){
+        Matcher m=MONEY.matcher(t);ArrayList<String> nums=new ArrayList<>();while(m.find()){
+            String v=m.group(1).replace(',','.');try{double d=Double.parseDouble(v);if(d>=20&&d<10000000)nums.add(trimNumber(d));}catch(Exception ignored){}
+        }
+        if(nums.isEmpty())return "";
+        // Prefer smaller purchase amount over balances/limits when multiple values exist.
+        nums.sort((a,b)->Double.compare(parseNum(a),parseNum(b)));return nums.get(0);
+    }
+    private static String merchantAnchor(String t){
+        if(t.contains("spotify"))return "spotify";if(t.contains("google"))return "google";if(t.contains("uber"))return "uber";if(t.contains("amazon"))return "amazon";return "";
+    }
+    private static String placeAnchor(String t){
+        if(has(t,"مستشفى النسائم","مستشفي النسائم","al nasaem","al nasaem hospital","nasaem hospital"))return "nasaem_hospital";
+        if(has(t,"مستشفى","مستشفي","hospital"))return importantTokens(t,new String[]{"مستشفى","مستشفي","hospital"});
+        return "";
+    }
+    private static String subjectAnchor(String t){
+        if(has(t,"اشعات","اشعة","أشعة","radiology","scan"))return "imaging";
+        if(has(t,"شهادة","certificate"))return "certificate";
+        if(has(t,"chest ct","ct"))return "ct";
+        return importantTokens(t,new String[]{"reminder","فكرني","ذكرني","اعمل"});
+    }
+    private static String importantTokens(String t,String[] drop){
+        Set<String> d=new HashSet<>();for(String x:drop)d.add(norm(x));ArrayList<String> out=new ArrayList<>();for(String x:t.split("\\s+")){if(x.length()<3||d.contains(x)||x.matches("\\d+"))continue;if(stop(x))continue;out.add(x);if(out.size()>=4)break;}return String.join("_",out);
+    }
+    private static boolean stop(String x){return has(x,"عندي","محتاج","لازم","اعمل","يوم","الساعة","الصبح","مساء","الدخول","الحضور","باسقية","ضروري","this","that","with","from","need","have");}
+
     private static boolean alert(String t,String src){
         boolean financial=has(t,"transaction","payment","purchase","card","بطاق","معامله","المعامله","عمليه","عملية","خصم","رصيد","credit limit","الحد الائتماني","egp");
         boolean failure=has(t,"declined","rejected","refused","failed","رفض","مرفوض","لم تتم","غير كافي","عدم كفايه","عدم كفاية","تجاوزتم");
@@ -72,19 +134,19 @@ public final class CandidateConsolidator {
     private static boolean change(String t,String src,String stored){
         if(!("DECISION".equals(stored)||"MEMORY".equals(stored)))return false;
         if(has(t,"status changed","changed to","became","تم التغيير","اتغير","تغيرت الحاله","تغيرت الحالة"))return true;
-        // System/provider approvals are changes; conversational approvals remain decisions.
         return !src.isEmpty()&&!src.contains("whatsapp")&&!src.contains("telegram")&&!src.contains("messenger")&&has(t,"approved","rejected","تمت الموافقه","تمت الموافقة","تم الرفض");
     }
     private static String canonicalText(String s){
-        String x=s==null?"":s; x=URL.matcher(x).replaceAll(" ");x=REF.matcher(x).replaceAll(" ");x=norm(x);
-        // Remove repeated provider prefix/suffix punctuation without deleting amounts or dates.
+        String x=s==null?"":s;x=URL.matcher(x).replaceAll(" ");x=REF.matcher(x).replaceAll(" ");x=norm(x);
         x=x.replaceAll("(?i)^(cib|nbe|qnb|banque misr|bank)\\s*[:·-]\\s*"," ").replaceAll("(?i)\\s+(cib|nbe|qnb)\\s*[:·-]?\\s*$"," ");
         return x.replaceAll("\\s+"," ").trim();
     }
     private static String sourceFamily(String s){String x=norm(s);if(x.contains("cib"))return "cib";if(x.contains("whatsapp"))return "whatsapp";if(x.contains("gmail")||x.contains("mail"))return "mail";if(x.contains("sms")||x.contains("message"))return "message";return x.length()>48?x.substring(0,48):x;}
     private static double tokenOverlap(String a,String b){Set<String>x=tokens(a),y=tokens(b);if(x.isEmpty()||y.isEmpty())return 0;Set<String>i=new HashSet<>(x);i.retainAll(y);Set<String>u=new HashSet<>(x);u.addAll(y);return u.isEmpty()?0:(double)i.size()/u.size();}
     private static Set<String> tokens(String s){HashSet<String>r=new HashSet<>();for(String x:s.split("\\s+"))if(x.length()>1)r.add(x);return r;}
-    private static boolean has(String s,String... xs){for(String x:xs)if(s.contains(norm(x)))return true;return false;}
+    private static boolean has(String s,String...xs){for(String x:xs)if(s.contains(norm(x)))return true;return false;}
     private static String norm(String s){return MasterRelevanceFilter.ruleNorm(s==null?"":s);}
     private static String n(String s){return s==null?"":s.trim();}
+    private static double parseNum(String s){try{return Double.parseDouble(s);}catch(Exception e){return Double.MAX_VALUE;}}
+    private static String trimNumber(double d){if(Math.rint(d)==d)return String.valueOf((long)d);return String.format(Locale.US,"%.2f",d);}
 }
