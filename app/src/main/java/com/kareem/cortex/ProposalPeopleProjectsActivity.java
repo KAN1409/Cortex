@@ -8,7 +8,7 @@ import android.view.*;
 import android.widget.*;
 import java.util.*;
 
-/** Exact approved reference for Cortex Atlas People / Projects. */
+/** Approved Cortex Atlas People / Projects with dynamic insight hierarchy. */
 public final class ProposalPeopleProjectsActivity extends PeopleProjectsActivity {
     @Override void build(){
         LinearLayout root=new LinearLayout(this);root.setOrientation(LinearLayout.VERTICAL);root.setBackgroundColor(CortexUi.BG);
@@ -29,33 +29,42 @@ public final class ProposalPeopleProjectsActivity extends PeopleProjectsActivity
 
     private void addSelector(String label,String key,String icon){LinearLayout tile=new LinearLayout(this);tile.setTag(key);tile.setGravity(Gravity.CENTER);tile.setPadding(dp(8),0,dp(8),0);CortexGlyphView g=CortexUi.glyph(this,icon,CortexUi.MUTED,false);g.setTag("selector_icon");tile.addView(g,new LinearLayout.LayoutParams(dp(28),dp(28)));TextView t=CortexUi.plain(this,label,14,CortexUi.MUTED);t.setTag("selector_text");LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-2,-2);lp.setMargins(dp(8),0,0,0);tile.addView(t,lp);tile.setOnClickListener(v->{mode=String.valueOf(v.getTag());styleTabs();if(search!=null)search.setText("");refreshAsync();});LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,dp(54),1);if(tabs.getChildCount()>0)p.setMargins(dp(9),0,0,0);tabs.addView(tile,p);}
 
-    @Override void styleTabs(){if(tabs==null)return;for(int i=0;i<tabs.getChildCount();i++){View raw=tabs.getChildAt(i);if(!(raw instanceof LinearLayout))continue;LinearLayout tile=(LinearLayout)raw;boolean on=mode.equals(String.valueOf(tile.getTag()));tile.setBackground(on?CortexUi.gradient(this,CortexUi.BRAND,CortexUi.AURORA,Color.argb(72,245,247,241),20):CortexUi.round(this,CortexUi.BG,CortexUi.BORDER,20));for(int j=0;j<tile.getChildCount();j++){View v=tile.getChildAt(j);if(v instanceof CortexGlyphView)((CortexGlyphView)v).setAccent(on?CortexUi.BG:CortexUi.MUTED);if(v instanceof TextView){TextView t=(TextView)v;t.setTextColor(on?CortexUi.BG:CortexUi.MUTED);if(on)CortexUi.medium(t);}}}}
+    @Override void styleTabs(){if(tabs==null)return;for(int i=0;i<tabs.getChildCount();i++){View raw=tabs.getChildAt(i);if(!(raw instanceof LinearLayout))continue;LinearLayout tile=(LinearLayout)raw;boolean on=mode.equals(String.valueOf(tile.getTag()));tile.setBackground(on?CortexUi.round(this,Color.argb(38,137,217,74),Color.argb(105,137,217,74),20):CortexUi.round(this,CortexUi.BG,CortexUi.BORDER,20));for(int j=0;j<tile.getChildCount();j++){View v=tile.getChildAt(j);if(v instanceof CortexGlyphView)((CortexGlyphView)v).setAccent(on?CortexUi.BRAND:CortexUi.MUTED);if(v instanceof TextView){TextView t=(TextView)v;t.setTextColor(on?CortexUi.TEXT:CortexUi.MUTED);if(on)CortexUi.medium(t);}}}}
 
     @Override void addRow(Row r){
         Insight in=relationshipInsight(r);boolean insight=!r.candidate&&in.openCount>0;boolean project=!"people".equals(mode)&&!r.candidate;
-        // Semantic dots: quiet items are neutral. Orange is reserved for genuine attention/review.
         int dot=r.candidate?CortexUi.ORANGE:(project?CortexUi.PURPLE:(insight?CortexUi.GREEN:CortexUi.MUTED));
-        int rail=insight?CortexUi.BRAND:(project?CortexUi.BLUE:CortexUi.MUTED);String icon="people".equals(mode)?"person":"project";
-        LinearLayout card=new LinearLayout(this);card.setOrientation(LinearLayout.VERTICAL);card.setBackground(CortexUi.round(this,CortexUi.SURFACE,insight?Color.argb(88,185,217,74):CortexUi.BORDER,20));card.setPadding(0,0,0,0);
+        int rail=insight?CortexUi.BRAND:(project?CortexUi.PURPLE:CortexUi.MUTED);String icon="people".equals(mode)?"person":"project";
+        LinearLayout card=new LinearLayout(this);card.setOrientation(LinearLayout.VERTICAL);card.setBackground(CortexUi.round(this,CortexUi.SURFACE,insight?Color.argb(88,137,217,74):CortexUi.BORDER,20));card.setPadding(0,0,0,0);
         LinearLayout content=new LinearLayout(this);content.setOrientation(LinearLayout.HORIZONTAL);content.setPadding(dp(11),dp(insight?12:10),dp(10),dp(insight?8:9));
-        View stripe=new View(this);stripe.setBackground(CortexUi.round(this,rail,Color.TRANSPARENT,999));LinearLayout.LayoutParams sr=new LinearLayout.LayoutParams(dp(3),dp(insight?96:58));sr.setMargins(0,0,dp(10),0);content.addView(stripe,sr);
+        View stripe=new View(this);stripe.setBackground(CortexUi.round(this,rail,Color.TRANSPARENT,999));LinearLayout.LayoutParams sr=new LinearLayout.LayoutParams(dp(3),dp(insight?116:60));sr.setMargins(0,0,dp(10),0);content.addView(stripe,sr);
         LinearLayout inner=new LinearLayout(this);inner.setOrientation(LinearLayout.VERTICAL);content.addView(inner,new LinearLayout.LayoutParams(0,-2,1));
-        LinearLayout top=new LinearLayout(this);top.setGravity(Gravity.CENTER_VERTICAL);top.addView(CortexUi.glyph(this,icon,CortexUi.TEXT,true),new LinearLayout.LayoutParams(dp(insight?48:44),dp(insight?48:44)));
-        CortexGlyphView status=(CortexGlyphView)top.getChildAt(0);status.setAccent(dot);
+        LinearLayout top=new LinearLayout(this);top.setGravity(Gravity.CENTER_VERTICAL);top.addView(avatarView(r,icon,dot),new LinearLayout.LayoutParams(dp(insight?50:46),dp(insight?50:46)));
         LinearLayout names=new LinearLayout(this);names.setOrientation(LinearLayout.VERTICAL);LinearLayout.LayoutParams np=new LinearLayout.LayoutParams(0,-2,1);np.setMargins(dp(11),0,dp(7),0);top.addView(names,np);TextView name=CortexUi.cardTitle(this,r.name);name.setMaxLines(2);names.addView(name);TextView refs=CortexUi.caption(this,(r.mentions>0?r.mentions+" reference"+(r.mentions==1?"":"s"):"Grounded context")+(in.openCount>0?"  •  "+in.openCount+" live":""));refs.setPadding(0,dp(4),0,0);names.addView(refs);
-        CortexGlyphView arrow=CortexUi.glyph(this,"arrow",insight?CortexUi.TEXT:CortexUi.MUTED,false);LinearLayout.LayoutParams ap=new LinearLayout.LayoutParams(dp(42),dp(42));top.addView(arrow,ap);top.setOnClickListener(v->detail(r));arrow.setOnClickListener(v->{if(insight)openEntityBrain(r,firstEvidenceMemoryId(r));else detail(r);});inner.addView(top);
+        CortexGlyphView arrow=CortexUi.glyph(this,"arrow",insight?CortexUi.TEXT:CortexUi.MUTED,false);arrow.setBackground(CortexUi.round(this,Color.argb(8,245,247,241),CortexUi.BORDER,999));LinearLayout.LayoutParams ap=new LinearLayout.LayoutParams(dp(42),dp(42));top.addView(arrow,ap);top.setOnClickListener(v->detail(r));arrow.setOnClickListener(v->{if(insight)openEntityBrain(r,firstEvidenceMemoryId(r));else detail(r);});inner.addView(top);
 
         if(insight){
-            LinearLayout badge=new LinearLayout(this);badge.setGravity(Gravity.CENTER_VERTICAL);badge.setPadding(0,dp(8),0,0);badge.addView(CortexUi.glyph(this,"brain",CortexUi.BRAND,false),new LinearLayout.LayoutParams(dp(27),dp(27)));TextView bt=CortexUi.plain(this,"Cortex insight",11,CortexUi.TEXT);CortexUi.medium(bt);bt.setGravity(Gravity.CENTER_VERTICAL);bt.setBackground(CortexUi.round(this,Color.argb(18,185,217,74),Color.argb(34,185,217,74),8));bt.setPadding(dp(9),0,dp(9),0);LinearLayout.LayoutParams bp=new LinearLayout.LayoutParams(-2,dp(27));bp.setMargins(dp(5),0,0,0);badge.addView(bt,bp);inner.addView(badge);
-            TextView action=CortexUi.text(this,in.next,18,CortexUi.BRAND);CortexUi.medium(action);action.setPadding(0,dp(9),dp(6),dp(4));action.setMaxLines(3);inner.addView(action);
-            LinearLayout meta=new LinearLayout(this);meta.setGravity(Gravity.CENTER_VERTICAL);TextView live=CortexUi.chip(this,in.openCount+" live",CortexUi.TEXT,false);meta.addView(live,new LinearLayout.LayoutParams(-2,dp(27)));TextView rel=CortexUi.chip(this,"High relevance",CortexUi.MUTED,false);LinearLayout.LayoutParams rp=new LinearLayout.LayoutParams(-2,dp(27));rp.setMargins(dp(6),0,0,0);meta.addView(rel,rp);inner.addView(meta);
+            LinearLayout badge=new LinearLayout(this);badge.setGravity(Gravity.CENTER_VERTICAL);badge.setPadding(0,dp(9),0,0);badge.addView(CortexUi.glyph(this,"brain",CortexUi.BRAND,false),new LinearLayout.LayoutParams(dp(27),dp(27)));TextView bt=CortexUi.plain(this,"Cortex insight",11,CortexUi.TEXT);CortexUi.medium(bt);bt.setGravity(Gravity.CENTER_VERTICAL);bt.setBackground(CortexUi.round(this,Color.argb(24,137,217,74),Color.argb(50,137,217,74),9));bt.setPadding(dp(9),0,dp(9),0);LinearLayout.LayoutParams bp=new LinearLayout.LayoutParams(-2,dp(27));bp.setMargins(dp(5),0,0,0);badge.addView(bt,bp);inner.addView(badge);
+            TextView action=CortexUi.text(this,in.next,22,CortexUi.BRAND);CortexUi.medium(action);action.setPadding(0,dp(10),dp(8),dp(5));action.setMaxLines(3);inner.addView(action);
+            LinearLayout meta=new LinearLayout(this);meta.setGravity(Gravity.CENTER_VERTICAL);meta.addView(metaChip(timingLabel(in),"clock",CortexUi.TEXT));LinearLayout.LayoutParams rp=new LinearLayout.LayoutParams(-2,dp(29));rp.setMargins(dp(7),0,0,0);meta.addView(metaChip(in.openCount>1?"High relevance":"Relevant","signal",CortexUi.MUTED),rp);inner.addView(meta);
         }else{
-            String quietText=r.candidate?"Needs review before Cortex treats this as a project":(project?"Recent project context":"No action needed");TextView quiet=CortexUi.caption(this,quietText);quiet.setTextColor(r.candidate?CortexUi.ORANGE:CortexUi.MUTED);quiet.setPadding(0,dp(7),0,0);inner.addView(quiet);
+            String quietText=r.candidate?"Needs review before Cortex treats this as a project":(project?"Recent project context":"No action needed right now");TextView quiet=CortexUi.caption(this,quietText);quiet.setTextColor(r.candidate?CortexUi.ORANGE:CortexUi.MUTED);quiet.setPadding(0,dp(8),0,0);inner.addView(quiet);
         }
         card.addView(content);
         if(insight){TextView footer=CortexUi.caption(this,"Suggested by Cortex");footer.setPadding(dp(24),dp(6),0,dp(9));card.addView(footer);}
         LinearLayout.LayoutParams cp=new LinearLayout.LayoutParams(-1,-2);if(feed.getChildCount()>0)cp.setMargins(0,dp(7),0,0);feed.addView(card,cp);
     }
+
+    private View avatarView(Row r,String icon,int dot){
+        LinearLayout box=new LinearLayout(this);box.setGravity(Gravity.CENTER);box.setBackground(CortexUi.round(this,CortexUi.BG,CortexUi.BORDER,14));
+        String initials=initials(r.name);if(!initials.isEmpty()){TextView t=CortexUi.plain(this,initials,14,CortexUi.TEXT);CortexUi.medium(t);t.setGravity(Gravity.CENTER);box.addView(t,new LinearLayout.LayoutParams(-1,-1));}else box.addView(CortexUi.glyph(this,icon,CortexUi.TEXT,false),new LinearLayout.LayoutParams(dp(32),dp(32)));
+        TextView status=CortexUi.plain(this,"●",12,dot);status.setGravity(Gravity.RIGHT|Gravity.TOP);status.setPadding(0,0,dp(2),0);box.addView(status,new LinearLayout.LayoutParams(dp(16),dp(16)));return box;
+    }
+
+    private LinearLayout metaChip(String label,String glyph,int color){LinearLayout c=new LinearLayout(this);c.setGravity(Gravity.CENTER_VERTICAL);c.setPadding(dp(8),0,dp(9),0);c.setBackground(CortexUi.round(this,Color.argb(10,Color.red(color),Color.green(color),Color.blue(color)),Color.argb(42,Color.red(color),Color.green(color),Color.blue(color)),9));c.addView(CortexUi.glyph(this,glyph,color,false),new LinearLayout.LayoutParams(dp(19),dp(19)));TextView t=CortexUi.plain(this,label,10,color);LinearLayout.LayoutParams tp=new LinearLayout.LayoutParams(-2,-2);tp.setMargins(dp(5),0,0,0);c.addView(t,tp);c.setLayoutParams(new LinearLayout.LayoutParams(-2,dp(29)));return c;}
+
+    private String timingLabel(Insight in){String x=(in.next+" "+in.latest).toLowerCase(Locale.ROOT);if(x.contains("tomorrow"))return"Due tomorrow";if(x.contains("friday"))return"Due Friday";if(x.contains("today"))return"Due today";return"Open now";}
+    private String initials(String name){if(name==null)return"";String[] p=name.trim().split("\\s+");StringBuilder s=new StringBuilder();for(String x:p){if(x.isEmpty())continue;char c=x.charAt(0);if(Character.isLetterOrDigit(c)){s.append(Character.toUpperCase(c));if(s.length()==2)break;}}return s.toString();}
 
     private Insight relationshipInsight(Row r){
         if(r.candidate)return new Insight(0,"Needs confirmation","Review this project candidate","");int open=0;String latest="",next="";String q="%"+r.name+"%";Cursor c=null;
