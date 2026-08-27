@@ -32,23 +32,51 @@ TEST_APK="$ROOT/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.ap
 [[ -f "$APP_APK" ]] || { echo "Missing $APP_APK"; exit 4; }
 [[ -f "$TEST_APK" ]] || { echo "Missing $TEST_APK"; exit 5; }
 
-# Shizuku/rish runs as Android shell and cannot reliably read Termux's private
-# /data/data/com.termux/... tree. Stage both APKs in shared storage first.
+# rish runs as Android shell and cannot read Termux's private tree. First put
+# APKs in shared storage, then copy them as shell into /data/local/tmp. Package
+# Manager can reliably install from /data/local/tmp even on newer Android/SELinux.
 STAGE_TERMUX="$HOME/storage/downloads/CortexSelfUserTestStage"
 STAGE_ANDROID="/sdcard/Download/CortexSelfUserTestStage"
+SHELL_STAGE="/data/local/tmp/cortex-self-user-test"
 mkdir -p "$STAGE_TERMUX"
 cp -f "$APP_APK" "$STAGE_TERMUX/cortex-app-debug.apk"
 cp -f "$TEST_APK" "$STAGE_TERMUX/cortex-test-debug.apk"
 
 echo
 echo "[2/4] Installing update-in-place app and test APK..."
-APP_INSTALL="$(rish -c "pm install -r -t '$STAGE_ANDROID/cortex-app-debug.apk'" 2>&1 | tr -d '\r')"
-echo "app:  $APP_INSTALL"
-[[ "$APP_INSTALL" == *"Success"* ]] || { echo "ERROR: app APK install failed"; exit 7; }
+echo "staging APKs for Android shell..."
+rish -c "rm -rf '$SHELL_STAGE'; mkdir -p '$SHELL_STAGE'; cp '$STAGE_ANDROID/cortex-app-debug.apk' '$SHELL_STAGE/cortex-app-debug.apk'; cp '$STAGE_ANDROID/cortex-test-debug.apk' '$SHELL_STAGE/cortex-test-debug.apk'; chmod 644 '$SHELL_STAGE/'*.apk; ls -lh '$SHELL_STAGE/'*.apk" || {
+  echo "ERROR: Android shell could not stage the APKs into /data/local/tmp"
+  echo "Shared-stage visibility:"
+  rish -c "ls -lh '$STAGE_ANDROID'" || true
+  exit 7
+}
 
-TEST_INSTALL="$(rish -c "pm install -r -t '$STAGE_ANDROID/cortex-test-debug.apk'" 2>&1 | tr -d '\r')"
-echo "test: $TEST_INSTALL"
-[[ "$TEST_INSTALL" == *"Success"* ]] || { echo "ERROR: instrumentation APK install failed"; exit 8; }
+# -r preserves app data; -t allows test/debug packages; -d permits a debug
+# downgrade if the phone happens to have a higher versionCode from another build.
+set +e
+APP_INSTALL="$(rish -c "pm install -r -t -d '$SHELL_STAGE/cortex-app-debug.apk'" 2>&1 | tr -d '\r')"
+APP_STATUS=$?
+set -e
+echo "app install output:"
+echo "${APP_INSTALL:-<no output>}"
+if [[ $APP_STATUS -ne 0 || "$APP_INSTALL" != *"Success"* ]]; then
+  echo "ERROR: app APK install failed (exit=$APP_STATUS)"
+  echo "Installed Cortex package summary:"
+  rish -c "dumpsys package com.kareem.cortex | grep -E 'versionCode=|versionName=|signatures=|Package \\[' | head -n 20" || true
+  exit 8
+fi
+
+set +e
+TEST_INSTALL="$(rish -c "pm install -r -t -d '$SHELL_STAGE/cortex-test-debug.apk'" 2>&1 | tr -d '\r')"
+TEST_STATUS=$?
+set -e
+echo "test install output:"
+echo "${TEST_INSTALL:-<no output>}"
+if [[ $TEST_STATUS -ne 0 || "$TEST_INSTALL" != *"Success"* ]]; then
+  echo "ERROR: instrumentation APK install failed (exit=$TEST_STATUS)"
+  exit 9
+fi
 
 INSTRUMENTATION="$(rish -c "pm list instrumentation" 2>&1 | tr -d '\r')"
 echo "$INSTRUMENTATION" | grep -F "com.kareem.cortex.test/androidx.test.runner.AndroidJUnitRunner" >/dev/null || {
@@ -56,8 +84,8 @@ echo "$INSTRUMENTATION" | grep -F "com.kareem.cortex.test/androidx.test.runner.A
   echo "Installed instrumentation entries:"
   echo "$INSTRUMENTATION"
   echo "Test package info:"
-  rish -c "dumpsys package com.kareem.cortex.test | head -n 80" || true
-  exit 9
+  rish -c "dumpsys package com.kareem.cortex.test | head -n 100" || true
+  exit 10
 }
 echo "instrumentation: registered"
 
@@ -79,7 +107,7 @@ if [[ -z "$LATEST" ]]; then
 fi
 
 NAME="$(basename "$LATEST")"
-rish -c "rm -rf '/sdcard/Download/$NAME'; cp -R '$LATEST' '/sdcard/Download/$NAME'"
+rish -c "rm -rf '/sdcard/Download/$NAME'; cp -R '$LATEST' '/sdcard/Download/$NAME'; rm -rf '$SHELL_STAGE'"
 
 if ! command -v zip >/dev/null 2>&1; then
   echo "zip is not installed; installing it in Termux..."
