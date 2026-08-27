@@ -6,6 +6,10 @@ captures/
 .externalNativeBuild/
 .cxx/
 
+# Generated distribution artifacts
+/downloads/*.apk
+/downloads/*.sha256
+
 # IDE
 .idea/
 *.iml
