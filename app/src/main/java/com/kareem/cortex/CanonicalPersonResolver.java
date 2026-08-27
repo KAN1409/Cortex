@@ -28,7 +28,9 @@ public final class CanonicalPersonResolver {
             addAlias(sql,entityId,source,alias,normalized,corroborated>0?0.86:0.72);
         }
         if(entityId>0){
-            link(sql,"raw_signal",signalId,"entity",entityId,"person_hint",0.78,new JSONObject().put("source",source).put("alias",alias).put("policy","source_scoped_identity").toString());
+            String meta="{}";
+            try{meta=new JSONObject().put("source",source).put("alias",alias).put("policy","source_scoped_identity").toString();}catch(Exception ignored){}
+            link(sql,"raw_signal",signalId,"entity",entityId,"person_hint",0.78,meta);
         }
         return entityId;
     }
