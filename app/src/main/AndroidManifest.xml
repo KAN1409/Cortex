@@ -56,6 +56,14 @@
         <activity android:name=".OpenRouterSettingsActivity" android:exported="false" android:label="Cortex OpenRouter Setup" />
         <activity android:name=".GeminiSettingsActivity" android:exported="false" android:label="Cortex Gemini Setup" />
         <activity android:name=".MainActivity" android:exported="false" />
+        <activity android:name=".SelfContainedReviewActivity" android:exported="true" android:label="Cortex Phone-Only Review">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="cortex" android:host="self-test" />
+            </intent-filter>
+        </activity>
 
         <service android:name=".LocalModelDownloadService" android:exported="false" android:foregroundServiceType="dataSync" />
         <service android:name=".CortexRecordService" android:exported="false" android:foregroundServiceType="microphone" />
