@@ -16,38 +16,65 @@ public final class CognitiveIntentRouter {
     }
 
     private static GroundedAnswer workProjects(VaultDb db,String q){
-        ArrayList<String> lines=new ArrayList<>();ArrayList<SemanticHit> src=new ArrayList<>();
-        Cursor c=db.getReadableDatabase().rawQuery("SELECT title,body,kind,importance,updated_at FROM derived_items WHERE state IN ('open','pending') AND (kind='PROJECT_CANDIDATE' OR lower(title) LIKE '%project%' OR lower(body) LIKE '%project%' OR title LIKE '%مشروع%' OR body LIKE '%مشروع%' OR lower(title) LIKE '%work%' OR lower(body) LIKE '%work%') ORDER BY importance DESC,updated_at DESC LIMIT 12",null);
-        try{while(c.moveToNext()){String t=n(c.getString(0)),b=n(c.getString(1));String line=t+(b.isEmpty()?"":" — "+clip(b,180));if(!line.trim().isEmpty())lines.add(line);}}finally{c.close();}
-        ArrayList<SemanticHit> hits=SemanticIndex.searchForAsk(db,"work project deliverable budget drawings site client مشروع شغل ميزانية رسومات موقع",12);for(SemanticHit h:hits){if(!workLike(h.item))continue;boolean exists=false;for(SemanticHit old:src)if(old.item.id==h.item.id){exists=true;break;}if(!exists)src.add(h);if(lines.size()<8){String x=n(h.item.title);String b=!n(h.item.summary).isEmpty()?h.item.summary:h.snippet;lines.add(x+(n(b).isEmpty()?"":" — "+clip(b,180)));}}
-        if(lines.isEmpty())return new GroundedAnswer(q,"I don't have a grounded open work/project thread right now.",.72,src,new ArrayList<String>(),new ArrayList<String>());
-        return new GroundedAnswer(q,bullet("Open work/project threads I can ground",dedupe(lines,6)),.88,src,new ArrayList<String>(),new ArrayList<String>());
+        ArrayList<String> lines=new ArrayList<>();ArrayList<SemanticHit> src=new ArrayList<>();LinkedHashSet<String> keys=new LinkedHashSet<>();
+        Cursor c=db.getReadableDatabase().rawQuery("SELECT id,title,body,kind,importance,updated_at FROM derived_items WHERE state IN ('open','pending') AND (kind='PROJECT_CANDIDATE' OR upper(kind)='ACTION' OR upper(kind)='WAITING' OR upper(kind)='DECISION') ORDER BY importance DESC,updated_at DESC LIMIT 160",null);
+        try{while(c.moveToNext()){
+            String t=n(c.getString(1)),b=n(c.getString(2)),kind=n(c.getString(3));String all=t+" "+b;
+            if(!workText(all,kind))continue;
+            String key=canonical(all);if(key.isEmpty()||!keys.add(key))continue;
+            lines.add(t+(b.isEmpty()?"":" — "+clip(b,180)));if(lines.size()>=8)break;
+        }}finally{c.close();}
+
+        ArrayList<SemanticHit> hits=SemanticIndex.searchForAsk(db,"project work deliverable budget drawings site client construction مشروع شغل ميزانية رسومات موقع عميل",24);
+        for(SemanticHit h:hits){if(h==null||h.item==null||!workLike(h.item)||isScreenshotNoise(h.item))continue;String key=canonical(n(h.item.title)+" "+n(h.item.summary)+" "+n(h.item.extractedText)+" "+n(h.item.rawText));if(key.isEmpty()||!keys.add(key))continue;src.add(h);String x=n(h.item.title);String b=!n(h.item.summary).isEmpty()?h.item.summary:h.snippet;lines.add(x+(n(b).isEmpty()?"":" — "+clip(b,180)));if(lines.size()>=8)break;}
+        if(lines.isEmpty())return new GroundedAnswer(q,"I don't have a grounded open work/project thread right now.",.76,src,new ArrayList<String>(),new ArrayList<String>());
+        return new GroundedAnswer(q,bullet("Open work/project threads I can ground",lines),.92,src,new ArrayList<String>(),new ArrayList<String>());
     }
 
     private static GroundedAnswer noiseAudit(VaultDb db,String q){
-        ArrayList<SemanticHit> hits=SemanticIndex.searchForAskRaw(db,q,16);ArrayList<SemanticHit> keep=new ArrayList<>();ArrayList<String> noise=new ArrayList<>();ArrayList<String> context=new ArrayList<>();
+        ArrayList<SemanticHit> hits=SemanticIndex.searchForAskRaw(db,q,20);ArrayList<SemanticHit> keep=new ArrayList<>();ArrayList<String> noise=new ArrayList<>();ArrayList<String> context=new ArrayList<>();
         for(SemanticHit h:hits){KnowledgeItem k=h.item;if(k==null)continue;String label=n(k.title);if(isNoise(k)){noise.add(label.isEmpty()?k.type:label);keep.add(h);}else if(isContextOnly(k)){context.add(label.isEmpty()?k.type:label);keep.add(h);}}
         if(noise.isEmpty()&&context.isEmpty())return new GroundedAnswer(q,"I don't see enough grounded low-quality/context-only evidence to classify reliably.",.66,keep,new ArrayList<String>(),new ArrayList<String>());
         StringBuilder a=new StringBuilder();if(!noise.isEmpty()){a.append("Probably noise / low-value evidence:\n");for(String x:dedupe(noise,6))a.append("• ").append(clip(x,120)).append('\n');}if(!context.isEmpty()){if(a.length()>0)a.append('\n');a.append("Context, not an action:\n");for(String x:dedupe(context,6))a.append("• ").append(clip(x,120)).append('\n');}a.append("\nThese should not become tasks or attention items unless newer evidence gives them a concrete obligation.");
-        return new GroundedAnswer(q,a.toString().trim(),.90,keep,new ArrayList<String>(),new ArrayList<String>());
+        return new GroundedAnswer(q,a.toString().trim(),.92,keep,new ArrayList<String>(),new ArrayList<String>());
     }
 
     private static GroundedAnswer lifecycle(VaultDb db,String q){
-        ArrayList<String> live=new ArrayList<>(),closed=new ArrayList<>();
-        Cursor a=db.getReadableDatabase().rawQuery("SELECT title,body,kind FROM derived_items WHERE state IN ('open','pending') ORDER BY importance DESC,updated_at DESC LIMIT 8",null);try{while(a.moveToNext())live.add(n(a.getString(0))+(n(a.getString(1)).isEmpty()?"":" — "+clip(a.getString(1),150)));}finally{a.close();}
-        Cursor b=db.getReadableDatabase().rawQuery("SELECT title,body,state FROM derived_items WHERE state IN ('dismissed','resolved','done','closed') ORDER BY updated_at DESC LIMIT 8",null);try{while(b.moveToNext())closed.add(n(b.getString(0))+" — "+n(b.getString(2))+(n(b.getString(1)).isEmpty()?"":" · "+clip(b.getString(1),130)));}finally{b.close();}
-        StringBuilder out=new StringBuilder();out.append("Still live:\n");if(live.isEmpty())out.append("• None I can ground.\n");else for(String x:dedupe(live,6))out.append("• ").append(x).append('\n');out.append("\nDo not resurface as live:\n");if(closed.isEmpty())out.append("• No recently closed obligations found.\n");else for(String x:dedupe(closed,6))out.append("• ").append(x).append('\n');
-        return new GroundedAnswer(q,out.toString().trim(),.92,new ArrayList<SemanticHit>(),new ArrayList<String>(),new ArrayList<String>());
+        LinkedHashMap<String,String> closed=new LinkedHashMap<>(),live=new LinkedHashMap<>();
+        Cursor b=db.getReadableDatabase().rawQuery("SELECT title,body,state,thread_id,updated_at FROM derived_items WHERE state IN ('dismissed','resolved','done','closed') ORDER BY updated_at DESC LIMIT 240",null);
+        try{while(b.moveToNext()){
+            String t=n(b.getString(0)),body=n(b.getString(1)),state=n(b.getString(2));String key=lifeKey(b.getLong(3),t+" "+body);if(key.isEmpty()||closed.containsKey(key))continue;
+            closed.put(key,t+" — "+state+(body.isEmpty()?"":" · "+clip(body,130)));
+        }}finally{b.close();}
+        Cursor a=db.getReadableDatabase().rawQuery("SELECT title,body,kind,thread_id,updated_at FROM derived_items WHERE state IN ('open','pending') ORDER BY importance DESC,updated_at DESC LIMIT 240",null);
+        try{while(a.moveToNext()){
+            String t=n(a.getString(0)),body=n(a.getString(1));long thread=a.getLong(3);String key=lifeKey(thread,t+" "+body);if(key.isEmpty()||closed.containsKey(key)||live.containsKey(key))continue;
+            if(thread>0&&threadResolved(db,thread,a.getLong(4)))continue;
+            live.put(key,t+(body.isEmpty()?"":" — "+clip(body,150)));
+        }}finally{a.close();}
+        StringBuilder out=new StringBuilder();out.append("Still live:\n");if(live.isEmpty())out.append("• None I can ground.\n");else for(String x:limit(live.values(),6))out.append("• ").append(x).append('\n');out.append("\nDo not resurface as live:\n");if(closed.isEmpty())out.append("• No recently closed obligations found.\n");else for(String x:limit(closed.values(),6))out.append("• ").append(x).append('\n');
+        return new GroundedAnswer(q,out.toString().trim(),.96,new ArrayList<SemanticHit>(),new ArrayList<String>(),new ArrayList<String>());
     }
 
-    private static boolean workLike(KnowledgeItem k){String x=LocalSemanticEmbedder.norm(n(k.title)+" "+n(k.summary)+" "+n(k.extractedText)+" "+n(k.rawText)+" "+n(k.category)+" "+n(k.tags));return has(x,"project","work","site","client","budget","drawing","drawings","مشروع","شغل","موقع","ميزانية","رسومات","عميل");}
-    private static boolean isNoise(KnowledgeItem k){String raw=n(k.title)+" "+n(k.summary)+" "+n(k.extractedText)+" "+n(k.rawText);String x=LocalSemanticEmbedder.norm(raw);if(AskSourcePolicy.isSelfUiScreenshot(k))return true;if(("SCREENSHOT".equals(k.type)||"IMAGE".equals(k.type))&&OcrGarbageGate.assessText(raw).score<.38)return true;return has(x,"screenshot saved","package installer","system ui","systemui","play store download","response ready");}
+    private static boolean threadResolved(VaultDb db,long thread,long since){
+        Cursor c=db.getReadableDatabase().rawQuery("SELECT title,body FROM raw_signals WHERE thread_id=? AND occurred_at>=? ORDER BY occurred_at DESC LIMIT 24",new String[]{String.valueOf(thread),String.valueOf(Math.max(0,since-86400000L))});
+        try{while(c.moveToNext()){String z=LocalSemanticEmbedder.norm(n(c.getString(0))+" "+n(c.getString(1)));if(has(z,"you're all set","you’re all set","setup complete","set up successfully","completed successfully","resolved","done","cancelled","canceled","تم بنجاح","تم الإعداد","تم الاعداد","خلص","اتعمل"))return true;}}finally{c.close();}return false;
+    }
+
+    private static boolean workLike(KnowledgeItem k){if(k==null)return false;if(isScreenshotNoise(k))return false;String x=LocalSemanticEmbedder.norm(n(k.title)+" "+n(k.summary)+" "+n(k.extractedText)+" "+n(k.rawText)+" "+n(k.category)+" "+n(k.tags));return workText(x,n(k.type));}
+    private static boolean workText(String text,String kind){String x=LocalSemanticEmbedder.norm(text);boolean domain=has(x,"project","deliverable","drawing","drawings","site","client","budget","contractor","construction","architect","design","tender","boq","مشروع","شغل","موقع","ميزانية","رسومات","عميل","مقاول","تصميم");boolean taskish=has(x,"open","pending","follow up","review","send","submit","deadline","meeting","waiting","approve","مفتوح","متابعة","راجع","ابعت","تسليم","موعد","مستني","اعتماد");return domain&&(taskish||"PROJECT_CANDIDATE".equalsIgnoreCase(kind)||"ACTION".equalsIgnoreCase(kind)||"WAITING".equalsIgnoreCase(kind)||"DECISION".equalsIgnoreCase(kind));}
+    private static boolean isScreenshotNoise(KnowledgeItem k){return k!=null&&("SCREENSHOT".equals(k.type)||"IMAGE".equals(k.type))&&(AskSourcePolicy.isSelfUiScreenshot(k)||OcrGarbageGate.assessText(n(k.title)+" "+n(k.summary)+" "+n(k.extractedText)+" "+n(k.rawText)).score<.62);}
+    private static boolean isNoise(KnowledgeItem k){String raw=n(k.title)+" "+n(k.summary)+" "+n(k.extractedText)+" "+n(k.rawText);String x=LocalSemanticEmbedder.norm(raw);if(AskSourcePolicy.isSelfUiScreenshot(k))return true;if(("SCREENSHOT".equals(k.type)||"IMAGE".equals(k.type))&&OcrGarbageGate.assessText(raw).score<.48)return true;return has(x,"screenshot saved","package installer","system ui","systemui","play store download","response ready");}
     private static boolean isContextOnly(KnowledgeItem k){String x=LocalSemanticEmbedder.norm(n(k.category)+" "+n(k.tags)+" "+n(k.summary));return has(x,"reference","research","context","contact","links & research")&&!has(x,"todo","action","follow up","reminder","decision","deadline","appointment","لازم","متابعة","موعد");}
     private static boolean isWorkProjectQuery(String z){return has(z,"work","project","projects","project threads","work threads","شغل","مشروع","مشاريع")&&has(z,"open","still","ongoing","thread","threads","مفتوح","مستمرة","مستمر");}
     private static boolean isNoiseQuery(String z){return has(z,"noise","context rather than actions","not actions","probably noise","ضوضاء","مش مهمة","مش actions");}
     private static boolean isLifecycleQuery(String z){return has(z,"lifecycle","genuinely still live","must not be resurfaced","dismissed","resolved","done","closed","مقفول","اتحل","خلص");}
+    private static String lifeKey(long thread,String text){return thread>0?"thread:"+thread:canonical(text);}
+    private static String canonical(String s){String x=LocalSemanticEmbedder.norm(n(s));StringBuilder b=new StringBuilder();for(String w:x.split("[^\\p{L}\\p{Nd}]+")){if(w.length()<2||STOP.contains(w))continue;if(b.length()>0)b.append(' ');b.append(w);}return b.toString();}
+    private static final Set<String> STOP=new HashSet<>(Arrays.asList("the","a","an","to","of","and","or","for","in","on","at","is","are","be","my","your","this","that","من","في","على","الى","إلى","اللي","ده","دي","و","او","أو"));
     private static boolean has(String z,String...xs){for(String x:xs)if(z.contains(LocalSemanticEmbedder.norm(x)))return true;return false;}
-    private static ArrayList<String> dedupe(List<String> xs,int max){LinkedHashMap<String,String> m=new LinkedHashMap<>();for(String x:xs){String k=LocalSemanticEmbedder.norm(x);if(k.length()>100)k=k.substring(0,100);if(!k.isEmpty()&&!m.containsKey(k))m.put(k,x);if(m.size()>=max)break;}return new ArrayList<>(m.values());}
+    private static ArrayList<String> dedupe(List<String> xs,int max){LinkedHashMap<String,String> m=new LinkedHashMap<>();for(String x:xs){String k=canonical(x);if(!k.isEmpty()&&!m.containsKey(k))m.put(k,x);if(m.size()>=max)break;}return new ArrayList<>(m.values());}
+    private static ArrayList<String> limit(Collection<String> xs,int max){ArrayList<String> o=new ArrayList<>();for(String x:xs){o.add(x);if(o.size()>=max)break;}return o;}
     private static String bullet(String head,List<String> xs){StringBuilder s=new StringBuilder(head).append(":\n");for(String x:xs)s.append("• ").append(x).append('\n');return s.toString().trim();}
     private static String clip(String s,int n){String x=n(s).replaceAll("\\s+"," ");return x.length()<=n?x:x.substring(0,n)+"…";}
     private static String n(String s){return s==null?"":s.trim();}
