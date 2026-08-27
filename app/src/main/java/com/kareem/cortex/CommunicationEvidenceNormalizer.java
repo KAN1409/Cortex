@@ -57,7 +57,8 @@ public final class CommunicationEvidenceNormalizer {
     private static String personHint(String title,String body){
         String t=clean(title);
         if(!t.isEmpty()&&!looksGeneric(t))return trim(t,120);
-        String b=clean(body),sep=b.indexOf(':');
+        String b=clean(body);
+        int sep=b.indexOf(':');
         if(sep>0&&sep<80)return trim(b.substring(0,sep),120);
         return"";
     }
