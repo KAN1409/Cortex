@@ -72,7 +72,7 @@ public final class CompactTodayActivity extends CortexOrbBriefActivity {
 
     void showVoicePlayer(PrimeBriefStore.Snapshot s){
         Dialog d=new Dialog(this);ScrollView sv=new ScrollView(this);LinearLayout box=new LinearLayout(this);box.setOrientation(LinearLayout.VERTICAL);box.setPadding(dp(12),dp(12),dp(12),dp(12));sv.addView(box);
-        View player=CortexOrbBriefActivity.super.audioCard(s);box.addView(player);
+        View player=super.audioCard(s);box.addView(player);
         TextView close=CortexUi.action(this,"Close",CortexUi.MUTED,false);LinearLayout.LayoutParams cp=new LinearLayout.LayoutParams(-1,dp(44));cp.setMargins(0,dp(8),0,0);box.addView(close,cp);close.setOnClickListener(v->d.dismiss());d.setContentView(sv);try{d.show();if(d.getWindow()!=null)d.getWindow().setLayout((int)(getResources().getDisplayMetrics().widthPixels*.94f),(int)(getResources().getDisplayMetrics().heightPixels*.80f));}catch(Throwable ignored){}
     }
 
