@@ -27,13 +27,10 @@ public class CognitivePacketDifferentialV5Test {
         JSONObject student=CognitivePacketStudentAdapter.decide(p.json);
         CognitiveDecisionContract.Validation sv=CognitiveDecisionContract.validate(student.toString(),p.validRefs);
         CognitiveAdjudicationStore.saveStudent(db,rowId,student.toString(),sv);
-
         JSONObject quality=quality(student,p.json);
-        Assert.assertTrue("V5 student decision contract must validate: "+sv.errors,sv.valid());
-        Assert.assertEquals("Immediate/interactive decisions must be grounded in evidence",0,quality.optInt("ungrounded_interactive"));
-        Assert.assertEquals("Immediate/interactive decisions must synthesize a next action",0,quality.optInt("missing_next_action"));
-        Assert.assertEquals("Student must use packet evidence when evidence exists",0,quality.optInt("evidence_usage_failure"));
 
+        // Always persist the exact packet/student pair BEFORE assertions. A failed cognitive gate is
+        // precisely the evidence we need for diagnosis; it must never fall back to a stale prior run.
         String stamp=new SimpleDateFormat("yyyyMMdd_HHmmss",Locale.US).format(new Date());
         File out=new File(ctx.getExternalFilesDir(null),"self-user-test/CognitivePacketDifferentialV5_"+stamp);
         if(!out.mkdirs()&&!out.isDirectory())throw new IllegalStateException("cannot create V5 output");
@@ -54,9 +51,21 @@ public class CognitivePacketDifferentialV5Test {
                 .put("teacher_status","pending_chatgpt")
                 .put("student_valid",sv.valid())
                 .put("student_quality",quality)
+                .put("test_status","artifact_written_before_assertions")
                 .put("purpose","ChatGPT must decide from cognitive_packet.json before evaluating student_decision.json. Differences should be classified as missed link, stale state, wrong lifecycle, missed priority, false priority, missing action, unsafe action, hallucinated fact, or weak explanation.");
         write(new File(out,"README.json"),manifest.toString(2));
-        write(new File(out,"README.md"),"# Cortex V5 — Same-Packet Cognitive Differential\n\n`cognitive_packet.json` is the single evidence/state input for both teacher and student. Build the ChatGPT teacher decision from that packet first. Only then inspect `student_decision.json`. This isolates cognitive differences from retrieval/input differences. Full fidelity is intentional; no sensitive-field redaction is performed.\n");
+        write(new File(out,"README.md"),"# Cortex V5 — Same-Packet Cognitive Differential\n\n`cognitive_packet.json` is the single evidence/state input for both teacher and student. Build the ChatGPT teacher decision from that packet first. Only then inspect `student_decision.json`. This isolates cognitive differences from retrieval/input differences. Full fidelity is intentional; no sensitive-field redaction is performed. The artifact is written before quality assertions so failed cognition remains diagnosable.\n");
+
+        try{
+            Assert.assertTrue("V5 student decision contract must validate: "+sv.errors,sv.valid());
+            Assert.assertEquals("Immediate/interactive decisions must be grounded in evidence",0,quality.optInt("ungrounded_interactive"));
+            Assert.assertEquals("Immediate/interactive decisions must synthesize a next action",0,quality.optInt("missing_next_action"));
+            Assert.assertEquals("Student must use packet evidence when evidence exists",0,quality.optInt("evidence_usage_failure"));
+            write(new File(out,"TEST_RESULT.txt"),"PASS\n");
+        }catch(AssertionError e){
+            write(new File(out,"TEST_RESULT.txt"),"FAIL\n"+e.getMessage()+"\n");
+            throw e;
+        }
     }
 
     private static JSONObject quality(JSONObject student,JSONObject packet)throws Exception{
