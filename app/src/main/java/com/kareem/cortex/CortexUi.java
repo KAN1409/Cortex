@@ -21,11 +21,19 @@ public final class CortexUi {
     public static final int TEXT=Color.rgb(245,247,241);
     public static final int MUTED=Color.rgb(161,163,154);
     public static final int FAINT=Color.argb(138,161,163,154);
-    public static final int BRAND=Color.rgb(137,217,74); // #89D94A
-    public static final int AURORA=Color.rgb(190,170,46);
+
+    // Canonical CardVariant / StatusDot semantic palette.
+    public static final int BRAND=Color.rgb(137,217,74);   // #89D94A insight / connected
+    public static final int ORANGE=Color.rgb(229,169,59);  // #E5A93B active / needs attention
+    public static final int QUIET=Color.rgb(51,53,50);     // #333532 quiet
+    public static final int PURPLE=Color.rgb(155,81,224);  // #9B51E0 project / archived
+    public static final int RED=Color.rgb(217,83,79);      // #D9534F needs review
+    public static final int BLUE=Color.rgb(74,144,226);    // #4A90E2 recently added
+    public static final int GREEN=BRAND;
+    public static final int AURORA=ORANGE;
+    public static final int YELLOW=ORANGE;
     public static final int LIME=BRAND,OLIVE=AURORA;
 
-    public static final int GREEN=Color.rgb(102,207,94),RED=Color.rgb(238,88,88),ORANGE=Color.rgb(239,174,65),YELLOW=AURORA,BLUE=Color.rgb(80,146,220),PURPLE=Color.rgb(161,83,193);
     public static final int ACCENT=BRAND,SIGNAL=BRAND,AMBER=ORANGE,SAGE=GREEN,INFO=BRAND,VIOLET=PURPLE,COPPER=ORANGE,CORAL=RED,GOLD=AURORA;
     public static final int BORDER=Color.argb(84,161,163,154),BORDER_SOFT=Color.argb(45,161,163,154),HAIRLINE=Color.argb(36,161,163,154);
 
@@ -70,7 +78,7 @@ public final class CortexUi {
     public static TextView chip(Activity a,String l,int c,boolean strong){TextView v=plain(a,l,strong?12:11,strong?TEXT:c);if(strong)medium(v);v.setGravity(Gravity.CENTER);v.setPadding(dp(a,11),0,dp(a,11),0);int fill=Color.argb(strong?24:12,Color.red(c),Color.green(c),Color.blue(c));int stroke=Color.argb(strong?72:46,Color.red(c),Color.green(c),Color.blue(c));v.setBackground(round(a,fill,stroke,10));return v;}
     public static TextView section(Activity a,String t){TextView h=overline(a,t);h.setPadding(0,dp(a,22),0,dp(a,9));return h;}
     public static TextView action(Activity a,String l,int c,boolean filled){TextView b=plain(a,l,14,filled?BG:c);medium(b);b.setGravity(Gravity.CENTER);b.setPadding(dp(a,14),0,dp(a,14),0);GradientDrawable base=filled?round(a,BRAND,Color.argb(62,245,247,241),14):round(a,Color.argb(10,Color.red(c),Color.green(c),Color.blue(c)),Color.argb(60,Color.red(c),Color.green(c),Color.blue(c)),14);pressable(a,b,base);return b;}
-    public static int semanticFor(String key){if(key==null)return BRAND;String k=key.toLowerCase();if(k.contains("review")||k.contains("urgent")||k.contains("error"))return RED;if(k.contains("attention")||k.contains("wait")||k.contains("remind"))return ORANGE;if(k.contains("new")||k.contains("recent"))return BLUE;if(k.contains("project")||k.contains("archive")||k.contains("inactive"))return PURPLE;if(k.contains("connected")||k.contains("complete")||k.contains("good")||k.contains("insight"))return GREEN;return BRAND;}
+    public static int semanticFor(String key){if(key==null)return BRAND;String k=key.toLowerCase();if(k.contains("review")||k.contains("urgent")||k.contains("error"))return RED;if(k.contains("attention")||k.contains("wait")||k.contains("remind")||k.contains("active"))return ORANGE;if(k.contains("new")||k.contains("recent"))return BLUE;if(k.contains("project")||k.contains("archive")||k.contains("inactive"))return PURPLE;if(k.contains("quiet"))return QUIET;if(k.contains("connected")||k.contains("complete")||k.contains("good")||k.contains("insight"))return GREEN;return BRAND;}
 
     /** Approved reference dock: compact, quiet, icon-led. */
     public static void addBottomNav(Activity a,LinearLayout root,String selected,Runnable ignored){
