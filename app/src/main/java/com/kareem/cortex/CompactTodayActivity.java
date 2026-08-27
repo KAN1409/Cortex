@@ -36,7 +36,11 @@ public final class CompactTodayActivity extends CortexOrbBriefActivity {
     }
 
     @Override void render(PrimeBriefStore.Snapshot s){
-        if(destroyed||content==null)return;while(content.getChildCount()>4)content.removeViewAt(4);collectAudio(s);
+        if(destroyed||content==null)return;
+        // Header + hero + loading are the only persistent children. Clearing from index 3
+        // prevents stale section headings from surviving a refresh and duplicating on screen.
+        while(content.getChildCount()>3)content.removeViewAt(3);
+        collectAudio(s);
         if(!s.actions.isEmpty())derivedSection("NEEDS YOU NOW",CortexUi.BRAND,s.actions,"action",3);
         if(!s.waiting.isEmpty())derivedSection("WAITING ON",CortexUi.AURORA,s.waiting,"waiting",3);
         if(!s.decisions.isEmpty())derivedSection("DECISIONS TO MOVE",CortexUi.BRAND,s.decisions,"decision",2);
@@ -64,17 +68,21 @@ public final class CompactTodayActivity extends CortexOrbBriefActivity {
         sectionTitle(title,color);int n=Math.min(limit,xs.size());for(int i=0;i<n;i++){
             PrimeBriefStore.Item x=xs.get(i);String tt=x.title==null||x.title.trim().isEmpty()?friendlyFallback(x.kind):x.title.trim(),body=x.body==null?"":x.body.trim();boolean focus=i==0&&"action".equals(glyph);
             LinearLayout card=CortexUi.card(this,16);card.setPadding(0,0,0,0);if(focus)card.setBackground(CortexUi.round(this,CortexUi.SURFACE,Color.argb(82,185,217,74),16));
-            LinearLayout main=new LinearLayout(this);main.setGravity(Gravity.CENTER_VERTICAL);main.setPadding(dp(12),focus?dp(14):dp(11),dp(12),focus?dp(10):dp(9));
-            View marker=new View(this);marker.setBackground(CortexUi.round(this,color,Color.TRANSPARENT,999));LinearLayout.LayoutParams mp=new LinearLayout.LayoutParams(dp(3),focus?dp(70):dp(48));mp.setMargins(0,0,dp(12),0);main.addView(marker,mp);
+            LinearLayout main=new LinearLayout(this);main.setGravity(Gravity.CENTER_VERTICAL);main.setPadding(dp(12),focus?dp(14):dp(11),dp(10),focus?dp(10):dp(9));
+            View marker=new View(this);marker.setBackground(CortexUi.round(this,color,Color.TRANSPARENT,999));LinearLayout.LayoutParams mp=new LinearLayout.LayoutParams(dp(3),focus?dp(66):dp(46));mp.setMargins(0,0,dp(12),0);main.addView(marker,mp);
             LinearLayout txt=new LinearLayout(this);txt.setOrientation(LinearLayout.VERTICAL);main.addView(txt,new LinearLayout.LayoutParams(0,-2,1));
-            TextView h=CortexUi.text(this,clipLocal(tt,110),focus?18:15,focus?CortexUi.BRAND:CortexUi.TEXT);CortexUi.medium(h);h.setMaxLines(focus?3:2);txt.addView(h);
-            if(!body.isEmpty()){TextView m=CortexUi.text(this,clipLocal(body,145),11,CortexUi.MUTED);m.setMaxLines(focus?2:1);m.setPadding(0,dp(5),0,0);txt.addView(m);}TextView timing=CortexUi.plain(this,friendlyTiming(x),9,focus?CortexUi.MUTED:color);timing.setMaxLines(1);timing.setPadding(0,dp(6),0,0);txt.addView(timing);card.addView(main);main.setOnClickListener(v->{AttentionLearning.record(db,x.id,"opened");derivedDetail(x);});
-            if(focus)card.addView(compactActions(x),new LinearLayout.LayoutParams(-1,dp(36)));else{TextView open=CortexUi.plain(this,"›",22,CortexUi.MUTED);open.setGravity(Gravity.CENTER);LinearLayout.LayoutParams op=new LinearLayout.LayoutParams(dp(42),dp(36));op.setMargins(dp(12),0,dp(12),dp(9));card.addView(open,op);open.setOnClickListener(v->{AttentionLearning.record(db,x.id,"opened");derivedDetail(x);});}
+            // Focus is expressed by scale and border, not by washing the entire title in lime.
+            TextView h=CortexUi.text(this,clipLocal(tt,110),focus?18:15,CortexUi.TEXT);CortexUi.medium(h);h.setMaxLines(focus?3:2);txt.addView(h);
+            if(!body.isEmpty()&&!sameMeaning(tt,body)){TextView m=CortexUi.text(this,clipLocal(body,145),11,CortexUi.MUTED);m.setMaxLines(focus?2:1);m.setPadding(0,dp(5),0,0);txt.addView(m);}TextView timing=CortexUi.plain(this,friendlyTiming(x),9,focus?CortexUi.BRAND:CortexUi.MUTED);timing.setMaxLines(1);timing.setPadding(0,dp(6),0,0);txt.addView(timing);
+            if(!focus){CortexGlyphView arrow=CortexUi.glyph(this,"arrow",CortexUi.MUTED,false);main.addView(arrow,new LinearLayout.LayoutParams(dp(36),dp(36)));arrow.setOnClickListener(v->{AttentionLearning.record(db,x.id,"opened");derivedDetail(x);});}
+            card.addView(main);main.setOnClickListener(v->{AttentionLearning.record(db,x.id,"opened");derivedDetail(x);});
+            if(focus)card.addView(compactActions(x),new LinearLayout.LayoutParams(-1,dp(38)));
             LinearLayout.LayoutParams cp=new LinearLayout.LayoutParams(-1,-2);if(i>0)cp.setMargins(0,dp(7),0,0);content.addView(card,cp);
         }if(xs.size()>n){TextView more=CortexUi.plain(this,"See "+(xs.size()-n)+" more",9,CortexUi.FAINT);more.setGravity(Gravity.RIGHT);more.setPadding(0,dp(7),dp(3),0);content.addView(more);}
     }
 
-    private String friendlyTiming(PrimeBriefStore.Item x){String band=x.attentionBand==null?"":x.attentionBand.name();if("NOW".equals(band))return"Needs attention now";if("WATCHING".equals(band))return"Watching for a change";if("LATER".equals(band))return"Keep in view";return"Relevant context";}
+    private boolean sameMeaning(String a,String b){String x=a==null?"":a.replaceAll("\\s+"," ").trim().toLowerCase();String y=b==null?"":b.replaceAll("\\s+"," ").trim().toLowerCase();return !x.isEmpty()&&!y.isEmpty()&&(x.equals(y)||y.startsWith(x)||x.startsWith(y));}
+    private String friendlyTiming(PrimeBriefStore.Item x){String band=x.attentionBand==null?"":x.attentionBand.name();if("NOW".equals(band))return"High priority";if("WATCHING".equals(band))return"Watching for a change";if("LATER".equals(band))return"Keep in view";return"Relevant context";}
 
     View compactActions(PrimeBriefStore.Item x){
         LinearLayout row=new LinearLayout(this);row.setGravity(Gravity.CENTER_VERTICAL);row.setPadding(dp(8),0,dp(8),dp(5));TextView why=small("Why",CortexUi.MUTED),done=small("Done",CortexUi.BRAND),snooze=small("Later",CortexUi.MUTED),dismiss=small("Hide",CortexUi.FAINT);
