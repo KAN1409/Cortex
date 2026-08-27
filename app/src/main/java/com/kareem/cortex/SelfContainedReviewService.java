@@ -25,10 +25,12 @@ public final class SelfContainedReviewService extends Service {
 
     private void runOnce(int startId){
         try{
-            progress("[0/5] Reconciling pending shared links");
+            progress("[0/6] Reconciling pending shared links");
             VaultDb linkDb=null;try{linkDb=new VaultDb(this);int n=SharedLinkIntelligence.reprocessPending(this,linkDb,20);progress("Link backfill attempted: "+n);}catch(Throwable t){progress("Link backfill unavailable: "+t.getClass().getSimpleName());}finally{if(linkDb!=null)try{linkDb.close();}catch(Throwable ignored){}}
             java.io.File root=SelfContainedReviewRunner.run(this,this::progress);
-            progress("[5/5] Strict human-product quality gate");JSONObject strict=StrictReviewGate.evaluate(root);boolean allGreen=strict.optBoolean("all_green",false);progress(allGreen?"Strict gate: ALL GREEN":"Strict gate: NOT ALL GREEN — inspect STRICT_REVIEW_GATE.json");
+            progress("[5/6] Strict human-product quality gate");JSONObject strict=StrictReviewGate.evaluate(root);boolean strictGreen=strict.optBoolean("all_green",false);progress(strictGreen?"Strict gate: ALL GREEN":"Strict gate: NOT ALL GREEN — inspect STRICT_REVIEW_GATE.json");
+            progress("[6/6] Donor integration quality gate");JSONObject donor=DonorIntegrationGate.evaluate(this,root);boolean donorGreen=donor.optBoolean("all_green",false);progress(donorGreen?"Donor gate: ALL GREEN":"Donor gate: NOT ALL GREEN — inspect DONOR_INTEGRATION_GATE.json");
+            boolean allGreen=strictGreen&&donorGreen;
             Uri uri=SelfContainedReviewRunner.publishZip(this,root);String path="Downloads/Cortex/"+root.getName()+".zip";String label=allGreen?"DONE — ALL GREEN":"DONE — QUALITY GAPS REMAIN";setState("DONE",label+"\nSaved to "+path+(uri==null?"":"\nMediaStore: "+uri),path);updateNotification(allGreen?"Review complete — all green":"Review complete — quality gaps remain");
         }catch(Throwable t){setState("FAILED","FAILED\n"+t.getClass().getSimpleName()+": "+String.valueOf(t.getMessage()),"");updateNotification("Review failed — open Cortex for details");}
         finally{running=false;try{if(wakeLock!=null&&wakeLock.isHeld())wakeLock.release();}catch(Throwable ignored){}stopForeground(false);stopSelfResult(startId);}
