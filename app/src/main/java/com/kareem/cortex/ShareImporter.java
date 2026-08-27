@@ -21,8 +21,8 @@ public class ShareImporter {
 
     private long saveText(String text,String mime){
         String cat=AutoClassifier.category(text,mime);boolean link=SharedLinkIntelligence.containsUrl(text);String url=SharedLinkIntelligence.firstUrl(text);
-        String title=link?initialLinkTitle(url):AutoClassifier.title(text,mime);String tags=AutoClassifier.tags(text,cat)+(link?",link,shared,web":"");
-        String meta="{}";try{if(link)meta=new JSONObject().put("shared_url",url).put("link_intelligence_pending",true).put("imported_at",System.currentTimeMillis()).toString();}catch(Exception ignored){}
+        String title=link?initialLinkTitle(url):AutoClassifier.title(text,mime);String tags=AutoClassifier.tags(text,cat)+(link?",link,shared,web,pending_content":"");
+        String meta="{}";try{if(link)meta=new JSONObject().put("shared_url",url).put("link_intelligence",true).put("link_content_state","pending_content").put("imported_at",System.currentTimeMillis()).toString();}catch(Exception ignored){}
         long id=existingOrNew(db.insert(link?"LINK":"TEXT","android_share",title,text,link?"Links & Research":cat,tags,"",Fingerprint.text(text),meta));
         if(link&&id>0)SharedLinkIntelligence.enrichAsync(ctx,db,id,text);return id;
     }
