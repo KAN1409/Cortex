@@ -3,19 +3,17 @@ name: Build Cortex APK
 on:
   push:
     branches: [ main ]
-    paths-ignore:
-      - 'downloads/**'
   pull_request:
     branches: [ main ]
   workflow_dispatch:
 
-# Read-only by default. The publish step elevates through the job token only on non-PR runs.
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   build-debug-apk:
     runs-on: ubuntu-latest
+    timeout-minutes: 25
 
     steps:
       - name: Checkout Cortex
@@ -32,8 +30,11 @@ jobs:
         with:
           gradle-version: '8.9'
 
+      - name: Repository regression audit
+        run: bash scripts/cortex-repo-audit.sh "$GITHUB_WORKSPACE"
+
       - name: Compile debug app and instrumentation APKs
-        run: gradle :app:assembleDebug :app:assembleDebugAndroidTest --stacktrace
+        run: gradle :app:assembleDebug :app:assembleDebugAndroidTest --stacktrace --console=plain
 
       - name: Upload debug APK artifact
         uses: actions/upload-artifact@v4
@@ -42,22 +43,12 @@ jobs:
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
 
-      # Keep distribution inside the private repository/GitHub artifact boundary.
-      # Never mirror a private build to an unauthenticated public file host.
-      - name: Publish latest APK into repo
-        if: github.event_name != 'pull_request'
-        shell: bash
-        run: |
-          set -e
-          mkdir -p downloads
-          cp app/build/outputs/apk/debug/app-debug.apk downloads/Cortex-latest-debug.apk
-          sha256sum downloads/Cortex-latest-debug.apk > downloads/Cortex-latest-debug.sha256
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add downloads/Cortex-latest-debug.apk downloads/Cortex-latest-debug.sha256
-          if ! git diff --cached --quiet; then
-            git commit -m "Publish latest Cortex APK [skip ci]"
-            git push
-          else
-            echo "APK unchanged; nothing to publish"
-          fi
+      - name: Upload instrumentation APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Cortex-debug-androidTest
+          path: app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+          if-no-files-found: error
+
+      # Private builds stay inside GitHub's authenticated artifact boundary. Cortex APKs are
+      # not pushed back into git and are never uploaded to anonymous public file hosts.
