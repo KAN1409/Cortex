@@ -26,6 +26,14 @@ public class CognitiveAutoReasoningV4RegressionTest {
         assertTrue(d.shouldRun);assertTrue(d.urgent);assertEquals(1,d.freshCount);assertFalse(d.fingerprint.isEmpty());
     }
 
+    @Test public void farOverdueDeadlineStillReasonsButDoesNotUseUrgentRetryLane(){
+        long now=System.currentTimeMillis();
+        CognitivePulseProjectionV4.Item deadline=item("DEADLINE",.67,now-3L*24L*60L*60L*1000L,true,now);
+        CognitivePulseProjectionV4.Snapshot pulse=new CognitivePulseProjectionV4.Snapshot(Collections.singletonList(deadline),0,1,0,1,0);
+        CognitiveAutoReasoningPolicyV4.Decision d=CognitiveAutoReasoningPolicyV4.evaluate(pulse,now);
+        assertTrue(d.shouldRun);assertFalse(d.urgent);assertEquals("meaningful_fresh_context",d.reason);
+    }
+
     @Test public void unchangedSituationDoesNotSpendCloudReasoning(){
         long now=System.currentTimeMillis();
         CognitivePulseProjectionV4.Item deadline=item("DEADLINE",.90,now+30L*60L*1000L,false,now-1000);
