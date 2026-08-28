@@ -71,6 +71,7 @@ public class CognitiveAutoReasoningV4RegressionTest {
         assertEquals(4096,cfg.getInt("maxOutputTokens"));assertFalse(cfg.has("responseSchema"));assertFalse(cfg.has("responseMimeType"));
         JSONObject text=cfg.getJSONObject("responseFormat").getJSONObject("text");assertEquals("application/json",text.getString("mimeType"));
         JSONObject schema=text.getJSONObject("schema");JSONArray required=schema.getJSONArray("required");assertTrue(required.toString().contains("request_id"));assertTrue(required.toString().contains("priority_items"));assertTrue(required.toString().contains("reasoning_blocks"));
+        JSONObject actionSchema=schema.getJSONObject("properties").getJSONObject("suggested_actions").getJSONObject("items");assertEquals(2,actionSchema.getJSONArray("anyOf").length());
 
         JSONObject ok=new JSONObject();ok.put("request_id","brq_test");ok.put("answer","ok");ok.put("priority_items",new JSONArray());ok.put("priority_updates",new JSONArray());ok.put("suggested_actions",new JSONArray());ok.put("reasoning_blocks",new JSONArray());
         GeminiCognitiveReasoningProviderV4.validateShape(ok);
