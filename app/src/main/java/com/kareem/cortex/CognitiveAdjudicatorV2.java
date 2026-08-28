@@ -53,7 +53,6 @@ public final class CognitiveAdjudicatorV2 {
             if(isHardNoise(db,slot.signalId)){recordSkipped(db,slot,"HARD_NOISE");return;}
             if(!LocalModelManager.installed(app)){recordSkipped(db,slot,"MODEL_NOT_READY");return;}
 
-            LegacyCognitiveSnapshot legacy=LegacyCognitiveSnapshotStore.get(db,slot.signalId);
             LocalQwenBrain brain=new LocalQwenBrain(app);
             long started=System.currentTimeMillis();
             LocalBrainRun run=brain.classifyWithTelemetry(input);
@@ -61,6 +60,9 @@ public final class CognitiveAdjudicatorV2 {
 
             if(!isCurrent(slot)){recordSuperseded(db,slot,run,latency);return;}
 
+            // Read legacy authority after local inference. If the legacy adjudicator owned the
+            // shared model lock first, its applied result is now visible instead of a stale baseline.
+            LegacyCognitiveSnapshot legacy=LegacyCognitiveSnapshotStore.get(db,slot.signalId);
             JSONObject telemetry=CognitiveShadowComparator.compare(slot.signalId,legacy,run.result);
             telemetry.put("policy",POLICY);
             telemetry.put("generation",slot.generation);
