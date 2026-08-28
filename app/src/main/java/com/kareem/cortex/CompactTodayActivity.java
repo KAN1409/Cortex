@@ -52,15 +52,31 @@ public final class CompactTodayActivity extends CortexOrbBriefActivity {
         if(loadingView!=null){content.removeView(loadingView);loadingView=null;}
         while(content.getChildCount()>2)content.removeViewAt(2);
         collectAudio(s);
-        if(!s.actions.isEmpty())derivedSection("NEEDS YOU NOW",CortexUi.BRAND,s.actions,"action",3);
-        if(!s.waiting.isEmpty())derivedSection("WAITING ON",CortexUi.AURORA,s.waiting,"waiting",3);
-        if(!s.decisions.isEmpty())derivedSection("DECISIONS TO MOVE",CortexUi.BRAND,s.decisions,"decision",2);
-        if(!s.changes.isEmpty())derivedSection("CHANGED RECENTLY",CortexUi.BLUE,s.changes,"change",3);
-        if(!s.worthKnowing.isEmpty())derivedSection("WORTH KNOWING",CortexUi.MUTED,s.worthKnowing,"info",3);
+        renderCognitivePulseV4();
+        // Legacy attention sections stay below temporarily as a side-by-side validation surface.
+        // Once V4 Situation/Pulse quality passes real-device gates, this block can be cut over.
+        if(!s.actions.isEmpty())derivedSection("LEGACY · NEEDS YOU NOW",CortexUi.BRAND,s.actions,"action",3);
+        if(!s.waiting.isEmpty())derivedSection("LEGACY · WAITING ON",CortexUi.AURORA,s.waiting,"waiting",3);
+        if(!s.decisions.isEmpty())derivedSection("LEGACY · DECISIONS TO MOVE",CortexUi.BRAND,s.decisions,"decision",2);
+        if(!s.changes.isEmpty())derivedSection("LEGACY · CHANGED RECENTLY",CortexUi.BLUE,s.changes,"change",3);
+        if(!s.worthKnowing.isEmpty())derivedSection("LEGACY · WORTH KNOWING",CortexUi.MUTED,s.worthKnowing,"info",3);
         if(!s.reviews.isEmpty())reviewRow(s.reviews.size());
         if(!audioItems.isEmpty()){sectionTitle("RECENT CONTEXT",CortexUi.MUTED);content.addView(audioCard(s),margins(0,0,0,0));}
-        if(s.attentionEmpty()){LinearLayout e=CortexUi.card(this,16);e.setPadding(dp(16),dp(17),dp(16),dp(17));TextView h=CortexUi.plain(this,"Clear horizon",18,CortexUi.TEXT);CortexUi.medium(h);e.addView(h);TextView b=CortexUi.text(this,"Nothing deserves your attention right now. Cortex will interrupt this calm only when the evidence is strong enough.",12,CortexUi.MUTED);b.setPadding(0,dp(5),0,0);e.addView(b);content.addView(e,margins(0,dp(10),0,0));}
+        if(s.attentionEmpty()&&CognitivePulseProjectionV4.current(db,1).empty()){LinearLayout e=CortexUi.card(this,16);e.setPadding(dp(16),dp(17),dp(16),dp(17));TextView h=CortexUi.plain(this,"Clear horizon",18,CortexUi.TEXT);CortexUi.medium(h);e.addView(h);TextView b=CortexUi.text(this,"Nothing deserves your attention right now. Cortex will interrupt this calm only when the evidence is strong enough.",12,CortexUi.MUTED);b.setPadding(0,dp(5),0,0);e.addView(b);content.addView(e,margins(0,dp(10),0,0));}
         content.addView(promptDock(),margins(0,dp(14),0,dp(6)));
+    }
+
+    private void renderCognitivePulseV4(){
+        CognitivePulseProjectionV4.Snapshot pulse;try{pulse=CognitivePulseProjectionV4.current(db,6);}catch(Throwable e){return;}if(pulse==null||pulse.empty())return;
+        LinearLayout heading=new LinearLayout(this);heading.setGravity(Gravity.CENTER_VERTICAL);heading.setPadding(dp(1),dp(17),0,dp(7));TextView h=CortexUi.plain(this,"PULSE · CANONICAL",10,CortexUi.BRAND);CortexUi.medium(h);if(android.os.Build.VERSION.SDK_INT>=21)h.setLetterSpacing(.10f);heading.addView(h,new LinearLayout.LayoutParams(0,-2,1));String badge=pulse.deepBrainRanked>0?pulse.deepBrainRanked+" ChatGPT-ranked":"Local detection";TextView b=CortexUi.chip(this,badge,pulse.deepBrainRanked>0?CortexUi.BRAND:CortexUi.MUTED,false);heading.addView(b,new LinearLayout.LayoutParams(-2,dp(27)));content.addView(heading);
+        int n=Math.min(4,pulse.items.size());for(int i=0;i<n;i++){CognitivePulseProjectionV4.Item x=pulse.items.get(i);LinearLayout card=CortexUi.card(this,16);card.setOrientation(LinearLayout.VERTICAL);card.setPadding(dp(13),dp(12),dp(13),dp(11));
+            LinearLayout top=new LinearLayout(this);top.setGravity(Gravity.CENTER_VERTICAL);String prefix=x.deepBrainRanked()?"#"+x.deepBrainRank+"  ":"";TextView title=CortexUi.text(this,prefix+clipLocal(x.headline,120),i==0?17:15,CortexUi.TEXT);CortexUi.medium(title);title.setMaxLines(3);top.addView(title,new LinearLayout.LayoutParams(0,-2,1));TextView origin=CortexUi.chip(this,x.deepBrainRanked()?"ChatGPT":"Local",x.deepBrainRanked()?CortexUi.BRAND:CortexUi.MUTED,false);top.addView(origin,new LinearLayout.LayoutParams(-2,dp(26)));card.addView(top);
+            String why=!x.deepBrainReason.trim().isEmpty()?x.deepBrainReason:x.explanation;if(!why.trim().isEmpty()){TextView reason=CortexUi.text(this,clipLocal(why,260),11,CortexUi.MUTED);reason.setPadding(0,dp(6),0,0);reason.setMaxLines(4);card.addView(reason);}
+            TextView meta=CortexUi.plain(this,x.kind.replace('_',' ')+" · "+x.state+" · "+Math.round(x.attentionScore*100)+"% attention",9,x.deepBrainRanked()?CortexUi.BRAND:CortexUi.MUTED);meta.setPadding(0,dp(7),0,0);card.addView(meta);
+            if(!x.actions.trim().isEmpty()){TextView action=CortexUi.text(this,"Suggested: "+clipLocal(x.actions,180),10,CortexUi.TEXT);action.setPadding(0,dp(7),0,0);action.setMaxLines(2);card.addView(action);}
+            LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,-2);if(i>0)p.setMargins(0,dp(7),0,0);content.addView(card,p);
+        }
+        TextView refresh=CortexUi.action(this,"Refresh priorities with ChatGPT",CortexUi.BRAND,false);refresh.setOnClickListener(v->{try{startActivity(new Intent(this,DeepBrainActivity.class));}catch(Throwable ignored){}});LinearLayout.LayoutParams rp=new LinearLayout.LayoutParams(-1,dp(44));rp.setMargins(0,dp(9),0,0);content.addView(refresh,rp);
     }
 
     @Override View signalCard(PrimeBriefStore.Snapshot s){View v=new View(this);v.setVisibility(View.GONE);return v;}
