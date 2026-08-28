@@ -51,6 +51,17 @@ public class CognitiveDeepBrainV4RegressionTest {
         }finally{db.close();}
     }
 
+    @Test public void terminalSituationCannotBeReopenedOrReceiveModelActionEvenIfRequestStillListsIt() {
+        SQLiteDatabase db=SQLiteDatabase.create(null);try{
+            seed(db,"brq_terminal_guard");
+            ContentValues terminal=new ContentValues();terminal.put("state","RESOLVED");assertEquals(1,db.update("v4_situations",terminal,"id='si_allowed'",null));
+            String raw="CORTEX_RESPONSE_V1\n{\"request_id\":\"brq_terminal_guard\",\"priority_updates\":[{\"situation_id\":\"si_allowed\",\"attention_score\":0.99,\"state\":\"SURFACED\"}],\"suggested_actions\":[{\"situation_id\":\"si_allowed\",\"type\":\"SEND\",\"label\":\"Send obsolete reply\"}]}";
+            CognitiveDeepBrainApplyV4.Result r=CognitiveDeepBrainApplyV4.apply(db,CognitiveDeepBrainProtocolV4.parseResponse(raw));
+            assertEquals(0,r.priorityUpdatesApplied);assertEquals(0,r.actionsCreated);assertTrue(r.skipped>=2);
+            Cursor c=db.rawQuery("SELECT state,attention_score FROM v4_situations WHERE id='si_allowed'",null);assertTrue(c.moveToFirst());assertEquals("RESOLVED",c.getString(0));assertEquals(.2,c.getDouble(1),.0001);c.close();
+        }finally{db.close();}
+    }
+
     @Test public void applyDoesNotRewriteEvidenceOrFactsAndReplayIsIdempotent() {
         SQLiteDatabase db=SQLiteDatabase.create(null);try{
             seed(db,"brq_replay");int evidenceBefore=count(db,"v4_evidence"),factsBefore=count(db,"v4_facts");
