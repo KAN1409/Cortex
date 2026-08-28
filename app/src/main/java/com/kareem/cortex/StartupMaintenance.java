@@ -16,6 +16,7 @@ public final class StartupMaintenance {
         Context app=context.getApplicationContext();
         PhoneContextScheduler.schedule(app);
         AttentionAiScheduler.kick(app);
+        CognitiveMemoryBackfillSchedulerV4.schedule(app);
         new Handler(Looper.getMainLooper()).postDelayed(()->{
             Thread t=new Thread(()->run(app),"cortex-maintenance");
             t.setPriority(Thread.NORM_PRIORITY-1);
