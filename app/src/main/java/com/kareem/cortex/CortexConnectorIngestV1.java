@@ -63,13 +63,21 @@ public final class CortexConnectorIngestV1 {
 
         long itemId = RawSignalStore.promotedItemId(db, signalId);
         long threadId = RawSignalStore.threadId(db, signalId);
+        // Critical dedupe case: the native listener may have created the canonical Raw Signal first
+        // with only a short preview, while Second Brain later supplies expanded text containing the
+        // actual request/deadline. Re-run the same relevance boundary against the trusted additive
+        // enrichment instead of letting exact-notification dedupe accidentally discard semantics.
+        if (itemId <= 0) {
+            try { itemId = RawSignalStore.promoteTrustedEnrichment(db, signalId, threadId, signal); }
+            catch (Throwable ignored) {}
+        }
         try { NotificationEnrichmentEngine.enrich(db, signalId, itemId, threadId, signal); } catch (Throwable ignored) {}
         try { if (threadId > 0) ThreadModelAdjudicator.enqueue(context, threadId, signalId); } catch (Throwable ignored) {}
         try { if (itemId > 0) AnalysisQueue.kick(context, null, null); } catch (Throwable ignored) {}
 
         // A meaningful connector event should become visible to canonical Memory/Situations without
-        // waiting for the next bounded startup/backfill batch. This worker still respects the legacy
-        // relevance governor: context-only notifications are never promoted by this bridge.
+        // waiting for the next bounded startup/backfill batch. Context-only notifications still stop
+        // at Evidence because promoteTrustedEnrichment uses the same relevance governor.
         if (itemId > 0) CognitiveRealtimeProjectionV4.schedule(context, signalId);
         return new Result(signalId, "ACCEPTED");
     }
