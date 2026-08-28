@@ -26,6 +26,10 @@ public final class CognitiveSignalV2 {
         } catch (Throwable ignored) {}
 
         if (isSystemSource(source) || category.contains("sys")) return SignalFamily.SYSTEM;
+        // Provider family is also a privacy/routing hint inside Cortex: likely authenticator/security
+        // and banking/wallet apps stay local even when the individual notification text is vague.
+        if (has(source, "authenticator", "authy", "1password", "bitwarden", "password")) return SignalFamily.SECURITY;
+        if (has(source, "bank", "wallet", "paymob", "instapay", "paypal", "venmo", "cashapp")) return SignalFamily.TRANSACTION;
         if (has(text, "security alert", "new sign-in", "new login", "unusual activity", "password changed", "تسجيل دخول جديد", "تنبيه امان")) return SignalFamily.SECURITY;
         if (has(text, "payment", "transaction", "purchase", "card charged", "transfer", "تم خصم", "عمليه شراء", "تحويل بنكي")) return SignalFamily.TRANSACTION;
         if (has(text, "delivery", "delivered", "out for delivery", "ready for pickup", "arriving", "تم التوصيل", "خرج للتوصيل", "جاهز للاستلام")) return SignalFamily.DELIVERY;
