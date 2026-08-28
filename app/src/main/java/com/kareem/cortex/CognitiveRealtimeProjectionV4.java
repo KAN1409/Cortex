@@ -78,12 +78,12 @@ public final class CognitiveRealtimeProjectionV4 {
     }
 
     /**
-     * Only a newly-created canonical Situation should wake the autonomous cloud brain. The detector
-     * also returns IDs for already-existing candidates; treating those as fresh would schedule a
-     * WorkManager pass for unrelated notifications whenever any old Situation existed in lookback.
+     * Wake autonomous reasoning only for a material canonical Situation change: a newly-created
+     * Situation or an existing one whose evidence-derived timing was enriched/corrected. The engine
+     * also returns IDs for unchanged old candidates, which must not spend cloud work.
      */
     static boolean shouldScheduleReasoning(CognitiveSituationEngineV4.Result result){
-        return result!=null&&result.situationsDetected>0;
+        return result!=null&&result.materialChanges()>0;
     }
 
     /** Prefer trusted connector enrichment when it contains at least as much usable context. */
