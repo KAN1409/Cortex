@@ -5,7 +5,7 @@ import android.database.Cursor;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
-/** Maps trusted local connector payloads into the same RawSignal -> V4 Evidence path Cortex already uses. */
+/** Maps trusted Relay payloads into Cortex Evidence, then Cortex alone decides cognition. */
 public final class CortexConnectorIngestV1 {
     private CortexConnectorIngestV1() {}
 
@@ -57,28 +57,25 @@ public final class CortexConnectorIngestV1 {
         long signalId = NotificationSignalIngressV1.capture(db, signal);
         if (signalId <= 0) return new Result(signalId, "RAW_CAPTURE_FAILED");
 
-        // Connector payload may be richer than Cortex's native listener even when both sensors saw
-        // the same physical notification. Preserve that extra structure additively on Evidence.
+        // Relay is evidence only. Preserve richer payload additively, then explicitly re-adjudicate
+        // the same physical notification if native capture had already produced a shorter revision.
         appendConnectorEnrichment(db, signalId, identity, event, body);
+        RawSignalStore.markTrustedEnrichmentPending(db, signalId, signal);
 
         long itemId = RawSignalStore.promotedItemId(db, signalId);
         long threadId = RawSignalStore.threadId(db, signalId);
-        // Critical dedupe case: the native listener may have created the canonical Raw Signal first
-        // with only a short preview, while Second Brain later supplies expanded text containing the
-        // actual request/deadline. Re-run the same relevance boundary against the trusted additive
-        // enrichment instead of letting exact-notification dedupe accidentally discard semantics.
-        if (itemId <= 0) {
-            try { itemId = RawSignalStore.promoteTrustedEnrichment(db, signalId, threadId, signal); }
-            catch (Throwable ignored) {}
-        }
         try { NotificationEnrichmentEngine.enrich(db, signalId, itemId, threadId, signal); } catch (Throwable ignored) {}
-        try { if (threadId > 0) ThreadModelAdjudicator.enqueue(context, threadId, signalId); } catch (Throwable ignored) {}
-        try { if (itemId > 0) AnalysisQueue.kick(context, null, null); } catch (Throwable ignored) {}
 
-        // A meaningful connector event should become visible to canonical Memory/Situations without
-        // waiting for the next bounded startup/backfill batch. Context-only notifications still stop
-        // at Evidence because promoteTrustedEnrichment uses the same relevance governor.
-        if (itemId > 0) CognitiveRealtimeProjectionV4.schedule(context, signalId);
+        if (CognitiveSignalV2.CognitiveState.PENDING_ADJUDICATION.name().equals(RawSignalStore.cognitiveState(db, signalId))) {
+            try { CognitiveAdjudicatorV2.enqueue(context, threadId, signalId); } catch (Throwable ignored) {}
+        }
+
+        // Existing legacy memory may remain as historical evidence, but a pending richer Relay
+        // revision is not projected again until V2 validates the new semantic result.
+        if (itemId > 0 && !CognitiveSignalV2.CognitiveState.PENDING_ADJUDICATION.name().equals(RawSignalStore.cognitiveState(db, signalId))) {
+            try { AnalysisQueue.kick(context, null, null); } catch (Throwable ignored) {}
+            try { CognitiveRealtimeProjectionV4.schedule(context, signalId); } catch (Throwable ignored) {}
+        }
         return new Result(signalId, "ACCEPTED");
     }
 
