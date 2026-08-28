@@ -31,6 +31,11 @@ public final class StartupMaintenance {
             // V4 schema creation is a startup invariant and must not depend on WorkManager constraints.
             CognitiveStoreV4.ensure(db);
 
+            // A recent Second Brain event may already have been accepted by an older Cortex build
+            // before trusted enrichment could promote the deduped Raw Signal. Revisit only those
+            // already-stored, recent, unpromoted connector events; Evidence itself stays immutable.
+            try{CognitiveConnectorEnrichmentRescueV4.run(db);}catch(Throwable ignored){}
+
             // Stage E is product-critical and must not be skipped because an unrelated legacy
             // maintenance task throws. Run it as soon as canonical V4 storage is available.
             try{
