@@ -57,7 +57,6 @@
         <activity android:name=".BrainActivity" android:exported="false" />
         <activity android:name=".OpenRouterSettingsActivity" android:exported="false" android:label="Cortex OpenRouter Setup" />
         <activity android:name=".GeminiSettingsActivity" android:exported="false" android:label="Cortex Gemini Setup" />
-        <activity android:name=".MainActivity" android:exported="false" />
         <activity android:name=".SelfContainedReviewActivity" android:exported="false" android:label="Cortex Phone-Only Review" />
         <activity android:name=".StableSelfContainedReviewActivity" android:exported="true" android:label="Cortex Phone-Only Review"><intent-filter><action android:name="android.intent.action.VIEW" /><category android:name="android.intent.category.DEFAULT" /><category android:name="android.intent.category.BROWSABLE" /><data android:scheme="cortex" android:host="self-test" /></intent-filter></activity>
 
@@ -66,7 +65,7 @@
         <service android:name=".CortexRecordService" android:exported="false" android:foregroundServiceType="microphone" />
         <service android:name=".NotificationCaptureService" android:label="Cortex Notification Memory" android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE" android:exported="true"><intent-filter><action android:name="android.service.notification.NotificationListenerService" /></intent-filter></service>
         <service android:name=".CortexQuickTileService" android:label="Cortex Voice" android:permission="android.permission.BIND_QUICK_SETTINGS_TILE" android:exported="true"><intent-filter><action android:name="android.service.quicksettings.action.QS_TILE" /></intent-filter></service>
-        <service android:name=".UnderstandScreenTileService" android:label="Understand screen" android:permission="android.permission.BIND_QUICK_SETTINGS_TILE" android:exported="true"><intent-filter><action android:name="android.service.quicksettings.action.QS_TILE" /></intent-filter></service>
+        <service android:name=".UnderstandScreenTileService" android:label="Understand screen" android:permission="android.permission.BIND_QUICK_SETTINGS_TILE" android:exported="true"><intent-filter><action android:name="android.service.quicksettings.action.QS_TILE" /></intent-filter><meta-data android:name="android.accessibilityservice" android:resource="@xml/cortex_screen_accessibility" /></service>
         <service android:name=".CortexScreenAccessibilityService" android:label="Cortex Screen Understanding" android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE" android:exported="true"><intent-filter><action android:name="android.accessibilityservice.AccessibilityService" /></intent-filter><meta-data android:name="android.accessibilityservice" android:resource="@xml/cortex_screen_accessibility" /></service>
         <receiver android:name=".CortexRecordWidget" android:exported="true" android:label="Cortex Voice"><intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter><meta-data android:name="android.appwidget.provider" android:resource="@xml/cortex_record_widget_info" /></receiver>
     </application>
