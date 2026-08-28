@@ -64,11 +64,11 @@ public final class AnalysisQueue {
 
             try{
                 if("FILE".equals(item.type)){
-                    finish(db,item,AttachmentAnalyzer.analyze(item),changed);
+                    finish(ctx,db,item,AttachmentAnalyzer.analyze(item),changed);
                 }else{
                     AnalysisResult r=LocalAnalyzer.analyze(item.rawText,"text/plain");
                     guardPassiveSources(db,item,r);
-                    db.applyAnalysis(item.id,r);post(db,item,r);notifyChanged(changed);
+                    db.applyAnalysis(item.id,r);post(ctx,db,item,r);notifyChanged(changed);
                 }
             }catch(Throwable e){safeFail(db,item.id,e,changed);}
             // Continue in the loop: no recursive next() calls, regardless of backlog size.
@@ -83,7 +83,7 @@ public final class AnalysisQueue {
         },OCR_TIMEOUT_SEC,TimeUnit.SECONDS);
         try{
             OcrAnalyzer.analyze(ctx,item,new OcrAnalyzer.Callback(){
-                public void ok(AnalysisResult r){if(!settled.compareAndSet(false,true))return;timeout.cancel(false);WORKER.execute(()->{try{finish(db,item,r,changed);}catch(Throwable e){safeFail(db,item.id,e,changed);}drain(ctx,db,changed);});}
+                public void ok(AnalysisResult r){if(!settled.compareAndSet(false,true))return;timeout.cancel(false);WORKER.execute(()->{try{finish(ctx,db,item,r,changed);}catch(Throwable e){safeFail(db,item.id,e,changed);}drain(ctx,db,changed);});}
                 public void fail(Exception e){if(!settled.compareAndSet(false,true))return;timeout.cancel(false);WORKER.execute(()->{safeFail(db,item.id,e,changed);drain(ctx,db,changed);});}
             });
         }catch(Throwable e){
@@ -99,7 +99,7 @@ public final class AnalysisQueue {
         },AUDIO_TIMEOUT_SEC,TimeUnit.SECONDS);
         try{
             AudioAnalyzer.analyze(ctx,item,new AudioAnalyzer.Callback(){
-                public void ok(AnalysisResult r){if(!settled.compareAndSet(false,true))return;timeout.cancel(false);WORKER.execute(()->{try{db.applyAnalysis(item.id,r);AudioStore.save(db,item.id,r);post(db,item,r);notifyChanged(changed);}catch(Throwable e){safeFail(db,item.id,e,changed);}drain(ctx,db,changed);});}
+                public void ok(AnalysisResult r){if(!settled.compareAndSet(false,true))return;timeout.cancel(false);WORKER.execute(()->{try{db.applyAnalysis(item.id,r);AudioStore.save(db,item.id,r);post(ctx,db,item,r);notifyChanged(changed);}catch(Throwable e){safeFail(db,item.id,e,changed);}drain(ctx,db,changed);});}
                 public void fail(Exception e){if(!settled.compareAndSet(false,true))return;timeout.cancel(false);WORKER.execute(()->{safeFail(db,item.id,e,changed);drain(ctx,db,changed);});}
             });
         }catch(Throwable e){
@@ -115,8 +115,8 @@ public final class AnalysisQueue {
         }
     }
 
-    private static void finish(VaultDb db,KnowledgeItem item,AnalysisResult r,Runnable changed){db.applyAnalysis(item.id,r);post(db,item,r);notifyChanged(changed);}
-    private static void post(VaultDb db,KnowledgeItem item,AnalysisResult r){try{TemporalResolver.afterAnalysis(db,item.id);}catch(Throwable ignored){}try{CoreBrainEngine.afterAnalysis(db,item.id);}catch(Throwable ignored){}try{IntentionalCognitiveBridge.afterAnalysis(db,item,r);}catch(Throwable ignored){}}
+    private static void finish(Context ctx,VaultDb db,KnowledgeItem item,AnalysisResult r,Runnable changed){db.applyAnalysis(item.id,r);post(ctx,db,item,r);notifyChanged(changed);}
+    private static void post(Context ctx,VaultDb db,KnowledgeItem item,AnalysisResult r){try{TemporalResolver.afterAnalysis(db,item.id);}catch(Throwable ignored){}try{CoreBrainEngine.afterAnalysis(db,item.id);}catch(Throwable ignored){}try{IntentionalCognitiveBridge.afterAnalysis(ctx,db,item,r);}catch(Throwable ignored){}}
 
     private static void safeFail(VaultDb db,long id,Throwable e,Runnable changed){
         try{
