@@ -5,7 +5,6 @@ import static org.junit.Assert.*;
 import android.content.ContentValues;
 import android.database.sqlite.SQLiteDatabase;
 import androidx.test.ext.junit.runners.AndroidJUnit4;
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import org.junit.Test;
@@ -14,12 +13,13 @@ import org.junit.runner.RunWith;
 @RunWith(AndroidJUnit4.class)
 public class CognitiveWorldsV4RegressionTest {
 
-    @Test public void structuredEvidenceCreatesGroundedPersonCandidate() {
+    @Test public void migratedStructuredEvidenceCreatesGroundedPersonCandidate() {
         SQLiteDatabase db = SQLiteDatabase.create(null);
         try {
             CognitiveSchemaV4.ensure(db);
             long now = System.currentTimeMillis();
-            seedMemory(db, "ev_person", "mem_person", "hello", "{\"sender_name\":\"Mona\",\"contact_id\":\"contact-42\"}", now);
+            seedMemory(db, "ev_person", "mem_person", "hello",
+                    "{\"migrated_from\":\"raw_signals\",\"legacy_metadata\":{\"sender_name\":\"Mona\",\"contact_id\":\"contact-42\"}}", now);
             List<CognitiveWorldResolverV4.Candidate> xs = CognitiveWorldCandidateExtractorV4.fromMemory(db, "mem_person");
             assertEquals(1, xs.size());
             CognitiveWorldResolverV4.Candidate c = xs.get(0);
