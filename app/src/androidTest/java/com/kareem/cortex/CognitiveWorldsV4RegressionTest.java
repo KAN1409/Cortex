@@ -67,6 +67,54 @@ public class CognitiveWorldsV4RegressionTest {
         assertTrue(match.canAutoMerge());
     }
 
+    @Test public void dryRunIsReadOnlyAndSeparatesDurableFromWeakCandidates() {
+        SQLiteDatabase db = SQLiteDatabase.create(null);
+        try {
+            CognitiveSchemaV4.ensure(db);
+            long now = System.currentTimeMillis();
+            seedMemory(db, "ev_person", "mem_person", "hello",
+                    "{\"sender_name\":\"Mona\",\"contact_id\":\"contact-42\"}", now);
+            seedMemory(db, "ev_topic", "mem_topic", "camera research",
+                    "{\"topic\":\"Mirrorless Cameras\"}", now + 1);
+
+            assertEquals(0, count(db, "v4_worlds"));
+            assertEquals(0, count(db, "v4_relations"));
+            assertEquals(0, count(db, "v4_world_identity_claims"));
+
+            CognitiveWorldDryRunV4.Report report = CognitiveWorldDryRunV4.evaluate(db);
+            assertEquals(2, report.memoriesScanned);
+            assertEquals(2, report.memoriesWithCandidates);
+            assertEquals(2, report.totalCandidates);
+            assertEquals(1, report.durableIdentityCandidates);
+            assertEquals(1, report.weakOnlyCandidates);
+            assertEquals(Integer.valueOf(1), report.byType.get(CognitiveDomainV4.WorldTypeHint.PERSON));
+            assertEquals(Integer.valueOf(1), report.byType.get(CognitiveDomainV4.WorldTypeHint.TOPIC));
+
+            assertEquals(0, count(db, "v4_worlds"));
+            assertEquals(0, count(db, "v4_relations"));
+            assertEquals(0, count(db, "v4_world_identity_claims"));
+        } finally { db.close(); }
+    }
+
+    @Test public void dryRunFlagsSameNameCollisionsWithoutCollapsingIdentity() {
+        SQLiteDatabase db = SQLiteDatabase.create(null);
+        try {
+            CognitiveSchemaV4.ensure(db);
+            long now = System.currentTimeMillis();
+            seedMemory(db, "ev_a", "mem_a", "first Ahmed",
+                    "{\"sender_name\":\"Ahmed\",\"contact_id\":\"contact-a\"}", now);
+            seedMemory(db, "ev_b", "mem_b", "second Ahmed",
+                    "{\"sender_name\":\"Ahmed\",\"contact_id\":\"contact-b\"}", now + 1);
+
+            CognitiveWorldDryRunV4.Report report = CognitiveWorldDryRunV4.evaluate(db);
+            assertEquals(2, report.totalCandidates);
+            assertEquals(2, report.durableIdentityCandidates);
+            assertEquals(1, report.sameNameCollisionGroups);
+            assertEquals(2, report.sameNameCollisionCandidates);
+            assertEquals(0, count(db, "v4_worlds"));
+        } finally { db.close(); }
+    }
+
     @Test public void projectionShowsCanonicalActiveWorldAndGroundedCountsOnly() {
         SQLiteDatabase db = SQLiteDatabase.create(null);
         try {
@@ -105,6 +153,12 @@ public class CognitiveWorldsV4RegressionTest {
             assertEquals(0, CognitiveWorldProjectionV4.query(db,
                     new CognitiveWorldProjectionV4.Query("_", null, 20)).size());
         } finally { db.close(); }
+    }
+
+    private static int count(SQLiteDatabase db, String table) {
+        android.database.Cursor c = db.rawQuery("SELECT COUNT(*) FROM " + table, null);
+        try { return c.moveToFirst() ? c.getInt(0) : 0; }
+        finally { c.close(); }
     }
 
     private static void seedMemory(SQLiteDatabase db, String evidenceId, String memoryId, String text, String metadata, long now) {
