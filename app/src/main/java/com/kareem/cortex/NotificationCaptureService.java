@@ -19,7 +19,7 @@ public class NotificationCaptureService extends NotificationListenerService {
             db=new VaultDb(this);PhoneContextStore.ensure(db);PhoneContextStore.record(db,"notification_context","notification_listener",pkg,label(pkg),normalized.personHint,"notification_"+captureMode,body,sbn.getPostTime(),meta);
             if(body.isEmpty())return;
             MasterRelevanceFilter.Signal signal=new MasterRelevanceFilter.Signal("notification",pkg,title,body,meta.toString(),sbn.getPostTime(),ongoing);
-            long signalId=RawSignalStore.capture(db,signal),itemId=signalId>0?RawSignalStore.promotedItemId(db,signalId):0,threadId=signalId>0?RawSignalStore.threadId(db,signalId):0;
+            long signalId=NotificationSignalIngressV1.capture(db,signal),itemId=signalId>0?RawSignalStore.promotedItemId(db,signalId):0,threadId=signalId>0?RawSignalStore.threadId(db,signalId):0;
             if(signalId>0){
                 NotificationEnrichmentEngine.enrich(db,signalId,itemId,threadId,signal);
                 long personEntityId=CanonicalPersonResolver.resolveSignal(db,signalId,normalized,meta);
