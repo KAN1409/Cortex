@@ -14,6 +14,7 @@ public final class CognitiveStore {
      */
     public static void ensure(VaultDb db){
         CognitiveSchema.ensure(db.getWritableDatabase());
+        CognitiveStateBackfillV2.ensure(db.getWritableDatabase());
         CognitiveSchemaV4.ensure(db.getWritableDatabase());
     }
 
