@@ -43,16 +43,23 @@ public final class CognitiveWorldCandidateExtractorV4 {
         JSONObject source = object(legacy, "source_metadata");
         if (source.length() == 0) source = object(root, "source_metadata");
 
-        String personName = first(root, legacy, source, "person_name", "participant_name", "sender_name", "contact_name");
+        boolean groupConversation = firstBoolean(root, legacy, source, "group_conversation", "is_group_conversation");
+        String participantName = first(root, legacy, source, "participant_name", "sender_name", "person_name", "contact_name");
+        String personHint = first(root, legacy, source, "person_hint");
+        String personName = !participantName.isEmpty() ? participantName : (groupConversation ? "" : personHint);
         String contactId = first(root, legacy, source, "contact_id");
         String phone = first(root, legacy, source, "phone_e164", "phone");
         String accountId = first(root, legacy, source, "account_id", "sender_id", "participant_id");
+        String participantKey = first(root, legacy, source, "participant_key", "sender_key");
+        String participantUri = first(root, legacy, source, "participant_uri", "sender_uri");
         if (!personName.isEmpty()) {
             ArrayList<CognitiveIdentityV4.IdentityClaim> claims = new ArrayList<>();
             claims.add(claim(CognitiveIdentityV4.ClaimType.EXACT_NAME, personName, CognitiveIdentityV4.ClaimStrength.WEAK, evidenceId));
             if (!contactId.isEmpty()) claims.add(claim(CognitiveIdentityV4.ClaimType.CONTACT_ID, contactId, CognitiveIdentityV4.ClaimStrength.STRONG, evidenceId));
             if (!phone.isEmpty()) claims.add(claim(CognitiveIdentityV4.ClaimType.PHONE_E164, phone, CognitiveIdentityV4.ClaimStrength.STRONG, evidenceId));
-            if (!accountId.isEmpty()) claims.add(claim(CognitiveIdentityV4.ClaimType.ACCOUNT_ID, accountId, CognitiveIdentityV4.ClaimStrength.STRONG, evidenceId));
+            if (!accountId.isEmpty()) claims.add(claim(CognitiveIdentityV4.ClaimType.ACCOUNT_ID, scoped(sourcePackage, accountId), CognitiveIdentityV4.ClaimStrength.STRONG, evidenceId));
+            if (!participantKey.isEmpty()) claims.add(claim(CognitiveIdentityV4.ClaimType.ACCOUNT_ID, scoped(sourcePackage, "key:" + participantKey), CognitiveIdentityV4.ClaimStrength.STRONG, evidenceId));
+            if (!participantUri.isEmpty()) claims.add(claim(CognitiveIdentityV4.ClaimType.ACCOUNT_ID, scoped(sourcePackage, "uri:" + participantUri), CognitiveIdentityV4.ClaimStrength.STRONG, evidenceId));
             out.add(candidate(personName, CognitiveDomainV4.WorldTypeHint.PERSON, claims, memoryId, evidenceId, at));
         }
 
@@ -72,9 +79,6 @@ public final class CognitiveWorldCandidateExtractorV4 {
             ArrayList<CognitiveIdentityV4.IdentityClaim> claims = new ArrayList<>();
             claims.add(claim(CognitiveIdentityV4.ClaimType.EXACT_NAME, organization, CognitiveIdentityV4.ClaimStrength.WEAK, evidenceId));
             if (!domain.isEmpty()) claims.add(claim(CognitiveIdentityV4.ClaimType.DOMAIN, domain, CognitiveIdentityV4.ClaimStrength.MEDIUM, evidenceId));
-            // sourcePackage is the app that captured/carried the Evidence (for example WhatsApp), not
-            // necessarily the organization's own package. Only an explicit organization_package may
-            // become a durable PACKAGE_NAME identity claim.
             if (!organizationPackage.isEmpty()) claims.add(claim(CognitiveIdentityV4.ClaimType.PACKAGE_NAME, organizationPackage, CognitiveIdentityV4.ClaimStrength.STRONG, evidenceId));
             out.add(candidate(organization, CognitiveDomainV4.WorldTypeHint.ORGANIZATION, claims, memoryId, evidenceId, at));
         }
@@ -108,6 +112,11 @@ public final class CognitiveWorldCandidateExtractorV4 {
         return new CognitiveIdentityV4.IdentityClaim(type, value, strength, false, evidenceId);
     }
 
+    private static String scoped(String sourcePackage, String value) {
+        String source = sourcePackage == null ? "" : sourcePackage.trim();
+        return (source.isEmpty() ? "unknown-source" : source) + "|" + value.trim();
+    }
+
     private static JSONObject json(String raw) {
         try { return raw == null || raw.trim().isEmpty() ? new JSONObject() : new JSONObject(raw); }
         catch (Throwable ignored) { return new JSONObject(); }
@@ -129,5 +138,16 @@ public final class CognitiveWorldCandidateExtractorV4 {
             }
         }
         return "";
+    }
+
+    private static boolean firstBoolean(JSONObject a, JSONObject b, JSONObject c, String... keys) {
+        JSONObject[] sources = new JSONObject[]{a, b, c};
+        for (String key : keys) {
+            for (JSONObject source : sources) {
+                if (source == null || !source.has(key)) continue;
+                return source.optBoolean(key, false);
+            }
+        }
+        return false;
     }
 }
