@@ -8,7 +8,14 @@ import android.database.sqlite.SQLiteDatabase;
 public final class CognitiveStore {
     private CognitiveStore(){}
 
-    public static void ensure(VaultDb db){CognitiveSchema.ensure(db.getWritableDatabase());}
+    /**
+     * Keep the legacy cognitive schema operational while also materializing the additive V4
+     * canonical tables. No existing write/read path is redirected by this bootstrap.
+     */
+    public static void ensure(VaultDb db){
+        CognitiveSchema.ensure(db.getWritableDatabase());
+        CognitiveSchemaV4.ensure(db.getWritableDatabase());
+    }
 
     public static void link(VaultDb db,String fromType,long fromId,String toType,long toId,String relation,double confidence,String metadataJson){linkChecked(db,fromType,fromId,toType,toId,relation,confidence,metadataJson);}
     public static boolean linkChecked(VaultDb db,String fromType,long fromId,String toType,long toId,String relation,double confidence,String metadataJson){
