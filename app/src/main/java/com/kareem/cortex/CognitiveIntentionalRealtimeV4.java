@@ -89,11 +89,12 @@ public final class CognitiveIntentionalRealtimeV4 {
 
         String headline=meaningfulHeadline(title,body);
         double attention=Math.max(.58,Math.min(.72,.58+Math.max(0,importance-.5)*.20));
+        long evaluatedAt=System.currentTimeMillis();
         CognitiveDomainV4.Situation situation=new CognitiveDomainV4.Situation(
                 id,CognitiveDomainV4.SituationKind.UPCOMING_EVENT,CognitiveDomainV4.SituationState.DETECTED,
                 headline,"Intentional capture contains an explicit future day and time.",
                 Collections.<String>emptyList(),Collections.<String>emptyList(),Collections.singletonList(memoryId),Collections.<String>emptyList(),
-                startedAt,Long.valueOf(eventAt.longValue()),System.currentTimeMillis(),attention,.12,.90,Collections.<String>emptyList());
+                startedAt,Long.valueOf(startedAt),Long.valueOf(eventAt.longValue()),evaluatedAt,attention,.12,.90,Collections.<String>emptyList());
         CognitiveStoreV4.putSituation(db,situation,"",semanticAnchor,memoryId);
         return true;
     }
