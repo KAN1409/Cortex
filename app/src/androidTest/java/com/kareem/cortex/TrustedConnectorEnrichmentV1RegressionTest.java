@@ -29,4 +29,18 @@ public class TrustedConnectorEnrichmentV1RegressionTest {
         MasterRelevanceFilter.Decision d=RawSignalStore.evaluateTrustedEnrichment(s,body);
         assertEquals(MasterRelevanceFilter.Disposition.MEMORY,d.disposition);assertTrue(d.durable());
     }
+
+    @Test public void arbitraryAppCannotUseConversationRulesJustBecauseTextSaysPleaseSend(){
+        String body="Please send this offer to a friend and save 20%";
+        MasterRelevanceFilter.Signal s=new MasterRelevanceFilter.Signal("notification","com.shopping.promo","Weekend offer",body,"{}",1_800_000_003_000L,false);
+        MasterRelevanceFilter.Decision d=RawSignalStore.evaluateTrustedEnrichment(s,body);
+        assertEquals(MasterRelevanceFilter.Disposition.CONTEXT,d.disposition);assertFalse(d.durable());
+    }
+
+    @Test public void explicitMessageMetadataAllowsUnknownMessagingPackage(){
+        String body="Please send the revised drawing before 5";
+        MasterRelevanceFilter.Signal s=new MasterRelevanceFilter.Signal("notification","com.example.workchat","Design team",body,"{\"notification_kind\":\"message\"}",1_800_000_004_000L,false);
+        MasterRelevanceFilter.Decision d=RawSignalStore.evaluateTrustedEnrichment(s,body);
+        assertEquals(MasterRelevanceFilter.Disposition.ACTION,d.disposition);assertTrue(d.durable());
+    }
 }
