@@ -7,6 +7,7 @@ import org.json.JSONObject;
 /** Temporary/raw signal layer. Only an applied authoritative decision may enter durable Cortex memory. */
 public final class RawSignalStore {
     private static final String FAST_POLICY = "relevance_fast_004";
+    private static final String TIER0_POLICY = "cognitive_tier0_v2_001";
     private static final String THREAD_POLICY = "thread_authority";
     private static final String CONNECTOR_POLICY = "trusted_connector_enrichment_v1";
     private RawSignalStore() {}
@@ -21,7 +22,16 @@ public final class RawSignalStore {
         long existing = find(db, fp);
         if (existing > 0) return existing;
 
-        MasterRelevanceFilter.Decision fast = fastDecision(signal);
+        boolean notificationV2 = signal != null && "notification".equalsIgnoreCase(signal.kind);
+        MasterRelevanceFilter.Decision fast = notificationV2 ? MasterRelevanceFilter.evaluateTier0(signal) : fastDecision(signal);
+        CognitiveSignalV2.SignalFamily family = notificationV2 ? CognitiveSignalV2.classify(signal) : CognitiveSignalV2.SignalFamily.UNKNOWN;
+        boolean sensitive = notificationV2 && MasterRelevanceFilter.sensitiveSignal(signal);
+        CognitiveSignalV2.CognitiveState cognitiveState = !notificationV2 ? null
+                : (sensitive ? CognitiveSignalV2.CognitiveState.SENSITIVE_BLOCKED
+                : (fast.disposition == MasterRelevanceFilter.Disposition.IGNORE
+                ? CognitiveSignalV2.CognitiveState.IGNORED_NOISE
+                : CognitiveSignalV2.CognitiveState.PENDING_ADJUDICATION));
+
         long now = System.currentTimeMillis();
         long retention = retentionUntil(now, fast.disposition);
         ContentValues v = new ContentValues();
@@ -36,9 +46,16 @@ public final class RawSignalStore {
         v.put("disposition", fast.disposition.name());
         v.put("importance", fast.importance);
         v.put("confidence", fast.confidence);
-        v.put("policy_version", FAST_POLICY);
-        v.put("filter_engine", "deterministic_fast_gate");
+        v.put("policy_version", notificationV2 ? TIER0_POLICY : FAST_POLICY);
+        v.put("filter_engine", notificationV2 ? "tier0_hard_noise_gate" : "deterministic_fast_gate");
         v.put("reason", fast.reason);
+        if (notificationV2) {
+            v.put("signal_family", family.name());
+            v.put("cognitive_state", cognitiveState.name());
+            v.put("cognitive_run_id", 0);
+            v.put("final_reason", cognitiveState == CognitiveSignalV2.CognitiveState.PENDING_ADJUDICATION
+                    ? "admitted by Tier 0; awaiting Cortex cognitive adjudication" : fast.reason);
+        }
         v.put("occurred_at", signal.occurredAt > 0 ? signal.occurredAt : now);
         v.put("retention_until", retention);
         v.put("created_at", now);
@@ -49,11 +66,17 @@ public final class RawSignalStore {
             return signalId;
         }
 
-        // V4 Evidence persistence is part of the capture write itself: no migration, model, search,
-        // or large query runs here. Failure is isolated so the proven legacy capture path still wins.
+        // V4 Evidence is immutable capture truth. Cognitive outcomes are separate and may change.
         CognitiveMemoryForwardBridgeV4.captureRawSignal(db, signalId, signal, contentHash, now);
 
+        // Obvious noise and sensitive credentials stop before aggregation/model work but still have
+        // an explicit terminal cognitive_state for diagnostics.
+        if (notificationV2 && cognitiveState != CognitiveSignalV2.CognitiveState.PENDING_ADJUDICATION) return signalId;
+
         long threadId = SignalThreadStore.attach(db, signalId, signal);
+        if (notificationV2) return signalId;
+
+        // Compatibility path for non-notification evidence while notification cognition migrates to V2.
         MasterRelevanceFilter.Decision authority = fast;
         boolean threadAuthority = false;
         if (threadId > 0) {
@@ -64,7 +87,6 @@ public final class RawSignalStore {
             }
         }
 
-        // The fast gate is only authoritative when there is no thread-aware policy. Never promote from a stale fast decision.
         if (authority.durable() && (!threadAuthority || RelevanceDecisionStatusStore.isApplied(db, signalId))) {
             promote(db, signalId, threadId, signal, authority, !threadAuthority, threadAuthority ? THREAD_POLICY : FAST_POLICY);
         }
@@ -85,13 +107,25 @@ public final class RawSignalStore {
     }
 
     /**
-     * Re-evaluate a deduped physical notification when a trusted connector contributes richer text.
-     * The Raw Signal and original Evidence text remain unchanged; the connector payload already
-     * lives additively as CONNECTOR_ENRICHMENT analysis. This method only decides whether that richer
-     * grounded evidence crosses the same durable relevance boundary Cortex already uses.
+     * A richer trusted Relay revision must be reconsidered by Cortex, not deterministically promoted.
+     * The immutable Raw Signal/Evidence remains the same physical event; CONNECTOR_ENRICHMENT carries
+     * the richer text and CognitiveAdjudicatorV2 reads it when the signal is re-queued.
+     */
+    public static void markTrustedEnrichmentPending(VaultDb db,long signalId,MasterRelevanceFilter.Signal enriched){
+        if(db==null||signalId<=0||enriched==null||!"notification".equalsIgnoreCase(enriched.kind))return;ensure(db);
+        Cursor c=db.getReadableDatabase().query("raw_signals",new String[]{"cognitive_state"},"id=?",new String[]{String.valueOf(signalId)},null,null,null,"1");String state="";try{if(c.moveToFirst())state=c.getString(0)==null?"":c.getString(0);}finally{c.close();}
+        if(CognitiveSignalV2.CognitiveState.IGNORED_NOISE.name().equals(state)||CognitiveSignalV2.CognitiveState.SENSITIVE_BLOCKED.name().equals(state))return;
+        ContentValues v=new ContentValues();v.put("signal_family",CognitiveSignalV2.classify(enriched).name());v.put("cognitive_state",CognitiveSignalV2.CognitiveState.PENDING_ADJUDICATION.name());v.put("cognitive_run_id",0);v.put("final_reason","trusted Relay enrichment added context; cognitive re-adjudication queued");v.put("policy_version",TIER0_POLICY);v.put("filter_engine","tier0_hard_noise_gate");v.put("updated_at",System.currentTimeMillis());db.getWritableDatabase().update("raw_signals",v,"id=?",new String[]{String.valueOf(signalId)});
+    }
+
+    /**
+     * Legacy compatibility hook. Notifications no longer receive semantic promotion here; callers
+     * should mark enrichment pending and enqueue CognitiveAdjudicatorV2 instead.
      */
     public static long promoteTrustedEnrichment(VaultDb db,long signalId,long threadId,MasterRelevanceFilter.Signal enriched){
-        if(db==null||signalId<=0||enriched==null)return 0;ensure(db);long existing=promotedItemId(db,signalId);if(existing>0)return existing;
+        if(db==null||signalId<=0||enriched==null)return 0;ensure(db);
+        if("notification".equalsIgnoreCase(enriched.kind)){markTrustedEnrichmentPending(db,signalId,enriched);return 0;}
+        long existing=promotedItemId(db,signalId);if(existing>0)return existing;
         boolean threadEligible=threadId>0&&relevanceThread(db,threadId);
         String recent=threadEligible?SignalThreadStore.recentContext(db,threadId,8):"";
         MasterRelevanceFilter.Decision base=evaluateTrustedEnrichment(enriched,recent,threadEligible);
@@ -125,8 +159,7 @@ public final class RawSignalStore {
     }
 
     /**
-     * Materialize the raw signal as a knowledge item. Thread-aware policy already owns its derived intelligence,
-     * so createDerived=false prevents a second ACTION/WAITING/DECISION from the same notification.
+     * Materialize the raw signal as a knowledge item for legacy/non-notification compatibility.
      */
     private static long promote(
             VaultDb db,
@@ -229,6 +262,10 @@ public final class RawSignalStore {
         long id = c.moveToFirst() ? c.getLong(0) : 0;
         c.close();
         return id;
+    }
+
+    public static String cognitiveState(VaultDb db,long signalId){
+        ensure(db);Cursor c=db.getReadableDatabase().query("raw_signals",new String[]{"cognitive_state"},"id=?",new String[]{String.valueOf(signalId)},null,null,null,"1");try{return c.moveToFirst()&&c.getString(0)!=null?c.getString(0):"";}finally{c.close();}
     }
 
     public static void cleanup(VaultDb db) {
