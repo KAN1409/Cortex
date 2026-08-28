@@ -16,6 +16,25 @@ public final class ProposalCaptureActivity extends SatinCaptureActivity {
         FrameLayout.LayoutParams sp=new FrameLayout.LayoutParams(-1,-2,Gravity.BOTTOM);sp.setMargins(dp(12),0,dp(12),dp(12));root.addView(sheet,sp);setContentView(root);applyInsets();
     }
 
+    /**
+     * Keep one Android ACTION_SEND owner. Ordinary shares stay on the canonical capture path;
+     * a validated Deep Brain marker is routed explicitly to the internal response importer.
+     */
+    @Override void handleIncoming(Intent incoming){
+        if(incoming!=null&&Intent.ACTION_SEND.equals(incoming.getAction())){
+            CharSequence text=incoming.getCharSequenceExtra(Intent.EXTRA_TEXT);
+            String raw=text==null?"":text.toString();
+            if(raw.contains(CognitiveDeepBrainProtocolV4.RESPONSE_MARKER)){
+                Intent route=new Intent(this,DeepBrainImportActivity.class);
+                route.setAction(Intent.ACTION_SEND);
+                route.setType(incoming.getType()==null?"text/plain":incoming.getType());
+                route.putExtra(Intent.EXTRA_TEXT,raw);
+                startActivity(route);finish();return;
+            }
+        }
+        super.handleIncoming(incoming);
+    }
+
     void captureTile(LinearLayout row,String title,String sub,String icon,int color,Runnable action,int left){LinearLayout tile=CortexUi.card(this,20);tile.setGravity(Gravity.CENTER_VERTICAL);tile.setPadding(dp(12),dp(10),dp(12),dp(10));CortexUi.pressable(this,tile,CortexUi.velvet(this,20));tile.addView(CortexUi.glyph(this,icon,color,true),new LinearLayout.LayoutParams(dp(42),dp(42)));TextView t=CortexUi.plain(this,title,15,CortexUi.TEXT);CortexUi.medium(t);t.setPadding(0,dp(7),0,0);tile.addView(t);TextView s=CortexUi.plain(this,sub,10,CortexUi.MUTED);s.setPadding(0,dp(3),0,0);tile.addView(s);tile.setOnClickListener(v->action.run());LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,-1,1);p.setMargins(dp(left),0,0,0);row.addView(tile,p);}
 
     @Override void showResult(long id){try{Intent i=new Intent(this,ProposalCaptureResultActivity.class);i.putExtra("item_id",id);startActivity(i);finish();}catch(Throwable e){Toast.makeText(this,"Captured successfully. Open Brief to see it.",Toast.LENGTH_LONG).show();try{startActivity(new Intent(this,PremiumHomeActivity.class));}catch(Throwable ignored){}finish();}}
