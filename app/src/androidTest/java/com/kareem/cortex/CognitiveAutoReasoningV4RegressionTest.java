@@ -66,4 +66,10 @@ public class CognitiveAutoReasoningV4RegressionTest {
         try{GeminiCognitiveReasoningProviderV4.validateShape(bad);fail("missing priority_items must fail closed");}
         catch(IllegalArgumentException expected){assertTrue(expected.getMessage().contains("priority_items"));}
     }
+
+    @Test public void staleApplyRejectionIsNotClassifiedAsProviderFailure(){
+        assertTrue(CognitiveReasoningOrchestratorV4.isStaleContext(new IllegalArgumentException("Cortex context changed after this Deep Brain request was built; refresh reasoning")));
+        assertFalse(CognitiveReasoningOrchestratorV4.isStaleContext(new IllegalArgumentException("Deep Brain priority_items contained no grounded Cortex IDs")));
+        assertFalse(CognitiveReasoningOrchestratorV4.isStaleContext(new IllegalStateException("Gemini HTTP failure")));
+    }
 }
