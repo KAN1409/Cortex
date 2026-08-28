@@ -8,11 +8,14 @@ import android.view.View;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
+import androidx.swiperefreshlayout.widget.SwipeRefreshLayout;
 import java.util.List;
+import java.util.concurrent.RejectedExecutionException;
 
 /** Attention-first Now surface using the approved Cortex reference hierarchy. */
 public final class CompactTodayActivity extends CortexOrbBriefActivity implements CognitiveReasoningOrchestratorV4.Listener {
     private View loadingView;
+    private SwipeRefreshLayout swipeRefresh;
 
     @Override protected void onStart(){super.onStart();CognitiveReasoningOrchestratorV4.addListener(this);}
     @Override protected void onStop(){CognitiveReasoningOrchestratorV4.removeListener(this);super.onStop();}
@@ -35,9 +38,37 @@ public final class CompactTodayActivity extends CortexOrbBriefActivity implement
         LinearLayout root=new LinearLayout(this);root.setOrientation(LinearLayout.VERTICAL);root.setBackground(CortexUi.aurora(this));
         ScrollView sv=new ScrollView(this);sv.setFillViewport(true);sv.setClipToPadding(false);
         content=new LinearLayout(this);content.setOrientation(LinearLayout.VERTICAL);content.setPadding(dp(18),dp(8),dp(18),dp(24));sv.addView(content);
-        root.addView(sv,new LinearLayout.LayoutParams(-1,0,1));systemHeader();
+        swipeRefresh=new SwipeRefreshLayout(this);swipeRefresh.setColorSchemeColors(CortexUi.BRAND,CortexUi.BLUE,CortexUi.AURORA);swipeRefresh.setProgressBackgroundColorSchemeColor(CortexUi.SURFACE);swipeRefresh.setOnRefreshListener(this::manualCognitiveRefresh);swipeRefresh.addView(sv,new android.view.ViewGroup.LayoutParams(-1,-1));
+        root.addView(swipeRefresh,new LinearLayout.LayoutParams(-1,0,1));systemHeader();
         TextView loading=CortexUi.plain(this,"Building your current picture…",10,CortexUi.FAINT);loading.setPadding(dp(3),dp(13),0,dp(5));loadingView=loading;content.addView(loading);
         CortexUi.addBottomNav(this,root,"today",null);setContentView(root);CortexUi.fitSystemBars(this,root);
+    }
+
+    /** Pull-to-refresh is a real cognitive refresh, not just a view redraw. */
+    private void manualCognitiveRefresh(){
+        if(destroyed||loader.isShutdown()){if(swipeRefresh!=null)swipeRefresh.setRefreshing(false);return;}
+        if(swipeRefresh!=null)swipeRefresh.setRefreshing(true);
+        // Kick pending ASR/OCR first. Its completion callback refreshes the screen again, while the
+        // already-analyzed rescue below immediately repairs captures from older builds.
+        AnalysisQueue.kick(getApplicationContext(),null,()->{if(!destroyed)refreshAsync();});
+        final int g=++refreshGeneration;
+        try{loader.execute(()->{
+            VaultDb local=null;PrimeBriefStore.Snapshot snapshot=null;
+            try{
+                local=new VaultDb(getApplicationContext());
+                IntentionalCognitiveBridge.backfill(local,250);
+                CognitiveSituationEngineV4.refresh(local);
+                CognitiveDeepBrainReconcilerV4.reconcile(local);
+                snapshot=PrimeBriefStore.load(local);
+            }catch(Throwable ignored){}
+            finally{if(local!=null)try{local.close();}catch(Throwable ignored){}}
+            try{CognitiveReasoningOrchestratorV4.schedule(getApplicationContext(),"manual_pull_refresh");}catch(Throwable ignored){}
+            final PrimeBriefStore.Snapshot s=snapshot;
+            postUi(()->{
+                if(s!=null&&g==refreshGeneration)render(s);
+                if(swipeRefresh!=null)swipeRefresh.setRefreshing(false);
+            });
+        });}catch(RejectedExecutionException ignored){if(swipeRefresh!=null)swipeRefresh.setRefreshing(false);}
     }
 
     @Override void systemHeader(){
