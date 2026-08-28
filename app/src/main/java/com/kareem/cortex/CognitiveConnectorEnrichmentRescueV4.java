@@ -7,12 +7,11 @@ import org.json.JSONObject;
 
 /**
  * Bounded one-way rescue for recent Local Bus events accepted by an older Cortex build before
- * trusted connector enrichment was allowed to cross the durable relevance boundary.
+ * trusted connector enrichment and realtime V4 projection were complete.
  *
- * <p>No event is replayed through the bus and no Evidence is rewritten. We only revisit an existing
- * unpromoted Raw Signal when its already-stored CONNECTOR_ENRICHMENT contains richer grounded text.
- * If the current relevance policy now judges it durable, the same Raw Signal is promoted and
- * projected into canonical Memory/Situations.</p>
+ * <p>No event is replayed through the bus and no Evidence is rewritten. Existing promoted signals
+ * are projected idempotently into V4 Memory/Situations; still-unpromoted signals are first
+ * re-evaluated only when their already-stored CONNECTOR_ENRICHMENT contains richer grounded text.</p>
  */
 public final class CognitiveConnectorEnrichmentRescueV4 {
     static final long LOOKBACK_MS=48L*60L*60L*1000L;
@@ -24,13 +23,13 @@ public final class CognitiveConnectorEnrichmentRescueV4 {
         CognitiveStoreV4.ensure(db);CortexLocalBusStoreV1.ensure(db);RawSignalStore.ensure(db);
         long cutoff=System.currentTimeMillis()-LOOKBACK_MS;
         Cursor c=db.getReadableDatabase().rawQuery(
-                "SELECT r.id,COALESCE(r.source,''),COALESCE(r.title,''),r.occurred_at,r.thread_id,r.promoted_item_id,COALESCE(r.metadata_json,''),"+
+                "SELECT DISTINCT r.id,COALESCE(r.source,''),COALESCE(r.title,''),r.occurred_at,r.thread_id,r.promoted_item_id,COALESCE(r.metadata_json,''),"+
                 "COALESCE((SELECT ea.output_text FROM v4_legacy_map m JOIN v4_evidence_analysis ea ON ea.evidence_id=m.object_id " +
                 "WHERE m.legacy_table='raw_signals' AND m.legacy_id=CAST(r.id AS TEXT) AND m.object_type='EVIDENCE' " +
                 "AND ea.analysis_kind='CONNECTOR_ENRICHMENT' AND ea.engine='local_bus:second_brain' " +
                 "ORDER BY ea.created_at DESC,ea.id DESC LIMIT 1),'') AS connector_text " +
                 "FROM connector_ingest_events e JOIN raw_signals r ON r.id=e.signal_id " +
-                "WHERE e.connector_id='second_brain' AND e.state='ACCEPTED' AND e.received_at>=? AND r.promoted_item_id=0 " +
+                "WHERE e.connector_id='second_brain' AND e.state='ACCEPTED' AND e.received_at>=? " +
                 "ORDER BY e.received_at DESC,e.event_id DESC LIMIT ?",
                 new String[]{String.valueOf(cutoff),String.valueOf(MAX_EVENTS)});
         ArrayList<Candidate> pending=new ArrayList<>();
@@ -39,14 +38,17 @@ public final class CognitiveConnectorEnrichmentRescueV4 {
         int considered=0,promoted=0,projected=0,skipped=0;
         for(Candidate x:pending){
             considered++;
-            if(x.promotedItemId>0||x.connectorText.isEmpty()){skipped++;continue;}
-            boolean ongoing=false;try{ongoing=new JSONObject(x.metadataJson.isEmpty()?"{}":x.metadataJson).optBoolean("ongoing",false);}catch(Throwable ignored){}
-            MasterRelevanceFilter.Signal enriched=new MasterRelevanceFilter.Signal(
-                    "notification",x.source,x.title,x.connectorText,x.metadataJson,x.occurredAt,ongoing);
-            long itemId=0;try{itemId=RawSignalStore.promoteTrustedEnrichment(db,x.signalId,x.threadId,enriched);}catch(Throwable ignored){}
-            if(itemId<=0){skipped++;continue;}
-            promoted++;
-            try{CognitiveRealtimeProjectionV4.Result p=CognitiveRealtimeProjectionV4.project(db,x.signalId);if(p!=null&&!p.memoryId.isEmpty())projected++;}catch(Throwable ignored){}
+            long itemId=x.promotedItemId;
+            if(itemId<=0){
+                if(x.connectorText.isEmpty()){skipped++;continue;}
+                boolean ongoing=false;try{ongoing=new JSONObject(x.metadataJson.isEmpty()?"{}":x.metadataJson).optBoolean("ongoing",false);}catch(Throwable ignored){}
+                MasterRelevanceFilter.Signal enriched=new MasterRelevanceFilter.Signal(
+                        "notification",x.source,x.title,x.connectorText,x.metadataJson,x.occurredAt,ongoing);
+                try{itemId=RawSignalStore.promoteTrustedEnrichment(db,x.signalId,x.threadId,enriched);}catch(Throwable ignored){}
+                if(itemId<=0){skipped++;continue;}
+                promoted++;
+            }
+            try{CognitiveRealtimeProjectionV4.Result p=CognitiveRealtimeProjectionV4.project(db,x.signalId);if(p!=null&&!p.memoryId.isEmpty())projected++;else skipped++;}catch(Throwable ignored){skipped++;}
         }
         return new Result(considered,promoted,projected,skipped);
     }
