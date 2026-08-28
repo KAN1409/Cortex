@@ -81,9 +81,7 @@ public final class CognitiveBridgeStatusV4 {
                 "SELECT COUNT(*) FROM v4_action_proposals WHERE state='PROPOSED' AND (" +
                 "payload_json LIKE '%\"deep_brain_request_id\":\"%' OR " +
                 "payload_json LIKE '%\"origin\":\"chatgpt_plus_share\"%')");
-        int newOpen = latestAppliedAt > 0
-                ? scalarInt(sql,"SELECT COUNT(*) FROM v4_situations WHERE state NOT IN ('RESOLVED','CANCELLED','DISMISSED') AND updated_at>"+latestAppliedAt)
-                : scalarInt(sql,"SELECT COUNT(*) FROM v4_situations WHERE state NOT IN ('RESOLVED','CANCELLED','DISMISSED')");
+        int newOpen = CognitiveReasoningFreshnessV4.newOpenCount(sql);
 
         String reasoningProvider="",reasoningModel="",reasoningState="",reasoningTrigger="";long reasoningAt=0L,reasoningDuration=0L;
         try{
