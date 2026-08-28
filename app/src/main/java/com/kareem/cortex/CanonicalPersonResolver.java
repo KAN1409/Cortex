@@ -14,8 +14,25 @@ public final class CanonicalPersonResolver {
     private CanonicalPersonResolver(){}
 
     public static long resolveSignal(VaultDb db,long signalId,CommunicationEvidenceNormalizer.Result n){
+        return resolveSignal(db,signalId,n,null);
+    }
+
+    /**
+     * Conservative write path for the legacy entity graph while V4 is being introduced.
+     * Semantic classification is checked before a PERSON node is created so service/email labels
+     * such as backup state or brand senders do not keep polluting the graph.
+     */
+    public static long resolveSignal(VaultDb db,long signalId,CommunicationEvidenceNormalizer.Result n,JSONObject metadata){
         if(db==null||signalId<=0||n==null||!n.communication)return 0;
-        String alias=clean(n.personHint);if(alias.isEmpty())return 0;
+        JSONObject meta=metadata==null?new JSONObject():metadata;
+        String sourcePackage=clean(meta.optString("package",""));
+        CognitiveWorldCandidateClassifierV4.Decision semantic=
+                CognitiveWorldCandidateClassifierV4.inspect(sourcePackage,meta.toString());
+        if(semantic.semanticClass!=CognitiveWorldCandidateClassifierV4.SemanticClass.PERSON)return 0;
+
+        String alias=clean(semantic.candidateName);
+        if(alias.isEmpty())alias=clean(n.personHint);
+        if(alias.isEmpty())return 0;
         String source=clean(n.source).toLowerCase(Locale.US);if(source.isEmpty())source="unknown";
         SQLiteDatabase sql=db.getWritableDatabase();CognitiveSchema.ensure(sql);
         String normalized=normalize(alias);if(normalized.isEmpty())return 0;
@@ -28,9 +45,12 @@ public final class CanonicalPersonResolver {
             addAlias(sql,entityId,source,alias,normalized,corroborated>0?0.86:0.72);
         }
         if(entityId>0){
-            String meta="{}";
-            try{meta=new JSONObject().put("source",source).put("alias",alias).put("policy","source_scoped_identity").toString();}catch(Exception ignored){}
-            link(sql,"raw_signal",signalId,"entity",entityId,"person_hint",0.78,meta);
+            String linkMeta="{}";
+            try{linkMeta=new JSONObject().put("source",source).put("alias",alias)
+                    .put("policy","source_scoped_identity_semantic_gate")
+                    .put("semantic_confidence",semantic.confidence)
+                    .put("semantic_reason",semantic.reason).toString();}catch(Exception ignored){}
+            link(sql,"raw_signal",signalId,"entity",entityId,"person_hint",0.78,linkMeta);
         }
         return entityId;
     }
@@ -45,7 +65,7 @@ public final class CanonicalPersonResolver {
         String key="person|"+source+"|"+normalized;ContentValues v=new ContentValues();long now=System.currentTimeMillis();v.put("kind","PERSON");v.put("canonical_name",name);v.put("normalized_key",key);v.put("status","active");try{v.put("metadata_json",new JSONObject().put("created_from","communication_hint").put("source",source).toString());}catch(Exception ignored){v.put("metadata_json","{}");}v.put("created_at",now);v.put("updated_at",now);long id=db.insertWithOnConflict("entity_nodes",null,v,SQLiteDatabase.CONFLICT_IGNORE);if(id>0)return id;Cursor c=db.rawQuery("SELECT id FROM entity_nodes WHERE normalized_key=? LIMIT 1",new String[]{key});long existing=c.moveToFirst()?c.getLong(0):0;c.close();return existing;
     }
 
-    private static void addAlias(SQLiteDatabase db,long entityId,String source,String alias,String normalized,double confidence){if(entityId<=0)return;ContentValues v=new ContentValues();v.put("entity_id",entityId);v.put("source",source);v.put("alias",alias);v.put("normalized_alias",normalized);v.put("confidence",confidence);v.put("metadata_json","{\"policy\":\"source_scoped_identity\"}");v.put("created_at",System.currentTimeMillis());db.insertWithOnConflict("entity_aliases",null,v,SQLiteDatabase.CONFLICT_IGNORE);}
+    private static void addAlias(SQLiteDatabase db,long entityId,String source,String alias,String normalized,double confidence){if(entityId<=0)return;ContentValues v=new ContentValues();v.put("entity_id",entityId);v.put("source",source);v.put("alias",alias);v.put("normalized_alias",normalized);v.put("confidence",confidence);v.put("metadata_json","{\"policy\":\"source_scoped_identity_semantic_gate\"}");v.put("created_at",System.currentTimeMillis());db.insertWithOnConflict("entity_aliases",null,v,SQLiteDatabase.CONFLICT_IGNORE);}
 
     private static void link(SQLiteDatabase db,String fromType,long fromId,String toType,long toId,String relation,double confidence,String meta){ContentValues v=new ContentValues();v.put("from_type",fromType);v.put("from_id",fromId);v.put("to_type",toType);v.put("to_id",toId);v.put("relation",relation);v.put("confidence",confidence);v.put("metadata_json",meta);v.put("created_at",System.currentTimeMillis());db.insertWithOnConflict("source_links",null,v,SQLiteDatabase.CONFLICT_IGNORE);}
 
