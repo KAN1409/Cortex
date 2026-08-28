@@ -49,6 +49,14 @@ public class CognitiveAutoReasoningV4RegressionTest {
         assertFalse(CognitiveAutoReasoningPolicyV4.evaluate(pulse,now).shouldRun);
     }
 
+    @Test public void enqueueDebounceCoalescesBurstButAllowsNextWindowAndClockRollback(){
+        long start=10_000L;
+        assertTrue(CognitiveAutoReasoningSettingsV4.enqueueDebounceElapsed(0,start));
+        assertFalse(CognitiveAutoReasoningSettingsV4.enqueueDebounceElapsed(start,start+CognitiveAutoReasoningSettingsV4.ENQUEUE_DEBOUNCE_MS-1));
+        assertTrue(CognitiveAutoReasoningSettingsV4.enqueueDebounceElapsed(start,start+CognitiveAutoReasoningSettingsV4.ENQUEUE_DEBOUNCE_MS));
+        assertTrue(CognitiveAutoReasoningSettingsV4.enqueueDebounceElapsed(start,start-1));
+    }
+
     @Test public void realtimeProjectionWakesBrainOnlyForMaterialSituationChange(){
         CognitiveSituationEngineV4.Result oldCandidateOnly=new CognitiveSituationEngineV4.Result(25,0,0,Collections.singletonList("si_old"));
         CognitiveSituationEngineV4.Result newlyDetected=new CognitiveSituationEngineV4.Result(25,1,0,Collections.singletonList("si_new"));
