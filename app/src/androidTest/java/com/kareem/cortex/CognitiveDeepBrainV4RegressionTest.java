@@ -73,6 +73,18 @@ public class CognitiveDeepBrainV4RegressionTest {
         }finally{db.close();}
     }
 
+    @Test public void newReasoningSupersedesOldChatGptActionButKeepsLocalProposal() {
+        SQLiteDatabase db=SQLiteDatabase.create(null);try{
+            seed(db,"brq_actions");long now=System.currentTimeMillis()-10_000L;
+            insertAction(db,"act_old","{\"origin\":\"chatgpt_plus_share\",\"deep_brain_request_id\":\"brq_old\"}",now);
+            insertAction(db,"act_local","{\"origin\":\"local_policy\"}",now);
+            String raw="CORTEX_RESPONSE_V1\n{\"request_id\":\"brq_actions\",\"answer\":\"No suggested action now\",\"suggested_actions\":[]}";
+            CognitiveDeepBrainApplyV4.apply(db,CognitiveDeepBrainProtocolV4.parseResponse(raw));
+            Cursor c=db.rawQuery("SELECT state FROM v4_action_proposals WHERE id='act_old'",null);assertTrue(c.moveToFirst());assertEquals("SUPERSEDED",c.getString(0));c.close();
+            c=db.rawQuery("SELECT state FROM v4_action_proposals WHERE id='act_local'",null);assertTrue(c.moveToFirst());assertEquals("PROPOSED",c.getString(0));c.close();
+        }finally{db.close();}
+    }
+
     private static void seed(SQLiteDatabase db,String requestId){
         CognitiveSchemaV4.ensure(db);CognitiveDeepBrainStoreV4.ensure(db);long now=System.currentTimeMillis();
         insertSituation(db,"si_allowed",.2,now);insertSituation(db,"si_other",.1,now);insertMemory(db,"mem_allowed",now);
@@ -83,6 +95,7 @@ public class CognitiveDeepBrainV4RegressionTest {
     }
     private static void insertSituation(SQLiteDatabase db,String id,double score,long now){ContentValues v=new ContentValues();v.put("id",id);v.put("identity_key","identity_"+id);v.put("kind","FOLLOW_UP");v.put("state","DETECTED");v.put("headline",id);v.put("semantic_anchor","anchor_"+id);v.put("attention_score",score);v.put("interruption_score",.1);v.put("confidence",.8);v.put("created_at",now);v.put("last_evaluated_at",now);v.put("updated_at",now);db.insert("v4_situations",null,v);}
     private static void insertMemory(SQLiteDatabase db,String id,long now){ContentValues v=new ContentValues();v.put("id",id);v.put("identity_key","identity_"+id);v.put("kind","MOMENT");v.put("title","Grounded memory");v.put("body","A real captured memory");v.put("started_at",now);v.put("importance",.5);v.put("pinned",0);v.put("retention_class","EPISODIC_90_DAY");v.put("state","ACTIVE");v.put("created_at",now);v.put("updated_at",now);db.insert("v4_memories",null,v);}
+    private static void insertAction(SQLiteDatabase db,String id,String payload,long now){ContentValues v=new ContentValues();v.put("id",id);v.put("situation_id","si_allowed");v.put("action_type","CUSTOM");v.put("label",id);v.put("risk","CONFIRMATION_REQUIRED");v.put("payload_json",payload);v.put("state","PROPOSED");v.put("created_at",now);v.put("updated_at",now);db.insert("v4_action_proposals",null,v);}
     private static int count(SQLiteDatabase db,String table){Cursor c=db.rawQuery("SELECT COUNT(*) FROM "+table,null);try{return c.moveToFirst()?c.getInt(0):0;}finally{c.close();}}
     private static int countWhere(SQLiteDatabase db,String table,String where){Cursor c=db.rawQuery("SELECT COUNT(*) FROM "+table+" WHERE "+where,null);try{return c.moveToFirst()?c.getInt(0):0;}finally{c.close();}}
 }
