@@ -9,12 +9,11 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 /**
- * Connects already-applied ChatGPT suggestions to Situations that may have been created later.
+ * Connects already-applied Deep Brain suggestions to canonical Situations.
  *
- * <p>This is what lets old Deep Brain output become useful after the Situation Engine lands: a
- * memory-grounded ranked priority can raise the attention of the matching canonical Situation and
- * an action proposal can be attached to it. It never changes Evidence/Memory/Facts and never
- * resolves/dismisses a Situation.</p>
+ * <p>Historical model output may be linked for provenance, but it must never overwrite a Situation
+ * that changed after that model pass or manufacture a new "fresh" change from its own old output.
+ * Evidence/Memory/Facts remain immutable and no model reconciliation may resolve/dismiss truth.</p>
  */
 public final class CognitiveDeepBrainReconcilerV4 {
     private CognitiveDeepBrainReconcilerV4(){}
@@ -26,21 +25,29 @@ public final class CognitiveDeepBrainReconcilerV4 {
         int prioritiesLinked=0,situationsRaised=0,actionsLinked=0;
         sql.beginTransaction();
         try{
-            Cursor p=sql.rawQuery("SELECT id,attention_score,COALESCE(situation_id,''),memory_ids_json FROM v4_deep_brain_priority_items WHERE state='ACTIVE' ORDER BY rank_order ASC,created_at DESC",null);
+            Cursor p=sql.rawQuery("SELECT p.id,p.attention_score,COALESCE(p.situation_id,''),p.memory_ids_json,p.created_at,COALESCE(r.applied_at,0) FROM v4_deep_brain_priority_items p LEFT JOIN v4_deep_brain_requests r ON r.id=p.request_id WHERE p.state='ACTIVE' ORDER BY p.rank_order ASC,p.created_at DESC",null);
             try{
                 while(p.moveToNext()){
-                    String priorityId=p.getString(0);double score=clamp01(p.getDouble(1));String linked=clean(p.getString(2));List<String> memories=jsonIds(p.getString(3));
+                    String priorityId=p.getString(0);double score=clamp01(p.getDouble(1));String linked=clean(p.getString(2));List<String> memories=jsonIds(p.getString(3));long priorityAt=p.getLong(4),appliedAt=p.getLong(5);
                     String situation=validOpenSituation(sql,linked)?linked:findSituationForMemories(sql,memories);
                     if(situation.isEmpty())continue;
                     if(!situation.equals(linked)){ContentValues pv=new ContentValues();pv.put("situation_id",situation);pv.put("updated_at",now);if(sql.update("v4_deep_brain_priority_items",pv,"id=?",new String[]{priorityId})>0)prioritiesLinked++;}
-                    Cursor sc=sql.rawQuery("SELECT state,attention_score FROM v4_situations WHERE id=? LIMIT 1",new String[]{situation});String state="";double old=0;try{if(sc.moveToFirst()){state=sc.getString(0);old=sc.getDouble(1);}}finally{sc.close();}
-                    if(!terminal(state)){
+                    Cursor sc=sql.rawQuery("SELECT state,attention_score,updated_at FROM v4_situations WHERE id=? LIMIT 1",new String[]{situation});String state="";double old=0;long situationChangedAt=0;try{if(sc.moveToFirst()){state=sc.getString(0);old=sc.getDouble(1);situationChangedAt=sc.getLong(2);}}finally{sc.close();}
+                    long modelAt=appliedAt>0?appliedAt:priorityAt;
+                    boolean modelCoversCurrent=modelAt>0&&modelAt>=situationChangedAt;
+                    if(!terminal(state)&&modelCoversCurrent){
                         ContentValues sv=new ContentValues();boolean changed=false;
                         if(score>old){sv.put("attention_score",score);changed=true;}
                         if("DETECTED".equals(state)&&score>=.70){sv.put("state","RELEVANT");changed=true;}
-                        if(changed){sv.put("last_evaluated_at",now);sv.put("updated_at",now);if(sql.update("v4_situations",sv,"id=?",new String[]{situation})>0)situationsRaised++;}
-                        provenance(sql,"SITUATION",situation,"DEEP_BRAIN_PRIORITY",priorityId,"ranked_by_deep_brain",score,now);
+                        if(changed){
+                            // Timestamp the derived mutation at the model pass that caused it, not
+                            // at reconciliation wall-clock time. That same pass therefore covers the
+                            // mutation and does not make itself look stale on the next refresh.
+                            sv.put("last_evaluated_at",modelAt);sv.put("updated_at",modelAt);
+                            if(sql.update("v4_situations",sv,"id=?",new String[]{situation})>0)situationsRaised++;
+                        }
                     }
+                    provenance(sql,"SITUATION",situation,"DEEP_BRAIN_PRIORITY",priorityId,modelCoversCurrent?"ranked_by_deep_brain":"historical_model_context",score,now);
                 }
             }finally{p.close();}
 
@@ -48,7 +55,7 @@ public final class CognitiveDeepBrainReconcilerV4 {
             try{
                 while(a.moveToNext()){
                     String actionId=a.getString(0),payload=a.getString(2);List<String> memories=new ArrayList<>();
-                    try{JSONObject o=new JSONObject(payload);if(!"chatgpt_plus_share".equals(o.optString("origin","")))continue;JSONArray xs=o.optJSONArray("memory_ids");if(xs!=null)for(int i=0;i<xs.length();i++){String id=clean(xs.optString(i,""));if(!id.isEmpty())memories.add(id);}}catch(Throwable ignored){continue;}
+                    try{JSONObject o=new JSONObject(payload);String requestId=clean(o.optString("deep_brain_request_id","")),origin=clean(o.optString("origin",""));if(requestId.isEmpty()&&!"chatgpt_plus_share".equals(origin))continue;JSONArray xs=o.optJSONArray("memory_ids");if(xs!=null)for(int i=0;i<xs.length();i++){String id=clean(xs.optString(i,""));if(!id.isEmpty())memories.add(id);}}catch(Throwable ignored){continue;}
                     String situation=findSituationForMemories(sql,memories);if(situation.isEmpty())continue;ContentValues v=new ContentValues();v.put("situation_id",situation);v.put("updated_at",now);if(sql.update("v4_action_proposals",v,"id=?",new String[]{actionId})>0){actionsLinked++;provenance(sql,"SITUATION",situation,"ACTION_PROPOSAL",actionId,"has_proposed_action",1.0,now);}
                 }
             }finally{a.close();}
