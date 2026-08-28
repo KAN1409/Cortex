@@ -42,6 +42,15 @@ public class CognitiveAutoReasoningV4RegressionTest {
         assertFalse(d.shouldRun);assertEquals("no_meaningful_change",d.reason);
     }
 
+    @Test public void explicitGeminiBaselineReconsidersCurrentPulseEvenWhenLegacyBrainAlreadyCoveredIt(){
+        long now=System.currentTimeMillis();
+        CognitivePulseProjectionV4.Item deadline=item("DEADLINE",.90,now+30L*60L*1000L,false,now-1000);
+        CognitivePulseProjectionV4.Snapshot pulse=new CognitivePulseProjectionV4.Snapshot(Collections.singletonList(deadline),1,0,0,0,now-500);
+        CognitiveAutoReasoningPolicyV4.Decision normal=CognitiveAutoReasoningPolicyV4.evaluate(pulse,now);
+        CognitiveAutoReasoningPolicyV4.Decision baseline=CognitiveAutoReasoningPolicyV4.evaluateCurrentBaseline(pulse,now);
+        assertFalse(normal.shouldRun);assertTrue(baseline.shouldRun);assertTrue(baseline.urgent);assertEquals("baseline_reconsider_current",baseline.reason);assertEquals(1,baseline.freshCount);assertFalse(baseline.fingerprint.isEmpty());assertNotEquals(normal.fingerprint,baseline.fingerprint);
+    }
+
     @Test public void lowAttentionFollowUpDoesNotTriggerAutonomousCloudCall(){
         long now=System.currentTimeMillis();
         CognitivePulseProjectionV4.Item follow=item("FOLLOW_UP",.41,0,true,now);
@@ -77,7 +86,7 @@ public class CognitiveAutoReasoningV4RegressionTest {
     @Test public void geminiAutonomousResponseRequiresCompleteContract()throws Exception{
         JSONObject cfg=GeminiCognitiveReasoningProviderV4.generationConfig();
         assertEquals(4096,cfg.getInt("maxOutputTokens"));assertFalse(cfg.has("responseSchema"));assertFalse(cfg.has("responseMimeType"));
-        JSONObject text=cfg.getJSONObject("responseFormat").getJSONObject("text");assertEquals("application/json",text.getString("mimeType"));
+        JSONObject text=cfg.getJSONObject("responseFormat").getJSONObject("text");assertEquals("APPLICATION_JSON",text.getString("mimeType"));
         JSONObject schema=text.getJSONObject("schema");JSONArray required=schema.getJSONArray("required");assertTrue(required.toString().contains("request_id"));assertTrue(required.toString().contains("priority_items"));assertTrue(required.toString().contains("reasoning_blocks"));
         JSONObject actionSchema=schema.getJSONObject("properties").getJSONObject("suggested_actions").getJSONObject("items");assertEquals(2,actionSchema.getJSONArray("anyOf").length());
 
