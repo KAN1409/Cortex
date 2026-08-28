@@ -23,6 +23,14 @@ public class CognitiveSituationV4RegressionTest {
         Calendar event=Calendar.getInstance();event.setTimeInMillis(x.relevantUntil);assertEquals(Calendar.SATURDAY,event.get(Calendar.DAY_OF_WEEK));assertEquals(18,event.get(Calendar.HOUR_OF_DAY));
     }
 
+    @Test public void realWhatsAppE2ePhraseBecomesSameDayDeadline(){
+        Calendar base=Calendar.getInstance();base.set(2026,Calendar.AUGUST,28,14,4,0);base.set(Calendar.MILLISECOND,0);long now=base.getTimeInMillis();
+        String text="CORTEX_E2E_001 يا كريم، محتاج منك تبعتلي ملف التصميم قبل الساعة 5 النهارده. لو مش هتلحق ابعتلي وقولي عشان أتصرف.";
+        CognitiveSituationEngineV4.Candidate x=CognitiveSituationEngineV4.detect("m_e2e","CONVERSATION","Kareem Abdel Nasser",text,"com.whatsapp",now,.68,text,now);
+        assertNotNull(x);assertEquals(CognitiveDomainV4.SituationKind.DEADLINE,x.kind);assertNotNull(x.relevantUntil);
+        Calendar deadline=Calendar.getInstance();deadline.setTimeInMillis(x.relevantUntil);assertEquals(17,deadline.get(Calendar.HOUR_OF_DAY));assertEquals(28,deadline.get(Calendar.DAY_OF_MONTH));
+    }
+
     @Test public void missedCallIsFollowUpWithoutInventedUrgency(){
         long now=System.currentTimeMillis();String text="missed call sameh john";
         CognitiveSituationEngineV4.Candidate x=CognitiveSituationEngineV4.detect("m3","CONVERSATION","Missed call Sameh John","Missed call Sameh John","com.samsung.android.dialer",now,.52,text,now);
