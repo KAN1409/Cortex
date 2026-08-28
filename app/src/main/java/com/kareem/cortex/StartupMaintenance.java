@@ -36,6 +36,11 @@ public final class StartupMaintenance {
             // already-stored, recent, unpromoted connector events; Evidence itself stays immutable.
             try{CognitiveConnectorEnrichmentRescueV4.run(db);}catch(Throwable ignored){}
 
+            // User-intentional captures must be present in canonical Memory before Stage E runs.
+            // This also rescues analyzed voice notes created by an older build, including explicit
+            // future-time captures that should become Pulse Situations immediately after upgrade.
+            try{IntentionalCognitiveBridge.backfill(db,250);}catch(Throwable ignored){}
+
             // Stage E is product-critical and must not be skipped because an unrelated legacy
             // maintenance task throws. Run it as soon as canonical V4 storage is available.
             try{
@@ -60,7 +65,6 @@ public final class StartupMaintenance {
                 AdjudicationRecovery.run(context,db);
                 ContactSafetyMaintenance.run(db);
                 EntityGraphMaintenance.run(db);
-                IntentionalCognitiveBridge.backfill(db,250);
                 EnvironmentPreflight.run(context);
                 AdjudicationRecovery.schedule(context);
             }catch(Throwable ignored){
