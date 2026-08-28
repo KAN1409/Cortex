@@ -11,18 +11,28 @@ import java.util.Set;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
-/** Validates and applies ChatGPT Deep Brain output without rewriting Evidence, Memory, Worlds or Facts. */
+/** Validates and applies model Deep Brain output without rewriting Evidence, Memory, Worlds or Facts. */
 public final class CognitiveDeepBrainApplyV4 {
+    public static final String ORIGIN_CHATGPT_SHARE="chatgpt_plus_share";
+    public static final String ORIGIN_GEMINI_AUTONOMOUS="gemini_autonomous";
     private CognitiveDeepBrainApplyV4() {}
 
-    public static Result apply(VaultDb db, String rawResponse) {
+    /** Compatibility route for the existing user-triggered ChatGPT share/import flow. */
+    public static Result apply(VaultDb db,String rawResponse){return apply(db,rawResponse,ORIGIN_CHATGPT_SHARE);}
+
+    /** Provider-neutral apply boundary. The model may suggest state; Cortex remains the authority. */
+    public static Result apply(VaultDb db,String rawResponse,String origin) {
         if (db == null) throw new IllegalArgumentException("db required");
         CognitiveDeepBrainStoreV4.ensure(db);
-        return apply(db.getWritableDatabase(), CognitiveDeepBrainProtocolV4.parseResponse(rawResponse));
+        return apply(db.getWritableDatabase(), CognitiveDeepBrainProtocolV4.parseResponse(rawResponse), safeOrigin(origin));
     }
 
-    static Result apply(SQLiteDatabase sql, CognitiveDeepBrainProtocolV4.ParsedResponse response) {
+    /** Compatibility hook used by existing regression fixtures. */
+    static Result apply(SQLiteDatabase sql,CognitiveDeepBrainProtocolV4.ParsedResponse response){return apply(sql,response,ORIGIN_CHATGPT_SHARE);}
+
+    static Result apply(SQLiteDatabase sql,CognitiveDeepBrainProtocolV4.ParsedResponse response,String origin) {
         CognitiveDeepBrainStoreV4.ensure(sql);
+        String safeOrigin=safeOrigin(origin);
         CognitiveDeepBrainStoreV4.Request request = CognitiveDeepBrainStoreV4.load(sql, response.requestId);
         if (request == null) throw new IllegalArgumentException("Unknown Cortex request_id");
         if ("APPLIED".equals(request.state)) return new Result(response.requestId, response.answer, 0, 0, 0, 0, true);
@@ -54,8 +64,8 @@ public final class CognitiveDeepBrainApplyV4 {
                 if(CognitiveDeepBrainStoreV4.putPriority(sql,id,response.requestId,rank,title,reason,attention,situationId,memoryIds,worldIds,now))rankedStored++;else skipped++;
             }
             // Replace the previous model ranking only when the new ranking section itself is valid:
-            // an explicit [] means "none now"; non-empty input must produce at least one grounded
-            // priority. A hallucinated/fully-invalid list must not erase the last known-good ranking.
+            // explicit [] means "none now"; a hallucinated/fully-invalid non-empty list preserves
+            // the last known-good ranking rather than erasing it.
             if(rankingFieldPresent&&(ranked.length()==0||rankedStored>0))prioritiesSuperseded=supersedePriorPriorities(sql,response.requestId,now);
 
             JSONArray priorities = CognitiveDeepBrainProtocolV4.array(response.json, "priority_updates");
@@ -90,18 +100,18 @@ public final class CognitiveDeepBrainApplyV4 {
                 String semantic=clean(situationId).toLowerCase(Locale.ROOT)+"|"+clean(worldId).toLowerCase(Locale.ROOT)+"|"+type+"|"+label.toLowerCase(Locale.ROOT);
                 if(!currentActionKeys.add(semantic)){skipped++;continue;}
                 JSONObject payload = x.optJSONObject("payload"); if (payload == null) payload = new JSONObject();
-                try { payload.put("deep_brain_request_id", response.requestId); payload.put("origin", "chatgpt_plus_share"); String reason = clean(x.optString("reason", "")); if (!reason.isEmpty()) payload.put("reason", clip(reason,500)); } catch (Throwable ignored) {}
+                try { payload.put("deep_brain_request_id", response.requestId); payload.put("origin", safeOrigin); String reason = clean(x.optString("reason", "")); if (!reason.isEmpty()) payload.put("reason", clip(reason,500)); } catch (Throwable ignored) {}
                 String identity = "deep-brain-action|" + response.requestId + "|" + i + "|" + type + "|" + label; String id = CognitiveIdentityV4.objectId("act", identity);
                 ContentValues v = new ContentValues(); v.put("id", id); if (!situationId.isEmpty()) v.put("situation_id", situationId); else v.putNull("situation_id"); if (!worldId.isEmpty()) v.put("world_id", worldId); else v.putNull("world_id");
                 v.put("action_type", type); v.put("label", label); v.put("risk", risk); v.put("payload_json", payload.toString()); v.put("state", "PROPOSED"); v.put("created_at", now); v.put("updated_at", now);
                 long row = sql.insertWithOnConflict("v4_action_proposals", null, v, SQLiteDatabase.CONFLICT_IGNORE); if (row >= 0) actionsCreated++; else skipped++;
             }
-            // Same replacement rule as priorities: explicit [] retires old ChatGPT proposals; a
-            // non-empty but entirely invalid section preserves them rather than erasing good state.
+            // Deep Brain is one cognitive lane even when providers change. A valid current model
+            // action set retires older model proposals, but never touches local/user proposals.
             if(actionsFieldPresent&&(actions.length()==0||actionsCreated>0))actionsSuperseded=supersedePriorDeepBrainActions(sql,response.requestId,now);
 
             JSONObject summary = new JSONObject();
-            try { summary.put("ranked_priorities_stored",rankedStored);summary.put("priorities_superseded",prioritiesSuperseded);summary.put("priority_updates_applied",prioritiesApplied);summary.put("actions_created",actionsCreated);summary.put("actions_superseded",actionsSuperseded);summary.put("skipped",skipped); } catch(Throwable ignored){}
+            try { summary.put("origin",safeOrigin);summary.put("ranked_priorities_stored",rankedStored);summary.put("priorities_superseded",prioritiesSuperseded);summary.put("priority_updates_applied",prioritiesApplied);summary.put("actions_created",actionsCreated);summary.put("actions_superseded",actionsSuperseded);summary.put("skipped",skipped); } catch(Throwable ignored){}
             String responseId = CognitiveIdentityV4.objectId("brr", "deep-brain-response|" + response.requestId + "|" + Fingerprint.text(response.raw));
             CognitiveDeepBrainStoreV4.saveResponse(sql,responseId,response,summary.toString(),now); CognitiveDeepBrainStoreV4.markApplied(sql,response.requestId,now); sql.setTransactionSuccessful();
         } finally { sql.endTransaction(); }
@@ -109,7 +119,7 @@ public final class CognitiveDeepBrainApplyV4 {
     }
 
     private static int supersedePriorPriorities(SQLiteDatabase sql,String currentRequestId,long when){ContentValues v=new ContentValues();v.put("state","SUPERSEDED");v.put("updated_at",when);return sql.update("v4_deep_brain_priority_items",v,"state='ACTIVE' AND request_id<>?",new String[]{currentRequestId});}
-    private static int supersedePriorDeepBrainActions(SQLiteDatabase sql,String currentRequestId,long when){ContentValues v=new ContentValues();v.put("state","SUPERSEDED");v.put("updated_at",when);String current="%\"deep_brain_request_id\":\""+currentRequestId+"\"%";return sql.update("v4_action_proposals",v,"state='PROPOSED' AND payload_json LIKE ? AND payload_json NOT LIKE ?",new String[]{"%\"origin\":\"chatgpt_plus_share\"%",current});}
+    private static int supersedePriorDeepBrainActions(SQLiteDatabase sql,String currentRequestId,long when){ContentValues v=new ContentValues();v.put("state","SUPERSEDED");v.put("updated_at",when);String current="%\"deep_brain_request_id\":\""+currentRequestId+"\"%";return sql.update("v4_action_proposals",v,"state='PROPOSED' AND payload_json LIKE ? AND payload_json NOT LIKE ?",new String[]{"%\"deep_brain_request_id\":\"%",current});}
     private static SituationSnapshot snapshot(SQLiteDatabase sql,String id){Cursor c=sql.rawQuery("SELECT state,attention_score,interruption_score FROM v4_situations WHERE id=? LIMIT 1",new String[]{id});try{return c.moveToFirst()?new SituationSnapshot(c.getString(0),c.getDouble(1),c.getDouble(2)):null;}finally{c.close();}}
     private static List<String> allowedIds(SQLiteDatabase sql,String table,JSONArray raw,Set<String> allowed){ArrayList<String>out=new ArrayList<>();if(raw==null)return out;for(int i=0;i<raw.length()&&out.size()<12;i++){String id=clean(raw.optString(i,""));if(!id.isEmpty()&&allowed.contains(id)&&exists(sql,table,id)&&!out.contains(id))out.add(id);}return out;}
     private static boolean safeSituationState(String state) { return "DETECTED".equals(state)||"RELEVANT".equals(state)||"SURFACED".equals(state)||"DEFERRED".equals(state)||"WAITING".equals(state); }
@@ -117,6 +127,7 @@ public final class CognitiveDeepBrainApplyV4 {
     private static String safeRisk(String type,String raw){String requested=clean(raw).toUpperCase(Locale.ROOT);boolean external="REPLY".equals(type)||"CALL".equals(type)||"SEND".equals(type)||"REMIND".equals(type)||"SCHEDULE".equals(type)||"COMPLETE".equals(type);if(external)return"CONFIRMATION_REQUIRED";try{return CognitiveDomainV4.ActionRisk.valueOf(requested).name();}catch(Throwable ignored){return"CONFIRMATION_REQUIRED";}}
     private static boolean exists(SQLiteDatabase sql,String table,String id){Cursor c=sql.rawQuery("SELECT 1 FROM "+table+" WHERE id=? LIMIT 1",new String[]{id});try{return c.moveToFirst();}finally{c.close();}}
     private static double clamp01(double x){if(Double.isNaN(x)||Double.isInfinite(x))return 0.0;return Math.max(0.0,Math.min(1.0,x));}
+    private static String safeOrigin(String origin){String x=clean(origin).toLowerCase(Locale.ROOT);if(x.isEmpty())return ORIGIN_CHATGPT_SHARE;return x.replaceAll("[^a-z0-9._-]","_");}
     private static String clean(String s){return s==null?"":s.replace('\n',' ').replace('\r',' ').replaceAll("\\s+"," ").trim();}
     private static String clip(String s,int n){return s.length()<=n?s:s.substring(0,n)+"…";}
     private static final class SituationSnapshot{final String state;final double attention,interruption;SituationSnapshot(String state,double attention,double interruption){this.state=state;this.attention=attention;this.interruption=interruption;}}
