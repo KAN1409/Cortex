@@ -52,7 +52,9 @@ public final class GeminiCognitiveReasoningProviderV4 implements CognitiveReason
 
     /** Current Gemini structured-output transport. Cortex validation remains authoritative. */
     static JSONObject generationConfig()throws JSONException{
-        JSONObject text=new JSONObject().put("mimeType","application/json").put("schema",responseSchema());
+        // v1beta responseFormat.text.mimeType is an enum. Sending the media-type string
+        // "application/json" is rejected with HTTP 400; the REST enum value is APPLICATION_JSON.
+        JSONObject text=new JSONObject().put("mimeType","APPLICATION_JSON").put("schema",responseSchema());
         return new JSONObject().put("maxOutputTokens",4096).put("responseFormat",new JSONObject().put("text",text));
     }
 
