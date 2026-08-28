@@ -8,6 +8,7 @@ import android.os.HandlerThread;
 import android.os.IBinder;
 import android.os.Message;
 import android.os.Messenger;
+import org.json.JSONObject;
 
 /**
  * Cortex local hub endpoint. Exported intentionally, but every Messenger call is authenticated
@@ -38,6 +39,7 @@ public final class CortexLocalBusService extends Service {
     private boolean handle(Message msg) {
         CortexConnectorRegistryV1.Identity identity = CortexConnectorRegistryV1.resolve(this, msg.sendingUid);
         if (identity == null) {
+            logUnauthorised(msg.sendingUid);
             reply(msg, false, "UNAUTHORIZED_CALLER", "Caller package is not registered", "", 0);
             return true;
         }
@@ -57,8 +59,11 @@ public final class CortexLocalBusService extends Service {
             try {
                 db = new VaultDb(getApplicationContext());
                 CortexLocalBusStoreV1.hello(db, identity, data.getString(CortexLocalBusProtocolV1.KEY_CAPABILITIES_JSON, "[]"));
+                JSONObject meta=new JSONObject();meta.put("connector_id",identity.connectorId);meta.put("package",identity.packageName);meta.put("sending_uid",msg.sendingUid);
+                DiagnosticsLog.info(db,"local_bus","hello","accepted",0,0,0,0,0,0,meta);
                 reply(msg, true, "HELLO_ACCEPTED", identity.connectorId, "", 0);
             } catch (Throwable e) {
+                if(db!=null)DiagnosticsLog.error(db,"local_bus","hello",e,"HELLO_FAILED",0,0,0,0,0,null);
                 reply(msg, false, "HELLO_FAILED", safe(e), "", 0);
             } finally { close(db); }
             return true;
@@ -74,6 +79,7 @@ public final class CortexLocalBusService extends Service {
             event = CortexLocalBusProtocolV1.parseEvent(raw);
             if (!identity.connectorId.equals(event.connectorId)) throw new IllegalArgumentException("connector_id does not match caller identity");
         } catch (Throwable e) {
+            logInvalid(identity,e);
             reply(msg, false, "INVALID_EVENT", safe(e), "", 0);
             return true;
         }
@@ -83,24 +89,38 @@ public final class CortexLocalBusService extends Service {
             db = new VaultDb(getApplicationContext());
             CortexLocalBusStoreV1.ensure(db);
             if (CortexLocalBusStoreV1.alreadyAccepted(db, event.eventId)) {
-                reply(msg, true, "DUPLICATE_ACCEPTED", "Event was already ingested", event.eventId, existingSignalId(db, event.eventId));
+                long existing=existingSignalId(db,event.eventId);
+                logDelivery(db,identity,event,"DUPLICATE_ACCEPTED",existing,"");
+                reply(msg, true, "DUPLICATE_ACCEPTED", "Event was already ingested", event.eventId, existing);
                 return true;
             }
             CortexLocalBusStoreV1.recordReceived(db, identity, event);
+            logDelivery(db,identity,event,"RECEIVED",0,"");
             CortexConnectorIngestV1.Result result = CortexConnectorIngestV1.ingest(getApplicationContext(), db, identity, event);
             if (result.accepted()) {
                 CortexLocalBusStoreV1.accepted(db, identity, event.eventId, result.signalId);
+                logDelivery(db,identity,event,"ACCEPTED",result.signalId,"");
                 reply(msg, true, "ACCEPTED", "Canonical Cortex ingest succeeded", event.eventId, result.signalId);
             } else {
                 CortexLocalBusStoreV1.rejected(db, identity, event.eventId, result.status);
+                logDelivery(db,identity,event,result.status,result.signalId,"rejected");
                 reply(msg, false, result.status, "Connector event was not admitted", event.eventId, result.signalId);
             }
         } catch (Throwable e) {
-            try { if (db != null) CortexLocalBusStoreV1.rejected(db, identity, event.eventId, safe(e)); } catch (Throwable ignored) {}
+            try { if (db != null) {CortexLocalBusStoreV1.rejected(db, identity, event.eventId, safe(e));DiagnosticsLog.error(db,"local_bus","ingest",e,"INGEST_FAILED",0,0,0,0,0,deliveryMeta(identity,event));} } catch (Throwable ignored) {}
             reply(msg, false, "INGEST_FAILED", safe(e), event.eventId, 0);
         } finally { close(db); }
         return true;
     }
+
+    private void logDelivery(VaultDb db,CortexConnectorRegistryV1.Identity identity,CortexLocalBusProtocolV1.Event event,String status,long signalId,String detail){
+        try{JSONObject meta=deliveryMeta(identity,event);meta.put("detail",detail);DiagnosticsLog.info(db,"local_bus","ingest_"+status.toLowerCase(),status,0,0,signalId,0,0,0,meta);}catch(Throwable ignored){}
+    }
+    private JSONObject deliveryMeta(CortexConnectorRegistryV1.Identity identity,CortexLocalBusProtocolV1.Event event){
+        JSONObject meta=new JSONObject();try{meta.put("connector_id",identity.connectorId);meta.put("connector_package",identity.packageName);meta.put("event_id",event.eventId);meta.put("source_type",event.sourceType);meta.put("source_package",event.sourcePackage);meta.put("occurred_at",event.occurredAt);}catch(Throwable ignored){}return meta;
+    }
+    private void logInvalid(CortexConnectorRegistryV1.Identity identity,Throwable e){VaultDb db=null;try{db=new VaultDb(getApplicationContext());JSONObject meta=new JSONObject();meta.put("connector_id",identity.connectorId);meta.put("connector_package",identity.packageName);DiagnosticsLog.error(db,"local_bus","parse_event",e,"INVALID_EVENT",0,0,0,0,0,meta);}catch(Throwable ignored){}finally{close(db);}}
+    private void logUnauthorised(int uid){VaultDb db=null;try{db=new VaultDb(getApplicationContext());JSONObject meta=new JSONObject();meta.put("sending_uid",uid);DiagnosticsLog.warn(db,"local_bus","caller_rejected","unauthorized","UNAUTHORIZED_CALLER",0,0,0,0,0,meta);}catch(Throwable ignored){}finally{close(db);}}
 
     private long existingSignalId(VaultDb db, String eventId) {
         android.database.Cursor c = db.getReadableDatabase().rawQuery("SELECT signal_id FROM connector_ingest_events WHERE event_id=? LIMIT 1", new String[]{eventId});
