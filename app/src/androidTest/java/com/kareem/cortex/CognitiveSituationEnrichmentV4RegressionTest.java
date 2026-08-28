@@ -35,14 +35,16 @@ public class CognitiveSituationEnrichmentV4RegressionTest {
         }finally{sql.close();}
     }
 
-    @Test public void delayedDeepBrainResponseIsStaleAfterAnyNewLiveSituationChange(){
+    @Test public void delayedDeepBrainResponseIsStaleAfterAnyCanonicalSituationChange(){
         SQLiteDatabase sql=db();try{
             assertFalse(CognitiveDeepBrainApplyV4.hasNewerCanonicalSituation(sql,3000));
             ContentValues v=new ContentValues();v.put("id","si_live");v.put("state","DETECTED");v.put("headline","New context");v.put("updated_at",4000);assertTrue(sql.insert("v4_situations",null,v)>=0);
             assertTrue(CognitiveDeepBrainApplyV4.hasNewerCanonicalSituation(sql,3000));
             assertFalse(CognitiveDeepBrainApplyV4.hasNewerCanonicalSituation(sql,5000));
             ContentValues terminal=new ContentValues();terminal.put("state","RESOLVED");terminal.put("updated_at",6000);assertEquals(1,sql.update("v4_situations",terminal,"id='si_live'",null));
-            assertFalse(CognitiveDeepBrainApplyV4.hasNewerCanonicalSituation(sql,3000));
+            assertTrue(CognitiveDeepBrainApplyV4.hasNewerCanonicalSituation(sql,3000));
+            assertTrue(CognitiveDeepBrainApplyV4.hasNewerCanonicalSituation(sql,5000));
+            assertFalse(CognitiveDeepBrainApplyV4.hasNewerCanonicalSituation(sql,7000));
         }finally{sql.close();}
     }
 }
