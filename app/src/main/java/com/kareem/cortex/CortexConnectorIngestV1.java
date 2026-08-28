@@ -1,6 +1,7 @@
 package com.kareem.cortex;
 
 import android.content.Context;
+import android.database.Cursor;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
@@ -53,14 +54,33 @@ public final class CortexConnectorIngestV1 {
 
         MasterRelevanceFilter.Signal signal = new MasterRelevanceFilter.Signal(
                 "notification", event.sourcePackage, title, body, meta.toString(), event.occurredAt, ongoing);
-        long signalId = RawSignalStore.capture(db, signal);
+        long signalId = NotificationSignalIngressV1.capture(db, signal);
         if (signalId <= 0) return new Result(signalId, "RAW_CAPTURE_FAILED");
+
+        // Connector payload may be richer than Cortex's native listener even when both sensors saw
+        // the same physical notification. Preserve that extra structure additively on Evidence.
+        appendConnectorEnrichment(db, signalId, identity, event, body);
+
         long itemId = RawSignalStore.promotedItemId(db, signalId);
         long threadId = RawSignalStore.threadId(db, signalId);
         try { NotificationEnrichmentEngine.enrich(db, signalId, itemId, threadId, signal); } catch (Throwable ignored) {}
         try { if (threadId > 0) ThreadModelAdjudicator.enqueue(context, threadId, signalId); } catch (Throwable ignored) {}
         try { if (itemId > 0) AnalysisQueue.kick(context, null, null); } catch (Throwable ignored) {}
         return new Result(signalId, "ACCEPTED");
+    }
+
+    private static void appendConnectorEnrichment(VaultDb db, long signalId, CortexConnectorRegistryV1.Identity identity, CortexLocalBusProtocolV1.Event event, String body) {
+        try {
+            Cursor c = db.getReadableDatabase().rawQuery(
+                    "SELECT object_id FROM v4_legacy_map WHERE legacy_table='raw_signals' AND legacy_id=? AND object_type='EVIDENCE' LIMIT 1",
+                    new String[]{String.valueOf(signalId)});
+            String evidenceId;
+            try { evidenceId = c.moveToFirst() ? clean(c.getString(0)) : ""; }
+            finally { c.close(); }
+            if (evidenceId.isEmpty()) return;
+            CognitiveStoreV4.appendEvidenceAnalysis(db, evidenceId, "CONNECTOR_ENRICHMENT",
+                    "local_bus:" + identity.connectorId, "1", body, event.json.toString());
+        } catch (Throwable ignored) {}
     }
 
     private static void copy(JSONObject from, JSONObject to) {
