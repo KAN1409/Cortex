@@ -2,7 +2,7 @@ name: Cortex CI
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, ci/cognitive-brain-v2-step3 ]
   pull_request:
     branches: [ main ]
   workflow_dispatch:
