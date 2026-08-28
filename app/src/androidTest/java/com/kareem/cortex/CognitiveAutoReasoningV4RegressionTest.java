@@ -14,7 +14,7 @@ public class CognitiveAutoReasoningV4RegressionTest {
     private static CognitivePulseProjectionV4.Item item(String kind,double nowScore,long until,boolean fresh,long changedAt){
         return new CognitivePulseProjectionV4.Item(
                 "si_test",kind,"DETECTED","Test situation","",
-                .55,nowScore,.20,.85,changedAt,until,0,"","",false,0,
+                .55,nowScore,.20,.85,changedAt,until,0,"","",false,false,0,
                 changedAt,fresh,true);
     }
 
@@ -53,10 +53,10 @@ public class CognitiveAutoReasoningV4RegressionTest {
 
     @Test public void currentDeepBrainRankIsAuthoritativeAfterGeminiApplies(){
         long now=System.currentTimeMillis();
-        CognitivePulseProjectionV4.Item rank1=new CognitivePulseProjectionV4.Item("si_rank1","COMMITMENT","RELEVANT","Rank one","",.20,.20,.10,.90,0,0,1,"Gemini first","",true,1.0,now,false,false);
-        CognitivePulseProjectionV4.Item rank2=new CognitivePulseProjectionV4.Item("si_rank2","COMMITMENT","RELEVANT","Rank two","",.95,.95,.10,.90,0,0,2,"Gemini second","",true,1.0,now,false,false);
-        assertTrue(CognitivePulseProjectionV4.compareForPulse(rank1,rank2)<0);
-        CognitivePulseProjectionV4.Item unseen=new CognitivePulseProjectionV4.Item("si_new","RISK","DETECTED","New unseen risk","",.30,.30,.10,.90,0,0,0,"","",false,0,now+1,true,false);
+        CognitivePulseProjectionV4.Item rank1=new CognitivePulseProjectionV4.Item("si_rank1","COMMITMENT","RELEVANT","Rank one","",.20,.20,.10,.90,0,0,1,"Gemini first","",true,true,1.0,now,false,false);
+        CognitivePulseProjectionV4.Item rank2=new CognitivePulseProjectionV4.Item("si_rank2","COMMITMENT","RELEVANT","Rank two","",.95,.95,.10,.90,0,0,2,"Gemini second","",true,true,1.0,now,false,false);
+        assertTrue(CognitivePulseProjectionV4.compareForPulse(rank1,rank2)<0);assertTrue(rank1.geminiRanked);
+        CognitivePulseProjectionV4.Item unseen=new CognitivePulseProjectionV4.Item("si_new","RISK","DETECTED","New unseen risk","",.30,.30,.10,.90,0,0,0,"","",false,false,0,now+1,true,false);
         assertTrue(CognitivePulseProjectionV4.compareForPulse(unseen,rank1)<0);
     }
 
