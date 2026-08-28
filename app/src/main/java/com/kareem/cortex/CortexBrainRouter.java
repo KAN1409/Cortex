@@ -29,6 +29,14 @@ public final class CortexBrainRouter {
         return new RoutedCognitiveResult(asReview(localResult,allowRemote?"Deep Brain unavailable or confidence below routing threshold":"Remote escalation blocked by policy"),local.provider(),local.model(),false,localResult.confidence,localLatency,0,"");
     }
 
+    /** Used only after local inference/parser failed twice and remote policy explicitly allows it. */
+    public RoutedCognitiveResult deepFallback(CognitiveInput input)throws BrainException{
+        if(!deep.isAvailable())throw new BrainException("DEEP_QWEN_UNAVAILABLE","Deep Qwen server is not configured");
+        long started=System.currentTimeMillis();CognitiveResult result=deep.classify(input);long latency=Math.max(0,System.currentTimeMillis()-started);
+        if(result.confidence<LocalBrainConfig.TRY_DEEP_CONFIDENCE)result=asReview(result,"Deep Brain remained below confidence threshold");
+        return new RoutedCognitiveResult(result,deep.provider(),deep.model(),true,0,0,latency,"");
+    }
+
     public BrainCompletion classifyLocal(BrainRequest request)throws BrainException{return local.classify(request);}
 
     /** Migration-compatible completion route used by older internals. */
