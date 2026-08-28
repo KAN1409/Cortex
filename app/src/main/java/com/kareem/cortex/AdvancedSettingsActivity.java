@@ -23,6 +23,7 @@ public final class AdvancedSettingsActivity extends Activity {
         row(body,"Relevance evaluation","Inspect relevance decisions and evidence quality",RelevanceEvaluationActivity.class);
 
         body.addView(CortexUi.section(this,"Runtime & capabilities"));
+        row(body,"Runtime pipeline","Live ASR, Cortex Relay ACK trail, V4 Pulse and autonomous Gemini gate + intensive JSON export",RuntimePipelineDiagnosticsActivity.class);
         row(body,"Capabilities","See what is active, ready, blocked or failed",CapabilityMatrixActivity.class);
         row(body,"Environment & diagnostics","Provider health, runtime state, phone context, OCR and recovery",EnvironmentActivity.class);
         row(body,"Cortex status","Internal health and system status",CortexStatusActivity.class);
