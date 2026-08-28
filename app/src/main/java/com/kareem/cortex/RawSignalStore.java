@@ -1,6 +1,7 @@
 package com.kareem.cortex;
 
 import android.content.ContentValues;
+import android.content.Context;
 import android.database.Cursor;
 import org.json.JSONObject;
 
@@ -11,7 +12,13 @@ public final class RawSignalStore {
 
     public static void ensure(VaultDb db){CognitiveStore.ensure(db);}
 
-    public static long capture(VaultDb db,MasterRelevanceFilter.Signal signal){
+    /** Compatibility path: identical legacy behavior, no Cognitive V2 shadow sidecar without an Android Context. */
+    public static long capture(VaultDb db,MasterRelevanceFilter.Signal signal){return captureInternal(null,db,signal);}
+
+    /** Notification/runtime path that preserves legacy authority and adds telemetry-only V2 shadow evaluation. */
+    public static long capture(Context context,VaultDb db,MasterRelevanceFilter.Signal signal){return captureInternal(context,db,signal);}
+
+    private static long captureInternal(Context context,VaultDb db,MasterRelevanceFilter.Signal signal){
         ensure(db);cleanup(db);String contentHash=Fingerprint.text(signal.text());String fp=Fingerprint.text(signal.kind+"|"+signal.source+"|"+signal.title+"|"+signal.body+"|"+(signal.occurredAt/60000));long existing=find(db,fp);if(existing>0)return existing;MasterRelevanceFilter.Decision fast=fastDecision(signal);long now=System.currentTimeMillis(),retention=retentionUntil(now,fast.disposition);
         ContentValues v=new ContentValues();v.put("kind",signal.kind);v.put("source",signal.source);v.put("title",signal.title);v.put("body",signal.body);v.put("metadata_json",signal.metadataJson);v.put("fingerprint",fp);v.put("content_hash",contentHash);v.put("state","filtered");v.put("disposition",fast.disposition.name());v.put("importance",fast.importance);v.put("confidence",fast.confidence);v.put("policy_version",FAST_POLICY);v.put("filter_engine","deterministic_fast_gate");v.put("reason",fast.reason);v.put("occurred_at",signal.occurredAt>0?signal.occurredAt:now);v.put("retention_until",retention);v.put("created_at",now);v.put("updated_at",now);
         long signalId=db.getWritableDatabase().insert("raw_signals",null,v);if(signalId<=0){DiagnosticsLog.warn(db,"RawSignalStore","capture_insert","failed","RAW_SIGNAL_INSERT",0,0,0,0,0,null);return signalId;}
@@ -21,6 +28,9 @@ public final class RawSignalStore {
 
         // The fast gate is only authoritative when there is no thread-aware policy. Never promote from a stale fast decision.
         if(authority.durable()&&(!threadAuthority||RelevanceDecisionStatusStore.isApplied(db,signalId)))promote(db,signalId,threadId,signal,authority,!threadAuthority);
+
+        // Sidecar only. Any failure here must be invisible to legacy capture, promotion and Pulse behavior.
+        if(context!=null)try{CognitiveAdjudicatorV2.enqueueShadow(context,signalId,threadId);}catch(Throwable ignored){}
         return signalId;
     }
 
