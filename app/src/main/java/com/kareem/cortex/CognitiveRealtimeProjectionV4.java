@@ -22,7 +22,7 @@ public final class CognitiveRealtimeProjectionV4 {
 
     public static void schedule(Context context,long signalId){
         if(context==null||signalId<=0)return;Context app=context.getApplicationContext();
-        EXECUTOR.execute(()->{VaultDb db=null;try{db=new VaultDb(app);project(db,signalId);}catch(Throwable ignored){}finally{if(db!=null)try{db.close();}catch(Throwable ignored){}}});
+        EXECUTOR.execute(()->{VaultDb db=null;try{db=new VaultDb(app);Result result=project(db,signalId);if(result.situationRefreshRan)CognitiveReasoningOrchestratorV4.schedule(app,"realtime_signal");}catch(Throwable ignored){}finally{if(db!=null)try{db.close();}catch(Throwable ignored){}}});
     }
 
     static Result project(VaultDb db,long signalId){
