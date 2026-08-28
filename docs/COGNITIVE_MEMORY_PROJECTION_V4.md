@@ -62,6 +62,26 @@ Legacy extracted text, summaries and model analyses are appended as `v4_evidence
 
 The forward bridge performs only deterministic local persistence. It does not run AI, search, embeddings or migration work inside notification/accessibility capture callbacks.
 
+## Realtime durable projection
+
+`CognitiveRealtimeProjectionV4` closes the latency gap between a meaningful live connector event and Stage-E Pulse.
+
+It is deliberately **not** a second relevance governor. It runs asynchronously only after the existing legacy relevance pipeline has already promoted the signal into a durable `knowledge_item`.
+
+For a promoted notification it:
+
+1. reuses the already-written immutable V4 Evidence;
+2. reads additive `CONNECTOR_ENRICHMENT` text when the trusted connector payload is richer than the legacy/native preview;
+3. materializes the same deterministic Memory identity that bounded backfill would later create;
+4. records the normal legacy→Memory map so later backfill remains idempotent;
+5. refreshes Situations and reconciles existing Deep Brain state.
+
+This means a tunneled WhatsApp request such as an explicit deadline can become a canonical Memory/Situation promptly instead of waiting for the next startup/WorkManager migration batch.
+
+The original Evidence text is never overwritten. Connector text remains additive analysis provenance; only the interpretive Memory projection may prefer the richer trusted analysis text.
+
+Context-only or ignored notifications still stop before Memory because `promoted_item_id` remains zero.
+
 ## Historical rescue
 
 `CognitiveMemoryHistoricalRescueV4` rescues still-present `raw_signals` within the 90-day episodic window even when their old legacy short-retention deadline has passed. It cannot reconstruct rows already deleted by older builds.
@@ -126,7 +146,7 @@ Real Termux compile gate passed at branch head `45575e7b07aee75958d3680c2ec122f9
 
 The Termux AAPT2 environment emitted repeated `No package ID 7f found` diagnostics, but resource processing, Java/Kotlin compilation, AndroidTest packaging and APK assembly all completed successfully. For this validated build these messages are non-fatal noise.
 
-Next gate: install this APK over the existing app, let bounded WorkManager migration run on the real `cortex.db`, then inspect V4 equivalence metrics. No V4 surface becomes primary until that gate is clean.
+Newer realtime connector projection changes require a fresh compile gate before device installation.
 
 ## Safety rules
 
@@ -137,4 +157,5 @@ Next gate: install this APK over the existing app, let bounded WorkManager migra
 - observed/inferred personal claims require provenance;
 - suggestions never become historical facts automatically;
 - capture callbacks never wait on migration/search/AI work;
+- realtime projection may only materialize already-authoritatively-promoted durable items;
 - current product surfaces remain authoritative until staged cut-over validation.
