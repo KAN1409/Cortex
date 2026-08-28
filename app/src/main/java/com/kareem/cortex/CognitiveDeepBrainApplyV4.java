@@ -34,8 +34,13 @@ public final class CognitiveDeepBrainApplyV4 {
         int rankedStored = 0, prioritiesApplied = 0, actionsCreated = 0, skipped = 0;
         sql.beginTransaction();
         try {
+            // A successfully validated newer reasoning pass is authoritative for ranking freshness,
+            // even when ChatGPT intentionally returns no priority_items. Without this transition an
+            // empty/new response would leave an older ranking ACTIVE forever and Pulse would keep
+            // presenting stale model judgement as current.
+            CognitiveDeepBrainStoreV4.supersedeActivePriorities(sql,now);
+
             JSONArray ranked = CognitiveDeepBrainProtocolV4.array(response.json, "priority_items");
-            boolean superseded = false;
             for (int i = 0; i < ranked.length(); i++) {
                 JSONObject x = ranked.optJSONObject(i);
                 if (x == null) { skipped++; continue; }
@@ -46,7 +51,6 @@ public final class CognitiveDeepBrainApplyV4 {
                 List<String> memoryIds = allowedIds(sql,"v4_memories",x.optJSONArray("memory_ids"),allowedMemories);
                 List<String> worldIds = allowedIds(sql,"v4_worlds",x.optJSONArray("world_ids"),allowedWorlds);
                 if (situationId.isEmpty() && memoryIds.isEmpty() && worldIds.isEmpty()) { skipped++; continue; }
-                if (!superseded) { CognitiveDeepBrainStoreV4.supersedeActivePriorities(sql,now); superseded=true; }
                 int rank=x.optInt("rank",i+1);if(rank<1||rank>100)rank=i+1;
                 double attention=clamp01(x.optDouble("attention_score",Math.max(.1,1.0-(rank-1)*.12)));
                 String reason=clip(clean(x.optString("reason","")),700);
