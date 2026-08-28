@@ -44,6 +44,11 @@ public final class StartupMaintenance {
             }catch(Throwable ignored){
             }
 
+            // Once canonical Situations are current, the autonomous brain may evaluate whether any
+            // meaningful change deserves a Gemini pass. Its own policy/cooldown/budget decides;
+            // startup itself never forces a cloud call.
+            try{CognitiveReasoningOrchestratorV4.schedule(context,"startup_refresh");}catch(Throwable ignored){}
+
             // Older maintenance remains best-effort. A failure here must not undo/skip Stage E.
             try{
                 CognitiveSchema.ensure(db.getWritableDatabase());
