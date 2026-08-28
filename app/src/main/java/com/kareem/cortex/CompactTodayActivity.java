@@ -95,7 +95,7 @@ public final class CompactTodayActivity extends CortexOrbBriefActivity implement
         LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,-2);p.setMargins(0,dp(11),0,0);content.addView(card,p);
     }
 
-    private String sourceLabel(String pkg){if(pkg==null||pkg.trim().isEmpty())return"event";String x=pkg.trim();if("com.whatsapp".equals(x))return"WhatsApp";if(x.contains("gmail")||"com.google.android.gm".equals(x))return"Gmail";int i=x.lastIndexOf('.');return i>=0&&i<x.length()-1?x.substring(i+1):x;}
+    @Override String sourceLabel(String pkg){if(pkg==null||pkg.trim().isEmpty())return"event";String x=pkg.trim();if("com.whatsapp".equals(x))return"WhatsApp";if(x.contains("gmail")||"com.google.android.gm".equals(x))return"Gmail";int i=x.lastIndexOf('.');return i>=0&&i<x.length()-1?x.substring(i+1):x;}
     private String statusAge(long at){if(at<=0)return"";long d=Math.max(0,System.currentTimeMillis()-at);long m=d/60000L;if(m<1)return"just now";if(m<60)return m+"m ago";long h=m/60L;if(h<24)return h+"h ago";long days=h/24L;return days+"d ago";}
 
     private void renderCognitivePulseV4(){
