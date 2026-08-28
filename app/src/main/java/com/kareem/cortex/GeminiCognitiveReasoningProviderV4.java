@@ -20,7 +20,7 @@ public final class GeminiCognitiveReasoningProviderV4 implements CognitiveReason
 
     @Override public Result reason(Context context,CognitiveDeepBrainPacketBuilderV4.Packet packet)throws Exception{
         if(context==null||packet==null)throw new IllegalArgumentException("context and packet required");String key=GeminiKeyStore.get(context);if(key.isEmpty())throw new IllegalStateException("Gemini API key not configured");String model=model(context);
-        String prompt=prompt(packet);JSONArray parts=new JSONArray().put(new JSONObject().put("text",prompt));JSONArray contents=new JSONArray().put(new JSONObject().put("role","user").put("parts",parts));JSONObject cfg=new JSONObject().put("maxOutputTokens",4096).put("responseMimeType","application/json").put("responseSchema",responseSchema());JSONObject req=new JSONObject().put("contents",contents).put("generationConfig",cfg);
+        String prompt=prompt(packet);JSONArray parts=new JSONArray().put(new JSONObject().put("text",prompt));JSONArray contents=new JSONArray().put(new JSONObject().put("role","user").put("parts",parts));JSONObject req=new JSONObject().put("contents",contents).put("generationConfig",generationConfig());
         long started=SystemClock.elapsedRealtime();HttpURLConnection c=(HttpURLConnection)new URL(endpoint(model)).openConnection();c.setRequestMethod("POST");c.setDoOutput(true);c.setConnectTimeout(20000);c.setReadTimeout(45000);c.setRequestProperty("Content-Type","application/json");c.setRequestProperty("Accept","application/json");c.setRequestProperty("x-goog-api-key",key);write(c,req.toString());int code=c.getResponseCode();String body=read(code>=200&&code<300?c.getInputStream():c.getErrorStream());c.disconnect();long duration=SystemClock.elapsedRealtime()-started;if(code<200||code>=300)throw new IllegalStateException("Gemini cognitive reasoning HTTP "+code+": "+clip(body,500));String text=extractText(new JSONObject(body));String json=CognitiveDeepBrainProtocolV4.firstJsonObject(stripFence(text));if(json.isEmpty())throw new IllegalStateException("Gemini returned no response JSON");String raw=CognitiveDeepBrainProtocolV4.RESPONSE_MARKER+"\n"+json;CognitiveDeepBrainProtocolV4.ParsedResponse parsed=CognitiveDeepBrainProtocolV4.parseResponse(raw);if(!packet.requestId.equals(parsed.requestId))throw new IllegalStateException("Gemini response request_id mismatch");validateShape(parsed.json);return new Result(raw,id(),model,duration);
     }
 
@@ -34,12 +34,17 @@ public final class GeminiCognitiveReasoningProviderV4 implements CognitiveReason
     }
     private static void requireArray(JSONObject json,String key){if(json.optJSONArray(key)==null)throw new IllegalArgumentException("Gemini response missing "+key);}
 
+    /** Current Gemini structured-output transport. Cortex validation remains authoritative. */
+    static JSONObject generationConfig(){
+        JSONObject text=new JSONObject().put("mimeType","application/json").put("schema",responseSchema());
+        return new JSONObject().put("maxOutputTokens",4096).put("responseFormat",new JSONObject().put("text",text));
+    }
+
     /** JSON Schema constrains transport shape; Cortex still performs grounding/state/action validation. */
     static JSONObject responseSchema(){
-        JSONObject stringType=type("string"),numberType=type("number"),integerType=type("integer");
         JSONObject idArray=arrayOf(type("string"),12);
         JSONObject priorityItem=object(
-                new JSONObject().put("rank",integerType).put("title",type("string")).put("reason",type("string")).put("attention_score",number01())
+                new JSONObject().put("rank",type("integer")).put("title",type("string")).put("reason",type("string")).put("attention_score",number01())
                         .put("situation_id",type("string")).put("memory_ids",idArray).put("world_ids",arrayOf(type("string"),12)),
                 "rank","title","reason");
         JSONObject priorityUpdate=object(
@@ -57,7 +62,7 @@ public final class GeminiCognitiveReasoningProviderV4 implements CognitiveReason
                         .put("evidence_ids",arrayOf(type("string"),12)).put("memory_ids",arrayOf(type("string"),12)).put("fact_ids",arrayOf(type("string"),12)).put("world_ids",arrayOf(type("string"),12)),
                 "text");
         return object(new JSONObject()
-                        .put("request_id",stringType).put("answer",type("string"))
+                        .put("request_id",type("string")).put("answer",type("string"))
                         .put("priority_items",arrayOf(priorityItem,20)).put("priority_updates",arrayOf(priorityUpdate,20))
                         .put("suggested_actions",arrayOf(action,20)).put("reasoning_blocks",arrayOf(reasoning,20)),
                 "request_id","answer","priority_items","priority_updates","suggested_actions","reasoning_blocks");
