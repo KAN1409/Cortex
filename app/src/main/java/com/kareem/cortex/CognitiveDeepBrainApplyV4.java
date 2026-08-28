@@ -36,10 +36,6 @@ public final class CognitiveDeepBrainApplyV4 {
         CognitiveDeepBrainStoreV4.Request request = CognitiveDeepBrainStoreV4.load(sql, response.requestId);
         if (request == null) throw new IllegalArgumentException("Unknown Cortex request_id");
         if ("APPLIED".equals(request.state)) return new Result(response.requestId, response.answer, 0, 0, 0, 0, true);
-        // Priority is a global judgement. If any canonical Situation changed after this packet was
-        // built, including a user terminal transition, the response is based on an older world-state.
-        // Do not let a slow Gemini call or delayed ChatGPT share overwrite newer canonical/user state.
-        if(hasNewerCanonicalSituation(sql,request.createdAt))throw new IllegalArgumentException("Cortex context changed after this Deep Brain request was built; refresh reasoning");
 
         Set<String> allowedSituations = new HashSet<>(request.situationIds);
         Set<String> allowedMemories = new HashSet<>(request.memoryIds);
@@ -48,6 +44,11 @@ public final class CognitiveDeepBrainApplyV4 {
         int rankedStored = 0, prioritiesApplied = 0, actionsCreated = 0, skipped = 0, prioritiesSuperseded = 0, actionsSuperseded = 0;
         sql.beginTransaction();
         try {
+            // Priority is a global judgement. Check freshness only after entering the same write
+            // transaction that will apply the response, so canonical state cannot change in the
+            // narrow window between the stale check and model writes.
+            if(hasNewerCanonicalSituation(sql,request.createdAt))throw new IllegalArgumentException("Cortex context changed after this Deep Brain request was built; refresh reasoning");
+
             JSONArray ranked = CognitiveDeepBrainProtocolV4.array(response.json, "priority_items");
             boolean rankingFieldPresent=response.json.optJSONArray("priority_items")!=null;
             for (int i = 0; i < ranked.length(); i++) {
