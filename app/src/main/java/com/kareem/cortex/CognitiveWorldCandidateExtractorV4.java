@@ -30,11 +30,7 @@ public final class CognitiveWorldCandidateExtractorV4 {
                 new String[]{memoryId});
         try {
             while (c.moveToNext()) {
-                String evidenceId = c.getString(0);
-                String metadata = c.getString(1);
-                long at = c.getLong(2);
-                String sourcePackage = c.getString(3);
-                extractStructured(out, memoryId, evidenceId, metadata, sourcePackage, at);
+                extractStructured(out, memoryId, c.getString(0), c.getString(1), c.getString(3), c.getLong(2));
             }
         } finally { c.close(); }
         return Collections.unmodifiableList(out);
@@ -43,13 +39,14 @@ public final class CognitiveWorldCandidateExtractorV4 {
     private static void extractStructured(List<CognitiveWorldResolverV4.Candidate> out, String memoryId,
                                           String evidenceId, String metadata, String sourcePackage, long at) {
         JSONObject root = json(metadata);
-        JSONObject source = root.optJSONObject("source_metadata");
-        if (source == null) source = new JSONObject();
+        JSONObject legacy = object(root, "legacy_metadata");
+        JSONObject source = object(legacy, "source_metadata");
+        if (source.length() == 0) source = object(root, "source_metadata");
 
-        String personName = first(root, source, "person_name", "participant_name", "sender_name", "contact_name");
-        String contactId = first(root, source, "contact_id");
-        String phone = first(root, source, "phone_e164", "phone");
-        String accountId = first(root, source, "account_id", "sender_id", "participant_id");
+        String personName = first(root, legacy, source, "person_name", "participant_name", "sender_name", "contact_name");
+        String contactId = first(root, legacy, source, "contact_id");
+        String phone = first(root, legacy, source, "phone_e164", "phone");
+        String accountId = first(root, legacy, source, "account_id", "sender_id", "participant_id");
         if (!personName.isEmpty()) {
             ArrayList<CognitiveIdentityV4.IdentityClaim> claims = new ArrayList<>();
             claims.add(claim(CognitiveIdentityV4.ClaimType.EXACT_NAME, personName, CognitiveIdentityV4.ClaimStrength.WEAK, evidenceId));
@@ -59,8 +56,8 @@ public final class CognitiveWorldCandidateExtractorV4 {
             out.add(candidate(personName, CognitiveDomainV4.WorldTypeHint.PERSON, claims, memoryId, evidenceId, at));
         }
 
-        String projectName = first(root, source, "project_name");
-        String projectId = first(root, source, "project_id");
+        String projectName = first(root, legacy, source, "project_name");
+        String projectId = first(root, legacy, source, "project_id");
         if (!projectName.isEmpty()) {
             ArrayList<CognitiveIdentityV4.IdentityClaim> claims = new ArrayList<>();
             claims.add(claim(CognitiveIdentityV4.ClaimType.EXACT_NAME, projectName, CognitiveIdentityV4.ClaimStrength.WEAK, evidenceId));
@@ -68,8 +65,8 @@ public final class CognitiveWorldCandidateExtractorV4 {
             out.add(candidate(projectName, CognitiveDomainV4.WorldTypeHint.PROJECT, claims, memoryId, evidenceId, at));
         }
 
-        String organization = first(root, source, "organization_name", "company_name");
-        String domain = first(root, source, "domain", "organization_domain");
+        String organization = first(root, legacy, source, "organization_name", "company_name");
+        String domain = first(root, legacy, source, "domain", "organization_domain");
         if (!organization.isEmpty()) {
             ArrayList<CognitiveIdentityV4.IdentityClaim> claims = new ArrayList<>();
             claims.add(claim(CognitiveIdentityV4.ClaimType.EXACT_NAME, organization, CognitiveIdentityV4.ClaimStrength.WEAK, evidenceId));
@@ -78,8 +75,8 @@ public final class CognitiveWorldCandidateExtractorV4 {
             out.add(candidate(organization, CognitiveDomainV4.WorldTypeHint.ORGANIZATION, claims, memoryId, evidenceId, at));
         }
 
-        String placeName = first(root, source, "place_name", "location_name");
-        String placeId = first(root, source, "place_id", "location_id");
+        String placeName = first(root, legacy, source, "place_name", "location_name");
+        String placeId = first(root, legacy, source, "place_id", "location_id");
         if (!placeName.isEmpty()) {
             ArrayList<CognitiveIdentityV4.IdentityClaim> claims = new ArrayList<>();
             claims.add(claim(CognitiveIdentityV4.ClaimType.EXACT_NAME, placeName, CognitiveIdentityV4.ClaimStrength.WEAK, evidenceId));
@@ -87,7 +84,7 @@ public final class CognitiveWorldCandidateExtractorV4 {
             out.add(candidate(placeName, CognitiveDomainV4.WorldTypeHint.PLACE, claims, memoryId, evidenceId, at));
         }
 
-        String topic = first(root, source, "topic", "topic_name");
+        String topic = first(root, legacy, source, "topic", "topic_name");
         if (!topic.isEmpty()) {
             out.add(candidate(topic, CognitiveDomainV4.WorldTypeHint.TOPIC,
                     Collections.singletonList(claim(CognitiveIdentityV4.ClaimType.EXACT_NAME, topic,
@@ -112,12 +109,20 @@ public final class CognitiveWorldCandidateExtractorV4 {
         catch (Throwable ignored) { return new JSONObject(); }
     }
 
-    private static String first(JSONObject a, JSONObject b, String... keys) {
+    private static JSONObject object(JSONObject parent, String key) {
+        if (parent == null) return new JSONObject();
+        JSONObject x = parent.optJSONObject(key);
+        return x == null ? new JSONObject() : x;
+    }
+
+    private static String first(JSONObject a, JSONObject b, JSONObject c, String... keys) {
+        JSONObject[] sources = new JSONObject[]{a, b, c};
         for (String key : keys) {
-            String x = a.optString(key, "").trim();
-            if (!x.isEmpty()) return x;
-            x = b.optString(key, "").trim();
-            if (!x.isEmpty()) return x;
+            for (JSONObject source : sources) {
+                if (source == null) continue;
+                String x = source.optString(key, "").trim();
+                if (!x.isEmpty()) return x;
+            }
         }
         return "";
     }
