@@ -8,7 +8,7 @@ import org.json.JSONObject;
 
 /** Live, user-visible explanation of the pipelines that normally run invisibly in background. */
 public final class RuntimePipelineDiagnosticsActivity extends Activity {
-    private VaultDb db;private TextView output;private Button refresh,export;private volatile boolean destroyed=false;
+    private VaultDb db;private TextView output,refresh,export;private volatile boolean destroyed=false;
     private int dp(int x){return CortexUi.dp(this,x);}
 
     @Override public void onCreate(Bundle b){super.onCreate(b);CortexUi.applyWindow(this);db=new VaultDb(this);build();load(false);}
