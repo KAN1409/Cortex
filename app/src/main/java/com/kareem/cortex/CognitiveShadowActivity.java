@@ -26,13 +26,19 @@ public final class CognitiveShadowActivity extends Activity {
         boolean enabled=CognitiveFeatureFlags.shadowEnabled(this);TextView toggle=CortexUi.action(this,enabled?"Shadow mode ON — tap to pause":"Shadow mode OFF — tap to enable",enabled?CortexUi.SAGE:CortexUi.MUTED,false);toggle.setOnClickListener(v->{CognitiveFeatureFlags.setShadowEnabled(this,!CognitiveFeatureFlags.shadowEnabled(this));refresh();});body.addView(toggle,new LinearLayout.LayoutParams(-1,dp(44)));
 
         CognitiveShadowStore.Stats s=CognitiveShadowStore.stats(db);body.addView(CortexUi.section(this,"Observed shadow runs"));
-        metric("Signals observed",s.total+" shadow records • "+s.analyzed+" analyzed • "+s.skipped+" hard/model-not-ready skips • "+s.errors+" errors",s.errors==0?CortexUi.TEXT:android.graphics.Color.rgb(246,124,118));
-        metric("Agreement",s.agreement+" broad agreements\n"+s.missedValue+" V2 found missed value • "+s.downgrade+" V2 downgrades • "+s.ignoreDisagreement+" ignore disagreements",CortexUi.TEXT);
-        String rated=s.rated==0?"No human ratings yet.":s.rated+" rated • V2 better "+s.v2Better+" • Legacy better "+s.legacyBetter+" • Neither "+s.neither+"\nFalse derive among rated V2 derives: "+String.format(Locale.US,"%.1f%%",s.falseDeriveRate());
-        metric("Human evaluation",rated,s.ratedDerives>0&&s.falseDeriveRate()>=10?android.graphics.Color.rgb(246,124,118):CortexUi.TEXT);
+        metric("Signals observed",s.total+" shadow records • "+s.analyzed+" analyzed • "+s.skipped+" skips • "+s.errors+" errors\nInvalid contract/JSON: "+s.invalidContract+" • "+pct(s.invalidJsonRate()),s.invalidJsonRate()>=1.0?bad():CortexUi.TEXT);
+        metric("Exact agreement",s.agreement+" exact agreements\n"+s.missedValue+" V2 found missed value • "+s.derivedKindDisagreement+" derived-kind disagreements\n"+s.downgrade+" V2 downgrades • "+s.ignoreDisagreement+" ignore disagreements",CortexUi.TEXT);
+        metric("Required semantic coverage","ACTION "+s.actionCount+" • WAITING "+s.waitingCount+" • EVENT "+s.eventCount+" • CONTENT "+s.contentCount,s.requiredKindsObserved()?CortexUi.SAGE:CortexUi.TEXT);
+
+        String rated=s.rated==0?"No human ratings yet.":s.rated+" rated • V2 better "+s.v2Better+" • Legacy better "+s.legacyBetter+" • Neither "+s.neither+"\nFalse derive among rated V2 derives: "+pct(s.falseDeriveRate())+"\nRated legacy-context misses recovered by V2: "+s.recoveredMisses+" / "+s.ratedMisses+" • "+pct(s.missRecoveryRate());
+        metric("Human evaluation",rated,(s.ratedDerives>0&&s.falseDeriveRate()>=10.0)?bad():CortexUi.TEXT);
+
+        body.addView(CortexUi.section(this,"Promotion safety gate"));
+        String safety="Meaningful analyzed: "+s.analyzed+" / 200\nInvalid JSON <1%: "+yesNo(s.invalidJsonRate()<1.0)+"\nFalse derives <10%: "+yesNo(s.ratedDerives>0&&s.falseDeriveRate()<10.0)+"\nACTION/WAITING/EVENT/CONTENT observed: "+yesNo(s.requiredKindsObserved())+"\nShadow-created derived items: "+s.shadowDerivedMutations+" (must stay 0)";
+        boolean safe=s.shadowDerivedMutations==0;metric("Shadow must remain non-authoritative",safety,safe?CortexUi.SAGE:bad());
 
         body.addView(CortexUi.section(this,"Disagreements to rate"));ArrayList<CognitiveShadowStore.Entry> entries=CognitiveShadowStore.disagreements(db,20);
-        if(entries.isEmpty()){TextView none=CortexUi.text(this,"No unrated or recent shadow disagreements yet. Let normal notification traffic accumulate.",13,CortexUi.MUTED);none.setPadding(dp(2),dp(8),dp(2),dp(20));body.addView(none);}else for(CognitiveShadowStore.Entry e:entries)addEntry(e);
+        if(entries.isEmpty()){TextView none=CortexUi.text(this,"No recent shadow disagreements yet. Let normal notification traffic accumulate.",13,CortexUi.MUTED);none.setPadding(dp(2),dp(8),dp(2),dp(20));body.addView(none);}else for(CognitiveShadowStore.Entry e:entries)addEntry(e);
     }
 
     private void metric(String title,String value,int color){LinearLayout c=CortexUi.card(this,18);TextView t=CortexUi.plain(this,title,12,CortexUi.MUTED);CortexUi.medium(t);c.addView(t);TextView v=CortexUi.text(this,value,14,color);v.setPadding(0,dp(6),0,0);c.addView(v);LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,-2);p.setMargins(0,0,0,dp(8));body.addView(c,p);}
@@ -50,4 +56,7 @@ public final class CognitiveShadowActivity extends Activity {
     private String friendly(String source){String x=source==null?"":source.trim();int i=x.lastIndexOf('.');if(i>=0&&i+1<x.length())x=x.substring(i+1);return x;}
     private String pretty(String s){String x=s==null?"":s.trim().toLowerCase(Locale.ROOT).replace('_',' ');return x.isEmpty()?"—":Character.toUpperCase(x.charAt(0))+x.substring(1);}
     private String clip(String s,int n){String x=s==null?"":s.trim();return x.length()<=n?x:x.substring(0,n)+"…";}
+    private String pct(double value){return String.format(Locale.US,"%.1f%%",value);}
+    private String yesNo(boolean yes){return yes?"YES":"NO";}
+    private int bad(){return android.graphics.Color.rgb(246,124,118);}
 }
