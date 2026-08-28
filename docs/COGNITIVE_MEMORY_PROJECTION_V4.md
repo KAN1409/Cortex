@@ -38,8 +38,6 @@ Raw signals inside the episodic window become Evidence only.
 
 A filtered notification or screen observation does **not** become a Memory merely because Cortex captured it.
 
-Existing legacy retention deadlines are preserved. Durable promoted signals without a legacy expiry receive the normal 90-day V4 episodic horizon.
-
 ### Threads
 
 A legacy signal thread becomes an Episode only after at least one member Evidence row has been mapped.
@@ -57,6 +55,16 @@ If a knowledge item came from a raw signal, its Memory reuses that Evidence rath
 Manual/imported knowledge without a raw signal receives its own Evidence object first, then the Memory is created from that Evidence.
 
 Legacy extracted text, summaries and model analyses are appended as `v4_evidence_analysis`; they never replace original evidence text.
+
+## Forward capture bridge
+
+`CognitiveMemoryForwardBridgeV4` writes a canonical Evidence revision immediately after a new raw signal is accepted by the existing capture path. The V4 write is failure-isolated: a V4 error must never cause the legacy capture to fail.
+
+The forward bridge performs only deterministic local persistence. It does not run AI, search, embeddings or migration work inside notification/accessibility capture callbacks.
+
+## Historical rescue
+
+`CognitiveMemoryHistoricalRescueV4` rescues still-present `raw_signals` within the 90-day episodic window even when their old legacy short-retention deadline has passed. It cannot reconstruct rows already deleted by older builds.
 
 ## Memory read model
 
@@ -78,59 +86,55 @@ Supported deterministic constraints:
 
 Source/kind/date/pinned filters are hard constraints rather than ranking hints.
 
-Text matching uses literal `INSTR` rather than wildcard `LIKE`, so `%` and `_` in a user query do not change query semantics.
+Text matching uses literal `INSTR`, so `%` and `_` in a user query do not change query semantics.
 
 ## Forensic drill-down
 
 Every Memory row exposes its Evidence count.
 
-`evidence(memoryId)` returns:
+`evidence(memoryId)` returns Evidence ID, source type/package, time, original captured text, asset reference, processing state and additive analyses with engine/version.
 
-```text
-Evidence ID
-source type
-source package
-time
-original captured text
-asset reference
-processing state
-all additive analyses with engine/version
-```
-
-This is the boundary needed for the future Memory Detail screen to distinguish:
-
-```text
-ORIGINAL CAPTURE
-OCR / TRANSCRIPTION
-AI / ANALYSIS
-```
+This is the boundary needed for the future Memory Detail screen to distinguish ORIGINAL CAPTURE, OCR/TRANSCRIPTION and AI/ANALYSIS.
 
 ## Retention
 
 Active read queries hide expired unpinned Memories.
 
-Pinned Memories remain visible past the episodic deadline. Before retention deletion is enabled, backing Evidence for pinned/long-term Memories must also be protected so a retained Memory never loses its forensic source.
+Pinned Memories remain visible past the episodic deadline. Backing Evidence for pinned/long-term Memories is protected before destructive V4 retention is enabled.
 
-## Regression gates
+## Equivalence gate
 
-`CognitiveMemoryProjectionV4RegressionTest` verifies:
+`CognitiveMemoryEquivalenceV4` measures:
 
-1. OCR text is searchable without pretending OCR is original capture text.
-2. source and kind filters remain hard constraints.
-3. `%` and `_` are literal search characters.
-4. expired unpinned Memories disappear while pinned Memories remain.
-5. legacy source-type mapping stays deterministic.
+- eligible raw signals vs mapped V4 Evidence;
+- eligible threads vs mapped V4 Episodes;
+- eligible knowledge items vs mapped V4 Memories;
+- active Memories without Evidence;
+- broken Memory→Evidence links;
+- legacy mappings whose canonical target is missing;
+- user-visible content-loss mismatches.
 
-## Not yet enabled
+A future Memory UI cut-over requires both `migrationComplete == true` and `integrityClean == true`. Equivalent release gate: `cutoverReady == true`.
 
-This checkpoint does not yet:
+## Validation checkpoint — 2026-08-28
 
-- replace the existing UI,
-- redirect current capture writes to V4,
-- run retention deletion,
-- add semantic/vector retrieval to V4,
-- create Worlds,
-- create Pulse Situations,
-- route Think through V4.
+Real Termux compile gate passed at branch head `45575e7b07aee75958d3680c2ec122f90f6b2b99`:
 
-Next after compile/device-safe validation: wire a forward-only V4 capture bridge and run projection equivalence diagnostics before presenting Memory as a primary navigation surface.
+- `:app:assembleDebug` — PASS
+- `:app:assembleDebugAndroidTest` — PASS
+- Gradle reported `BUILD SUCCESSFUL` with 65 actionable tasks executed.
+
+The Termux AAPT2 environment emitted repeated `No package ID 7f found` diagnostics, but resource processing, Java/Kotlin compilation, AndroidTest packaging and APK assembly all completed successfully. For this validated build these messages are non-fatal noise.
+
+Next gate: install this APK over the existing app, let bounded WorkManager migration run on the real `cortex.db`, then inspect V4 equivalence metrics. No V4 surface becomes primary until that gate is clean.
+
+## Safety rules
+
+- no destructive migration;
+- no deletion of existing Cortex data during Stage C;
+- Evidence is immutable;
+- identity is not semantic similarity;
+- observed/inferred personal claims require provenance;
+- suggestions never become historical facts automatically;
+- capture callbacks never wait on migration/search/AI work;
+- current product surfaces remain authoritative until staged cut-over validation.
