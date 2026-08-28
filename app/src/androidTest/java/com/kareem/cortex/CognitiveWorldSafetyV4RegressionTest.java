@@ -16,7 +16,8 @@ public class CognitiveWorldSafetyV4RegressionTest {
         SQLiteDatabase db = SQLiteDatabase.create(null);
         try {
             CognitiveSchemaV4.ensure(db);
-            seed(db, "ev_hint", "mem_hint", "com.whatsapp", "{\"person_hint\":\"Mona\",\"communication\":true}");
+            seed(db, "ev_hint", "mem_hint", "com.whatsapp",
+                    "{\"person_hint\":\"Mona\",\"notification_kind\":\"message\",\"communication\":true}");
             List<CognitiveWorldResolverV4.Candidate> xs = CognitiveWorldCandidateExtractorV4.fromMemory(db, "mem_hint");
             assertEquals(1, xs.size());
             CognitiveWorldResolverV4.Candidate c = xs.get(0);
@@ -25,6 +26,7 @@ public class CognitiveWorldSafetyV4RegressionTest {
             assertEquals(1, c.claims.size());
             assertEquals(CognitiveIdentityV4.ClaimType.EXACT_NAME, c.claims.get(0).type);
             assertEquals(CognitiveIdentityV4.ClaimStrength.WEAK, c.claims.get(0).strength);
+            assertFalse(c.typeMaterializationApproved);
             assertFalse(CognitiveWorldResolverV4.canMaterializeWithoutReview(c));
         } finally { db.close(); }
     }
@@ -33,16 +35,21 @@ public class CognitiveWorldSafetyV4RegressionTest {
         SQLiteDatabase db = SQLiteDatabase.create(null);
         try {
             CognitiveSchemaV4.ensure(db);
-            seed(db, "ev_group", "mem_group", "com.whatsapp", "{\"person_hint\":\"Family Group\",\"group_conversation\":true}");
+            seed(db, "ev_group", "mem_group", "com.whatsapp",
+                    "{\"person_hint\":\"Family Group\",\"group_conversation\":true,\"notification_kind\":\"message\",\"communication\":true}");
             assertTrue(CognitiveWorldCandidateExtractorV4.fromMemory(db, "mem_group").isEmpty());
+            CognitiveWorldCandidateClassifierV4.Decision d = CognitiveWorldCandidateClassifierV4.inspect(
+                    "com.whatsapp", "{\"person_hint\":\"Family Group\",\"group_conversation\":true}");
+            assertEquals(CognitiveWorldCandidateClassifierV4.SemanticClass.GROUP_CONVERSATION, d.semanticClass);
         } finally { db.close(); }
     }
 
-    @Test public void participantKeyCreatesSourceScopedDurableIdentity() {
+    @Test public void participantKeyIsDurableIdentityButDoesNotProveHumanType() {
         SQLiteDatabase db = SQLiteDatabase.create(null);
         try {
             CognitiveSchemaV4.ensure(db);
-            seed(db, "ev_sender", "mem_sender", "com.whatsapp", "{\"participant_name\":\"Mona\",\"participant_key\":\"sender-42\",\"group_conversation\":true}");
+            seed(db, "ev_sender", "mem_sender", "com.whatsapp",
+                    "{\"participant_name\":\"Mona\",\"participant_key\":\"sender-42\",\"group_conversation\":true,\"notification_kind\":\"message\",\"communication\":true}");
             List<CognitiveWorldResolverV4.Candidate> xs = CognitiveWorldCandidateExtractorV4.fromMemory(db, "mem_sender");
             assertEquals(1, xs.size());
             CognitiveWorldResolverV4.Candidate c = xs.get(0);
@@ -50,6 +57,19 @@ public class CognitiveWorldSafetyV4RegressionTest {
             assertEquals(CognitiveIdentityV4.ClaimType.ACCOUNT_ID, c.claims.get(1).type);
             assertEquals("com.whatsapp|key:sender-42", c.claims.get(1).normalizedValue);
             assertEquals(CognitiveIdentityV4.ClaimStrength.STRONG, c.claims.get(1).strength);
+            assertFalse(c.typeMaterializationApproved);
+            assertFalse(CognitiveWorldResolverV4.canMaterializeWithoutReview(c));
+        } finally { db.close(); }
+    }
+
+    @Test public void explicitContactPersonCanMaterializeWithDurableIdentity() {
+        SQLiteDatabase db = SQLiteDatabase.create(null);
+        try {
+            CognitiveSchemaV4.ensure(db);
+            seed(db, "ev_contact", "mem_contact", "com.whatsapp",
+                    "{\"person_name\":\"Mona\",\"contact_id\":\"contact-42\",\"notification_kind\":\"message\",\"communication\":true}");
+            CognitiveWorldResolverV4.Candidate c = CognitiveWorldCandidateExtractorV4.fromMemory(db, "mem_contact").get(0);
+            assertTrue(c.typeMaterializationApproved);
             assertTrue(CognitiveWorldResolverV4.canMaterializeWithoutReview(c));
         } finally { db.close(); }
     }
@@ -59,14 +79,39 @@ public class CognitiveWorldSafetyV4RegressionTest {
         SQLiteDatabase b = SQLiteDatabase.create(null);
         try {
             CognitiveSchemaV4.ensure(a); CognitiveSchemaV4.ensure(b);
-            seed(a, "ev_a", "mem_a", "com.whatsapp", "{\"participant_name\":\"Mona\",\"participant_key\":\"42\"}");
-            seed(b, "ev_b", "mem_b", "org.telegram.messenger", "{\"participant_name\":\"Mona\",\"participant_key\":\"42\"}");
+            seed(a, "ev_a", "mem_a", "com.whatsapp",
+                    "{\"participant_name\":\"Mona\",\"participant_key\":\"42\",\"notification_kind\":\"message\",\"communication\":true}");
+            seed(b, "ev_b", "mem_b", "org.telegram.messenger",
+                    "{\"participant_name\":\"Mona\",\"participant_key\":\"42\",\"notification_kind\":\"message\",\"communication\":true}");
             CognitiveWorldResolverV4.Candidate ca = CognitiveWorldCandidateExtractorV4.fromMemory(a, "mem_a").get(0);
             CognitiveWorldResolverV4.Candidate cb = CognitiveWorldCandidateExtractorV4.fromMemory(b, "mem_b").get(0);
             CognitiveIdentityV4.Match match = CognitiveIdentityV4.matchWorlds(
                     ca.typeHint, ca.claims, cb.typeHint, cb.claims);
             assertFalse(match.canAutoMerge());
         } finally { a.close(); b.close(); }
+    }
+
+    @Test public void backupProgressIsAppSystemNotPerson() {
+        String metadata = "{\"person_hint\":\"Backup in progress\",\"notification_kind\":\"message\",\"communication\":true}";
+        CognitiveWorldCandidateClassifierV4.Decision d =
+                CognitiveWorldCandidateClassifierV4.inspect("com.whatsapp", metadata);
+        assertEquals(CognitiveWorldCandidateClassifierV4.SemanticClass.APP_SYSTEM, d.semanticClass);
+        assertFalse(d.typeMaterializationApproved);
+    }
+
+    @Test public void gmailBrandSenderIsUnknownNotPerson() {
+        String metadata = "{\"person_hint\":\"Notion Team\",\"notification_kind\":\"email\",\"communication\":true}";
+        CognitiveWorldCandidateClassifierV4.Decision d =
+                CognitiveWorldCandidateClassifierV4.inspect("com.google.android.gm", metadata);
+        assertEquals(CognitiveWorldCandidateClassifierV4.SemanticClass.UNKNOWN, d.semanticClass);
+        assertFalse(d.typeMaterializationApproved);
+    }
+
+    @Test public void messagingPackageAloneCannotTurnBackupIntoMessage() {
+        assertEquals("notification", CommunicationEvidenceNormalizer.kindForDiagnostics(
+                "com.whatsapp", "", false, "Backup in progress", "Backing up messages"));
+        assertEquals("message", CommunicationEvidenceNormalizer.kindForDiagnostics(
+                "com.whatsapp", "", true, "Mona", "hello"));
     }
 
     private static void seed(SQLiteDatabase db, String evidenceId, String memoryId, String source, String metadata) {
