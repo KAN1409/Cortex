@@ -14,6 +14,10 @@ public final class CognitiveRunStoreV2 {
         s.execSQL("CREATE INDEX IF NOT EXISTS idx_cognitive_runs_signal ON cognitive_runs(raw_signal_id,id DESC)");
         s.execSQL("CREATE INDEX IF NOT EXISTS idx_cognitive_runs_status ON cognitive_runs(status,started_at DESC)");
         s.execSQL("CREATE INDEX IF NOT EXISTS idx_cognitive_runs_provider ON cognitive_runs(provider,model,started_at DESC)");
+        s.execSQL("DROP TRIGGER IF EXISTS trg_cognitive_run_queue_state_v2");
+        s.execSQL("CREATE TRIGGER trg_cognitive_run_queue_state_v2 AFTER INSERT ON cognitive_runs BEGIN UPDATE raw_signals SET cognitive_state=CASE WHEN UPPER(NEW.provider)='DEEP' THEN 'DEEP_QUEUED' ELSE 'LOCAL_QUEUED' END,cognitive_run_id=NEW.id,final_reason=CASE WHEN UPPER(NEW.provider)='DEEP' THEN 'optional Deep Qwen queued' ELSE 'local Qwen queued' END,updated_at=strftime('%s','now')*1000 WHERE id=NEW.raw_signal_id AND cognitive_state NOT IN ('IGNORED_NOISE','CONTEXT_ONLY','DERIVED','REVIEW_REQUIRED','SENSITIVE_BLOCKED','SUPERSEDED'); END");
+        s.execSQL("DROP TRIGGER IF EXISTS trg_cognitive_run_running_state_v2");
+        s.execSQL("CREATE TRIGGER trg_cognitive_run_running_state_v2 AFTER UPDATE OF status ON cognitive_runs WHEN NEW.status='RUNNING' BEGIN UPDATE raw_signals SET cognitive_state=CASE WHEN UPPER(NEW.provider)='DEEP' THEN 'DEEP_QUEUED' ELSE 'LOCAL_RUNNING' END,cognitive_run_id=NEW.id,final_reason=CASE WHEN UPPER(NEW.provider)='DEEP' THEN 'optional Deep Qwen analyzing' ELSE 'local Qwen analyzing' END,updated_at=strftime('%s','now')*1000 WHERE id=NEW.raw_signal_id AND cognitive_state NOT IN ('IGNORED_NOISE','CONTEXT_ONLY','DERIVED','REVIEW_REQUIRED','SENSITIVE_BLOCKED','SUPERSEDED'); END");
     }
 
     public static long queued(VaultDb db,long signalId,String provider,String model){
