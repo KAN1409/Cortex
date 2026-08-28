@@ -8,8 +8,8 @@ import java.util.List;
 import org.json.JSONObject;
 
 /**
- * Conservative World candidate extraction from explicit structured evidence metadata.
- * Free text is intentionally not entity-guessed here; a model/user extractor can feed the same resolver later.
+ * Conservative World candidate extraction from structured Evidence and preserved analysis output.
+ * Free text is never guessed directly here; analysis-derived entities remain weak, grounded proposals.
  */
 public final class CognitiveWorldCandidateExtractorV4 {
     private CognitiveWorldCandidateExtractorV4() {}
@@ -30,7 +30,15 @@ public final class CognitiveWorldCandidateExtractorV4 {
                 new String[]{memoryId});
         try {
             while (c.moveToNext()) {
-                extractStructured(out, memoryId, c.getString(0), c.getString(1), c.getString(3), c.getLong(2));
+                String evidenceId = c.getString(0);
+                String metadata = c.getString(1);
+                long occurredAt = c.getLong(2);
+                String sourcePackage = c.getString(3);
+                extractStructured(out, memoryId, evidenceId, metadata, sourcePackage, occurredAt);
+                for (CognitiveWorldResolverV4.Candidate proposal :
+                        CognitiveWorldAnalysisCandidateExtractorV4.fromEvidence(sql, memoryId, evidenceId, occurredAt)) {
+                    addUnique(out, proposal);
+                }
             }
         } finally { c.close(); }
         return Collections.unmodifiableList(out);
@@ -67,7 +75,7 @@ public final class CognitiveWorldCandidateExtractorV4 {
             if (!participantUri.isEmpty()) claims.add(claim(CognitiveIdentityV4.ClaimType.ACCOUNT_ID,
                     scoped(sourcePackage, "uri:" + participantUri), CognitiveIdentityV4.ClaimStrength.STRONG, evidenceId));
 
-            out.add(candidate(semantic.candidateName, CognitiveDomainV4.WorldTypeHint.PERSON,
+            addUnique(out, candidate(semantic.candidateName, CognitiveDomainV4.WorldTypeHint.PERSON,
                     claims, memoryId, evidenceId, at, semantic.typeMaterializationApproved));
         }
 
@@ -79,7 +87,7 @@ public final class CognitiveWorldCandidateExtractorV4 {
                     CognitiveIdentityV4.ClaimStrength.WEAK, evidenceId));
             if (!projectId.isEmpty()) claims.add(claim(CognitiveIdentityV4.ClaimType.EXTERNAL_ID,
                     projectId, CognitiveIdentityV4.ClaimStrength.STRONG, evidenceId));
-            out.add(candidate(projectName, CognitiveDomainV4.WorldTypeHint.PROJECT,
+            addUnique(out, candidate(projectName, CognitiveDomainV4.WorldTypeHint.PROJECT,
                     claims, memoryId, evidenceId, at, true));
         }
 
@@ -94,7 +102,7 @@ public final class CognitiveWorldCandidateExtractorV4 {
                     domain, CognitiveIdentityV4.ClaimStrength.MEDIUM, evidenceId));
             if (!organizationPackage.isEmpty()) claims.add(claim(CognitiveIdentityV4.ClaimType.PACKAGE_NAME,
                     organizationPackage, CognitiveIdentityV4.ClaimStrength.STRONG, evidenceId));
-            out.add(candidate(organization, CognitiveDomainV4.WorldTypeHint.ORGANIZATION,
+            addUnique(out, candidate(organization, CognitiveDomainV4.WorldTypeHint.ORGANIZATION,
                     claims, memoryId, evidenceId, at, true));
         }
 
@@ -106,17 +114,27 @@ public final class CognitiveWorldCandidateExtractorV4 {
                     CognitiveIdentityV4.ClaimStrength.WEAK, evidenceId));
             if (!placeId.isEmpty()) claims.add(claim(CognitiveIdentityV4.ClaimType.EXTERNAL_ID,
                     placeId, CognitiveIdentityV4.ClaimStrength.STRONG, evidenceId));
-            out.add(candidate(placeName, CognitiveDomainV4.WorldTypeHint.PLACE,
+            addUnique(out, candidate(placeName, CognitiveDomainV4.WorldTypeHint.PLACE,
                     claims, memoryId, evidenceId, at, true));
         }
 
         String topic = first(root, legacy, source, "topic", "topic_name");
         if (!topic.isEmpty()) {
-            out.add(candidate(topic, CognitiveDomainV4.WorldTypeHint.TOPIC,
+            addUnique(out, candidate(topic, CognitiveDomainV4.WorldTypeHint.TOPIC,
                     Collections.singletonList(claim(CognitiveIdentityV4.ClaimType.EXACT_NAME, topic,
                             CognitiveIdentityV4.ClaimStrength.WEAK, evidenceId)),
                     memoryId, evidenceId, at, true));
         }
+    }
+
+    private static void addUnique(List<CognitiveWorldResolverV4.Candidate> out,
+                                  CognitiveWorldResolverV4.Candidate candidate) {
+        String key = candidate.typeHint.name() + "|" + CognitiveIdentityV4.normalizeText(candidate.canonicalName);
+        for (CognitiveWorldResolverV4.Candidate existing : out) {
+            String other = existing.typeHint.name() + "|" + CognitiveIdentityV4.normalizeText(existing.canonicalName);
+            if (key.equals(other)) return;
+        }
+        out.add(candidate);
     }
 
     private static CognitiveWorldResolverV4.Candidate candidate(
