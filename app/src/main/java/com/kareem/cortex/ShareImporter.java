@@ -18,7 +18,15 @@ public class ShareImporter {
     public int importIntent(Intent i){if(i==null)return 0;String action=i.getAction(),mime=i.getType();int n=0;if(Intent.ACTION_SEND.equals(action)){if(importSingle(i)>0)n++;}else if(Intent.ACTION_SEND_MULTIPLE.equals(action)){ArrayList<Uri> us=i.getParcelableArrayListExtra(Intent.EXTRA_STREAM);if(us!=null)for(Uri u:us){long id=(mime!=null&&mime.startsWith("image/"))?saveImage(u,mime):(mime!=null&&mime.startsWith("audio/"))?saveAudio(u,mime):saveFile(u,mime);if(id>0)n++;}}return n;}
     public long importAudio(Uri uri,String mime){if(uri==null)return 0;return saveAudio(uri,mime==null?"audio/*":mime);}
     private Uri readUri(Intent i){Parcelable p=i.getParcelableExtra(Intent.EXTRA_STREAM);return p instanceof Uri?(Uri)p:null;}
-    private long saveText(String text,String mime){String cat=AutoClassifier.category(text,mime);return existingOrNew(db.insert("TEXT","android_share",AutoClassifier.title(text,mime),text,cat,AutoClassifier.tags(text,cat),"",Fingerprint.text(text),"{}"));}
+
+    private long saveText(String text,String mime){
+        String cat=AutoClassifier.category(text,mime);boolean link=SharedLinkIntelligence.containsUrl(text);String url=SharedLinkIntelligence.firstUrl(text);
+        String title=link?initialLinkTitle(url):AutoClassifier.title(text,mime);String tags=AutoClassifier.tags(text,cat)+(link?",link,shared,web,pending_content":"");
+        String meta="{}";try{if(link)meta=new JSONObject().put("shared_url",url).put("link_intelligence",true).put("link_content_state","pending_content").put("imported_at",System.currentTimeMillis()).toString();}catch(Exception ignored){}
+        long id=existingOrNew(db.insert(link?"LINK":"TEXT","android_share",title,text,link?"Links & Research":cat,tags,"",Fingerprint.text(text),meta));
+        if(link&&id>0)SharedLinkIntelligence.enrichAsync(ctx,db,id,text);return id;
+    }
+    private String initialLinkTitle(String url){try{String host=new java.net.URL(url).getHost().replaceFirst("^www\\.","");return host.isEmpty()?"Shared link":"Shared from "+host;}catch(Exception e){return"Shared link";}}
     private long saveImage(Uri uri,String mime){String name=displayName(uri,"image");String local=copy(uri,name,"imports");if(local.isEmpty())return 0;String cat=AutoClassifier.category("",mime);String meta=imageMeta(local,mime,name);long id=db.insert("SCREENSHOT","android_share",name,"",cat,"screenshot,image",local,Fingerprint.file(local),meta);if(id<0){new File(local).delete();return-id;}return id;}
     private long saveAudio(Uri uri,String mime){String name=displayName(uri,"audio");String local=copy(uri,name,"audio");if(local.isEmpty())return 0;long id=db.insert("AUDIO","audio_import",name,"","Voice & Audio","voice,audio,transcript,imported",local,Fingerprint.file(local),fileMeta(local,mime,name));if(id<0){new File(local).delete();return-id;}return id;}
     private long saveFile(Uri uri,String mime){String name=displayName(uri,"file");String local=copy(uri,name,"imports");if(local.isEmpty())return 0;long id=db.insert("FILE","android_share",name,name,"Files","file,attachment",local,Fingerprint.file(local),fileMeta(local,mime,name));if(id<0){new File(local).delete();return-id;}return id;}

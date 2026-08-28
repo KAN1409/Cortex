@@ -6,6 +6,12 @@ captures/
 .externalNativeBuild/
 .cxx/
 
+# Generated packages and exports
+downloads/
+*.apk
+*.aab
+*.apks
+
 # IDE
 .idea/
 *.iml
