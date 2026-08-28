@@ -15,7 +15,7 @@ public final class CognitivePulseProjectionV4 {
     private CognitivePulseProjectionV4(){}
 
     public static Snapshot current(VaultDb db,int limit){
-        if(db==null)return new Snapshot(Collections.<Item>emptyList(),0,0,0);
+        if(db==null)return new Snapshot(Collections.<Item>emptyList(),0,0,0,0,0);
         CognitiveDeepBrainStoreV4.ensure(db);CognitiveStoreV4.ensure(db);
         int lim=Math.max(1,Math.min(12,limit));SQLiteDatabase sql=db.getReadableDatabase();ArrayList<Item>candidates=new ArrayList<>();long now=System.currentTimeMillis();
         String q="SELECT s.id,s.kind,s.state,s.headline,COALESCE(s.explanation,''),s.attention_score,s.interruption_score,s.confidence,s.relevant_from,s.relevant_until,"+
@@ -41,15 +41,21 @@ public final class CognitivePulseProjectionV4 {
             return Double.compare(b.canonicalAttentionScore,a.canonicalAttentionScore);
         }});
 
-        ArrayList<Item>out=new ArrayList<>();int brain=0,local=0,actions=0;
+        long lastDeepBrainAt=latestDeepBrainAt(sql);ArrayList<Item>out=new ArrayList<>();int brain=0,local=0,actions=0,newSinceBrain=0;
         for(Item x:candidates){
             if(out.size()>=lim)break;
             // Only a current Deep Brain cluster suppresses a sibling local card. Old model output is
             // durable audit/context, but it must not hide fresh local evidence forever.
             if(!x.deepBrainRanked()&&coveredByBrainCluster(sql,x.situationId,x.kind,now))continue;
             out.add(x);if(x.deepBrainRanked())brain++;else local++;if(!x.actions.isEmpty())actions++;
+            if(!x.deepBrainRanked()&&lastDeepBrainAt>0&&x.relevantFrom>lastDeepBrainAt)newSinceBrain++;
         }
-        return new Snapshot(out,brain,local,actions);
+        return new Snapshot(out,brain,local,actions,newSinceBrain,lastDeepBrainAt);
+    }
+
+    private static long latestDeepBrainAt(SQLiteDatabase sql){
+        Cursor c=sql.rawQuery("SELECT COALESCE(MAX(created_at),0) FROM v4_deep_brain_priority_items WHERE state='ACTIVE'",null);
+        try{return c.moveToFirst()?c.getLong(0):0;}finally{c.close();}
     }
 
     private static boolean coveredByBrainCluster(SQLiteDatabase sql,String situationId,String kind,long now){
@@ -67,5 +73,9 @@ public final class CognitivePulseProjectionV4 {
         Item(String id,String kind,String state,String headline,String explanation,double canonicalAttention,double nowScore,double interruption,double confidence,long from,long until,int rank,String reason,String actions,boolean currentDeepBrain,double brainFreshness){this.situationId=id;this.kind=kind;this.state=state;this.headline=headline==null?"":headline;this.explanation=explanation==null?"":explanation;this.canonicalAttentionScore=canonicalAttention;this.attentionScore=nowScore;this.interruptionScore=interruption;this.confidence=confidence;this.relevantFrom=from;this.relevantUntil=until;this.deepBrainRank=rank;this.deepBrainReason=reason==null?"":reason;this.actions=actions==null?"":actions;this.currentDeepBrain=currentDeepBrain;this.brainFreshness=brainFreshness;}
         public boolean deepBrainRanked(){return currentDeepBrain&&deepBrainRank>0;}
     }
-    public static final class Snapshot{public final List<Item>items;public final int deepBrainRanked,localOnly,withActions;Snapshot(List<Item>items,int brain,int local,int actions){this.items=Collections.unmodifiableList(new ArrayList<>(items));this.deepBrainRanked=brain;this.localOnly=local;this.withActions=actions;}public boolean empty(){return items.isEmpty();}}
+    public static final class Snapshot{
+        public final List<Item>items;public final int deepBrainRanked,localOnly,withActions,newSinceDeepBrain;public final long lastDeepBrainAt;
+        Snapshot(List<Item>items,int brain,int local,int actions,int newSinceDeepBrain,long lastDeepBrainAt){this.items=Collections.unmodifiableList(new ArrayList<>(items));this.deepBrainRanked=brain;this.localOnly=local;this.withActions=actions;this.newSinceDeepBrain=newSinceDeepBrain;this.lastDeepBrainAt=lastDeepBrainAt;}
+        public boolean empty(){return items.isEmpty();}
+    }
 }
