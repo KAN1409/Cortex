@@ -110,12 +110,19 @@ public final class CognitiveMemoryEquivalenceV4 {
                         "WHERE m.legacy_table='raw_signals' AND m.object_type='EVIDENCE' AND r.occurred_at>=?",
                 String.valueOf(cutoff));
 
+        // A legacy thread is only an Episode migration candidate when it still owns at least one
+        // raw signal inside the V4 episodic window. Empty/stale thread shells cannot produce a
+        // grounded Episode and therefore must not block the cut-over gate.
         int eligibleThreads = scalar(db,
-                "SELECT COUNT(*) FROM signal_threads WHERE last_event_at>=?",
+                "SELECT COUNT(*) FROM signal_threads t WHERE t.last_event_at>=? " +
+                        "AND EXISTS (SELECT 1 FROM raw_signals r WHERE r.thread_id=t.id AND r.occurred_at>=?)",
+                String.valueOf(cutoff),
                 String.valueOf(cutoff));
         int mappedEpisodes = scalar(db,
                 "SELECT COUNT(*) FROM v4_legacy_map m JOIN signal_threads t ON CAST(t.id AS TEXT)=m.legacy_id " +
-                        "WHERE m.legacy_table='signal_threads' AND m.object_type='EPISODE' AND t.last_event_at>=?",
+                        "WHERE m.legacy_table='signal_threads' AND m.object_type='EPISODE' AND t.last_event_at>=? " +
+                        "AND EXISTS (SELECT 1 FROM raw_signals r WHERE r.thread_id=t.id AND r.occurred_at>=?)",
+                String.valueOf(cutoff),
                 String.valueOf(cutoff));
 
         int eligibleItems = scalar(db,
