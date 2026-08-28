@@ -36,6 +36,11 @@ public final class CognitiveDeepBrainApplyV4 {
         CognitiveDeepBrainStoreV4.Request request = CognitiveDeepBrainStoreV4.load(sql, response.requestId);
         if (request == null) throw new IllegalArgumentException("Unknown Cortex request_id");
         if ("APPLIED".equals(request.state)) return new Result(response.requestId, response.answer, 0, 0, 0, 0, true);
+        // Priority is a global judgement. If any live Situation changed after this packet was built,
+        // the response is already based on an older world-state. Do not let a slow Gemini call or a
+        // delayed ChatGPT share overwrite newer canonical/user context; leave the request unapplied
+        // so the fresh-context worker/UI can build a new packet instead.
+        if(hasNewerCanonicalSituation(sql,request.createdAt))throw new IllegalArgumentException("Cortex context changed after this Deep Brain request was built; refresh reasoning");
 
         Set<String> allowedSituations = new HashSet<>(request.situationIds);
         Set<String> allowedMemories = new HashSet<>(request.memoryIds);
@@ -122,6 +127,9 @@ public final class CognitiveDeepBrainApplyV4 {
     }
 
     static boolean rankingGrounded(boolean fieldPresent,int inputCount,int storedCount){return !fieldPresent||inputCount<=0||storedCount>0;}
+    static boolean hasNewerCanonicalSituation(SQLiteDatabase sql,long requestCreatedAt){
+        if(sql==null)return false;Cursor c=sql.rawQuery("SELECT 1 FROM v4_situations WHERE state NOT IN ('RESOLVED','CANCELLED','DISMISSED') AND updated_at>? LIMIT 1",new String[]{String.valueOf(requestCreatedAt)});try{return c.moveToFirst();}finally{c.close();}
+    }
     private static int supersedePriorPriorities(SQLiteDatabase sql,String currentRequestId,long when){ContentValues v=new ContentValues();v.put("state","SUPERSEDED");v.put("updated_at",when);return sql.update("v4_deep_brain_priority_items",v,"state='ACTIVE' AND request_id<>?",new String[]{currentRequestId});}
     private static int supersedePriorDeepBrainActions(SQLiteDatabase sql,String currentRequestId,long when){ContentValues v=new ContentValues();v.put("state","SUPERSEDED");v.put("updated_at",when);String current="%\"deep_brain_request_id\":\""+currentRequestId+"\"%";return sql.update("v4_action_proposals",v,"state='PROPOSED' AND payload_json LIKE ? AND payload_json NOT LIKE ?",new String[]{"%\"deep_brain_request_id\":\"%",current});}
     private static SituationSnapshot snapshot(SQLiteDatabase sql,String id){Cursor c=sql.rawQuery("SELECT state,attention_score,interruption_score FROM v4_situations WHERE id=? LIMIT 1",new String[]{id});try{return c.moveToFirst()?new SituationSnapshot(c.getString(0),c.getDouble(1),c.getDouble(2)):null;}finally{c.close();}}
