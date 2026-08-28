@@ -20,9 +20,27 @@ public final class CognitivePulseProjectionV4 {
                 "COALESCE((SELECT GROUP_CONCAT(a.label,' | ') FROM v4_action_proposals a WHERE a.situation_id=s.id AND a.state='PROPOSED'),'') AS actions "+
                 "FROM v4_situations s WHERE s.state NOT IN ('RESOLVED','CANCELLED','DISMISSED') "+
                 "ORDER BY CASE WHEN brain_rank>0 THEN 0 ELSE 1 END ASC,CASE WHEN brain_rank>0 THEN brain_rank ELSE 999 END ASC,s.attention_score DESC,CASE WHEN s.relevant_until>0 THEN s.relevant_until ELSE 9223372036854775807 END ASC,s.updated_at DESC LIMIT ?";
-        Cursor c=sql.rawQuery(q,new String[]{String.valueOf(lim)});int brain=0,local=0,actions=0;
-        try{while(c.moveToNext()){Item x=new Item(c.getString(0),c.getString(1),c.getString(2),c.getString(3),c.getString(4),c.getDouble(5),c.getDouble(6),c.getDouble(7),c.getLong(8),c.getLong(9),c.getInt(10),c.getString(11),c.getString(12));out.add(x);if(x.deepBrainRank>0)brain++;else local++;if(!x.actions.isEmpty())actions++;}}finally{c.close();}
+        Cursor c=sql.rawQuery(q,new String[]{String.valueOf(lim*4)});int brain=0,local=0,actions=0;
+        try{
+            while(c.moveToNext()&&out.size()<lim){
+                Item x=new Item(c.getString(0),c.getString(1),c.getString(2),c.getString(3),c.getString(4),c.getDouble(5),c.getDouble(6),c.getDouble(7),c.getLong(8),c.getLong(9),c.getInt(10),c.getString(11),c.getString(12));
+                // If ChatGPT grouped several same-kind Memory-grounded situations into one priority,
+                // keep the linked canonical Situation as the visible Pulse card and suppress sibling
+                // local cards. Nothing is merged, deleted or resolved; this is projection-only dedupe.
+                if(!x.deepBrainRanked()&&coveredByBrainCluster(sql,x.situationId,x.kind))continue;
+                out.add(x);if(x.deepBrainRank>0)brain++;else local++;if(!x.actions.isEmpty())actions++;
+            }
+        }finally{c.close();}
         return new Snapshot(out,brain,local,actions);
+    }
+
+    private static boolean coveredByBrainCluster(SQLiteDatabase sql,String situationId,String kind){
+        String q="SELECT 1 FROM v4_provenance sp "+
+                "JOIN v4_deep_brain_priority_items p ON p.state='ACTIVE' AND p.situation_id<>'' AND p.situation_id<>? "+
+                "JOIN v4_situations linked ON linked.id=p.situation_id AND linked.kind=? "+
+                "JOIN json_each(CASE WHEN json_valid(p.memory_ids_json) THEN p.memory_ids_json ELSE '[]' END) j ON CAST(j.value AS TEXT)=sp.source_id "+
+                "WHERE sp.object_type='SITUATION' AND sp.object_id=? AND sp.source_type='MEMORY' LIMIT 1";
+        Cursor c=sql.rawQuery(q,new String[]{situationId,kind,situationId});try{return c.moveToFirst();}finally{c.close();}
     }
 
     public static final class Item{
