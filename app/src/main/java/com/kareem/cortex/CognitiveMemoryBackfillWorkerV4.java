@@ -15,15 +15,16 @@ public final class CognitiveMemoryBackfillWorkerV4 extends Worker {
         VaultDb db = null;
         try {
             db = new VaultDb(getApplicationContext());
-            int evidence = 0, episodes = 0, memories = 0, deferred = 0, failed = 0;
+            int rescued = 0, evidence = 0, episodes = 0, memories = 0, deferred = 0, failed = 0;
             for (int pass = 0; pass < 4; pass++) {
+                rescued += CognitiveMemoryHistoricalRescueV4.runBatch(db, 100);
                 CognitiveMemoryBackfillV4.Stats s = CognitiveMemoryBackfillV4.runBatch(db, 100);
                 evidence += s.evidenceMapped;
                 episodes += s.episodesMapped;
                 memories += s.memoriesMapped;
                 deferred += s.deferred;
                 failed += s.failed;
-                if (s.totalMapped() == 0) break;
+                if (s.totalMapped() == 0 && rescued == 0) break;
             }
 
             int pinnedEvidence = CognitiveRetentionV4.reconcilePinnedEvidence(db);
@@ -44,6 +45,7 @@ public final class CognitiveMemoryBackfillWorkerV4 extends Worker {
             }
 
             Data out = new Data.Builder()
+                    .putInt("historical_evidence_rescued", rescued)
                     .putInt("evidence_mapped", evidence)
                     .putInt("episodes_mapped", episodes)
                     .putInt("memories_mapped", memories)
