@@ -40,12 +40,16 @@ public final class CognitiveSituationEngineV4 {
                 String occurrenceKey=memoryId;
                 String identity="situation|"+x.kind.name()+"|"+anchor+"|"+occurrenceKey;
                 String id=CognitiveIdentityV4.objectId("si",identity);
+                ids.add(id);
+                // Never reset an existing Situation to DETECTED. User deferral/dismissal and prior
+                // Deep Brain relevance are durable state; immutable Memory does not need re-write.
+                if(situationExists(sql,id))continue;
                 CognitiveDomainV4.Situation s=new CognitiveDomainV4.Situation(
                         id,x.kind,CognitiveDomainV4.SituationState.DETECTED,x.headline,x.explanation,
                         Collections.<String>emptyList(),Collections.<String>emptyList(),Collections.singletonList(memoryId),Collections.<String>emptyList(),
                         startedAt,x.relevantFrom,x.relevantUntil,now,x.attention,x.interruption,x.confidence,Collections.<String>emptyList());
                 CognitiveStoreV4.putSituation(db,s,"",anchor,occurrenceKey);
-                ids.add(id);detected++;
+                detected++;
             }
         }finally{c.close();}
         return new Result(scanned,detected,ids);
@@ -60,7 +64,10 @@ public final class CognitiveSituationEngineV4 {
                     "Recent memory contains an explicit account-security or sign-in signal.",startedAt,null,baseAttention(.58,importance),.28,.88);
         }
 
-        Long eventAt=parseExplicitFutureTime(low,now);
+        // Relative language such as "Saturday at 6" is interpreted from when the Memory occurred,
+        // not from every later refresh. This avoids sliding an old event into a future week.
+        long timeAnchor=startedAt>0?startedAt:now;
+        Long eventAt=parseExplicitFutureTime(low,timeAnchor);
         if(eventAt!=null&&(containsAny(low,"reminder","appointment","meeting","scan","scans","hospital","موعد","ميعاد","تذكير","reminder ضروري","مستشفى","اشعة","أشعة","اجتماع","كشف")||hasWeekday(low))){
             return new Candidate(CognitiveDomainV4.SituationKind.UPCOMING_EVENT,headline(title,body,"Upcoming event"),
                     "Memory contains an explicit upcoming event/time signal.",startedAt,eventAt,baseAttention(.52,importance),.20,.86);
@@ -88,6 +95,7 @@ public final class CognitiveSituationEngineV4 {
         return null;
     }
 
+    private static boolean situationExists(SQLiteDatabase sql,String id){Cursor c=sql.rawQuery("SELECT 1 FROM v4_situations WHERE id=? LIMIT 1",new String[]{id});try{return c.moveToFirst();}finally{c.close();}}
     private static boolean isNoise(String low,String source){
         if(low.isEmpty())return true;
         if(low.contains("% off")||low.contains("massive offers")||low.contains("delivered straight to your door"))return true;
