@@ -72,9 +72,18 @@ public final class CognitiveRealtimeProjectionV4 {
         if(!episodeId.isEmpty())CognitiveStoreV4.addProvenance(db,CognitiveDomainV4.CanonicalObjectType.MEMORY,actual,CognitiveDomainV4.CanonicalObjectType.EPISODE,episodeId,"part_of",1.0);
 
         boolean situation=false,reconciled=false;
-        try{CognitiveSituationEngineV4.Result s=CognitiveSituationEngineV4.refresh(db);situation=s!=null&&!s.situationIds.isEmpty();}catch(Throwable ignored){}
+        try{CognitiveSituationEngineV4.Result s=CognitiveSituationEngineV4.refresh(db);situation=shouldScheduleReasoning(s);}catch(Throwable ignored){}
         try{CognitiveDeepBrainReconcilerV4.reconcile(db);reconciled=true;}catch(Throwable ignored){}
         return new Result(itemId,actual,situation,reconciled);
+    }
+
+    /**
+     * Only a newly-created canonical Situation should wake the autonomous cloud brain. The detector
+     * also returns IDs for already-existing candidates; treating those as fresh would schedule a
+     * WorkManager pass for unrelated notifications whenever any old Situation existed in lookback.
+     */
+    static boolean shouldScheduleReasoning(CognitiveSituationEngineV4.Result result){
+        return result!=null&&result.situationsDetected>0;
     }
 
     /** Prefer trusted connector enrichment when it contains at least as much usable context. */
