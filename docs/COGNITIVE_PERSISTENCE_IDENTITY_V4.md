@@ -135,7 +135,7 @@ kind + primary world + semantic anchor
 
 Repeated messages about `send revised plan` therefore update one Situation.
 
-Event-shaped kinds such as RISK/DEADLINE/MEANINGFUL_CHANGE additionally use an occurrence discriminator when known:
+Event-shaped kinds such as RISK/DEADLINE/MEANINGFUL_CHANGE require an occurrence discriminator:
 
 ```text
 transaction ID
@@ -144,7 +144,7 @@ appointment ID
 event occurrence window
 ```
 
-This prevents two genuinely different declines, appointments, or deadline changes from being merged forever.
+If an event-shaped Situation has no stable provider event ID, the detector must create a bounded deterministic occurrence bucket before persistence. Omitting occurrence identity is rejected rather than risking permanent over-merge.
 
 ## 4. World identity
 
@@ -178,15 +178,17 @@ WEAK
 
 Automatic merge is allowed only when `CognitiveIdentityV4.Match.canAutoMerge()` is true.
 
+A shared claim can authorize automatic merge only when the matching claim on both Worlds is `STRONG` or user-confirmed.
+
 Examples of durable anchors:
 
 - same explicit user identity key,
-- same contact ID for a person,
-- same normalized phone identity for a person,
-- same account/package identity where appropriate,
-- same canonical external identity.
+- same strong contact ID for a person,
+- same strong normalized phone identity for a person,
+- same strong account/package identity where appropriate,
+- same strong canonical external identity.
 
-Exact display name alone is **never** enough for auto-merge.
+Exact display name alone is **never** enough for auto-merge. Weak matching phone/name/model claims also remain non-destructive retrieval hints.
 
 `Ahmed` + `Ahmed` may be jointly retrieved as possible matches while remaining separate Worlds.
 
@@ -218,11 +220,9 @@ WORLD     ← EVIDENCE / MEMORY
 RELATION  ← EVIDENCE
 ```
 
-Observed personal claims without provenance are invalid.
+Observed and inferred personal claims without provenance are invalid.
 
-Inference keeps provenance but is explicitly marked `INFERRED`.
-
-Suggestions are not written as Facts.
+`CognitiveGroundingV4` enforces that boundary for Facts, Relations, Situations and Think reasoning blocks. `SUGGESTED` Think blocks may be uncited recommendations, but they are never historical Facts.
 
 ## 6. Evidence immutability
 
@@ -311,11 +311,11 @@ The architecture must preserve these properties:
 
 1. Same notification key + same content hash = one Evidence revision.
 2. Same notification key + changed content = new revision.
-3. Same contact ID can auto-merge a Person World.
-4. Same display name alone cannot auto-merge Worlds.
+3. Same strong contact ID can auto-merge a Person World.
+4. Same display name or weak identity hint alone cannot auto-merge Worlds.
 5. Repeated signals about one commitment keep one Situation identity.
-6. Two distinct event occurrences do not collapse forever.
+6. Event-shaped Situations require occurrence identity and distinct occurrences do not collapse forever.
 7. Fact slot stays stable while values become separate versions.
 8. World merge is reversible without source deletion.
-9. No unsupported observed Fact is persisted.
+9. No unsupported observed/inferred Fact is accepted by the grounding boundary.
 10. No suggestion becomes personal history merely because Think generated it.
