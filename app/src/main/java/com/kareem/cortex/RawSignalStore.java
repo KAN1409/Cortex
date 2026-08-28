@@ -7,6 +7,7 @@ import org.json.JSONObject;
 /** Temporary/raw signal layer. Only an applied authoritative decision may enter durable Cortex memory. */
 public final class RawSignalStore {
     private static final String FAST_POLICY = "relevance_fast_004";
+    private static final String CONNECTOR_POLICY = "trusted_connector_enrichment_v1";
     private RawSignalStore() {}
 
     public static void ensure(VaultDb db) { CognitiveStore.ensure(db); }
@@ -80,6 +81,32 @@ public final class RawSignalStore {
                     0.94);
         }
         return MasterRelevanceFilter.evaluateFast(s);
+    }
+
+    /**
+     * Re-evaluate a deduped physical notification when a trusted connector contributes richer text.
+     * The Raw Signal and original Evidence text remain unchanged; the connector payload already
+     * lives additively as CONNECTOR_ENRICHMENT analysis. This method only decides whether that richer
+     * grounded evidence crosses the same durable relevance boundary Cortex already uses.
+     */
+    public static long promoteTrustedEnrichment(VaultDb db,long signalId,long threadId,MasterRelevanceFilter.Signal enriched){
+        if(db==null||signalId<=0||enriched==null)return 0;ensure(db);long existing=promotedItemId(db,signalId);if(existing>0)return existing;
+        String recent=threadId>0?SignalThreadStore.recentContext(db,threadId,8):"";
+        MasterRelevanceFilter.Decision base=evaluateTrustedEnrichment(enriched,recent);
+        MasterRelevanceFilter.Decision d=threadId>0?AdaptiveRelevanceLearning.adapt(db,enriched.source,base):base;
+        if(!d.durable())return 0;
+        ContentValues v=new ContentValues();v.put("disposition",d.disposition.name());v.put("importance",d.importance);v.put("confidence",d.confidence);v.put("policy_version",CONNECTOR_POLICY);v.put("filter_engine","trusted_connector_enrichment");v.put("reason",d.reason);v.put("updated_at",System.currentTimeMillis());
+        db.getWritableDatabase().update("raw_signals",v,"id=? AND promoted_item_id=0",new String[]{String.valueOf(signalId)});
+        long item=promote(db,signalId,threadId,enriched,d,false);
+        if(item>0)DiagnosticsLog.info(db,"RawSignalStore","connector_enrichment_promoted",d.disposition.name(),item,threadId,signalId,0,0,0,null);
+        return item;
+    }
+
+    /** Pure policy hook kept visible to regression tests. */
+    static MasterRelevanceFilter.Decision evaluateTrustedEnrichment(MasterRelevanceFilter.Signal enriched,String recentContext){
+        MasterRelevanceFilter.Decision fast=fastDecision(enriched);if(fast.durable())return fast;
+        if(recentContext!=null)return MasterRelevanceFilter.evaluateThread(enriched.body,recentContext);
+        return fast;
     }
 
     /**
