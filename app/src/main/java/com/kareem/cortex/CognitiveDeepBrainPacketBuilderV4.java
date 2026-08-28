@@ -11,7 +11,7 @@ import java.util.List;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
-/** Builds a bounded, grounded, user-triggered context packet for ChatGPT Deep Brain. */
+/** Builds a bounded, grounded context packet for Cortex Deep Brain providers. */
 public final class CognitiveDeepBrainPacketBuilderV4 {
     private static final int MAX_SITUATIONS=12, MAX_MEMORIES=24, MAX_WORLDS=16, MAX_FACTS=24;
     private CognitiveDeepBrainPacketBuilderV4() {}
@@ -21,7 +21,7 @@ public final class CognitiveDeepBrainPacketBuilderV4 {
         if (db == null) throw new IllegalArgumentException("db required");
         String q = question == null ? "" : question.trim(); if (q.isEmpty()) throw new IllegalArgumentException("question required");
         CognitiveStoreV4.ensure(db); CognitiveDeepBrainStoreV4.ensure(db); PhoneContextStore.ensure(db);
-        // A user-triggered Deep Brain request must not depend on background-maintenance timing.
+        // Any Deep Brain request must see current canonical Situations rather than background timing.
         CognitiveSituationEngineV4.refresh(db); CognitiveDeepBrainReconcilerV4.reconcile(db);
         CognitiveReasoningFreshnessV4.Snapshot freshness=CognitiveReasoningFreshnessV4.current(db);
         String requestId = CognitiveDeepBrainStoreV4.newRequestId(); SQLiteDatabase sql = db.getReadableDatabase();
@@ -31,7 +31,7 @@ public final class CognitiveDeepBrainPacketBuilderV4 {
             root.put("privacy_policy", "Only context whose Cortex source policy permits cloud use is included. RESTRICTED Evidence is never included.");
             JSONObject rf=new JSONObject();rf.put("latest_applied_at",freshness.latestAppliedAt);rf.put("new_open_situations",freshness.newOpenSituations);rf.put("newest_situation_change_at",freshness.newestSituationAt);root.put("reasoning_freshness",rf);
             LinkedHashSet<String> situationIds=new LinkedHashSet<>(),memoryIds=new LinkedHashSet<>(),worldIds=new LinkedHashSet<>(),factIds=new LinkedHashSet<>();
-            root.put("current_phone_context", phoneContext(context,db)); root.put("situations", situations(context,sql,situationIds,freshness.latestAppliedAt)); root.put("recent_memories", memories(context,sql,situationIds,memoryIds)); root.put("worlds", worlds(context,sql,worldIds)); root.put("facts", facts(context,sql,factIds));
+            root.put("current_phone_context", phoneContext(context,db)); root.put("situations", situations(context,sql,situationIds)); root.put("recent_memories", memories(context,sql,situationIds,memoryIds)); root.put("worlds", worlds(context,sql,worldIds)); root.put("facts", facts(context,sql,factIds));
             root.put("allowed_situation_ids",array(situationIds));root.put("allowed_memory_ids",array(memoryIds));root.put("allowed_world_ids",array(worldIds));root.put("allowed_fact_ids",array(factIds));
             String contextJson=root.toString(); JSONObject compact=compact(root); String compactContextJson=compact.toString();
             String shareText=CognitiveDeepBrainProtocolV4.buildShareText(requestId,q,root); String compactText=CognitiveDeepBrainProtocolV4.buildCompactPasteText(requestId,q,compact); String exportJson=CognitiveDeepBrainProtocolV4.buildJsonFile(requestId,q,compact);
@@ -58,10 +58,10 @@ public final class CognitiveDeepBrainPacketBuilderV4 {
 
     /**
      * Select Situations using the same live temporal policy Pulse uses, not stored attention alone.
-     * This prevents the model packet itself from being biased toward yesterday's ranking and ensures
-     * fresh deadlines/risks from Second Brain can enter the next ChatGPT pass immediately.
+     * Freshness is evaluated per Situation. Applying a bounded pass that omitted another open
+     * Situation must never make that omitted Situation look already considered.
      */
-    private static JSONArray situations(Context context,SQLiteDatabase sql,LinkedHashSet<String>ids,long latestAppliedAt)throws Exception{
+    private static JSONArray situations(Context context,SQLiteDatabase sql,LinkedHashSet<String>ids)throws Exception{
         ArrayList<SituationPacketRow> rows=new ArrayList<>();long now=System.currentTimeMillis();
         String query="SELECT id,kind,state,headline,COALESCE(explanation,''),COALESCE(primary_world_id,''),semantic_anchor,relevant_from,relevant_until,attention_score,interruption_score,confidence,last_evaluated_at,"+
                 "COALESCE((SELECT MIN(p.rank_order) FROM v4_deep_brain_priority_items p WHERE p.state='ACTIVE' AND p.situation_id=v4_situations.id),0),"+
@@ -74,9 +74,11 @@ public final class CognitiveDeepBrainPacketBuilderV4 {
         try{while(c.moveToNext()){
             String id=c.getString(0);if(!objectCloudAllowed(context,sql,"SITUATION",id,0))continue;long changedAt=c.getLong(16),brainCreatedAt=c.getLong(15);boolean hasAction=c.getInt(17)!=0,connectorEnriched=c.getInt(18)!=0;long effectiveBrainAt=brainCreatedAt>=changedAt?brainCreatedAt:0;
             CognitiveNowPolicyV4.Evaluation e=CognitiveNowPolicyV4.evaluate(c.getString(1),c.getString(2),c.getDouble(9),c.getDouble(10),c.getDouble(11),c.getLong(7),c.getLong(8),c.getInt(13),effectiveBrainAt,hasAction,now);if(!e.eligible)continue;
-            rows.add(new SituationPacketRow(id,c.getString(1),c.getString(2),c.getString(3),c.getString(4),c.getString(5),c.getString(6),c.getLong(7),c.getLong(8),c.getDouble(9),e.nowScore,c.getDouble(10),c.getDouble(11),c.getLong(12),c.getInt(13),e.currentDeepBrain?c.getString(14):"",e.currentDeepBrain,changedAt,CognitiveReasoningFreshnessV4.isNew(changedAt,latestAppliedAt),connectorEnriched));
+            boolean fresh=CognitiveReasoningFreshnessV4.isNew(sql,id,changedAt);
+            rows.add(new SituationPacketRow(id,c.getString(1),c.getString(2),c.getString(3),c.getString(4),c.getString(5),c.getString(6),c.getLong(7),c.getLong(8),c.getDouble(9),e.nowScore,c.getDouble(10),c.getDouble(11),c.getLong(12),c.getInt(13),e.currentDeepBrain?c.getString(14):"",e.currentDeepBrain,changedAt,fresh,connectorEnriched));
         }}finally{c.close();}
-        Collections.sort(rows,new Comparator<SituationPacketRow>(){@Override public int compare(SituationPacketRow a,SituationPacketRow b){int n=Double.compare(b.nowAttention,a.nowAttention);if(n!=0)return n;if(a.newSinceDeepBrain!=b.newSinceDeepBrain)return a.newSinceDeepBrain?-1:1;if(a.currentDeepBrain!=b.currentDeepBrain)return a.currentDeepBrain?-1:1;if(a.currentDeepBrain&&a.brainRank!=b.brainRank)return Integer.compare(a.brainRank,b.brainRank);long au=a.relevantUntil>0?a.relevantUntil:Long.MAX_VALUE,bu=b.relevantUntil>0?b.relevantUntil:Long.MAX_VALUE;return Long.compare(au,bu);}});
+        // Guarantee fresh canonical changes packet space before stale-but-still-important context.
+        Collections.sort(rows,new Comparator<SituationPacketRow>(){@Override public int compare(SituationPacketRow a,SituationPacketRow b){if(a.newSinceDeepBrain!=b.newSinceDeepBrain)return a.newSinceDeepBrain?-1:1;int n=Double.compare(b.nowAttention,a.nowAttention);if(n!=0)return n;if(a.currentDeepBrain!=b.currentDeepBrain)return a.currentDeepBrain?-1:1;if(a.currentDeepBrain&&a.brainRank!=b.brainRank)return Integer.compare(a.brainRank,b.brainRank);long au=a.relevantUntil>0?a.relevantUntil:Long.MAX_VALUE,bu=b.relevantUntil>0?b.relevantUntil:Long.MAX_VALUE;return Long.compare(au,bu);}});
         JSONArray out=new JSONArray();for(SituationPacketRow r:rows){if(out.length()>=MAX_SITUATIONS)break;ids.add(r.id);JSONObject x=new JSONObject();x.put("id",r.id);x.put("kind",r.kind);x.put("state",r.state);x.put("headline",clip(r.headline,300));x.put("explanation",clip(r.explanation,500));x.put("primary_world_id",r.primaryWorldId);x.put("semantic_anchor",clip(r.semanticAnchor,240));x.put("relevant_from",r.relevantFrom);x.put("relevant_until",r.relevantUntil);x.put("attention_score",r.nowAttention);x.put("canonical_attention_score",r.canonicalAttention);x.put("interruption_score",r.interruption);x.put("confidence",r.confidence);x.put("last_evaluated_at",r.lastEvaluatedAt);x.put("changed_at",r.changedAt);if(r.newSinceDeepBrain)x.put("new_since_deep_brain",true);if(r.connectorEnriched)x.put("connector_enriched",true);if(r.currentDeepBrain&&r.brainRank>0)x.put("deep_brain_rank",r.brainRank);if(r.currentDeepBrain&&!r.brainReason.isEmpty())x.put("deep_brain_reason",clip(r.brainReason,500));out.put(x);}return out;
     }
 
