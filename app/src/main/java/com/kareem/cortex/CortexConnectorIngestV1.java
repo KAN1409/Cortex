@@ -66,13 +66,14 @@ public final class CortexConnectorIngestV1 {
         long threadId = RawSignalStore.threadId(db, signalId);
         try { NotificationEnrichmentEngine.enrich(db, signalId, itemId, threadId, signal); } catch (Throwable ignored) {}
 
-        if (CognitiveSignalV2.CognitiveState.PENDING_ADJUDICATION.name().equals(RawSignalStore.cognitiveState(db, signalId))) {
+        String cognitiveState=RawSignalStore.cognitiveState(db, signalId);
+        if (CognitiveFeatureFlags.enabled(context) && CognitiveSignalV2.awaitingAdjudication(cognitiveState)) {
             try { CognitiveAdjudicatorV2.enqueue(context, threadId, signalId); } catch (Throwable ignored) {}
         }
 
-        // Existing legacy memory may remain as historical evidence, but a pending richer Relay
-        // revision is not projected again until V2 validates the new semantic result.
-        if (itemId > 0 && !CognitiveSignalV2.CognitiveState.PENDING_ADJUDICATION.name().equals(RawSignalStore.cognitiveState(db, signalId))) {
+        // Existing legacy memory may remain as historical evidence, but a queued/running richer
+        // Relay revision is not projected again until V2 validates the new semantic result.
+        if (itemId > 0 && !CognitiveSignalV2.awaitingAdjudication(RawSignalStore.cognitiveState(db, signalId))) {
             try { AnalysisQueue.kick(context, null, null); } catch (Throwable ignored) {}
             try { CognitiveRealtimeProjectionV4.schedule(context, signalId); } catch (Throwable ignored) {}
         }
