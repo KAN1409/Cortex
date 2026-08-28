@@ -2,8 +2,6 @@
 set -euo pipefail
 
 REPO_DIR="${CORTEX_REPO_DIR:-$HOME/Cortex}"
-APK_SRC="$REPO_DIR/app/build/outputs/apk/debug/app-debug.apk"
-APK_OUT="/sdcard/Download/Cortex-v50-debug.apk"
 BUILD_LOG="$REPO_DIR/termux-build-last.log"
 BUILD_LOG_OUT="/sdcard/Download/Cortex-build-last.log"
 CLEAN_BUILD="${CORTEX_CLEAN_BUILD:-0}"
@@ -29,12 +27,10 @@ if [ ! -d "$REPO_DIR/.git" ]; then
   else fail "Cortex repo not found. Set CORTEX_REPO_DIR or clone it to $HOME/Cortex first."; fi
 fi
 cd "$REPO_DIR"
-# The normal command is always the release gate for main. Override only deliberately.
 TARGET_REF="${CORTEX_BUILD_REF:-main}"
 log "Updating Cortex source: $TARGET_REF"
 git fetch origin "$TARGET_REF"
 
-# Preserve tracked local edits instead of deleting them, then build exact origin/<target>.
 if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
   log "Preserving local tracked edits before sync"
   git stash push -m "$AUTO_STASH_NAME" >/dev/null
@@ -45,7 +41,7 @@ fi
 git checkout "$TARGET_REF"
 git pull --ff-only origin "$TARGET_REF"
 
-log "Running full Cortex repository regression audit"
+log "Running Cortex repository audit"
 [ -f "$REPO_DIR/scripts/cortex-repo-audit.sh" ] || fail "Repository audit script is missing"
 if ! bash "$REPO_DIR/scripts/cortex-repo-audit.sh" "$REPO_DIR"; then
   printf '\nCORTEX BUILD STOPPED: repository audit failed before Gradle.\n' >&2
@@ -62,6 +58,12 @@ AAPT_PROP="android.aapt2FromMavenOverride=$PREFIX/bin/aapt2"
 touch "$HOME/.gradle/gradle.properties"
 if grep -q '^android.aapt2FromMavenOverride=' "$HOME/.gradle/gradle.properties"; then sed -i "s|^android.aapt2FromMavenOverride=.*|$AAPT_PROP|" "$HOME/.gradle/gradle.properties"; else printf '%s\n' "$AAPT_PROP" >> "$HOME/.gradle/gradle.properties"; fi
 
+VERSION_NAME="$(sed -nE "s/^[[:space:]]*versionName[[:space:]]+['\"]([^'\"]+)['\"].*/\1/p" app/build.gradle | head -n 1)"
+[ -n "$VERSION_NAME" ] || VERSION_NAME="debug"
+APK_SRC="$REPO_DIR/app/build/outputs/apk/debug/app-debug.apk"
+APK_OUT="/sdcard/Download/Cortex-${VERSION_NAME}-debug.apk"
+INSTALL_TMP="/data/local/tmp/Cortex-debug.apk"
+
 log "Java: $(java -version 2>&1 | head -n 1)"
 log "Android SDK: $ANDROID_HOME"
 log "AAPT2: $(aapt2 version 2>&1 | head -n 1)"
@@ -69,7 +71,7 @@ if [ "$CLEAN_BUILD" = "1" ]; then
   log "Removing previous build outputs for a clean rebuild"
   rm -rf "$REPO_DIR/app/build" "$REPO_DIR/build"
 fi
-log "Building Cortex v50 from $TARGET_REF"
+log "Building Cortex ${VERSION_NAME} from $TARGET_REF"
 rm -f "$BUILD_LOG"
 set +e
 if [ -x ./gradlew ]; then
@@ -101,7 +103,7 @@ printf 'APK: %s\n' "$APK_OUT"
 if [ "$AUTO_INSTALL" = "1" ]; then
   if command -v rish >/dev/null 2>&1; then
     log "Installing APK through Shizuku/rish"
-    rish -c "cp '$APK_OUT' /data/local/tmp/Cortex-v50-debug.apk && chmod 644 /data/local/tmp/Cortex-v50-debug.apk && pm install -r /data/local/tmp/Cortex-v50-debug.apk"
+    rish -c "cp '$APK_OUT' '$INSTALL_TMP' && chmod 644 '$INSTALL_TMP' && pm install -r '$INSTALL_TMP'"
   else
     printf 'CORTEX_AUTO_INSTALL=1 requested, but rish is not available. APK is ready in Downloads.\n' >&2
   fi
