@@ -67,11 +67,15 @@ public final class CognitiveWorldCandidateExtractorV4 {
 
         String organization = first(root, legacy, source, "organization_name", "company_name");
         String domain = first(root, legacy, source, "domain", "organization_domain");
+        String organizationPackage = first(root, legacy, source, "organization_package");
         if (!organization.isEmpty()) {
             ArrayList<CognitiveIdentityV4.IdentityClaim> claims = new ArrayList<>();
             claims.add(claim(CognitiveIdentityV4.ClaimType.EXACT_NAME, organization, CognitiveIdentityV4.ClaimStrength.WEAK, evidenceId));
             if (!domain.isEmpty()) claims.add(claim(CognitiveIdentityV4.ClaimType.DOMAIN, domain, CognitiveIdentityV4.ClaimStrength.MEDIUM, evidenceId));
-            if (sourcePackage != null && !sourcePackage.trim().isEmpty()) claims.add(claim(CognitiveIdentityV4.ClaimType.PACKAGE_NAME, sourcePackage, CognitiveIdentityV4.ClaimStrength.STRONG, evidenceId));
+            // sourcePackage is the app that captured/carried the Evidence (for example WhatsApp), not
+            // necessarily the organization's own package. Only an explicit organization_package may
+            // become a durable PACKAGE_NAME identity claim.
+            if (!organizationPackage.isEmpty()) claims.add(claim(CognitiveIdentityV4.ClaimType.PACKAGE_NAME, organizationPackage, CognitiveIdentityV4.ClaimStrength.STRONG, evidenceId));
             out.add(candidate(organization, CognitiveDomainV4.WorldTypeHint.ORGANIZATION, claims, memoryId, evidenceId, at));
         }
 
