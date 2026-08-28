@@ -39,8 +39,6 @@ public final class CompactTodayActivity extends CortexOrbBriefActivity {
 
     @Override void render(PrimeBriefStore.Snapshot s){
         if(destroyed||content==null)return;
-        // Header + hero are the only persistent children. Loading is a real one-shot state,
-        // never a permanent third child that survives every refresh.
         if(loadingView!=null){content.removeView(loadingView);loadingView=null;}
         while(content.getChildCount()>2)content.removeViewAt(2);
         collectAudio(s);
@@ -69,7 +67,7 @@ public final class CompactTodayActivity extends CortexOrbBriefActivity {
 
     @Override void derivedSection(String title,int color,List<PrimeBriefStore.Item> xs,String glyph,int limit){
         sectionTitle(title,color);int n=Math.min(limit,xs.size());for(int i=0;i<n;i++){
-            PrimeBriefStore.Item x=xs.get(i);String tt=x.title==null||x.title.trim().isEmpty()?friendlyFallback(x.kind):x.title.trim(),body=x.body==null?"":x.body.trim();boolean focus=i==0&&"action".equals(glyph);
+            PrimeBriefStore.Item x=xs.get(i);String semanticTitle=CandidateConsolidator.presentationTitle(x);String tt=semanticTitle==null||semanticTitle.trim().isEmpty()?friendlyFallback(x.attentionKind):semanticTitle.trim(),body=x.body==null?"":x.body.trim();boolean focus=i==0&&"action".equals(glyph);
             LinearLayout card=CortexUi.card(this,16);card.setPadding(0,0,0,0);if(focus)card.setBackground(CortexUi.round(this,CortexUi.SURFACE,Color.argb(82,Color.red(CortexUi.BRAND),Color.green(CortexUi.BRAND),Color.blue(CortexUi.BRAND)),16));
             LinearLayout main=new LinearLayout(this);main.setGravity(Gravity.CENTER_VERTICAL);main.setPadding(dp(12),focus?dp(14):dp(11),dp(10),focus?dp(10):dp(9));
             View marker=new View(this);marker.setBackground(CortexUi.round(this,color,Color.TRANSPARENT,999));LinearLayout.LayoutParams mp=new LinearLayout.LayoutParams(dp(3),focus?dp(66):dp(46));mp.setMargins(0,0,dp(12),0);main.addView(marker,mp);
