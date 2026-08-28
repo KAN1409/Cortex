@@ -84,10 +84,12 @@ public final class CognitiveDeepBrainApplyV4 {
                 String type = safeActionType(x.optString("type", "CUSTOM")); String risk = safeRisk(type, x.optString("risk", "CONFIRMATION_REQUIRED"));
                 JSONObject payload = x.optJSONObject("payload"); if (payload == null) payload = new JSONObject();
                 try { payload.put("deep_brain_request_id", response.requestId); payload.put("origin", "chatgpt_plus_share"); String reason = clean(x.optString("reason", "")); if (!reason.isEmpty()) payload.put("reason", clip(reason,500)); } catch (Throwable ignored) {}
+                // Re-running Deep Brain should refresh cognition, not create another identical open action.
+                if(equivalentProposedAction(sql,situationId,worldId,type,label)){skipped++;continue;}
                 String identity = "deep-brain-action|" + response.requestId + "|" + i + "|" + type + "|" + label; String id = CognitiveIdentityV4.objectId("act", identity);
                 ContentValues v = new ContentValues(); v.put("id", id); if (!situationId.isEmpty()) v.put("situation_id", situationId); else v.putNull("situation_id"); if (!worldId.isEmpty()) v.put("world_id", worldId); else v.putNull("world_id");
                 v.put("action_type", type); v.put("label", label); v.put("risk", risk); v.put("payload_json", payload.toString()); v.put("state", "PROPOSED"); v.put("created_at", now); v.put("updated_at", now);
-                long row = sql.insertWithOnConflict("v4_action_proposals", null, v, SQLiteDatabase.CONFLICT_IGNORE); if (row >= 0 || exists(sql,"v4_action_proposals",id)) actionsCreated++; else skipped++;
+                long row = sql.insertWithOnConflict("v4_action_proposals", null, v, SQLiteDatabase.CONFLICT_IGNORE); if (row >= 0) actionsCreated++; else skipped++;
             }
 
             JSONObject summary = new JSONObject();
@@ -103,6 +105,7 @@ public final class CognitiveDeepBrainApplyV4 {
     private static boolean safeSituationState(String state) { return "DETECTED".equals(state)||"RELEVANT".equals(state)||"SURFACED".equals(state)||"DEFERRED".equals(state)||"WAITING".equals(state); }
     private static String safeActionType(String raw){String x=clean(raw).toUpperCase(Locale.ROOT);try{return CognitiveDomainV4.ActionType.valueOf(x).name();}catch(Throwable ignored){return "CUSTOM";}}
     private static String safeRisk(String type,String raw){String requested=clean(raw).toUpperCase(Locale.ROOT);boolean external="REPLY".equals(type)||"CALL".equals(type)||"SEND".equals(type)||"REMIND".equals(type)||"SCHEDULE".equals(type)||"COMPLETE".equals(type);if(external)return"CONFIRMATION_REQUIRED";try{return CognitiveDomainV4.ActionRisk.valueOf(requested).name();}catch(Throwable ignored){return"CONFIRMATION_REQUIRED";}}
+    private static boolean equivalentProposedAction(SQLiteDatabase sql,String situationId,String worldId,String type,String label){Cursor c=sql.rawQuery("SELECT 1 FROM v4_action_proposals WHERE state='PROPOSED' AND COALESCE(situation_id,'')=? AND COALESCE(world_id,'')=? AND action_type=? AND LOWER(TRIM(label))=LOWER(TRIM(?)) LIMIT 1",new String[]{clean(situationId),clean(worldId),type,label});try{return c.moveToFirst();}finally{c.close();}}
     private static boolean exists(SQLiteDatabase sql,String table,String id){Cursor c=sql.rawQuery("SELECT 1 FROM "+table+" WHERE id=? LIMIT 1",new String[]{id});try{return c.moveToFirst();}finally{c.close();}}
     private static double clamp01(double x){if(Double.isNaN(x)||Double.isInfinite(x))return 0.0;return Math.max(0.0,Math.min(1.0,x));}
     private static String clean(String s){return s==null?"":s.replace('\n',' ').replace('\r',' ').replaceAll("\\s+"," ").trim();}
