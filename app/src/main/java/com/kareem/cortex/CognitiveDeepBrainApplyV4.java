@@ -36,10 +36,9 @@ public final class CognitiveDeepBrainApplyV4 {
         CognitiveDeepBrainStoreV4.Request request = CognitiveDeepBrainStoreV4.load(sql, response.requestId);
         if (request == null) throw new IllegalArgumentException("Unknown Cortex request_id");
         if ("APPLIED".equals(request.state)) return new Result(response.requestId, response.answer, 0, 0, 0, 0, true);
-        // Priority is a global judgement. If any live Situation changed after this packet was built,
-        // the response is already based on an older world-state. Do not let a slow Gemini call or a
-        // delayed ChatGPT share overwrite newer canonical/user context; leave the request unapplied
-        // so the fresh-context worker/UI can build a new packet instead.
+        // Priority is a global judgement. If any canonical Situation changed after this packet was
+        // built, including a user terminal transition, the response is based on an older world-state.
+        // Do not let a slow Gemini call or delayed ChatGPT share overwrite newer canonical/user state.
         if(hasNewerCanonicalSituation(sql,request.createdAt))throw new IllegalArgumentException("Cortex context changed after this Deep Brain request was built; refresh reasoning");
 
         Set<String> allowedSituations = new HashSet<>(request.situationIds);
@@ -57,7 +56,10 @@ public final class CognitiveDeepBrainApplyV4 {
                 String title = clean(x.optString("title", ""));
                 if (title.isEmpty() || title.length() > 300) { skipped++; continue; }
                 String situationId = clean(x.optString("situation_id", ""));
-                if (!situationId.isEmpty() && (!allowedSituations.contains(situationId) || !exists(sql,"v4_situations",situationId))) situationId = "";
+                if (!situationId.isEmpty()) {
+                    if (!allowedSituations.contains(situationId) || !exists(sql,"v4_situations",situationId)) situationId = "";
+                    else if (isTerminalSituation(sql,situationId)) { skipped++; continue; }
+                }
                 List<String> memoryIds = allowedIds(sql,"v4_memories",x.optJSONArray("memory_ids"),allowedMemories);
                 List<String> worldIds = allowedIds(sql,"v4_worlds",x.optJSONArray("world_ids"),allowedWorlds);
                 if (situationId.isEmpty() && memoryIds.isEmpty() && worldIds.isEmpty()) { skipped++; continue; }
@@ -82,7 +84,7 @@ public final class CognitiveDeepBrainApplyV4 {
                 if (x == null) { skipped++; continue; }
                 String situationId = clean(x.optString("situation_id", ""));
                 if (situationId.isEmpty() || !allowedSituations.contains(situationId) || !exists(sql,"v4_situations",situationId)) { skipped++; continue; }
-                SituationSnapshot before=snapshot(sql,situationId);if(before==null){skipped++;continue;}
+                SituationSnapshot before=snapshot(sql,situationId);if(before==null||isTerminalState(before.state)){skipped++;continue;}
                 Double attention=x.has("attention_score")?Double.valueOf(clamp01(x.optDouble("attention_score",before.attention))):null;
                 Double interruption=x.has("interruption_score")?Double.valueOf(clamp01(x.optDouble("interruption_score",before.interruption))):null;
                 String state = clean(x.optString("state", "")).toUpperCase(Locale.ROOT);
@@ -102,7 +104,10 @@ public final class CognitiveDeepBrainApplyV4 {
                 String label = clean(x.optString("label", ""));
                 if (label.isEmpty() || label.length() > 300) { skipped++; continue; }
                 String situationId = clean(x.optString("situation_id", "")); String worldId = clean(x.optString("world_id", ""));
-                if (!situationId.isEmpty() && (!allowedSituations.contains(situationId) || !exists(sql,"v4_situations",situationId))) { skipped++; continue; }
+                if (!situationId.isEmpty()) {
+                    if (!allowedSituations.contains(situationId) || !exists(sql,"v4_situations",situationId)) { skipped++; continue; }
+                    if (isTerminalSituation(sql,situationId)) { skipped++; continue; }
+                }
                 if (!worldId.isEmpty() && (!allowedWorlds.contains(worldId) || !exists(sql,"v4_worlds",worldId))) worldId = "";
                 String type = safeActionType(x.optString("type", "CUSTOM")); String risk = safeRisk(type, x.optString("risk", "CONFIRMATION_REQUIRED"));
                 String semantic=clean(situationId).toLowerCase(Locale.ROOT)+"|"+clean(worldId).toLowerCase(Locale.ROOT)+"|"+type+"|"+label.toLowerCase(Locale.ROOT);
@@ -128,11 +133,13 @@ public final class CognitiveDeepBrainApplyV4 {
 
     static boolean rankingGrounded(boolean fieldPresent,int inputCount,int storedCount){return !fieldPresent||inputCount<=0||storedCount>0;}
     static boolean hasNewerCanonicalSituation(SQLiteDatabase sql,long requestCreatedAt){
-        if(sql==null)return false;Cursor c=sql.rawQuery("SELECT 1 FROM v4_situations WHERE state NOT IN ('RESOLVED','CANCELLED','DISMISSED') AND updated_at>? LIMIT 1",new String[]{String.valueOf(requestCreatedAt)});try{return c.moveToFirst();}finally{c.close();}
+        if(sql==null)return false;Cursor c=sql.rawQuery("SELECT 1 FROM v4_situations WHERE updated_at>? LIMIT 1",new String[]{String.valueOf(requestCreatedAt)});try{return c.moveToFirst();}finally{c.close();}
     }
     private static int supersedePriorPriorities(SQLiteDatabase sql,String currentRequestId,long when){ContentValues v=new ContentValues();v.put("state","SUPERSEDED");v.put("updated_at",when);return sql.update("v4_deep_brain_priority_items",v,"state='ACTIVE' AND request_id<>?",new String[]{currentRequestId});}
     private static int supersedePriorDeepBrainActions(SQLiteDatabase sql,String currentRequestId,long when){ContentValues v=new ContentValues();v.put("state","SUPERSEDED");v.put("updated_at",when);String current="%\"deep_brain_request_id\":\""+currentRequestId+"\"%";return sql.update("v4_action_proposals",v,"state='PROPOSED' AND payload_json LIKE ? AND payload_json NOT LIKE ?",new String[]{"%\"deep_brain_request_id\":\"%",current});}
     private static SituationSnapshot snapshot(SQLiteDatabase sql,String id){Cursor c=sql.rawQuery("SELECT state,attention_score,interruption_score FROM v4_situations WHERE id=? LIMIT 1",new String[]{id});try{return c.moveToFirst()?new SituationSnapshot(c.getString(0),c.getDouble(1),c.getDouble(2)):null;}finally{c.close();}}
+    private static boolean isTerminalSituation(SQLiteDatabase sql,String id){SituationSnapshot s=snapshot(sql,id);return s!=null&&isTerminalState(s.state);}
+    private static boolean isTerminalState(String state){String s=clean(state).toUpperCase(Locale.ROOT);return "RESOLVED".equals(s)||"CANCELLED".equals(s)||"DISMISSED".equals(s);}
     private static List<String> allowedIds(SQLiteDatabase sql,String table,JSONArray raw,Set<String> allowed){ArrayList<String>out=new ArrayList<>();if(raw==null)return out;for(int i=0;i<raw.length()&&out.size()<12;i++){String id=clean(raw.optString(i,""));if(!id.isEmpty()&&allowed.contains(id)&&exists(sql,table,id)&&!out.contains(id))out.add(id);}return out;}
     private static boolean safeSituationState(String state) { return "DETECTED".equals(state)||"RELEVANT".equals(state)||"SURFACED".equals(state)||"DEFERRED".equals(state)||"WAITING".equals(state); }
     private static String safeActionType(String raw){String x=clean(raw).toUpperCase(Locale.ROOT);try{return CognitiveDomainV4.ActionType.valueOf(x).name();}catch(Throwable ignored){return "CUSTOM";}}
