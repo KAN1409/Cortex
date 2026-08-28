@@ -12,12 +12,14 @@ import java.util.List;
 
 /** Attention-first Now surface using the approved Cortex reference hierarchy. */
 public final class CompactTodayActivity extends CortexOrbBriefActivity {
+    private View loadingView;
+
     @Override void build(){
         LinearLayout root=new LinearLayout(this);root.setOrientation(LinearLayout.VERTICAL);root.setBackground(CortexUi.aurora(this));
         ScrollView sv=new ScrollView(this);sv.setFillViewport(true);sv.setClipToPadding(false);
         content=new LinearLayout(this);content.setOrientation(LinearLayout.VERTICAL);content.setPadding(dp(18),dp(8),dp(18),dp(24));sv.addView(content);
         root.addView(sv,new LinearLayout.LayoutParams(-1,0,1));systemHeader();
-        TextView loading=CortexUi.plain(this,"Building your current picture…",10,CortexUi.FAINT);loading.setPadding(dp(3),dp(13),0,dp(5));content.addView(loading);
+        TextView loading=CortexUi.plain(this,"Building your current picture…",10,CortexUi.FAINT);loading.setPadding(dp(3),dp(13),0,dp(5));loadingView=loading;content.addView(loading);
         CortexUi.addBottomNav(this,root,"today",null);setContentView(root);CortexUi.fitSystemBars(this,root);
     }
 
@@ -37,9 +39,10 @@ public final class CompactTodayActivity extends CortexOrbBriefActivity {
 
     @Override void render(PrimeBriefStore.Snapshot s){
         if(destroyed||content==null)return;
-        // Header + hero + loading are the only persistent children. Clearing from index 3
-        // prevents stale section headings from surviving a refresh and duplicating on screen.
-        while(content.getChildCount()>3)content.removeViewAt(3);
+        // Header + hero are the only persistent children. Loading is a real one-shot state,
+        // never a permanent third child that survives every refresh.
+        if(loadingView!=null){content.removeView(loadingView);loadingView=null;}
+        while(content.getChildCount()>2)content.removeViewAt(2);
         collectAudio(s);
         if(!s.actions.isEmpty())derivedSection("NEEDS YOU NOW",CortexUi.BRAND,s.actions,"action",3);
         if(!s.waiting.isEmpty())derivedSection("WAITING ON",CortexUi.AURORA,s.waiting,"waiting",3);
@@ -48,7 +51,7 @@ public final class CompactTodayActivity extends CortexOrbBriefActivity {
         if(!s.worthKnowing.isEmpty())derivedSection("WORTH KNOWING",CortexUi.MUTED,s.worthKnowing,"info",3);
         if(!s.reviews.isEmpty())reviewRow(s.reviews.size());
         if(!audioItems.isEmpty()){sectionTitle("RECENT CONTEXT",CortexUi.MUTED);content.addView(audioCard(s),margins(0,0,0,0));}
-        if(s.empty()){LinearLayout e=CortexUi.card(this,16);e.setPadding(dp(16),dp(17),dp(16),dp(17));TextView h=CortexUi.plain(this,"Clear horizon",18,CortexUi.TEXT);CortexUi.medium(h);e.addView(h);TextView b=CortexUi.text(this,"Nothing deserves your attention right now. Cortex will interrupt this calm only when the evidence is strong enough.",12,CortexUi.MUTED);b.setPadding(0,dp(5),0,0);e.addView(b);content.addView(e,margins(0,dp(10),0,0));}
+        if(s.attentionEmpty()){LinearLayout e=CortexUi.card(this,16);e.setPadding(dp(16),dp(17),dp(16),dp(17));TextView h=CortexUi.plain(this,"Clear horizon",18,CortexUi.TEXT);CortexUi.medium(h);e.addView(h);TextView b=CortexUi.text(this,"Nothing deserves your attention right now. Cortex will interrupt this calm only when the evidence is strong enough.",12,CortexUi.MUTED);b.setPadding(0,dp(5),0,0);e.addView(b);content.addView(e,margins(0,dp(10),0,0));}
         content.addView(promptDock(),margins(0,dp(14),0,dp(6)));
     }
 
@@ -67,11 +70,10 @@ public final class CompactTodayActivity extends CortexOrbBriefActivity {
     @Override void derivedSection(String title,int color,List<PrimeBriefStore.Item> xs,String glyph,int limit){
         sectionTitle(title,color);int n=Math.min(limit,xs.size());for(int i=0;i<n;i++){
             PrimeBriefStore.Item x=xs.get(i);String tt=x.title==null||x.title.trim().isEmpty()?friendlyFallback(x.kind):x.title.trim(),body=x.body==null?"":x.body.trim();boolean focus=i==0&&"action".equals(glyph);
-            LinearLayout card=CortexUi.card(this,16);card.setPadding(0,0,0,0);if(focus)card.setBackground(CortexUi.round(this,CortexUi.SURFACE,Color.argb(82,185,217,74),16));
+            LinearLayout card=CortexUi.card(this,16);card.setPadding(0,0,0,0);if(focus)card.setBackground(CortexUi.round(this,CortexUi.SURFACE,Color.argb(82,Color.red(CortexUi.BRAND),Color.green(CortexUi.BRAND),Color.blue(CortexUi.BRAND)),16));
             LinearLayout main=new LinearLayout(this);main.setGravity(Gravity.CENTER_VERTICAL);main.setPadding(dp(12),focus?dp(14):dp(11),dp(10),focus?dp(10):dp(9));
             View marker=new View(this);marker.setBackground(CortexUi.round(this,color,Color.TRANSPARENT,999));LinearLayout.LayoutParams mp=new LinearLayout.LayoutParams(dp(3),focus?dp(66):dp(46));mp.setMargins(0,0,dp(12),0);main.addView(marker,mp);
             LinearLayout txt=new LinearLayout(this);txt.setOrientation(LinearLayout.VERTICAL);main.addView(txt,new LinearLayout.LayoutParams(0,-2,1));
-            // Focus is expressed by scale and border, not by washing the entire title in lime.
             TextView h=CortexUi.text(this,clipLocal(tt,110),focus?18:15,CortexUi.TEXT);CortexUi.medium(h);h.setMaxLines(focus?3:2);txt.addView(h);
             if(!body.isEmpty()&&!sameMeaning(tt,body)){TextView m=CortexUi.text(this,clipLocal(body,145),11,CortexUi.MUTED);m.setMaxLines(focus?2:1);m.setPadding(0,dp(5),0,0);txt.addView(m);}TextView timing=CortexUi.plain(this,friendlyTiming(x),9,focus?CortexUi.BRAND:CortexUi.MUTED);timing.setMaxLines(1);timing.setPadding(0,dp(6),0,0);txt.addView(timing);
             if(!focus){CortexGlyphView arrow=CortexUi.glyph(this,"arrow",CortexUi.MUTED,false);main.addView(arrow,new LinearLayout.LayoutParams(dp(36),dp(36)));arrow.setOnClickListener(v->{AttentionLearning.record(db,x.id,"opened");derivedDetail(x);});}
