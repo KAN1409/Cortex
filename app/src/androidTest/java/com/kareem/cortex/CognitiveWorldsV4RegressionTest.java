@@ -67,6 +67,23 @@ public class CognitiveWorldsV4RegressionTest {
         assertTrue(match.canAutoMerge());
     }
 
+    @Test public void carrierAppPackageDoesNotBecomeOrganizationIdentity() {
+        SQLiteDatabase db = SQLiteDatabase.create(null);
+        try {
+            CognitiveSchemaV4.ensure(db);
+            long now = System.currentTimeMillis();
+            seedMemory(db, "ev_org", "mem_org", "bank message",
+                    "{\"organization_name\":\"CIB\"}", now);
+            List<CognitiveWorldResolverV4.Candidate> xs = CognitiveWorldCandidateExtractorV4.fromMemory(db, "mem_org");
+            assertEquals(1, xs.size());
+            CognitiveWorldResolverV4.Candidate c = xs.get(0);
+            assertEquals(CognitiveDomainV4.WorldTypeHint.ORGANIZATION, c.typeHint);
+            assertEquals(1, c.claims.size());
+            assertEquals(CognitiveIdentityV4.ClaimType.EXACT_NAME, c.claims.get(0).type);
+            assertEquals(CognitiveIdentityV4.ClaimStrength.WEAK, c.claims.get(0).strength);
+        } finally { db.close(); }
+    }
+
     @Test public void dryRunIsReadOnlyAndSeparatesDurableFromWeakCandidates() {
         SQLiteDatabase db = SQLiteDatabase.create(null);
         try {
