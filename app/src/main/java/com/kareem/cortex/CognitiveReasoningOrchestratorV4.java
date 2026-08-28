@@ -25,9 +25,10 @@ public final class CognitiveReasoningOrchestratorV4 {
     public static void removeListener(Listener l){for(WeakReference<Listener> r:LISTENERS){Listener x=r.get();if(x==null||x==l)LISTENERS.remove(r);}}
 
     /**
-     * Durable debounce: replace pending reasoning work with the newest trigger/context window.
-     * WorkManager keeps the pass alive across process death and waits for network before spending a
-     * cloud call. The Worker still re-evaluates canonical freshness when it actually runs.
+     * Durable coalescing queue. New triggers are appended instead of replacing a currently-running
+     * provider call, so a fresh notification cannot cancel an in-flight Gemini request. Every queued
+     * Worker re-evaluates canonical freshness, fingerprint, cooldown and budget at execution time;
+     * once an earlier pass has covered the context, later queued work becomes a cheap no-op.
      */
     public static void schedule(Context context,String trigger){
         if(context==null)return;Context app=context.getApplicationContext();if(!CognitiveAutoReasoningSettingsV4.enabled(app)||!GeminiKeyStore.has(app))return;
@@ -40,7 +41,7 @@ public final class CognitiveReasoningOrchestratorV4 {
                     .setInitialDelay(4,TimeUnit.SECONDS)
                     .addTag(UNIQUE_WORK)
                     .build();
-            WorkManager.getInstance(app).enqueueUniqueWork(UNIQUE_WORK,ExistingWorkPolicy.REPLACE,work);
+            WorkManager.getInstance(app).enqueueUniqueWork(UNIQUE_WORK,ExistingWorkPolicy.APPEND_OR_REPLACE,work);
         }catch(Throwable ignored){}
     }
 
@@ -52,7 +53,9 @@ public final class CognitiveReasoningOrchestratorV4 {
             try{CognitiveSituationEngineV4.refresh(db);CognitiveDeepBrainReconcilerV4.reconcile(db);}catch(Throwable ignored){}
             decision=CognitiveAutoReasoningPolicyV4.evaluate(CognitivePulseProjectionV4.current(db,12),started);if(!decision.shouldRun)return RunResult.skipped(decision.reason);
             CognitiveAutoReasoningSettingsV4.Gate gate=CognitiveAutoReasoningSettingsV4.canStart(app,decision.fingerprint,decision.urgent,started);if(!gate.allowed)return RunResult.skipped(gate.reason);
-            CognitiveDeepBrainPacketBuilderV4.Packet packet=CognitiveDeepBrainPacketBuilderV4.build(app,db,DEFAULT_QUESTION);CognitiveDeepBrainStoreV4.markExported(db,packet.requestId);
+            // Internal Gemini dispatch is not an export. The request stays CREATED until Cortex
+            // validates/applies the provider response; ChatGPT share still uses EXPORTED explicitly.
+            CognitiveDeepBrainPacketBuilderV4.Packet packet=CognitiveDeepBrainPacketBuilderV4.build(app,db,DEFAULT_QUESTION);
             CognitiveReasoningProviderV4 provider=new GeminiCognitiveReasoningProviderV4();String model=provider.model(app);CognitiveAutoReasoningSettingsV4.markStarted(app,decision.fingerprint,started);runId=CognitiveReasoningRunStoreV4.begin(db,packet.requestId,provider.id(),model,trigger,decision.fingerprint,started);
             CognitiveReasoningProviderV4.Result modelResult=provider.reason(app,packet);CognitiveDeepBrainApplyV4.Result applied=CognitiveDeepBrainApplyV4.apply(db,modelResult.rawResponse,CognitiveDeepBrainApplyV4.ORIGIN_GEMINI_AUTONOMOUS);long now=System.currentTimeMillis();CognitiveReasoningRunStoreV4.complete(db,runId,modelResult.durationMs,now);CognitiveAutoReasoningSettingsV4.markSuccess(app,decision.fingerprint,decision.urgent,now);
             try{DiagnosticsLog.info(db,"CognitiveReasoningOrchestratorV4","autonomous_reasoning_applied",provider.id()+":"+model,0,0,0,0,0,modelResult.durationMs,null);}catch(Throwable ignored){}
