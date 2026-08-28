@@ -27,7 +27,9 @@ public final class RuntimePipelineDiagnosticsActivity extends Activity {
     private void load(boolean runRefresh){
         if(destroyed||db==null)return;refresh.setEnabled(false);refresh.setText(runRefresh?"Refreshing pipeline…":"Reading…");
         new Thread(()->{JSONObject state=null;VaultDb local=null;try{local=new VaultDb(getApplicationContext());if(runRefresh)CognitiveManualRefreshV4.run(getApplicationContext(),local,()->load(false));state=CortexRuntimeDiagnosticV1.snapshot(getApplicationContext(),local);}catch(Throwable e){try{state=new JSONObject().put("error",e.getClass().getSimpleName()+": "+String.valueOf(e.getMessage()));}catch(Throwable ignored){}}finally{if(local!=null)try{local.close();}catch(Throwable ignored){}}
-            final JSONObject result=state;runOnUiThread(()->{if(destroyed||isFinishing()||isDestroyed())return;output.setText(result==null?"No diagnostic state available":result.toString(2));refresh.setEnabled(true);refresh.setText("Run live refresh");});
+            final JSONObject result=state;runOnUiThread(()->{if(destroyed||isFinishing()||isDestroyed())return;output.setText(pretty(result));refresh.setEnabled(true);refresh.setText("Run live refresh");});
         },"CortexRuntimePipelineDiagnostic").start();
     }
+
+    private static String pretty(JSONObject result){if(result==null)return"No diagnostic state available";try{return result.toString(2);}catch(Throwable ignored){return result.toString();}}
 }
