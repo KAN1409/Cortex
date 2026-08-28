@@ -41,6 +41,10 @@ public final class StartupMaintenance {
             ContactSafetyMaintenance.run(db);
             EntityGraphMaintenance.run(db);
             IntentionalCognitiveBridge.backfill(db,250);
+            // Stage E: detect conservative, memory-grounded Situations locally, then let any already
+            // applied Deep Brain rankings/actions attach to those canonical Situations.
+            CognitiveSituationEngineV4.refresh(db);
+            CognitiveDeepBrainReconcilerV4.reconcile(db);
             EnvironmentPreflight.run(context);
             AdjudicationRecovery.schedule(context);
         }catch(Throwable ignored){
