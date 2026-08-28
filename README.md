@@ -1,8 +1,8 @@
 # Cortex
 
-Cortex is a local-first Android personal cognitive intelligence system.
+Cortex is a personal cognitive intelligence system for Android. It captures evidence from intentional input and selected phone context, decides what deserves durable memory, connects related context, reasons over the user's data, surfaces attention-worthy open loops, and prepares user-approved actions.
 
-Current product direction:
+## Core pipeline
 
 ```text
 Capture / Perceive
@@ -10,36 +10,41 @@ Capture / Perceive
 → Connect
 → Remember
 → Reason
+→ Prioritize
 → Suggest
-→ Execute
+→ Execute with approval
 → Learn
 ```
 
-The active fresh-start cognitive architecture is documented in:
+Raw device signals are not durable memory by default. Notifications, accessibility context, screenshots, audio and other evidence first pass through relevance, threading, uncertainty and privacy gates before promotion.
 
-- `docs/COGNITIVE_ARCHITECTURE_V4.md`
-- `docs/COGNITIVE_PERSISTENCE_IDENTITY_V4.md`
+## Current architecture
 
-Its target product surfaces are:
+- `knowledge_items` preserves durable captured memory and attachments.
+- `raw_signals` and `signal_threads` hold bounded evidence and communication episodes.
+- `derived_items` stores cognitive state such as actions, waiting items, decisions, insights and reviews.
+- `source_links` preserves provenance between signals, threads, memory, entities and derived intelligence.
+- `AttentionEngine` ranks already-relevant candidates for current attention.
+- `BrainRouter` provides local, external and combined reasoning routes with local privacy filtering.
+- `ResultProposalEngine` and `CortexActionDispatcher` convert useful results into structured, approval-first next actions.
+- Local semantic retrieval, OCR, ASR, feedback learning, diagnostics and backup/restore are integrated into the same application.
 
-```text
-Pulse | Memory | Worlds | Think
-```
+See `CORTEX_INFORMATION_ARCHITECTURE_V3.md` and `docs/DATA_MODEL.md` for additional design notes.
 
-These are projections over one canonical truth hierarchy, not independent stores:
+## Build and validation
 
-```text
-Evidence → Episode → Memory → Facts / Worlds / Relations → Situation
-```
+The repository has one GitHub Actions workflow: `.github/workflows/build-apk.yml`.
 
-The V4 work is additive while the existing Cortex product remains operational. Existing UI/read paths are not redirected until each replacement projection passes compile, regression, migration and real-device validation.
+CI runs the repository audit, compiles the debug APK, and compiles instrumented Android test sources. APK binaries are build artifacts only and are not committed to the repository.
 
-## Build
-
-From the repository root:
+Local/Termux builds should use:
 
 ```bash
-gradle :app:assembleDebug :app:assembleDebugAndroidTest
+bash termux-build-cortex.sh
 ```
 
-For Termux, use the repository's `termux-build-cortex.sh` when building the configured target branch.
+The current Android version is defined only in `app/build.gradle`; do not hard-code release version names in CI artifact logic or documentation.
+
+## Repository rules
+
+Generated APKs, temporary build-trigger files, benchmark markers, transient audit reports and branch-specific planning artifacts do not belong in source control. Historical migrations and compatibility code may remain when they are required to preserve existing Cortex data or runtime behavior.
