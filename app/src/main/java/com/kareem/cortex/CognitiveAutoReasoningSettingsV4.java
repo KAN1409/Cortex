@@ -9,14 +9,28 @@ import java.util.Locale;
 /** Persistent guardrails for autonomous cloud reasoning. */
 public final class CognitiveAutoReasoningSettingsV4 {
     private static final String PREF="cortex_auto_reasoning_v4";
-    private static final String K_ENABLED="enabled",K_LAST_STARTED="last_started",K_LAST_SUCCESS="last_success",K_LAST_STARTED_FP="last_started_fp",K_LAST_SUCCESS_FP="last_success_fp",K_NEXT_ALLOWED="next_allowed",K_FAILURES="failures",K_DAY="day",K_DAY_CALLS="day_calls";
+    private static final String K_ENABLED="enabled",K_LAST_STARTED="last_started",K_LAST_SUCCESS="last_success",K_LAST_STARTED_FP="last_started_fp",K_LAST_SUCCESS_FP="last_success_fp",K_NEXT_ALLOWED="next_allowed",K_FAILURES="failures",K_DAY="day",K_DAY_CALLS="day_calls",K_LAST_ENQUEUE="last_enqueue";
     static final long NORMAL_COOLDOWN_MS=4L*60L*1000L;
     static final long URGENT_COOLDOWN_MS=45L*1000L;
+    static final long ENQUEUE_DEBOUNCE_MS=3500L;
     static final int MAX_CALLS_PER_DAY=24;
     private CognitiveAutoReasoningSettingsV4(){}
 
     public static boolean enabled(Context c){return c!=null&&c.getSharedPreferences(PREF,Context.MODE_PRIVATE).getBoolean(K_ENABLED,true);}
     public static void setEnabled(Context c,boolean enabled){if(c!=null)c.getSharedPreferences(PREF,Context.MODE_PRIVATE).edit().putBoolean(K_ENABLED,enabled).apply();}
+
+    /**
+     * Coalesce bursty canonical-change callbacks before they become WorkManager chain nodes. The
+     * claim is synchronized in-process and persisted so a process restart during the short debounce
+     * window still sees the slot. Forced stale-context recovery bypasses the normal debounce.
+     */
+    static synchronized boolean claimEnqueueSlot(Context c,long now,boolean force){
+        if(c==null)return false;SharedPreferences p=c.getSharedPreferences(PREF,Context.MODE_PRIVATE);long last=p.getLong(K_LAST_ENQUEUE,0);if(!force&&!enqueueDebounceElapsed(last,now))return false;p.edit().putLong(K_LAST_ENQUEUE,now).apply();return true;
+    }
+    static synchronized void releaseEnqueueSlot(Context c,long claimedAt){
+        if(c==null)return;SharedPreferences p=c.getSharedPreferences(PREF,Context.MODE_PRIVATE);if(p.getLong(K_LAST_ENQUEUE,0)==claimedAt)p.edit().putLong(K_LAST_ENQUEUE,0).apply();
+    }
+    static boolean enqueueDebounceElapsed(long last,long now){return last<=0||now<last||now-last>=ENQUEUE_DEBOUNCE_MS;}
 
     static Gate canStart(Context c,String fingerprint,boolean urgent,long now){
         if(c==null||!enabled(c)||!GeminiKeyStore.has(c))return new Gate(false,"disabled_or_unconfigured");
