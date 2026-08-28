@@ -18,18 +18,20 @@ public class CognitiveCorrectnessRegressionTest {
     }
 
     @Test public void repeatedCibDeclineCollapsesWithinSameEventWindow(){
-        long now=System.currentTimeMillis();
+        long bucket=2L*60L*60L*1000L;
+        long now=(System.currentTimeMillis()/bucket)*bucket+15L*60L*1000L;
         PrimeBriefStore.Item a=item(1,"DECISION","CIB · Decision","[1] لقد تم رفض المعاملة من Google Spotify على بطاقتكم","CIB",now);
-        PrimeBriefStore.Item b=item(2,"DECISION","CIB · Decision","لقد تم رفض المعاملة من Google Spotify على بطاقتكم","cib",now+12*60*1000L);
+        PrimeBriefStore.Item b=item(2,"DECISION","CIB · Decision","لقد تم رفض المعاملة من Google Spotify على بطاقتكم","cib",now+12L*60L*1000L);
         assertEquals("ALERT",CandidateConsolidator.effectiveKind(a));
         assertEquals("ALERT",CandidateConsolidator.effectiveKind(b));
         assertTrue(CandidateConsolidator.sameEvent(a,b));
     }
 
     @Test public void laterCibDeclineWithoutAmountIsNotCollapsedForever(){
-        long now=System.currentTimeMillis();
+        long bucket=2L*60L*60L*1000L;
+        long now=(System.currentTimeMillis()/bucket)*bucket+15L*60L*1000L;
         PrimeBriefStore.Item a=item(1,"DECISION","CIB · Decision","لقد تم رفض المعاملة من Google Spotify على بطاقتكم","CIB",now);
-        PrimeBriefStore.Item b=item(2,"DECISION","CIB · Decision","لقد تم رفض المعاملة من Google Spotify على بطاقتكم","CIB",now+5*60*60*1000L);
+        PrimeBriefStore.Item b=item(2,"DECISION","CIB · Decision","لقد تم رفض المعاملة من Google Spotify على بطاقتكم","CIB",now+5L*60L*60L*1000L);
         assertFalse(CandidateConsolidator.sameEvent(a,b));
     }
 
