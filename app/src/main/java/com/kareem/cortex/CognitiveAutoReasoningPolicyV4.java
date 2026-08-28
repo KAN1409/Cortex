@@ -9,13 +9,14 @@ import java.util.Locale;
 /** Chooses when a new canonical Situation deserves an autonomous model pass. */
 public final class CognitiveAutoReasoningPolicyV4 {
     private static final long TWO_HOURS_MS=2L*60L*60L*1000L;
+    private static final long DAY_MS=24L*60L*60L*1000L;
     private CognitiveAutoReasoningPolicyV4(){}
 
     static Decision evaluate(CognitivePulseProjectionV4.Snapshot pulse,long now){
         if(pulse==null||pulse.items.isEmpty())return Decision.none("no_pulse");
         ArrayList<CognitivePulseProjectionV4.Item> fresh=new ArrayList<>();boolean urgent=false;double max=0;
         for(CognitivePulseProjectionV4.Item x:pulse.items){
-            if(x==null||!x.newSinceDeepBrain)continue;String kind=n(x.kind).toUpperCase(Locale.ROOT);double score=x.attentionScore;boolean deadlineSoon="DEADLINE".equals(kind)&&x.relevantUntil>0&&x.relevantUntil-now<=TWO_HOURS_MS;boolean highRisk="RISK".equals(kind);boolean hardMeaningful=highRisk||"DEADLINE".equals(kind)||"UPCOMING_EVENT".equals(kind)||"COMMITMENT".equals(kind)||"WAITING".equals(kind);boolean qualifies=hardMeaningful||score>=.62||("FOLLOW_UP".equals(kind)&&score>=.58);if(!qualifies)continue;fresh.add(x);max=Math.max(max,score);if(highRisk||deadlineSoon||score>=.82)urgent=true;
+            if(x==null||!x.newSinceDeepBrain)continue;String kind=n(x.kind).toUpperCase(Locale.ROOT);double score=x.attentionScore;long deadlineDelta=x.relevantUntil-now;boolean deadlineSoon="DEADLINE".equals(kind)&&x.relevantUntil>0&&deadlineDelta>=-DAY_MS&&deadlineDelta<=TWO_HOURS_MS;boolean highRisk="RISK".equals(kind);boolean hardMeaningful=highRisk||"DEADLINE".equals(kind)||"UPCOMING_EVENT".equals(kind)||"COMMITMENT".equals(kind)||"WAITING".equals(kind);boolean qualifies=hardMeaningful||score>=.62||("FOLLOW_UP".equals(kind)&&score>=.58);if(!qualifies)continue;fresh.add(x);max=Math.max(max,score);if(highRisk||deadlineSoon||score>=.82)urgent=true;
         }
         if(fresh.isEmpty())return Decision.none("no_meaningful_change");
         Collections.sort(fresh,new Comparator<CognitivePulseProjectionV4.Item>(){@Override public int compare(CognitivePulseProjectionV4.Item a,CognitivePulseProjectionV4.Item b){int s=Double.compare(b.attentionScore,a.attentionScore);if(s!=0)return s;return Long.compare(b.changedAt,a.changedAt);}});
