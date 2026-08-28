@@ -61,6 +61,10 @@ public final class CognitiveAutoReasoningSettingsV4 {
     static void clearTransientGateAfterStaleContext(Context c){
         if(c==null)return;c.getSharedPreferences(PREF,Context.MODE_PRIVATE).edit().putLong(K_LAST_STARTED,0).putString(K_LAST_STARTED_FP,"").putLong(K_NEXT_ALLOWED,0).apply();
     }
+    /** A real provider health PASS proves the transport recovered; clear only transient failure/cooldown state. */
+    static void markProviderHealthy(Context c){
+        if(c==null)return;c.getSharedPreferences(PREF,Context.MODE_PRIVATE).edit().putInt(K_FAILURES,0).putLong(K_NEXT_ALLOWED,0).putLong(K_LAST_STARTED,0).putString(K_LAST_STARTED_FP,"").apply();
+    }
     static long lastSuccessAt(Context c){return c==null?0:c.getSharedPreferences(PREF,Context.MODE_PRIVATE).getLong(K_LAST_SUCCESS,0);}
 
     /** Persist the last autonomous-brain transition so a missing Gemini run is explainable on-device. */
