@@ -17,6 +17,20 @@ public class CognitiveCorrectnessRegressionTest {
         assertEquals("CONTEXT",CandidateConsolidator.effectiveKind(x));
     }
 
+    @Test public void automatedAccountInfoCannotRenderAsUserActionWithoutObligation(){
+        long now=System.currentTimeMillis();
+        PrimeBriefStore.Item x=item(1,"ACTION","Notion Team · Action","Google Important info about Nassour's Google Account","gmail",now);
+        assertTrue(CandidateConsolidator.automatedInformationalAction(x.title+" "+x.body,x.source,x.kind));
+        assertEquals("CONTEXT",CandidateConsolidator.effectiveKind(x));
+    }
+
+    @Test public void explicitAccountRequestCanRemainAction(){
+        long now=System.currentTimeMillis();
+        PrimeBriefStore.Item x=item(1,"ACTION","Google · Action","Action required: please confirm access to your Google Account","gmail",now);
+        assertFalse(CandidateConsolidator.automatedInformationalAction(x.title+" "+x.body,x.source,x.kind));
+        assertEquals("ACTION",CandidateConsolidator.effectiveKind(x));
+    }
+
     @Test public void repeatedCibDeclineCollapsesWithinSameEventWindow(){
         long bucket=2L*60L*60L*1000L;
         long now=(System.currentTimeMillis()/bucket)*bucket+15L*60L*1000L;
@@ -24,6 +38,7 @@ public class CognitiveCorrectnessRegressionTest {
         PrimeBriefStore.Item b=item(2,"DECISION","CIB · Decision","لقد تم رفض المعاملة من Google Spotify على بطاقتكم","cib",now+12L*60L*1000L);
         assertEquals("ALERT",CandidateConsolidator.effectiveKind(a));
         assertEquals("ALERT",CandidateConsolidator.effectiveKind(b));
+        assertEquals("CIB · Alert",CandidateConsolidator.presentationTitle(a));
         assertTrue(CandidateConsolidator.sameEvent(a,b));
     }
 
