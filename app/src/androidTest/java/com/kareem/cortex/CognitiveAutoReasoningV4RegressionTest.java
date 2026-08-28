@@ -41,11 +41,13 @@ public class CognitiveAutoReasoningV4RegressionTest {
         assertFalse(CognitiveAutoReasoningPolicyV4.evaluate(pulse,now).shouldRun);
     }
 
-    @Test public void realtimeProjectionWakesBrainOnlyWhenSituationWasActuallyCreated(){
-        CognitiveSituationEngineV4.Result oldCandidateOnly=new CognitiveSituationEngineV4.Result(25,0,Collections.singletonList("si_old"));
-        CognitiveSituationEngineV4.Result newlyDetected=new CognitiveSituationEngineV4.Result(25,1,Collections.singletonList("si_new"));
+    @Test public void realtimeProjectionWakesBrainOnlyForMaterialSituationChange(){
+        CognitiveSituationEngineV4.Result oldCandidateOnly=new CognitiveSituationEngineV4.Result(25,0,0,Collections.singletonList("si_old"));
+        CognitiveSituationEngineV4.Result newlyDetected=new CognitiveSituationEngineV4.Result(25,1,0,Collections.singletonList("si_new"));
+        CognitiveSituationEngineV4.Result enrichedTiming=new CognitiveSituationEngineV4.Result(25,0,1,Collections.singletonList("si_existing"));
         assertFalse(CognitiveRealtimeProjectionV4.shouldScheduleReasoning(oldCandidateOnly));
         assertTrue(CognitiveRealtimeProjectionV4.shouldScheduleReasoning(newlyDetected));
+        assertTrue(CognitiveRealtimeProjectionV4.shouldScheduleReasoning(enrichedTiming));
         assertFalse(CognitiveRealtimeProjectionV4.shouldScheduleReasoning(null));
     }
 
