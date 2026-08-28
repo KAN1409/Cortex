@@ -7,26 +7,54 @@ import android.os.Bundle;
 import android.text.TextUtils;
 import android.view.*;
 import android.widget.*;
+import androidx.swiperefreshlayout.widget.SwipeRefreshLayout;
 import java.text.SimpleDateFormat;
 import java.util.*;
 
 /** Focus contains only three queues: Needs, Waiting and Actions. */
 public class SmartInboxActivity extends Activity {
-    VaultDb db;LinearLayout feed,tabs;TextView tabNeeds,tabWaiting,tabActions;String mode="needs";volatile int generation=0;
+    VaultDb db;LinearLayout feed,tabs;TextView tabNeeds,tabWaiting,tabActions;String mode="needs";volatile int generation=0;SwipeRefreshLayout swipeRefresh;
     int dp(int x){return CortexUi.dp(this,x);}
     @Override public void onCreate(Bundle b){super.onCreate(b);CortexUi.applyWindow(this);db=new VaultDb(this);FeatureStore.ensure(db);String m=getIntent().getStringExtra("mode");if("waiting".equals(m)||"action".equals(m)||"needs".equals(m))mode=m;build();refreshAsync();}
     @Override protected void onNewIntent(Intent i){super.onNewIntent(i);setIntent(i);String m=i.getStringExtra("mode");if("waiting".equals(m)||"action".equals(m)||"needs".equals(m))mode=m;styleTabs();refreshAsync();}
     @Override protected void onResume(){super.onResume();if(db!=null)refreshAsync();}
+    @Override protected void onDestroy(){generation++;if(db!=null)try{db.close();}catch(Throwable ignored){}db=null;super.onDestroy();}
 
-    void build(){LinearLayout root=new LinearLayout(this);root.setOrientation(LinearLayout.VERTICAL);root.setBackgroundColor(CortexUi.BG);LinearLayout body=new LinearLayout(this);body.setOrientation(LinearLayout.VERTICAL);body.setPadding(dp(20),dp(14),dp(20),0);root.addView(body,new LinearLayout.LayoutParams(-1,0,1));
+    void build(){
+        LinearLayout root=new LinearLayout(this);root.setOrientation(LinearLayout.VERTICAL);root.setBackgroundColor(CortexUi.BG);
+        LinearLayout body=new LinearLayout(this);body.setOrientation(LinearLayout.VERTICAL);body.setPadding(dp(20),dp(14),dp(20),0);root.addView(body,new LinearLayout.LayoutParams(-1,0,1));
         LinearLayout head=new LinearLayout(this);head.setOrientation(LinearLayout.HORIZONTAL);head.setGravity(Gravity.CENTER_VERTICAL);TextView h=CortexUi.plain(this,"Focus",29,CortexUi.TEXT);CortexUi.medium(h);head.addView(h,new LinearLayout.LayoutParams(0,-2,1));TextView settings=CortexUi.chip(this,"Settings",CortexUi.MUTED,false);settings.setOnClickListener(v->startActivity(new Intent(this,SettingsActivity.class)));head.addView(settings,new LinearLayout.LayoutParams(-2,dp(36)));body.addView(head);
         tabs=new LinearLayout(this);tabs.setOrientation(LinearLayout.HORIZONTAL);tabs.setPadding(0,dp(16),0,dp(10));tabNeeds=tab("Needs","needs");tabWaiting=tab("Waiting","waiting");tabActions=tab("Actions","action");body.addView(tabs,new LinearLayout.LayoutParams(-1,dp(62)));
-        ScrollView sv=new ScrollView(this);sv.setFillViewport(true);feed=new LinearLayout(this);feed.setOrientation(LinearLayout.VERTICAL);feed.setPadding(0,0,0,dp(20));sv.addView(feed);body.addView(sv,new LinearLayout.LayoutParams(-1,0,1));CortexUi.addBottomNav(this,root,"focus",null);setContentView(root);styleTabs();}
+        ScrollView sv=new ScrollView(this);sv.setFillViewport(true);feed=new LinearLayout(this);feed.setOrientation(LinearLayout.VERTICAL);feed.setPadding(0,0,0,dp(20));sv.addView(feed);
+        swipeRefresh=new SwipeRefreshLayout(this);swipeRefresh.setColorSchemeColors(CortexUi.BRAND,CortexUi.BLUE,CortexUi.AURORA);swipeRefresh.setProgressBackgroundColorSchemeColor(CortexUi.SURFACE);swipeRefresh.setOnRefreshListener(this::manualCognitiveRefresh);swipeRefresh.addView(sv,new ViewGroup.LayoutParams(-1,-1));body.addView(swipeRefresh,new LinearLayout.LayoutParams(-1,0,1));
+        CortexUi.addBottomNav(this,root,"focus",null);setContentView(root);styleTabs();
+    }
+
+    /** Same cognitive refresh semantics as NOW/Pulse, not a presentation-only reload. */
+    void manualCognitiveRefresh(){
+        if(isFinishing()||isDestroyed()){if(swipeRefresh!=null)swipeRefresh.setRefreshing(false);return;}
+        if(swipeRefresh!=null)swipeRefresh.setRefreshing(true);
+        new Thread(()->{
+            VaultDb local=null;
+            try{
+                local=new VaultDb(getApplicationContext());
+                CognitiveManualRefreshV4.run(getApplicationContext(),local,()->{if(!isFinishing()&&!isDestroyed())refreshAsync();});
+            }catch(Throwable ignored){}
+            finally{if(local!=null)try{local.close();}catch(Throwable ignored){}}
+            runOnUiThread(()->{if(isFinishing()||isDestroyed())return;if(swipeRefresh!=null)swipeRefresh.setRefreshing(false);refreshAsync();});
+        },"CortexInboxCognitiveRefresh").start();
+    }
 
     TextView tab(String label,String key){TextView t=CortexUi.chip(this,label,CortexUi.MUTED,false);t.setOnClickListener(v->{if(key.equals(mode))return;mode=key;styleTabs();refreshAsync();});t.setTag(label);LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,dp(40),1);p.setMargins(0,0,dp("action".equals(key)?0:8),0);tabs.addView(t,p);return t;}
     void styleTabs(){TextView[] views={tabNeeds,tabWaiting,tabActions};String[] keys={"needs","waiting","action"};for(int i=0;i<views.length;i++){boolean on=keys[i].equals(mode);views[i].setTextColor(on?CortexUi.TEXT:CortexUi.MUTED);views[i].setBackground(CortexUi.round(this,on?CortexUi.SURFACE_2:Color.TRANSPARENT,on?CortexUi.ACCENT:Color.TRANSPARENT,999));if(on)CortexUi.medium(views[i]);}}
 
-    void refreshAsync(){final int g=++generation;new Thread(()->{try{ArrayList<FeatureStore.InboxEntry> needs=FeatureStore.needs(db,120),inbox=FeatureStore.inbox(db,140);LinkedHashMap<Long,FeatureStore.InboxEntry> waiting=new LinkedHashMap<>(),actions=new LinkedHashMap<>();mergeBucket(waiting,needs,"Waiting");mergeBucket(waiting,inbox,"Waiting");mergeBucket(actions,needs,"Action");mergeBucket(actions,inbox,"Action");ArrayList<FeatureStore.InboxEntry> visible="waiting".equals(mode)?new ArrayList<>(waiting.values()):"action".equals(mode)?new ArrayList<>(actions.values()):needs;runOnUiThread(()->{if(g!=generation||isFinishing())return;tabNeeds.setText("Needs ("+needs.size()+")");tabWaiting.setText("Waiting ("+waiting.size()+")");tabActions.setText("Actions ("+actions.size()+")");styleTabs();render(visible);});}catch(Throwable e){runOnUiThread(()->{if(g==generation)showError(e);});}},"CortexFocusRefresh").start();}
+    void refreshAsync(){
+        if(db==null||isFinishing()||isDestroyed())return;final int g=++generation;
+        new Thread(()->{try{
+            ArrayList<FeatureStore.InboxEntry> needs=FeatureStore.needs(db,120),inbox=FeatureStore.inbox(db,140);LinkedHashMap<Long,FeatureStore.InboxEntry> waiting=new LinkedHashMap<>(),actions=new LinkedHashMap<>();mergeBucket(waiting,needs,"Waiting");mergeBucket(waiting,inbox,"Waiting");mergeBucket(actions,needs,"Action");mergeBucket(actions,inbox,"Action");ArrayList<FeatureStore.InboxEntry> visible="waiting".equals(mode)?new ArrayList<>(waiting.values()):"action".equals(mode)?new ArrayList<>(actions.values()):needs;
+            runOnUiThread(()->{if(g!=generation||isFinishing()||isDestroyed())return;tabNeeds.setText("Needs ("+needs.size()+")");tabWaiting.setText("Waiting ("+waiting.size()+")");tabActions.setText("Actions ("+actions.size()+")");styleTabs();render(visible);if(swipeRefresh!=null)swipeRefresh.setRefreshing(false);});
+        }catch(Throwable e){runOnUiThread(()->{if(g==generation&&!isFinishing()&&!isDestroyed()){showError(e);if(swipeRefresh!=null)swipeRefresh.setRefreshing(false);}});}},"CortexFocusRefresh").start();
+    }
     void mergeBucket(LinkedHashMap<Long,FeatureStore.InboxEntry> out,ArrayList<FeatureStore.InboxEntry> xs,String bucket){for(FeatureStore.InboxEntry e:xs)if(bucket.equals(e.bucket))out.put(e.item.id,e);}
 
     void render(ArrayList<FeatureStore.InboxEntry> xs){feed.removeAllViews();if(xs.isEmpty()){emptyState();return;}for(FeatureStore.InboxEntry e:xs)addEntry(e);}
