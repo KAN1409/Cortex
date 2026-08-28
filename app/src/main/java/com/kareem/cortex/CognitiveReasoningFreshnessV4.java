@@ -16,15 +16,7 @@ public final class CognitiveReasoningFreshnessV4 {
                 "SELECT COALESCE(MAX(applied_at),0) FROM v4_deep_brain_requests WHERE state='APPLIED' AND applied_at>0");
         long newestSituationAt = scalarLong(sql,
                 "SELECT COALESCE(MAX(updated_at),0) FROM v4_situations WHERE state NOT IN ('RESOLVED','CANCELLED','DISMISSED')");
-        // Freshness is per Situation, not global. A bounded Deep Brain packet may omit an open
-        // Situation; applying that packet must never make the omitted Situation look considered.
-        int newOpen = scalarInt(sql,
-                "SELECT COUNT(*) FROM v4_situations s " +
-                "WHERE s.state NOT IN ('RESOLVED','CANCELLED','DISMISSED') " +
-                "AND NOT EXISTS (SELECT 1 FROM v4_deep_brain_requests r " +
-                "WHERE r.state='APPLIED' AND r.applied_at>=s.updated_at " +
-                "AND r.situation_ids_json LIKE '%\"' || s.id || '\"%')");
-        return new Snapshot(latestAppliedAt, newOpen, newestSituationAt);
+        return new Snapshot(latestAppliedAt, newOpenCount(sql), newestSituationAt);
     }
 
     /** Legacy/global helper retained for regression compatibility. */
@@ -45,6 +37,20 @@ public final class CognitiveReasoningFreshnessV4 {
                 "WHERE state='APPLIED' AND situation_ids_json LIKE ?",
                 new String[]{"%\""+situationId.trim()+"\"%"});
         try{return c.moveToFirst()?c.getLong(0):0L;}finally{c.close();}
+    }
+
+    /**
+     * Count open Situations not covered by any applied request at-or-after their latest change.
+     * Freshness is per Situation: a bounded pass cannot make an omitted item look considered.
+     */
+    static int newOpenCount(SQLiteDatabase sql){
+        if(sql==null)return 0;
+        return scalarInt(sql,
+                "SELECT COUNT(*) FROM v4_situations s " +
+                "WHERE s.state NOT IN ('RESOLVED','CANCELLED','DISMISSED') " +
+                "AND NOT EXISTS (SELECT 1 FROM v4_deep_brain_requests r " +
+                "WHERE r.state='APPLIED' AND r.applied_at>=s.updated_at " +
+                "AND r.situation_ids_json LIKE '%\"' || s.id || '\"%')");
     }
 
     private static long scalarLong(SQLiteDatabase sql, String query) {
