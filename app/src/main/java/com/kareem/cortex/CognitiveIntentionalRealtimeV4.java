@@ -50,6 +50,7 @@ public final class CognitiveIntentionalRealtimeV4 {
 
         if(!extracted.isEmpty())CognitiveStoreV4.appendEvidenceAnalysis(db,evidenceId,analysisKind(type),"legacy-knowledge-item","v1",extracted,null);
         if(!summary.isEmpty())CognitiveStoreV4.appendEvidenceAnalysis(db,evidenceId,"SUMMARY","legacy-knowledge-item","v1",summary,null);
+        migrateLegacyAnalyses(db,itemId,evidenceId);
 
         String body=first(raw,extracted,summary,title);
         if(body.isEmpty())return new Result("","",false,false);
@@ -116,7 +117,7 @@ public final class CognitiveIntentionalRealtimeV4 {
                 {"اتناشر","12"},{"اثناشر","12"},{"اثنا عشر","12"},{"اثنتا عشر","12"}
         };
         for(String[] pair:values){
-            x=x.replaceAll("((?:الساعة|الساعه)\\s+)"+java.util.regex.Pattern.quote(pair[0])+"(?=\\s|$)","$1"+pair[1]);
+            x=x.replaceAll("((?:الساعة|الساعه)\\s+)"+java.util.regex.Pattern.quote(pair[0])+"(?=\\s|$|[،,.!?])","$1"+pair[1]);
         }
         return x;
     }
@@ -130,6 +131,7 @@ public final class CognitiveIntentionalRealtimeV4 {
     static boolean intentionalSource(String source){String s=n(source);return"manual".equals(s)||"manual_recording".equals(s)||"quick_capture".equals(s);}
     private static String meaningfulHeadline(String title,String body){String t=n(title);String low=t.toLowerCase(Locale.ROOT);if(t.isEmpty()||"voice recording".equals(low)||"recording".equals(low)||"voice note".equals(low))t=n(body);return clip(t.isEmpty()?"Upcoming reminder":t,180);}
     private static String analysisKind(String type){String x=n(type).toLowerCase(Locale.ROOT);if(x.contains("voice")||x.contains("audio"))return"TRANSCRIPT";if(x.contains("image")||x.contains("screenshot")||x.contains("photo"))return"OCR";return"EXTRACTION";}
+    private static void migrateLegacyAnalyses(VaultDb db,long itemId,String evidenceId){Cursor c=db.getReadableDatabase().query("analyses",new String[]{"engine","version","output_json"},"item_id=?",new String[]{String.valueOf(itemId)},null,null,"id ASC","8");try{while(c.moveToNext()){String engine=n(c.getString(0)),version=n(c.getString(1)),output=n(c.getString(2));if(output.isEmpty())continue;CognitiveStoreV4.appendEvidenceAnalysis(db,evidenceId,"LEGACY_ANALYSIS",engine.isEmpty()?"legacy":engine,version.isEmpty()?"unknown":version,null,output);}}finally{c.close();}}
     private static String mapped(VaultDb db,String table,String legacyId,String objectType){Cursor c=db.getReadableDatabase().query("v4_legacy_map",new String[]{"object_id"},"legacy_table=? AND legacy_id=? AND object_type=?",new String[]{table,legacyId,objectType},null,null,null,"1");try{return c.moveToFirst()?n(c.getString(0)):"";}finally{c.close();}}
     private static String legacyMetadata(long itemId,String metadata){try{JSONObject o=new JSONObject();o.put("migrated_from","knowledge_items");o.put("legacy_id",itemId);if(!n(metadata).isEmpty())o.put("legacy_metadata",metadata);o.put("forward_projection","intentional");return o.toString();}catch(Exception e){return"{}";}}
     private static double importance(String metadata){try{double v=new JSONObject(n(metadata)).optDouble("importance",.5);if(v>1)v/=100.0;return Math.max(0,Math.min(1,v));}catch(Exception e){return .5;}}
