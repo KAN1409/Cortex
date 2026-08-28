@@ -17,18 +17,25 @@ import java.util.concurrent.Executors;
 
 /** User-triggered Cortex -> ChatGPT Plus Deep Brain transport. */
 public final class DeepBrainActivity extends Activity {
+    public static final String EXTRA_AUTO_SHARE="cortex.deep_brain.auto_share";
+    public static final String EXTRA_QUESTION="cortex.deep_brain.question";
     static final int REQ_EXPORT_JSON=884;
     EditText question; TextView status,copy,share,export,paste; volatile boolean destroyed=false,busy=false;
     String pendingExportJson="",pendingExportName="";
     final ExecutorService worker=Executors.newSingleThreadExecutor(r->{Thread t=new Thread(r,"cortex-deep-brain");t.setPriority(Thread.NORM_PRIORITY-1);return t;});
     int dp(int x){return CortexUi.dp(this,x);}
-    @Override public void onCreate(Bundle b){super.onCreate(b);CortexUi.applyWindow(this);build();refresh();}
+    @Override public void onCreate(Bundle b){
+        super.onCreate(b);CortexUi.applyWindow(this);build();
+        Intent i=getIntent();String preset=i==null?"":safe(i.getStringExtra(EXTRA_QUESTION));if(!preset.isEmpty()&&!"unknown error".equals(preset))question.setText(preset);
+        refresh();
+        if(b==null&&i!=null&&i.getBooleanExtra(EXTRA_AUTO_SHARE,false))question.postDelayed(this::send,280);
+    }
     @Override protected void onDestroy(){destroyed=true;worker.shutdownNow();super.onDestroy();}
 
     void build(){
         ScrollView scroll=new ScrollView(this);LinearLayout root=new LinearLayout(this);root.setOrientation(LinearLayout.VERTICAL);root.setPadding(dp(20),dp(14),dp(20),dp(28));root.setBackgroundColor(CortexUi.BG);scroll.addView(root);
         LinearLayout head=new LinearLayout(this);head.setGravity(Gravity.CENTER_VERTICAL);TextView back=CortexUi.plain(this,"‹",34,CortexUi.TEXT);back.setGravity(Gravity.CENTER);back.setOnClickListener(v->finish());head.addView(back,new LinearLayout.LayoutParams(dp(42),dp(48)));TextView h=CortexUi.plain(this,"ChatGPT Deep Brain",27,CortexUi.TEXT);CortexUi.medium(h);head.addView(h,new LinearLayout.LayoutParams(0,-2,1));root.addView(head);
-        TextView intro=CortexUi.text(this,"Cortex prepares grounded context. Copy the compact packet, paste it into whichever ChatGPT conversation you want, then bring the structured response back to Cortex.",12,CortexUi.MUTED);intro.setPadding(0,dp(8),0,dp(14));root.addView(intro);
+        TextView intro=CortexUi.text(this,"Cortex prepares grounded context. From Pulse, one tap can build the fresh packet and open ChatGPT. Bring the structured CORTEX_RESPONSE_V1 response back by Share or Paste so Cortex can apply it safely.",12,CortexUi.MUTED);intro.setPadding(0,dp(8),0,dp(14));root.addView(intro);
         TextView label=CortexUi.plain(this,"Question",11,CortexUi.MUTED);CortexUi.medium(label);root.addView(label);
         question=new EditText(this);question.setText("What needs my attention now, why, and what should I do next?");question.setTextColor(CortexUi.TEXT);question.setHintTextColor(CortexUi.FAINT);question.setTextSize(14);question.setMinLines(3);question.setMaxLines(7);question.setInputType(InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_FLAG_MULTI_LINE|InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);question.setPadding(dp(14),dp(12),dp(14),dp(12));question.setBackground(CortexUi.round(this,CortexUi.SURFACE,android.graphics.Color.TRANSPARENT,18));root.addView(question,new LinearLayout.LayoutParams(-1,-2));
 
@@ -36,7 +43,7 @@ public final class DeepBrainActivity extends Activity {
         share=CortexUi.action(this,"Open / share to ChatGPT",CortexUi.MUTED,false);LinearLayout.LayoutParams shp=new LinearLayout.LayoutParams(-1,dp(46));shp.setMargins(0,dp(8),0,0);root.addView(share,shp);share.setOnClickListener(v->send());
         export=CortexUi.action(this,"Export compact JSON file",CortexUi.MUTED,false);LinearLayout.LayoutParams ep=new LinearLayout.LayoutParams(-1,dp(46));ep.setMargins(0,dp(8),0,0);root.addView(export,ep);export.setOnClickListener(v->exportJson());
         paste=CortexUi.action(this,"Paste / apply ChatGPT response",CortexUi.MUTED,false);LinearLayout.LayoutParams pp=new LinearLayout.LayoutParams(-1,dp(48));pp.setMargins(0,dp(8),0,0);root.addView(paste,pp);paste.setOnClickListener(v->pasteDialog());
-        TextView how=CortexUi.text(this,"Fast path: Copy compact context → open your existing ChatGPT conversation → Paste. File path: Export compact JSON → attach that file in the conversation. Return the CORTEX_RESPONSE_V1 result here by Share or Paste / apply. Cloud export respects Cortex Privacy controls.",11,CortexUi.MUTED);how.setPadding(0,dp(14),0,dp(12));root.addView(how);
+        TextView how=CortexUi.text(this,"Fast path: Pulse → Refresh ChatGPT opens the current grounded packet directly in ChatGPT. Return the CORTEX_RESPONSE_V1 result using Android Share → Apply ChatGPT to Cortex, or paste it here. Cortex validates request IDs and allowed object IDs before applying anything.",11,CortexUi.MUTED);how.setPadding(0,dp(14),0,dp(12));root.addView(how);
         status=CortexUi.text(this,"",11,CortexUi.TEXT);status.setPadding(dp(12),dp(12),dp(12),dp(12));status.setBackground(CortexUi.round(this,CortexUi.SURFACE,android.graphics.Color.TRANSPARENT,16));root.addView(status);
         setContentView(scroll);CortexUi.fitSystemBars(this,scroll);
     }
@@ -47,8 +54,8 @@ public final class DeepBrainActivity extends Activity {
     }
 
     void send(){
-        if(busy||destroyed)return;String q=question.getText().toString().trim();if(q.isEmpty()){question.setError("Ask something first");return;}setBusy(true,"Building compact grounded context…");
-        worker.execute(()->{VaultDb db=null;try{db=new VaultDb(getApplicationContext());CognitiveDeepBrainPacketBuilderV4.Packet p=CognitiveDeepBrainPacketBuilderV4.build(getApplicationContext(),db,q);CognitiveDeepBrainStoreV4.markExported(db,p.requestId);post(()->{setBusy(false,"Compact context ready · "+kb(p.compactText)+" · "+p.requestId);shareText(p.compactText);});}catch(Throwable e){post(()->setBusy(false,"Could not build Deep Brain packet: "+safe(e.getMessage())));}finally{if(db!=null)try{db.close();}catch(Throwable ignored){}}});
+        if(busy||destroyed)return;String q=question.getText().toString().trim();if(q.isEmpty()){question.setError("Ask something first");return;}setBusy(true,"Building fresh grounded context…");
+        worker.execute(()->{VaultDb db=null;try{db=new VaultDb(getApplicationContext());CognitiveDeepBrainPacketBuilderV4.Packet p=CognitiveDeepBrainPacketBuilderV4.build(getApplicationContext(),db,q);CognitiveDeepBrainStoreV4.markExported(db,p.requestId);post(()->{setBusy(false,"Fresh context ready · "+kb(p.compactText)+" · "+p.requestId);shareText(p.compactText);});}catch(Throwable e){post(()->setBusy(false,"Could not build Deep Brain packet: "+safe(e.getMessage())));}finally{if(db!=null)try{db.close();}catch(Throwable ignored){}}});
     }
     void shareText(String text){Intent base=new Intent(Intent.ACTION_SEND);base.setType("text/plain");base.putExtra(Intent.EXTRA_TEXT,text);base.putExtra(Intent.EXTRA_SUBJECT,"Cortex Deep Brain");try{Intent direct=new Intent(base);direct.setPackage("com.openai.chatgpt");startActivity(direct);}catch(Throwable noChatGpt){try{startActivity(Intent.createChooser(base,"Send Cortex context"));}catch(Throwable e){Toast.makeText(this,"No compatible share app found",Toast.LENGTH_LONG).show();}}}
 
