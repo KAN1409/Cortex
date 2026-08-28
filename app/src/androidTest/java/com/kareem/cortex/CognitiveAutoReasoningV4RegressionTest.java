@@ -51,6 +51,13 @@ public class CognitiveAutoReasoningV4RegressionTest {
         assertFalse(CognitiveRealtimeProjectionV4.shouldScheduleReasoning(null));
     }
 
+    @Test public void autonomousApplyDoesNotAcceptHallucinatedNonEmptyRankingAsCoverage(){
+        assertTrue(CognitiveDeepBrainApplyV4.rankingGrounded(true,0,0));
+        assertTrue(CognitiveDeepBrainApplyV4.rankingGrounded(true,2,1));
+        assertTrue(CognitiveDeepBrainApplyV4.rankingGrounded(false,0,0));
+        assertFalse(CognitiveDeepBrainApplyV4.rankingGrounded(true,2,0));
+    }
+
     @Test public void geminiAutonomousResponseRequiresCompleteContract()throws Exception{
         JSONObject ok=new JSONObject();ok.put("request_id","brq_test");ok.put("answer","ok");ok.put("priority_items",new JSONArray());ok.put("priority_updates",new JSONArray());ok.put("suggested_actions",new JSONArray());ok.put("reasoning_blocks",new JSONArray());
         GeminiCognitiveReasoningProviderV4.validateShape(ok);
