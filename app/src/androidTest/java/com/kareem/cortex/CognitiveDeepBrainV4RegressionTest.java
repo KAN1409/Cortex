@@ -73,6 +73,16 @@ public class CognitiveDeepBrainV4RegressionTest {
         }finally{db.close();}
     }
 
+    @Test public void invalidNewRankingCannotEraseOlderGroundedRanking() {
+        SQLiteDatabase db=SQLiteDatabase.create(null);try{
+            seed(db,"brq_invalid_rank");long now=System.currentTimeMillis()-10_000L;
+            assertTrue(CognitiveDeepBrainStoreV4.putPriority(db,"pri_old_good","brq_old",1,"Known good","Grounded old judgement",.88,"si_allowed",Collections.singletonList("mem_allowed"),Collections.<String>emptyList(),now));
+            String raw="CORTEX_RESPONSE_V1\n{\"request_id\":\"brq_invalid_rank\",\"priority_items\":[{\"rank\":1,\"title\":\"Hallucinated\",\"memory_ids\":[\"mem_not_allowed\"]}]}";
+            CognitiveDeepBrainApplyV4.Result r=CognitiveDeepBrainApplyV4.apply(db,CognitiveDeepBrainProtocolV4.parseResponse(raw));
+            assertEquals(0,r.rankedPrioritiesStored);assertTrue(r.skipped>=1);assertEquals(1,countWhere(db,"v4_deep_brain_priority_items","state='ACTIVE' AND id='pri_old_good'"));
+        }finally{db.close();}
+    }
+
     @Test public void newReasoningSupersedesOldChatGptActionButKeepsLocalProposal() {
         SQLiteDatabase db=SQLiteDatabase.create(null);try{
             seed(db,"brq_actions");long now=System.currentTimeMillis()-10_000L;
@@ -82,6 +92,16 @@ public class CognitiveDeepBrainV4RegressionTest {
             CognitiveDeepBrainApplyV4.apply(db,CognitiveDeepBrainProtocolV4.parseResponse(raw));
             Cursor c=db.rawQuery("SELECT state FROM v4_action_proposals WHERE id='act_old'",null);assertTrue(c.moveToFirst());assertEquals("SUPERSEDED",c.getString(0));c.close();
             c=db.rawQuery("SELECT state FROM v4_action_proposals WHERE id='act_local'",null);assertTrue(c.moveToFirst());assertEquals("PROPOSED",c.getString(0));c.close();
+        }finally{db.close();}
+    }
+
+    @Test public void invalidNewActionsCannotEraseOlderChatGptProposal() {
+        SQLiteDatabase db=SQLiteDatabase.create(null);try{
+            seed(db,"brq_invalid_action");long now=System.currentTimeMillis()-10_000L;
+            insertAction(db,"act_old_keep","{\"origin\":\"chatgpt_plus_share\",\"deep_brain_request_id\":\"brq_old\"}",now);
+            String raw="CORTEX_RESPONSE_V1\n{\"request_id\":\"brq_invalid_action\",\"suggested_actions\":[{\"situation_id\":\"si_not_allowed\",\"type\":\"SEND\",\"label\":\"Invented action\"}]}";
+            CognitiveDeepBrainApplyV4.Result r=CognitiveDeepBrainApplyV4.apply(db,CognitiveDeepBrainProtocolV4.parseResponse(raw));
+            assertEquals(0,r.actionsCreated);assertTrue(r.skipped>=1);Cursor c=db.rawQuery("SELECT state FROM v4_action_proposals WHERE id='act_old_keep'",null);assertTrue(c.moveToFirst());assertEquals("PROPOSED",c.getString(0));c.close();
         }finally{db.close();}
     }
 
