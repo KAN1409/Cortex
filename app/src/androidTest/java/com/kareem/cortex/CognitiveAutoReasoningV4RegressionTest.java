@@ -67,12 +67,21 @@ public class CognitiveAutoReasoningV4RegressionTest {
     }
 
     @Test public void geminiAutonomousResponseRequiresCompleteContract()throws Exception{
+        JSONObject cfg=GeminiCognitiveReasoningProviderV4.generationConfig();
+        assertEquals(4096,cfg.getInt("maxOutputTokens"));assertFalse(cfg.has("responseSchema"));assertFalse(cfg.has("responseMimeType"));
+        JSONObject text=cfg.getJSONObject("responseFormat").getJSONObject("text");assertEquals("application/json",text.getString("mimeType"));
+        JSONObject schema=text.getJSONObject("schema");JSONArray required=schema.getJSONArray("required");assertTrue(required.toString().contains("request_id"));assertTrue(required.toString().contains("priority_items"));assertTrue(required.toString().contains("reasoning_blocks"));
+
         JSONObject ok=new JSONObject();ok.put("request_id","brq_test");ok.put("answer","ok");ok.put("priority_items",new JSONArray());ok.put("priority_updates",new JSONArray());ok.put("suggested_actions",new JSONArray());ok.put("reasoning_blocks",new JSONArray());
         GeminiCognitiveReasoningProviderV4.validateShape(ok);
 
         JSONObject bad=new JSONObject(ok.toString());bad.remove("priority_items");
         try{GeminiCognitiveReasoningProviderV4.validateShape(bad);fail("missing priority_items must fail closed");}
         catch(IllegalArgumentException expected){assertTrue(expected.getMessage().contains("priority_items"));}
+
+        JSONObject tooMany=new JSONObject(ok.toString());JSONArray reasoning=new JSONArray();for(int i=0;i<21;i++)reasoning.put(new JSONObject().put("text","x"));tooMany.put("reasoning_blocks",reasoning);
+        try{GeminiCognitiveReasoningProviderV4.validateShape(tooMany);fail("oversized reasoning_blocks must fail closed");}
+        catch(IllegalArgumentException expected){assertTrue(expected.getMessage().contains("limits"));}
     }
 
     @Test public void staleApplyRejectionIsNotClassifiedAsProviderFailure(){
