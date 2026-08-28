@@ -109,6 +109,9 @@ public final class CognitiveDeepBrainApplyV4 {
                     if (isTerminalSituation(sql,situationId)) { skipped++; continue; }
                 }
                 if (!worldId.isEmpty() && (!allowedWorlds.contains(worldId) || !exists(sql,"v4_worlds",worldId))) worldId = "";
+                // Model actions are proposals, but they still must be grounded to a canonical object
+                // that was present in the request. Never persist a free-floating model instruction.
+                if(situationId.isEmpty()&&worldId.isEmpty()){skipped++;continue;}
                 String type = safeActionType(x.optString("type", "CUSTOM")); String risk = safeRisk(type, x.optString("risk", "CONFIRMATION_REQUIRED"));
                 String semantic=clean(situationId).toLowerCase(Locale.ROOT)+"|"+clean(worldId).toLowerCase(Locale.ROOT)+"|"+type+"|"+label.toLowerCase(Locale.ROOT);
                 if(!currentActionKeys.add(semantic)){skipped++;continue;}
