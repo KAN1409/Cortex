@@ -80,14 +80,18 @@ public final class CognitiveWorldProjectionV4 {
 
     public static List<Row> query(VaultDb db, Query query) {
         if (db == null) throw new IllegalArgumentException("db required");
-        Query q = query == null ? new Query("", null, 100) : query;
         CognitiveStoreV4.ensure(db);
-        SQLiteDatabase sql = db.getReadableDatabase();
+        return query(db.getReadableDatabase(), query);
+    }
+
+    static List<Row> query(SQLiteDatabase sql, Query query) {
+        if (sql == null) throw new IllegalArgumentException("db required");
+        Query q = query == null ? new Query("", null, 100) : query;
         ArrayList<String> args = new ArrayList<>();
         StringBuilder where = new StringBuilder("w.status='ACTIVE'");
         if (q.typeHint != null) { where.append(" AND w.type_hint=?"); args.add(q.typeHint.name()); }
         if (!q.text.isEmpty()) {
-            where.append(" AND (w.canonical_name LIKE ? ESCAPE '\\' OR COALESCE(w.summary,'') LIKE ? ESCAPE '\\' OR EXISTS (")
+            where.append(" AND (LOWER(w.canonical_name) LIKE ? ESCAPE '\\' OR LOWER(COALESCE(w.summary,'')) LIKE ? ESCAPE '\\' OR EXISTS (")
                     .append("SELECT 1 FROM v4_world_aliases a WHERE a.world_id=w.id AND a.normalized_alias LIKE ? ESCAPE '\\'))");
             String like = "%" + escapeLike(CognitiveIdentityV4.normalizeText(q.text)) + "%";
             args.add(like); args.add(like); args.add(like);
