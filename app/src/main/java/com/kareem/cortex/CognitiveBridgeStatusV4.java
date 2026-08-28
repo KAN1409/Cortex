@@ -4,8 +4,9 @@ import android.database.Cursor;
 import android.database.sqlite.SQLiteDatabase;
 
 /**
- * Read-only product status for the two external cognition inputs visible in Pulse:
- * trusted Second Brain Local Bus evidence and the latest applied ChatGPT Deep Brain pass.
+ * Read-only product status for external cognition inputs visible in Pulse:
+ * trusted Second Brain Local Bus evidence and the latest applied Deep Brain pass, regardless of
+ * whether that pass came from autonomous Gemini or the optional ChatGPT share bridge.
  *
  * This is observability only. It does not create Evidence, change Situation state, or trigger AI.
  */
@@ -18,6 +19,7 @@ public final class CognitiveBridgeStatusV4 {
             CortexLocalBusStoreV1.ensure(db);
             CognitiveDeepBrainStoreV4.ensure(db);
             CognitiveStoreV4.ensure(db);
+            CognitiveReasoningRunStoreV4.ensure(db);
             return read(db.getReadableDatabase());
         } catch (Throwable ignored) {
             return Snapshot.empty();
@@ -77,15 +79,22 @@ public final class CognitiveBridgeStatusV4 {
                 "SELECT COUNT(*) FROM v4_deep_brain_priority_items WHERE state='ACTIVE'");
         int activeActions = scalarInt(sql,
                 "SELECT COUNT(*) FROM v4_action_proposals WHERE state='PROPOSED' " +
-                "AND payload_json LIKE '%\"origin\":\"chatgpt_plus_share\"%'");
+                "AND payload_json LIKE '%\"deep_brain_request_id\":\"%'");
         int newOpen = latestAppliedAt > 0
                 ? scalarInt(sql,"SELECT COUNT(*) FROM v4_situations WHERE state NOT IN ('RESOLVED','CANCELLED','DISMISSED') AND updated_at>"+latestAppliedAt)
                 : scalarInt(sql,"SELECT COUNT(*) FROM v4_situations WHERE state NOT IN ('RESOLVED','CANCELLED','DISMISSED')");
 
+        String reasoningProvider="",reasoningModel="",reasoningState="",reasoningTrigger="";long reasoningAt=0L,reasoningDuration=0L;
+        try{
+            Cursor rr=sql.rawQuery("SELECT provider,model,state,trigger_kind,started_at,duration_ms FROM v4_reasoning_runs ORDER BY started_at DESC LIMIT 1",null);
+            try{if(rr.moveToFirst()){reasoningProvider=n(rr.getString(0));reasoningModel=n(rr.getString(1));reasoningState=n(rr.getString(2));reasoningTrigger=n(rr.getString(3));reasoningAt=rr.getLong(4);reasoningDuration=rr.getLong(5);}}finally{rr.close();}
+        }catch(Throwable ignored){}
+
         return new Snapshot(secondBrainSeen, secondBrainLastSeenAt, secondBrainLastEventAt,
                 accepted, rejected, latestEventId, latestSource, latestOccurredAt,
                 latestReceivedAt, latestSignalId, enrichedEvidence, enrichedSituations,
-                latestAppliedAt, activePriorities, activeActions, newOpen);
+                latestAppliedAt, activePriorities, activeActions, newOpen,
+                reasoningProvider,reasoningModel,reasoningState,reasoningTrigger,reasoningAt,reasoningDuration);
     }
 
     private static int scalarInt(SQLiteDatabase sql, String query) {
@@ -109,13 +118,17 @@ public final class CognitiveBridgeStatusV4 {
         public final String latestEventId, latestSourcePackage;
         public final long latestOccurredAt, latestReceivedAt, latestSignalId;
         public final int connectorEnrichedEvidence, connectorEnrichedSituations;
+        /** Compatibility names retained for existing callers; values now represent any Deep Brain provider. */
         public final long latestChatGptAppliedAt;
         public final int activeChatGptPriorities, activeChatGptActions, newSinceChatGpt;
+        public final String latestReasoningProvider,latestReasoningModel,latestReasoningState,latestReasoningTrigger;
+        public final long latestReasoningStartedAt,latestReasoningDurationMs;
 
         Snapshot(boolean seen, long lastSeen, long lastEvent, int accepted, int rejected,
                  String eventId, String source, long occurred, long received, long signalId,
-                 int enrichedEvidence, int enrichedSituations, long chatGptAt,
-                 int priorities, int actions, int fresh) {
+                 int enrichedEvidence, int enrichedSituations, long deepBrainAt,
+                 int priorities, int actions, int fresh,
+                 String provider,String model,String reasoningState,String trigger,long reasoningAt,long reasoningDuration) {
             secondBrainSeen = seen;
             secondBrainLastSeenAt = lastSeen;
             secondBrainLastEventAt = lastEvent;
@@ -128,18 +141,19 @@ public final class CognitiveBridgeStatusV4 {
             latestSignalId = Math.max(0L, signalId);
             connectorEnrichedEvidence = Math.max(0, enrichedEvidence);
             connectorEnrichedSituations = Math.max(0, enrichedSituations);
-            latestChatGptAppliedAt = Math.max(0L, chatGptAt);
+            latestChatGptAppliedAt = Math.max(0L, deepBrainAt);
             activeChatGptPriorities = Math.max(0, priorities);
             activeChatGptActions = Math.max(0, actions);
             newSinceChatGpt = Math.max(0, fresh);
+            latestReasoningProvider=n(provider);latestReasoningModel=n(model);latestReasoningState=n(reasoningState);latestReasoningTrigger=n(trigger);latestReasoningStartedAt=Math.max(0L,reasoningAt);latestReasoningDurationMs=Math.max(0L,reasoningDuration);
         }
 
         static Snapshot empty() {
-            return new Snapshot(false,0,0,0,0,"","",0,0,0,0,0,0,0,0,0);
+            return new Snapshot(false,0,0,0,0,"","",0,0,0,0,0,0,0,0,0,"","","","",0,0);
         }
 
         public boolean hasAnythingToShow() {
-            return secondBrainSeen || latestChatGptAppliedAt > 0 || activeChatGptPriorities > 0;
+            return secondBrainSeen || latestChatGptAppliedAt > 0 || activeChatGptPriorities > 0 || latestReasoningStartedAt>0;
         }
     }
 }
