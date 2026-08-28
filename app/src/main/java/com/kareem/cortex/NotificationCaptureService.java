@@ -22,7 +22,7 @@ public class NotificationCaptureService extends NotificationListenerService {
             long signalId=RawSignalStore.capture(db,signal),itemId=signalId>0?RawSignalStore.promotedItemId(db,signalId):0,threadId=signalId>0?RawSignalStore.threadId(db,signalId):0;
             if(signalId>0){
                 NotificationEnrichmentEngine.enrich(db,signalId,itemId,threadId,signal);
-                long personEntityId=CanonicalPersonResolver.resolveSignal(db,signalId,normalized);
+                long personEntityId=CanonicalPersonResolver.resolveSignal(db,signalId,normalized,meta);
                 CrossSourceSituationStitcher.stitchSignal(db,signalId,personEntityId);
             }
             if(threadId>0)ThreadModelAdjudicator.enqueue(this,threadId,signalId);if(itemId>0)AnalysisQueue.kick(this,null,null);
