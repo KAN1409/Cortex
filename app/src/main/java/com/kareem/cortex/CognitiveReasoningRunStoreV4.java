@@ -19,6 +19,7 @@ public final class CognitiveReasoningRunStoreV4 {
         ensure(db);String id=CognitiveIdentityV4.objectId("rrn","reasoning-run|"+requestId+"|"+provider+"|"+now);ContentValues v=new ContentValues();v.put("id",id);v.put("request_id",n(requestId));v.put("provider",n(provider));v.put("model",n(model));v.put("trigger_kind",n(trigger));v.put("context_fingerprint",n(fingerprint));v.put("state","RUNNING");v.put("started_at",now);v.put("completed_at",0);v.put("duration_ms",0);v.put("error","");v.put("updated_at",now);db.getWritableDatabase().insertWithOnConflict("v4_reasoning_runs",null,v,SQLiteDatabase.CONFLICT_REPLACE);return id;
     }
     static void complete(VaultDb db,String runId,long durationMs,long now){finish(db,runId,"APPLIED","",durationMs,now);}
+    static void stale(VaultDb db,String runId,long durationMs,long now){finish(db,runId,"STALE_CONTEXT","canonical context changed before apply",durationMs,now);}
     static void fail(VaultDb db,String runId,String error,long durationMs,long now){finish(db,runId,"FAILED",clip(error,800),durationMs,now);}
     private static void finish(VaultDb db,String runId,String state,String error,long durationMs,long now){if(db==null||n(runId).isEmpty())return;ensure(db);ContentValues v=new ContentValues();v.put("state",state);v.put("completed_at",now);v.put("duration_ms",Math.max(0,durationMs));v.put("error",error);v.put("updated_at",now);db.getWritableDatabase().update("v4_reasoning_runs",v,"id=?",new String[]{runId});}
 
