@@ -43,6 +43,7 @@
         <activity android:name=".SettingsActivity" android:exported="false" />
         <activity android:name=".AdvancedSettingsActivity" android:exported="false" />
         <activity android:name=".RuntimePipelineDiagnosticsActivity" android:exported="false" />
+        <activity android:name=".DeepQwenSettingsActivity" android:exported="false" />
         <activity android:name=".ReviewQueueActivity" android:exported="false" />
         <activity android:name=".RelevanceEvaluationActivity" android:exported="false" />
         <activity android:name=".AttentionEvaluationActivity" android:exported="false" />
