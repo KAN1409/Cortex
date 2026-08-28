@@ -75,6 +75,25 @@ Raw Signal
 
 This keeps capture callbacks local/fast while making meaningful new evidence visible to the live cognitive layer quickly.
 
+### Upgrade rescue for already-accepted connector events
+
+A real notification can arrive while an older Cortex build is installed, before the trusted-enrichment promotion path exists. After updating Cortex, `CognitiveConnectorEnrichmentRescueV4` performs a bounded 48-hour startup rescue over recent `second_brain` events that are already `ACCEPTED`, already have stored `CONNECTOR_ENRICHMENT`, and still point to an unpromoted Raw Signal.
+
+The rescue does not replay the Local Bus event, duplicate the Raw Signal, or modify historical Evidence. It only re-evaluates the already-stored richer connector text with the current Cortex relevance policy. A newly durable result is projected synchronously through the same Memory/Situation path. This makes pre-upgrade fixtures such as `CORTEX_E2E_001` eligible to appear after the new build is installed instead of requiring the user to send the test message again.
+
+## Visible product observability
+
+`CognitiveBridgeStatusV4` gives Pulse a read-only view of what the two external inputs have actually contributed. The Now surface can show a compact `COGNITIVE LOOP` card with:
+
+- Second Brain accepted-event count and latest accepted source/time;
+- number of Evidence objects enriched by the tunnel;
+- number of live Situations grounded through connector-enriched Evidence;
+- timestamp of the latest applied ChatGPT Deep Brain pass;
+- active ChatGPT-ranked priorities and proposed actions;
+- number of Situations changed since the last applied ChatGPT pass.
+
+This is observability only. Reading the card cannot promote Evidence, alter Situation state, trigger ChatGPT, or execute an action.
+
 ## CORTEX_INGEST_V1 notification shape
 
 ```json
