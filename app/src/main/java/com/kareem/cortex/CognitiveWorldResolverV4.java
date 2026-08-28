@@ -17,6 +17,7 @@ public final class CognitiveWorldResolverV4 {
         CREATED,
         REUSED_DURABLE_IDENTITY,
         DEFERRED_WEAK_IDENTITY,
+        DEFERRED_UNCONFIRMED_TYPE,
         AMBIGUOUS
     }
 
@@ -29,6 +30,7 @@ public final class CognitiveWorldResolverV4 {
         public final List<String> memoryIds;
         public final long observedAt;
         public final boolean userConfirmedName;
+        public final boolean typeMaterializationApproved;
 
         public Candidate(
                 String canonicalName,
@@ -39,6 +41,20 @@ public final class CognitiveWorldResolverV4 {
                 List<String> memoryIds,
                 long observedAt,
                 boolean userConfirmedName) {
+            this(canonicalName, typeHint, aliases, claims, evidenceIds, memoryIds, observedAt,
+                    userConfirmedName, true);
+        }
+
+        public Candidate(
+                String canonicalName,
+                CognitiveDomainV4.WorldTypeHint typeHint,
+                List<String> aliases,
+                List<CognitiveIdentityV4.IdentityClaim> claims,
+                List<String> evidenceIds,
+                List<String> memoryIds,
+                long observedAt,
+                boolean userConfirmedName,
+                boolean typeMaterializationApproved) {
             if (canonicalName == null || canonicalName.trim().isEmpty()) throw new IllegalArgumentException("canonicalName required");
             if (typeHint == null) throw new IllegalArgumentException("typeHint required");
             this.canonicalName = canonicalName.trim();
@@ -49,6 +65,7 @@ public final class CognitiveWorldResolverV4 {
             this.memoryIds = ids(memoryIds);
             this.observedAt = observedAt;
             this.userConfirmedName = userConfirmedName;
+            this.typeMaterializationApproved = typeMaterializationApproved;
             if (this.evidenceIds.isEmpty() && this.memoryIds.isEmpty()) {
                 throw new IllegalArgumentException("World candidate requires Evidence or Memory provenance");
             }
@@ -69,9 +86,13 @@ public final class CognitiveWorldResolverV4 {
         }
     }
 
-    /** Weak name-only candidates are review material, not canonical Worlds. */
+    /**
+     * A new World needs both a durable identity boundary and a semantically approved type.
+     * Existing Worlds may still accept matching evidence because their canonical type is already established.
+     */
     static boolean canMaterializeWithoutReview(Candidate candidate) {
-        return candidate != null && (candidate.userConfirmedName || hasDurableClaim(candidate.claims));
+        return candidate != null && (candidate.userConfirmedName
+                || (candidate.typeMaterializationApproved && hasDurableClaim(candidate.claims)));
     }
 
     public static Resolution resolve(VaultDb db, Candidate candidate) {
@@ -112,11 +133,14 @@ public final class CognitiveWorldResolverV4 {
             return new Resolution(ResolutionKind.REUSED_DURABLE_IDENTITY, row.worldId, row.match.confidence, row.match.reason);
         }
 
-        // A name or semantic hint can be useful for review/search without being a safe identity boundary.
-        // Do not create provenance-scoped duplicate Worlds just because a weak hint appeared in Evidence.
-        if (!canMaterializeWithoutReview(candidate)) {
+        if (!candidate.userConfirmedName && !hasDurableClaim(candidate.claims)) {
             return new Resolution(ResolutionKind.DEFERRED_WEAK_IDENTITY, "", 0.0,
                     "weak-only World candidate requires durable identity or explicit user confirmation");
+        }
+
+        if (!candidate.userConfirmedName && !candidate.typeMaterializationApproved) {
+            return new Resolution(ResolutionKind.DEFERRED_UNCONFIRMED_TYPE, "", 0.0,
+                    "durable identity exists but semantic World type is not proven");
         }
 
         String seed = seedKey(candidate);
@@ -134,8 +158,8 @@ public final class CognitiveWorldResolverV4 {
                 null);
         CognitiveStoreV4.putWorld(db, world, seed);
         attachCandidate(db, worldId, candidate, true);
-        return new Resolution(ResolutionKind.CREATED, worldId, 1.0,
-                candidate.userConfirmedName ? "user-confirmed World identity" : "new durable World identity");
+        return new Resolution(ResolutionKind.CREATED, worldId, 1.0, hasDurableClaim(candidate.claims)
+                ? "new durable and semantically approved identity" : "new user-confirmed World");
     }
 
     /** Explicit user correction is authoritative for display identity but preserves the old name as an alias. */
@@ -171,6 +195,9 @@ public final class CognitiveWorldResolverV4 {
         for (CognitiveIdentityV4.IdentityClaim claim : c.claims) CognitiveStoreV4.addWorldIdentityClaim(db, worldId, claim);
 
         SQLiteDatabase sql = db.getReadableDatabase();
+        LinkedHashSet<String> support = new LinkedHashSet<>(c.evidenceIds);
+        for (String memoryId : c.memoryIds) support.addAll(evidenceForMemory(sql, memoryId));
+
         for (String evidenceId : c.evidenceIds) {
             putAboutRelation(db, CognitiveDomainV4.CanonicalObjectType.EVIDENCE, evidenceId, worldId,
                     Collections.singletonList(evidenceId));
@@ -195,7 +222,7 @@ public final class CognitiveWorldResolverV4 {
 
     private static String seedKey(Candidate c) {
         String base = CognitiveIdentityV4.worldSeedKey(c.typeHint, c.canonicalName, c.claims);
-        if (hasDurableClaim(c.claims) || c.userConfirmedName) return base;
+        if (hasDurableClaim(c.claims)) return base;
         ArrayList<String> anchors = new ArrayList<>();
         anchors.addAll(c.memoryIds);
         anchors.addAll(c.evidenceIds);
