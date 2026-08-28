@@ -14,6 +14,16 @@ import java.util.List;
 public final class CompactTodayActivity extends CortexOrbBriefActivity {
     private View loadingView;
 
+    /**
+     * The launcher surface is the canonical visible-app startup boundary.
+     * Schedule maintenance here so additive V4 initialization/backfill does not depend on opening
+     * Capture Center first. StartupMaintenance itself is process-idempotent.
+     */
+    @Override protected void onPostResume(){
+        super.onPostResume();
+        StartupMaintenance.schedule(this);
+    }
+
     @Override void build(){
         LinearLayout root=new LinearLayout(this);root.setOrientation(LinearLayout.VERTICAL);root.setBackground(CortexUi.aurora(this));
         ScrollView sv=new ScrollView(this);sv.setFillViewport(true);sv.setClipToPadding(false);
