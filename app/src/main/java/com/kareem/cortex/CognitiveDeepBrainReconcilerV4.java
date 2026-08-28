@@ -21,7 +21,13 @@ public final class CognitiveDeepBrainReconcilerV4 {
     public static Result reconcile(VaultDb db){
         if(db==null)throw new IllegalArgumentException("db required");
         CognitiveDeepBrainStoreV4.ensure(db);CognitiveStoreV4.ensure(db);
-        SQLiteDatabase sql=db.getWritableDatabase();long now=System.currentTimeMillis();
+        return reconcile(db.getWritableDatabase());
+    }
+
+    /** Pure SQLite boundary used by regression tests and the VaultDb adapter above. */
+    static Result reconcile(SQLiteDatabase sql){
+        if(sql==null)throw new IllegalArgumentException("sql required");
+        CognitiveSchemaV4.ensure(sql);CognitiveDeepBrainStoreV4.ensure(sql);long now=System.currentTimeMillis();
         int prioritiesLinked=0,situationsRaised=0,actionsLinked=0;
         sql.beginTransaction();
         try{
