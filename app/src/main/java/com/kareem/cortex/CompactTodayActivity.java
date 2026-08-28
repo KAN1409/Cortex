@@ -22,6 +22,10 @@ public final class CompactTodayActivity extends CortexOrbBriefActivity {
     @Override protected void onPostResume(){
         super.onPostResume();
         StartupMaintenance.schedule(this);
+        // Startup maintenance may rescue a recent pre-upgrade Second Brain event into Memory/Pulse.
+        // Re-read once after that bounded background pass so the user sees the effect without
+        // leaving and reopening Now. This is a read refresh only; it never triggers ChatGPT.
+        if(content!=null)content.postDelayed(()->{if(!destroyed)refreshAsync();},2800);
     }
 
     @Override void build(){
