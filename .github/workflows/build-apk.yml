@@ -2,7 +2,7 @@ name: Cortex CI
 
 on:
   push:
-    branches: [ main, cleanup/repo-consolidation ]
+    branches: [ main ]
   pull_request:
     branches: [ main ]
   workflow_dispatch:
