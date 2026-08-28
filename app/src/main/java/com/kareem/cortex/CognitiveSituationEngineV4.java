@@ -108,14 +108,59 @@ public final class CognitiveSituationEngineV4 {
     private static boolean containsAny(String s,String...xs){for(String x:xs)if(s.contains(x))return true;return false;}
     private static boolean hasWeekday(String s){return weekday(s)>=1;}
 
-    /** Parse only when the memory contains an explicit clock time; avoid inventing dates. */
+    /**
+     * Parse only when the Memory contains an explicit clock time; avoid inventing dates.
+     *
+     * <p>Explicit "today/النهارده" is a hard date constraint. When a 1-11 clock hour has no AM/PM,
+     * choose the earliest still-future occurrence on that same day (05:00 vs 17:00). If both have
+     * passed, keep the latest same-day occurrence so an overdue deadline remains overdue instead of
+     * silently sliding into tomorrow. This is what makes "قبل الساعة 5 النهارده" at 14:04 resolve
+     * to 17:00 today.</p>
+     */
     static Long parseExplicitFutureTime(String low,long now){
-        int targetDay=weekday(low);Matcher m=Pattern.compile("(?:الساعة|الساعه|at)\\s*(\\d{1,2})(?:[:٫](\\d{2}))?\\s*(ص|صباحا|صباحًا|am|م|مساء|مساءً|pm)?",Pattern.CASE_INSENSITIVE).matcher(low);
-        if(!m.find())return null;int hour=parseInt(m.group(1),-1),minute=parseInt(m.group(2),0);if(hour<0||hour>23||minute<0||minute>59)return null;String ap=m.group(3)==null?"":m.group(3).toLowerCase(Locale.ROOT);if((ap.startsWith("م")||ap.startsWith("مس")||"pm".equals(ap))&&hour<12)hour+=12;if((ap.startsWith("ص")||"am".equals(ap))&&hour==12)hour=0;
+        int targetDay=weekday(low);
+        Matcher m=Pattern.compile("(?:الساعة|الساعه|at)\\s*(\\d{1,2})(?:[:٫](\\d{2}))?\\s*(ص|صباحا|صباحًا|am|م|مساء|مساءً|pm)?",Pattern.CASE_INSENSITIVE).matcher(low);
+        if(!m.find())return null;
+        int rawHour=parseInt(m.group(1),-1),minute=parseInt(m.group(2),0);if(rawHour<0||rawHour>23||minute<0||minute>59)return null;
+        String ap=m.group(3)==null?"":m.group(3).toLowerCase(Locale.ROOT);
+        boolean hasMeridiem=!ap.isEmpty();
+        int hour=rawHour;
+        if((ap.startsWith("م")||ap.startsWith("مس")||"pm".equals(ap))&&hour<12)hour+=12;
+        if((ap.startsWith("ص")||"am".equals(ap))&&hour==12)hour=0;
+
+        boolean explicitToday=containsAny(low,"النهارده","النهاردة","اليوم","today");
+        boolean explicitTomorrow=containsAny(low,"بكره","بكرة","غدا","غدًا","tomorrow");
+        if(explicitToday&&targetDay<0){
+            if(!hasMeridiem&&rawHour>=1&&rawHour<=11)return sameDayAmbiguousClock(now,rawHour,minute);
+            return sameDayClock(now,hour,minute);
+        }
+
         Calendar c=Calendar.getInstance();c.setTimeInMillis(now);c.set(Calendar.SECOND,0);c.set(Calendar.MILLISECOND,0);c.set(Calendar.HOUR_OF_DAY,hour);c.set(Calendar.MINUTE,minute);
-        if(targetDay>0){int current=c.get(Calendar.DAY_OF_WEEK),delta=(targetDay-current+7)%7;if(delta==0&&c.getTimeInMillis()<=now)delta=7;c.add(Calendar.DAY_OF_MONTH,delta);}else if(c.getTimeInMillis()<=now)c.add(Calendar.DAY_OF_MONTH,1);
+        if(targetDay>0){
+            int current=c.get(Calendar.DAY_OF_WEEK),delta=(targetDay-current+7)%7;
+            if(delta==0&&c.getTimeInMillis()<=now)delta=7;
+            c.add(Calendar.DAY_OF_MONTH,delta);
+        }else if(explicitTomorrow){
+            c.add(Calendar.DAY_OF_MONTH,1);
+        }else if(c.getTimeInMillis()<=now){
+            c.add(Calendar.DAY_OF_MONTH,1);
+        }
         return c.getTimeInMillis();
     }
+
+    private static long sameDayClock(long now,int hour,int minute){
+        Calendar c=Calendar.getInstance();c.setTimeInMillis(now);c.set(Calendar.SECOND,0);c.set(Calendar.MILLISECOND,0);c.set(Calendar.HOUR_OF_DAY,hour);c.set(Calendar.MINUTE,minute);return c.getTimeInMillis();
+    }
+
+    private static long sameDayAmbiguousClock(long now,int hour,int minute){
+        long am=sameDayClock(now,hour,minute),pm=sameDayClock(now,hour+12,minute);
+        boolean amFuture=am>=now,pmFuture=pm>=now;
+        if(amFuture&&pmFuture)return Math.min(am,pm);
+        if(amFuture)return am;
+        if(pmFuture)return pm;
+        return Math.max(am,pm);
+    }
+
     private static int weekday(String s){if(containsAny(s,"الأحد","الاحد","sunday"))return Calendar.SUNDAY;if(containsAny(s,"الاثنين","الإثنين","monday"))return Calendar.MONDAY;if(containsAny(s,"الثلاثاء","tuesday"))return Calendar.TUESDAY;if(containsAny(s,"الأربعاء","الاربعاء","wednesday"))return Calendar.WEDNESDAY;if(containsAny(s,"الخميس","thursday"))return Calendar.THURSDAY;if(containsAny(s,"الجمعة","الجمعه","friday"))return Calendar.FRIDAY;if(containsAny(s,"السبت","saturday"))return Calendar.SATURDAY;return-1;}
     private static int parseInt(String s,int d){try{return s==null||s.isEmpty()?d:Integer.parseInt(s);}catch(Throwable e){return d;}}
     private static double clamp01(double x){return Math.max(0,Math.min(1,x));}
