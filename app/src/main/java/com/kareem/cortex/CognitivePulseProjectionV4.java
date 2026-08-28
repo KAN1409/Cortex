@@ -41,14 +41,7 @@ public final class CognitivePulseProjectionV4 {
                 candidates.add(new Item(c.getString(0),c.getString(1),c.getString(2),c.getString(3),c.getString(4),c.getDouble(5),e.nowScore,c.getDouble(6),c.getDouble(7),c.getLong(8),c.getLong(9),c.getInt(10),e.currentDeepBrain?c.getString(11):"",actions,e.currentDeepBrain,e.brainFreshness,changedAt,newSinceBrain,connectorEnriched));
             }
         }finally{c.close();}
-        Collections.sort(candidates,new Comparator<Item>(){@Override public int compare(Item a,Item b){
-            int byNow=Double.compare(b.attentionScore,a.attentionScore);if(byNow!=0)return byNow;
-            if(a.newSinceDeepBrain!=b.newSinceDeepBrain)return a.newSinceDeepBrain?-1:1;
-            if(a.deepBrainRanked()!=b.deepBrainRanked())return a.deepBrainRanked()?-1:1;
-            if(a.deepBrainRanked()&&a.deepBrainRank!=b.deepBrainRank)return Integer.compare(a.deepBrainRank,b.deepBrainRank);
-            long at=a.relevantUntil>0?a.relevantUntil:Long.MAX_VALUE,bt=b.relevantUntil>0?b.relevantUntil:Long.MAX_VALUE;if(at!=bt)return Long.compare(at,bt);
-            return Double.compare(b.canonicalAttentionScore,a.canonicalAttentionScore);
-        }});
+        Collections.sort(candidates,new Comparator<Item>(){@Override public int compare(Item a,Item b){return compareForPulse(a,b);}});
 
         ArrayList<Item>out=new ArrayList<>();int brain=0,local=0,actions=0,newSinceBrain=0;
         for(Item x:candidates){
@@ -59,6 +52,20 @@ public final class CognitivePulseProjectionV4 {
             out.add(x);if(x.deepBrainRanked())brain++;else local++;if(!x.actions.isEmpty())actions++;if(x.newSinceDeepBrain)newSinceBrain++;
         }
         return new Snapshot(out,brain,local,actions,newSinceBrain,freshness.latestAppliedAt);
+    }
+
+    /**
+     * Fresh unseen canonical changes come first until Gemini gets a chance to reconsider them.
+     * Once context is covered, the CURRENT Deep Brain rank is authoritative: rank 1 must not be
+     * reordered behind rank 2 merely because a local heuristic score is numerically higher.
+     */
+    static int compareForPulse(Item a,Item b){
+        if(a.newSinceDeepBrain!=b.newSinceDeepBrain)return a.newSinceDeepBrain?-1:1;
+        if(a.deepBrainRanked()!=b.deepBrainRanked())return a.deepBrainRanked()?-1:1;
+        if(a.deepBrainRanked()&&a.deepBrainRank!=b.deepBrainRank)return Integer.compare(a.deepBrainRank,b.deepBrainRank);
+        int byNow=Double.compare(b.attentionScore,a.attentionScore);if(byNow!=0)return byNow;
+        long at=a.relevantUntil>0?a.relevantUntil:Long.MAX_VALUE,bt=b.relevantUntil>0?b.relevantUntil:Long.MAX_VALUE;if(at!=bt)return Long.compare(at,bt);
+        return Double.compare(b.canonicalAttentionScore,a.canonicalAttentionScore);
     }
 
     private static boolean coveredByBrainCluster(SQLiteDatabase sql,String situationId,String kind,long now){
@@ -90,7 +97,7 @@ public final class CognitivePulseProjectionV4 {
 
     public static final class Item{
         public final String situationId,kind,state,headline,explanation,deepBrainReason,actions;
-        /** Dynamic current score used by Pulse ordering/UI. */ public final double attentionScore;
+        /** Dynamic current score used by Pulse fallback ordering/UI. */ public final double attentionScore;
         /** Durable score stored on the canonical Situation. */ public final double canonicalAttentionScore;
         public final double interruptionScore,confidence,brainFreshness;public final long relevantFrom,relevantUntil,changedAt;public final int deepBrainRank;public final boolean newSinceDeepBrain,connectorEnriched;private final boolean currentDeepBrain;
         Item(String id,String kind,String state,String headline,String explanation,double canonicalAttention,double nowScore,double interruption,double confidence,long from,long until,int rank,String reason,String actions,boolean currentDeepBrain,double brainFreshness,long changedAt,boolean newSinceDeepBrain,boolean connectorEnriched){this.situationId=id;this.kind=kind;this.state=state;this.headline=headline==null?"":headline;this.explanation=explanation==null?"":explanation;this.canonicalAttentionScore=canonicalAttention;this.attentionScore=nowScore;this.interruptionScore=interruption;this.confidence=confidence;this.relevantFrom=from;this.relevantUntil=until;this.deepBrainRank=rank;this.deepBrainReason=reason==null?"":reason;this.actions=actions==null?"":actions;this.currentDeepBrain=currentDeepBrain;this.brainFreshness=brainFreshness;this.changedAt=changedAt;this.newSinceDeepBrain=newSinceDeepBrain;this.connectorEnriched=connectorEnriched;}
