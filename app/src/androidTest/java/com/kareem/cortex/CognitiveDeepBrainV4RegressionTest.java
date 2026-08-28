@@ -116,6 +116,17 @@ public class CognitiveDeepBrainV4RegressionTest {
         }finally{db.close();}
     }
 
+    @Test public void ungroundedActionsCannotBeCreatedOrSupersedeKnownGoodProposal() {
+        SQLiteDatabase db=SQLiteDatabase.create(null);try{
+            seed(db,"brq_ungrounded_actions");long now=System.currentTimeMillis()-10_000L;
+            insertAction(db,"act_old_grounded","{\"origin\":\"chatgpt_plus_share\",\"deep_brain_request_id\":\"brq_old\"}",now);
+            String raw="CORTEX_RESPONSE_V1\n{\"request_id\":\"brq_ungrounded_actions\",\"suggested_actions\":[{\"type\":\"SEND\",\"label\":\"Free floating action\"},{\"world_id\":\"wo_not_allowed\",\"type\":\"REVIEW\",\"label\":\"Invalid world action\"}]}";
+            CognitiveDeepBrainApplyV4.Result r=CognitiveDeepBrainApplyV4.apply(db,CognitiveDeepBrainProtocolV4.parseResponse(raw));
+            assertEquals(0,r.actionsCreated);assertTrue(r.skipped>=2);assertEquals(0,countWhere(db,"v4_action_proposals","label='Free floating action' OR label='Invalid world action'"));
+            Cursor c=db.rawQuery("SELECT state FROM v4_action_proposals WHERE id='act_old_grounded'",null);assertTrue(c.moveToFirst());assertEquals("PROPOSED",c.getString(0));c.close();
+        }finally{db.close();}
+    }
+
     private static void seed(SQLiteDatabase db,String requestId){
         CognitiveSchemaV4.ensure(db);CognitiveDeepBrainStoreV4.ensure(db);long now=System.currentTimeMillis();
         insertSituation(db,"si_allowed",.2,now);insertSituation(db,"si_other",.1,now);insertMemory(db,"mem_allowed",now);
