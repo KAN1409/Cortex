@@ -23,7 +23,7 @@
         <activity android:name=".CompactTodayActivity" android:exported="true"><intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter></activity>
         <activity-alias android:name=".PremiumHomeActivity" android:targetActivity=".CompactTodayActivity" android:exported="false" />
 
-        <activity android:name=".SatinCaptureActivity" android:exported="false" android:theme="@style/CaptureSheetTheme" android:windowSoftInputMode="adjustResize" />
+        <activity android:name=".SatinCaptureActivity" android:exported="false" android:theme="@style/CaptureSheetTheme" />
         <activity android:name=".CaptureActivity" android:exported="false" android:theme="@style/CaptureSheetTheme" android:windowSoftInputMode="adjustResize" />
         <activity android:name=".ProposalCaptureActivity" android:exported="true" android:theme="@style/CaptureSheetTheme" android:windowSoftInputMode="adjustResize"><intent-filter><action android:name="android.intent.action.SEND" /><category android:name="android.intent.category.DEFAULT" /><data android:mimeType="*/*" /></intent-filter><intent-filter><action android:name="android.intent.action.SEND_MULTIPLE" /><category android:name="android.intent.category.DEFAULT" /><data android:mimeType="*/*" /></intent-filter></activity>
         <activity android:name=".CaptureResultActivity" android:exported="false" />
@@ -38,6 +38,8 @@
         <activity android:name=".PromptLibraryActivity" android:exported="false" />
         <activity android:name=".AskCortexActivity" android:exported="false" android:windowSoftInputMode="adjustResize" />
         <activity android:name=".ProposalAskCortexActivity" android:exported="false" android:windowSoftInputMode="adjustResize" />
+        <activity android:name=".DeepBrainActivity" android:exported="false" android:windowSoftInputMode="adjustResize" />
+        <activity android:name=".DeepBrainImportActivity" android:exported="true" android:label="Apply ChatGPT to Cortex" android:excludeFromRecents="true"><intent-filter><action android:name="android.intent.action.SEND" /><category android:name="android.intent.category.DEFAULT" /><data android:mimeType="text/plain" /></intent-filter></activity>
         <activity android:name=".SettingsActivity" android:exported="false" />
         <activity android:name=".AdvancedSettingsActivity" android:exported="false" />
         <activity android:name=".ReviewQueueActivity" android:exported="false" />
