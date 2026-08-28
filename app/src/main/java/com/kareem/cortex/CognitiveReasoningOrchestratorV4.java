@@ -60,10 +60,20 @@ public final class CognitiveReasoningOrchestratorV4 {
             CognitiveReasoningProviderV4.Result modelResult=provider.reason(app,packet);CognitiveDeepBrainApplyV4.Result applied=CognitiveDeepBrainApplyV4.apply(db,modelResult.rawResponse,CognitiveDeepBrainApplyV4.ORIGIN_GEMINI_AUTONOMOUS);long now=System.currentTimeMillis();CognitiveReasoningRunStoreV4.complete(db,runId,modelResult.durationMs,now);CognitiveAutoReasoningSettingsV4.markSuccess(app,decision.fingerprint,decision.urgent,now);
             try{DiagnosticsLog.info(db,"CognitiveReasoningOrchestratorV4","autonomous_reasoning_applied",provider.id()+":"+model,0,0,0,0,0,modelResult.durationMs,null);}catch(Throwable ignored){}
             notifyListeners();return new RunResult(true,false,"applied",provider.id(),model,packet.requestId,decision.freshCount,applied.rankedPrioritiesStored,applied.actionsCreated);
-        }catch(Throwable e){long now=System.currentTimeMillis();CognitiveAutoReasoningSettingsV4.markFailure(app,now);if(db!=null&&!runId.isEmpty())try{CognitiveReasoningRunStoreV4.fail(db,runId,e.getClass().getSimpleName()+": "+n(e.getMessage()),Math.max(0,now-started),now);}catch(Throwable ignored){}if(db!=null)try{DiagnosticsLog.warn(db,"CognitiveReasoningOrchestratorV4","autonomous_reasoning_failed","failed",e.getClass().getSimpleName(),0,0,0,0,0,null);}catch(Throwable ignored){}return new RunResult(false,false,"failed:"+e.getClass().getSimpleName(),"gemini",GeminiModelConfig.generationModel(app),"",decision==null?0:decision.freshCount,0,0);
+        }catch(Throwable e){
+            long now=System.currentTimeMillis();
+            if(isStaleContext(e)){
+                CognitiveAutoReasoningSettingsV4.clearTransientGateAfterStaleContext(app);
+                if(db!=null&&!runId.isEmpty())try{CognitiveReasoningRunStoreV4.stale(db,runId,Math.max(0,now-started),now);}catch(Throwable ignored){}
+                if(db!=null)try{DiagnosticsLog.info(db,"CognitiveReasoningOrchestratorV4","autonomous_reasoning_stale_context","fresh canonical context superseded provider response",0,0,0,0,0,Math.max(0,now-started),null);}catch(Throwable ignored){}
+                schedule(app,"stale_context_refresh");
+                return new RunResult(false,true,"stale_context","gemini",GeminiModelConfig.generationModel(app),"",decision==null?0:decision.freshCount,0,0);
+            }
+            CognitiveAutoReasoningSettingsV4.markFailure(app,now);if(db!=null&&!runId.isEmpty())try{CognitiveReasoningRunStoreV4.fail(db,runId,e.getClass().getSimpleName()+": "+n(e.getMessage()),Math.max(0,now-started),now);}catch(Throwable ignored){}if(db!=null)try{DiagnosticsLog.warn(db,"CognitiveReasoningOrchestratorV4","autonomous_reasoning_failed","failed",e.getClass().getSimpleName(),0,0,0,0,0,null);}catch(Throwable ignored){}return new RunResult(false,false,"failed:"+e.getClass().getSimpleName(),"gemini",GeminiModelConfig.generationModel(app),"",decision==null?0:decision.freshCount,0,0);
         }finally{if(db!=null)try{db.close();}catch(Throwable ignored){}}
     }
 
+    static boolean isStaleContext(Throwable e){String message=e==null?"":n(e.getMessage());return e instanceof IllegalArgumentException&&message.startsWith("Cortex context changed after this Deep Brain request was built");}
     private static void notifyListeners(){new Handler(Looper.getMainLooper()).post(()->{for(WeakReference<Listener> r:LISTENERS){Listener x=r.get();if(x==null){LISTENERS.remove(r);continue;}try{x.onCognitiveReasoningUpdated();}catch(Throwable ignored){}}});}
     private static String n(String s){return s==null?"":s.trim();}
     public static final class RunResult{public final boolean applied,skipped;public final String state,provider,model,requestId;public final int freshCount,priorities,actions;RunResult(boolean applied,boolean skipped,String state,String provider,String model,String requestId,int fresh,int priorities,int actions){this.applied=applied;this.skipped=skipped;this.state=n(state);this.provider=n(provider);this.model=n(model);this.requestId=n(requestId);freshCount=fresh;this.priorities=priorities;this.actions=actions;}static RunResult skipped(String reason){return new RunResult(false,true,reason,"","","",0,0,0);}}
