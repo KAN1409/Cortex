@@ -8,15 +8,31 @@ import android.database.sqlite.SQLiteDatabase;
  * Compatibility facade for per-signal V2 execution lifecycle.
  *
  * V2 no longer creates a separate cognitive_runs authority. Lifecycle rows live in the existing
- * model_runs telemetry table; upgraded databases may retain an old cognitive_runs table as inert
- * historical telemetry, but no new V2 decision depends on it.
+ * model_runs telemetry table. If an upgraded database still has the earlier cognitive_runs table,
+ * it is renamed to cognitive_runs_legacy (data preserved) and the old name becomes a read-only
+ * compatibility view over current model_runs lifecycle rows.
  */
 public final class CognitiveRunStoreV2 {
     private static final String ROLE="cognitive_adjudicator_lifecycle";
     private static final String ROUTE="signal_cognition_v2_lifecycle";
+    private static volatile boolean compatibilityReady;
     private CognitiveRunStoreV2(){}
 
-    public static void ensure(VaultDb db){if(db!=null)CognitiveSchema.ensure(db.getWritableDatabase());}
+    public static void ensure(VaultDb db){
+        if(db==null)return;SQLiteDatabase s=db.getWritableDatabase();CognitiveSchema.ensure(s);if(compatibilityReady)return;
+        synchronized(CognitiveRunStoreV2.class){if(compatibilityReady)return;installCompatibilityView(s);compatibilityReady=true;}
+    }
+
+    private static void installCompatibilityView(SQLiteDatabase s){
+        String type=objectType(s,"cognitive_runs");
+        if("table".equals(type)&&objectType(s,"cognitive_runs_legacy").isEmpty()){
+            s.execSQL("ALTER TABLE cognitive_runs RENAME TO cognitive_runs_legacy");type="";
+        }
+        if(type.isEmpty()||"view".equals(type)){
+            if("view".equals(objectType(s,"cognitive_runs")))s.execSQL("DROP VIEW cognitive_runs");
+            s.execSQL("CREATE VIEW IF NOT EXISTS cognitive_runs AS SELECT id,CAST(substr(input_hash,12) AS INTEGER) AS raw_signal_id,provider,model,created_at AS started_at,CASE WHEN state IN ('SUCCEEDED','FAILED','REJECTED','ESCALATED') THEN created_at+MAX(latency_ms,0) ELSE 0 END AS completed_at,latency_ms,disposition,confidence,output_json AS result_json,state AS status,error FROM model_runs WHERE role='"+ROLE+"' AND input_hash LIKE 'raw_signal:%'");
+        }
+    }
 
     public static long queued(VaultDb db,long signalId,String provider,String model){
         if(db==null||signalId<=0)return 0;ensure(db);long now=System.currentTimeMillis();ContentValues v=new ContentValues();
@@ -45,6 +61,7 @@ public final class CognitiveRunStoreV2 {
     private static Snapshot snapshot(Cursor c,long signalId){return new Snapshot(c.getLong(0),signalId,n(c.getString(1)),n(c.getString(2)),c.getLong(3),c.getLong(4),n(c.getString(5)),c.getDouble(6),n(c.getString(7)),n(c.getString(8)));}
 
     private static void setRawState(VaultDb db,long signalId,CognitiveSignalV2.CognitiveState state,long runId,String reason){ContentValues v=new ContentValues();v.put("cognitive_state",state.name());v.put("cognitive_run_id",runId);v.put("final_reason",reason);v.put("updated_at",System.currentTimeMillis());db.getWritableDatabase().update("raw_signals",v,"id=? AND cognitive_state NOT IN ('IGNORED_NOISE','CONTEXT_ONLY','DERIVED','REVIEW_REQUIRED','SENSITIVE_BLOCKED','SUPERSEDED')",new String[]{String.valueOf(signalId)});}
+    private static String objectType(SQLiteDatabase db,String name){Cursor c=db.rawQuery("SELECT type FROM sqlite_master WHERE name=? LIMIT 1",new String[]{name});try{return c.moveToFirst()?n(c.getString(0)):"";}finally{c.close();}}
     private static boolean deep(String provider){return"DEEP".equalsIgnoreCase(n(provider));}
     static String role(){return ROLE;}
     static String signalKey(long signalId){return"raw_signal:"+Math.max(0,signalId);}
