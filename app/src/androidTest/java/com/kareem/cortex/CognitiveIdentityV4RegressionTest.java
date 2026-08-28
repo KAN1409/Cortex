@@ -71,6 +71,30 @@ public class CognitiveIdentityV4RegressionTest {
         assertTrue(match.canAutoMerge());
     }
 
+    @Test public void weakSharedPhoneCannotAutoMergePeople() {
+        CognitiveIdentityV4.IdentityClaim left = new CognitiveIdentityV4.IdentityClaim(
+                CognitiveIdentityV4.ClaimType.PHONE_E164,
+                "+201001234567",
+                CognitiveIdentityV4.ClaimStrength.WEAK,
+                false,
+                "ev_a");
+        CognitiveIdentityV4.IdentityClaim right = new CognitiveIdentityV4.IdentityClaim(
+                CognitiveIdentityV4.ClaimType.PHONE_E164,
+                "+201001234567",
+                CognitiveIdentityV4.ClaimStrength.WEAK,
+                false,
+                "ev_b");
+
+        CognitiveIdentityV4.Match match = CognitiveIdentityV4.matchWorlds(
+                CognitiveDomainV4.WorldTypeHint.PERSON,
+                Arrays.asList(left),
+                CognitiveDomainV4.WorldTypeHint.PERSON,
+                Arrays.asList(right));
+
+        assertEquals(CognitiveIdentityV4.MatchDecision.POSSIBLE, match.decision);
+        assertFalse(match.canAutoMerge());
+    }
+
     @Test public void sameDisplayNameAloneNeverAutoMergesPeople() {
         CognitiveIdentityV4.IdentityClaim left = new CognitiveIdentityV4.IdentityClaim(
                 CognitiveIdentityV4.ClaimType.EXACT_NAME,
@@ -121,6 +145,15 @@ public class CognitiveIdentityV4RegressionTest {
                 "card transaction declined at spotify",
                 "2026-08-28T11");
         assertNotEquals(a, b);
+    }
+
+    @Test(expected = IllegalArgumentException.class)
+    public void eventShapedSituationCannotOmitOccurrenceIdentity() {
+        CognitiveIdentityV4.situationId(
+                CognitiveDomainV4.SituationKind.RISK,
+                "world_cib",
+                "card transaction declined at spotify",
+                "");
     }
 
     @Test public void factSlotStaysStableWhileVersionChanges() {
