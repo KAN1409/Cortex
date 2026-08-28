@@ -31,6 +31,18 @@ public class CognitiveSituationV4RegressionTest {
         Calendar deadline=Calendar.getInstance();deadline.setTimeInMillis(x.relevantUntil);assertEquals(17,deadline.get(Calendar.HOUR_OF_DAY));assertEquals(28,deadline.get(Calendar.DAY_OF_MONTH));
     }
 
+    @Test public void explicitTodayDeadlineDoesNotSlideToTomorrowAfterItPasses(){
+        Calendar base=Calendar.getInstance();base.set(2026,Calendar.AUGUST,28,18,30,0);base.set(Calendar.MILLISECOND,0);long now=base.getTimeInMillis();
+        Long deadline=CognitiveSituationEngineV4.parseExplicitFutureTime("لازم قبل الساعة 5 النهارده",now);assertNotNull(deadline);
+        Calendar d=Calendar.getInstance();d.setTimeInMillis(deadline);assertEquals(28,d.get(Calendar.DAY_OF_MONTH));assertEquals(17,d.get(Calendar.HOUR_OF_DAY));assertTrue(deadline<now);
+    }
+
+    @Test public void ambiguousTodayHourUsesMorningWhenItIsTheNextOccurrence(){
+        Calendar base=Calendar.getInstance();base.set(2026,Calendar.AUGUST,28,3,0,0);base.set(Calendar.MILLISECOND,0);long now=base.getTimeInMillis();
+        Long deadline=CognitiveSituationEngineV4.parseExplicitFutureTime("قبل الساعة 5 النهارده",now);assertNotNull(deadline);
+        Calendar d=Calendar.getInstance();d.setTimeInMillis(deadline);assertEquals(5,d.get(Calendar.HOUR_OF_DAY));assertEquals(28,d.get(Calendar.DAY_OF_MONTH));
+    }
+
     @Test public void missedCallIsFollowUpWithoutInventedUrgency(){
         long now=System.currentTimeMillis();String text="missed call sameh john";
         CognitiveSituationEngineV4.Candidate x=CognitiveSituationEngineV4.detect("m3","CONVERSATION","Missed call Sameh John","Missed call Sameh John","com.samsung.android.dialer",now,.52,text,now);
