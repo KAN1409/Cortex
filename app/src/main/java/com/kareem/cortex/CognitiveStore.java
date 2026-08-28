@@ -3,6 +3,7 @@ package com.kareem.cortex;
 import android.content.ContentValues;
 import android.database.Cursor;
 import android.database.sqlite.SQLiteDatabase;
+import org.json.JSONObject;
 
 /** Small write API over the unified cognitive schema. */
 public final class CognitiveStore {
@@ -39,6 +40,39 @@ public final class CognitiveStore {
         ContentValues history=new ContentValues();history.put("fingerprint",Fingerprint.text("historical-derived|"+fingerprint+"|"+existing));history.put("updated_at",now);if(sql.update("derived_items",history,"id=? AND fingerprint=?",new String[]{String.valueOf(existing),fingerprint})<=0)return 0;
         long retry=sql.insertWithOnConflict("derived_items",null,v,SQLiteDatabase.CONFLICT_IGNORE);if(retry>0)return retry;
         Cursor current=sql.query("derived_items",new String[]{"id","state"},"fingerprint=?",new String[]{fingerprint},null,null,null,"1");long currentId=0;if(current.moveToFirst()&&active(n(current.getString(1))))currentId=current.getLong(0);current.close();return currentId;
+    }
+
+    /**
+     * Canonical V2 persistence boundary. Brain providers never touch SQLite; they return a
+     * CognitiveItem and this store materializes/upserts the durable derived intelligence with
+     * typed routing fields and provenance.
+     */
+    public static CognitiveItemWrite addCognitiveItem(VaultDb db,CognitiveItem item,long signalId,long threadId,long modelRunId,
+                                                       String sourceKey,double confidence,int priorityScore,String metadataJson){
+        if(db==null||item==null||item.kind==null||signalId<=0||item.summary.trim().isEmpty())return CognitiveItemWrite.failed("invalid cognitive item persistence arguments");
+        try{
+            ensure(db);SQLiteDatabase sql=db.getWritableDatabase();long now=System.currentTimeMillis();String kind=item.kind.name();
+            String semanticKey=DerivedSemanticIdentity.key(kind,item.summary);long existing=0;
+            if(threadId>0&&!semanticKey.isEmpty()){
+                Cursor c=sql.query("derived_items",new String[]{"id"},"thread_id=? AND kind=? AND state='open' AND COALESCE(semantic_key,'')=?",new String[]{String.valueOf(threadId),kind,semanticKey},null,null,"updated_at DESC","1");try{existing=c.moveToFirst()?c.getLong(0):0;}finally{c.close();}
+            }
+            String fingerprint=Fingerprint.text("cognitive-v2-derived|"+kind+"|"+(threadId>0?"thread:"+threadId+"|"+semanticKey:"signal:"+signalId+"|"+semanticKey));
+            long derivedId=existing;
+            if(derivedId<=0)derivedId=addDerived(db,kind,item.summary,item.summary,"open",confidence,item.importance,fingerprint,metadataJson);
+            if(derivedId<=0)return CognitiveItemWrite.failed("derived item insert failed");
+
+            ContentValues v=new ContentValues();v.put("kind",kind);v.put("title",item.summary);v.put("body",item.summary);v.put("state","open");v.put("confidence",Math.max(0,Math.min(1,confidence)));v.put("importance",Math.max(0,Math.min(100,item.importance)));v.put("metadata_json",n(metadataJson));v.put("source_key",n(sourceKey));v.put("thread_id",Math.max(0,threadId));v.put("anchor_signal_id",signalId);v.put("candidate_kind",kind);v.put("semantic_key",semanticKey);v.put("urgency",Math.max(0,Math.min(100,item.urgency)));v.put("person_key",item.person);v.put("due_at",Math.max(0,item.dueAt));v.put("requires_user_action",item.requiresUserAction?1:0);v.put("requires_follow_up",item.requiresFollowUp?1:0);v.put("requires_content_extraction",item.requiresContentExtraction?1:0);v.put("cognitive_run_id",Math.max(0,modelRunId));v.put("priority_score",Math.max(0,Math.min(100,priorityScore)));v.put("updated_at",now);
+            if(sql.update("derived_items",v,"id=?",new String[]{String.valueOf(derivedId)})<=0)return CognitiveItemWrite.failed("derived typed-field update failed");
+            if(!linkChecked(db,"raw_signal",signalId,"derived",derivedId,"supports",1.0,"{\"cognitive_run_id\":"+Math.max(0,modelRunId)+"}"))return CognitiveItemWrite.failed("raw signal provenance link failed");
+            if(threadId>0&&!linkChecked(db,"thread",threadId,"derived",derivedId,"produced",confidence,""))return CognitiveItemWrite.failed("thread provenance link failed");
+            return new CognitiveItemWrite(true,derivedId,semanticKey,priorityScore,"");
+        }catch(Throwable e){return CognitiveItemWrite.failed(e.getClass().getSimpleName()+": "+n(e.getMessage()));}
+    }
+
+    public static final class CognitiveItemWrite{
+        public final boolean success;public final long derivedId;public final String semanticKey,detail;public final int priorityScore;
+        CognitiveItemWrite(boolean success,long derivedId,String semanticKey,int priorityScore,String detail){this.success=success;this.derivedId=derivedId;this.semanticKey=n(semanticKey);this.priorityScore=priorityScore;this.detail=n(detail);}
+        static CognitiveItemWrite failed(String detail){return new CognitiveItemWrite(false,0,"",0,detail);}
     }
 
     /** Hot routing fields stay typed/indexed; metadata_json remains flexible provenance. */
