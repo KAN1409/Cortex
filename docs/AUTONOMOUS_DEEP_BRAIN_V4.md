@@ -63,6 +63,8 @@ Native Cortex notification capture and the trusted Second Brain Local Bus both f
 - WorkManager survives process death and requires network connectivity.
 - New triggers append behind in-flight work instead of cancelling a running Gemini request.
 - Every Worker re-evaluates current freshness before spending a provider call, so stale queued work becomes a no-op.
+- If canonical context changes while Gemini is already running, the returned response is rejected as `STALE_CONTEXT`; this is audited separately from provider failure, does not add exponential failure backoff, clears the obsolete pass's transient cooldown, and schedules a fresh-context re-evaluation.
+- The stale cloud call still counts against the daily call budget because provider work was actually spent.
 - Duplicate context fingerprints are suppressed.
 - Normal and urgent cooldowns, a daily call budget, and exponential failure backoff limit cost/battery churn.
 
@@ -79,6 +81,7 @@ Regression coverage includes:
 - hallucinated non-empty ranking fail-closed behavior,
 - realtime wake only on material Situation changes,
 - richer timing updates preserving durable Situation state,
+- stale-response rejection and stale-vs-provider-failure classification,
 - per-Situation freshness and stale-model reconciliation rules.
 
 A real compile + instrumented-source build remains required before device installation. GitHub Actions is currently failing before any job step starts, so those failures are infrastructure signals, not compile results.
