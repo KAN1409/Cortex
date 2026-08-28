@@ -62,10 +62,30 @@ public final class CognitivePulseProjectionV4 {
     }
 
     private static boolean coveredByBrainCluster(SQLiteDatabase sql,String situationId,String kind,long now){
-        Set<String> memories=new HashSet<>();Cursor s=sql.rawQuery("SELECT source_id FROM v4_provenance WHERE object_type='SITUATION' AND object_id=? AND source_type='MEMORY'",new String[]{situationId});try{while(s.moveToNext()){String id=s.getString(0);if(id!=null&&!id.trim().isEmpty())memories.add(id.trim());}}finally{s.close();}if(memories.isEmpty())return false;
+        Set<String> memories=new HashSet<>();
+        Cursor s=sql.rawQuery("SELECT source_id FROM v4_provenance WHERE object_type='SITUATION' AND object_id=? AND source_type='MEMORY'",new String[]{situationId});
+        try{
+            while(s.moveToNext()){
+                String id=s.getString(0);
+                if(id!=null&&!id.trim().isEmpty())memories.add(id.trim());
+            }
+        }finally{s.close();}
+        if(memories.isEmpty())return false;
+
         long cutoff=now-3L*CognitiveNowPolicyV4.DAY_MS;
         Cursor p=sql.rawQuery("SELECT p.memory_ids_json FROM v4_deep_brain_priority_items p JOIN v4_situations linked ON linked.id=p.situation_id WHERE p.state='ACTIVE' AND p.created_at>=? AND p.created_at>=linked.updated_at AND p.situation_id<>'' AND p.situation_id<>? AND linked.kind=?",new String[]{String.valueOf(cutoff),situationId,kind});
-        try{while(p.moveToNext()){try{JSONArray a=new JSONArray(p.getString(0)==null?"[]":p.getString(0));for(int i=0;i<a.length();i++){String id=a.optString(i,"").trim();if(memories.contains(id))return true;}}catch(Throwable ignored){}}finally{p.close();}return false;
+        try{
+            while(p.moveToNext()){
+                try{
+                    JSONArray a=new JSONArray(p.getString(0)==null?"[]":p.getString(0));
+                    for(int i=0;i<a.length();i++){
+                        String id=a.optString(i,"").trim();
+                        if(memories.contains(id))return true;
+                    }
+                }catch(Throwable ignored){}
+            }
+        }finally{p.close();}
+        return false;
     }
 
     public static final class Item{
