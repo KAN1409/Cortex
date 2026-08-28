@@ -14,7 +14,7 @@ public class GeminiSettingsActivity extends Activity {
         EditText keyField=new EditText(this);keyField.setHint("Paste Gemini API key");keyField.setSingleLine(true);keyField.setInputType(InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_VARIATION_PASSWORD);box.addView(keyField);
         EditText modelField=new EditText(this);modelField.setHint("Brain generation model");modelField.setSingleLine(true);modelField.setText(GeminiModelConfig.generationModel(this));modelField.setSelection(modelField.length());box.addView(modelField);
         CheckBox autoBrain=new CheckBox(this);autoBrain.setText("Use Gemini as automatic Cortex brain");autoBrain.setChecked(CognitiveAutoReasoningSettingsV4.enabled(this));box.addView(autoBrain);
-        TextView autoNote=new TextView(this);autoNote.setText("Only meaningful fresh deadlines, risks, commitments, waiting states, events, or high-attention changes can trigger it. Calls are debounced, rate-limited, budgeted, and backed off after failures.");autoNote.setTextSize(12);autoNote.setPadding(0,dp(2),0,0);box.addView(autoNote);
+        TextView autoNote=new TextView(this);autoNote.setText("Only meaningful fresh deadlines, risks, commitments, waiting states, events, or high-attention changes can trigger it. Work is coalesced safely, rate-limited, budgeted, and backed off after failures.");autoNote.setTextSize(12);autoNote.setPadding(0,dp(2),0,0);box.addView(autoNote);
         boolean configured=GeminiKeyStore.has(this);
         AlertDialog.Builder builder=new AlertDialog.Builder(this).setTitle(configured?"Gemini settings":"Enable Gemini").setView(box).setCancelable(false)
                 .setNegativeButton("Close",(d,w)->finish()).setPositiveButton("Save settings",null);
