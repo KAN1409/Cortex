@@ -29,24 +29,32 @@ public final class StartupMaintenance {
         try{
             db=new VaultDb(context);
             // V4 schema creation is a startup invariant and must not depend on WorkManager constraints.
-            // Backfill remains bounded/background work, but canonical tables must exist once Cortex opens.
             CognitiveStoreV4.ensure(db);
-            CognitiveSchema.ensure(db.getWritableDatabase());
-            RelevanceDecisionStatusStore.ensure(db);
-            AttentionAdjudicationStore.ensure(db);
-            PhoneContextStore.ensure(db);
-            if(PhoneUsageAccess.has(context))PhoneUsageAccess.syncRecent(context,db,System.currentTimeMillis()-2L*60L*60L*1000L);
-            importLastCrash(context,db);
-            AdjudicationRecovery.run(context,db);
-            ContactSafetyMaintenance.run(db);
-            EntityGraphMaintenance.run(db);
-            IntentionalCognitiveBridge.backfill(db,250);
-            // Stage E: detect conservative, memory-grounded Situations locally, then let any already
-            // applied Deep Brain rankings/actions attach to those canonical Situations.
-            CognitiveSituationEngineV4.refresh(db);
-            CognitiveDeepBrainReconcilerV4.reconcile(db);
-            EnvironmentPreflight.run(context);
-            AdjudicationRecovery.schedule(context);
+
+            // Stage E is product-critical and must not be skipped because an unrelated legacy
+            // maintenance task throws. Run it as soon as canonical V4 storage is available.
+            try{
+                CognitiveSituationEngineV4.refresh(db);
+                CognitiveDeepBrainReconcilerV4.reconcile(db);
+            }catch(Throwable ignored){
+            }
+
+            // Older maintenance remains best-effort. A failure here must not undo/skip Stage E.
+            try{
+                CognitiveSchema.ensure(db.getWritableDatabase());
+                RelevanceDecisionStatusStore.ensure(db);
+                AttentionAdjudicationStore.ensure(db);
+                PhoneContextStore.ensure(db);
+                if(PhoneUsageAccess.has(context))PhoneUsageAccess.syncRecent(context,db,System.currentTimeMillis()-2L*60L*60L*1000L);
+                importLastCrash(context,db);
+                AdjudicationRecovery.run(context,db);
+                ContactSafetyMaintenance.run(db);
+                EntityGraphMaintenance.run(db);
+                IntentionalCognitiveBridge.backfill(db,250);
+                EnvironmentPreflight.run(context);
+                AdjudicationRecovery.schedule(context);
+            }catch(Throwable ignored){
+            }
         }catch(Throwable ignored){
         }finally{
             if(db!=null)try{db.close();}catch(Throwable ignored){}
