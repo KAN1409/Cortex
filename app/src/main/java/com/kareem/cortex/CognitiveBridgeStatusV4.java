@@ -78,8 +78,9 @@ public final class CognitiveBridgeStatusV4 {
         int activePriorities = scalarInt(sql,
                 "SELECT COUNT(*) FROM v4_deep_brain_priority_items WHERE state='ACTIVE'");
         int activeActions = scalarInt(sql,
-                "SELECT COUNT(*) FROM v4_action_proposals WHERE state='PROPOSED' " +
-                "AND payload_json LIKE '%\"deep_brain_request_id\":\"%'");
+                "SELECT COUNT(*) FROM v4_action_proposals WHERE state='PROPOSED' AND (" +
+                "payload_json LIKE '%\"deep_brain_request_id\":\"%' OR " +
+                "payload_json LIKE '%\"origin\":\"chatgpt_plus_share\"%')");
         int newOpen = latestAppliedAt > 0
                 ? scalarInt(sql,"SELECT COUNT(*) FROM v4_situations WHERE state NOT IN ('RESOLVED','CANCELLED','DISMISSED') AND updated_at>"+latestAppliedAt)
                 : scalarInt(sql,"SELECT COUNT(*) FROM v4_situations WHERE state NOT IN ('RESOLVED','CANCELLED','DISMISSED')");
