@@ -5,9 +5,9 @@ import java.util.Locale;
 /**
  * Product boundary between raw device signals and durable Cortex intelligence.
  *
- * evaluateFast() is the cheap hard gate. evaluateThread() is the first real-world
- * grouped communication policy. Ambiguity becomes REVIEW rather than a guessed
- * memory/action.
+ * evaluateTier0() is the production cheap hard-noise gate for Relay notifications.
+ * evaluateFast()/evaluateThread() remain compatibility policy for older non-Relay paths while
+ * CognitiveAdjudicatorV2 becomes the semantic authority for meaningful notifications.
  */
 public final class MasterRelevanceFilter {
     public enum Disposition { IGNORE, CONTEXT, REVIEW, MEMORY, ACTION, WAITING, DECISION }
@@ -62,6 +62,22 @@ public final class MasterRelevanceFilter {
         "Choose CONTEXT if there is weak evidence. Choose REVIEW if there is a concrete plausible interpretation that needs confirmation. Never fabricate intent, people, dates or tasks.";
 
     private MasterRelevanceFilter(){}
+
+    /**
+     * Tier 0 is intentionally narrow. It may suppress only obvious machine/UI noise or empty input.
+     * It must never promote a notification and must never require a semantic keyword for admission.
+     */
+    public static Decision evaluateTier0(Signal s){
+        if(s==null)return d(Disposition.IGNORE,0,"missing signal");
+        String text=ruleNorm(s.text()),src=low(s.source);
+        if(text.isEmpty())return d(Disposition.IGNORE,0,"empty signal");
+        if(secret(text))return new Decision(Disposition.CONTEXT,25,"sensitive credential; semantic processing blocked","",0.99);
+        if(deviceNoise(text,src,s.ongoing))return d(Disposition.IGNORE,3,"ephemeral device/system state");
+        if(mediaNoise(text,src,s.ongoing))return d(Disposition.IGNORE,4,"ongoing media/UI state");
+        return new Decision(Disposition.CONTEXT,30,"meaningful candidate admitted to cognitive adjudication","",0.90);
+    }
+
+    public static boolean sensitiveSignal(Signal s){return s!=null&&secret(ruleNorm(s.text()));}
 
     public static Decision evaluateFast(Signal s){
         String text=ruleNorm(s.text()),src=low(s.source);

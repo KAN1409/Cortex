@@ -53,6 +53,7 @@ dependencies {
     implementation 'com.google.mlkit:text-recognition:16.0.1'
     implementation 'cz.adaptech.tesseract4android:tesseract4android:4.9.0'
     implementation 'androidx.work:work-runtime:2.11.2'
+    implementation 'androidx.swiperefreshlayout:swiperefreshlayout:1.2.0'
     implementation 'androidx.documentfile:documentfile:1.1.0'
     implementation 'dev.ffmpegkit-maintained:llama-android:0.1.1'
     implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0'

@@ -1,5 +1,6 @@
 package com.kareem.cortex;
 
+import android.content.Context;
 import android.database.Cursor;
 import org.json.JSONObject;
 import java.util.*;
@@ -21,7 +22,10 @@ public final class IntentionalCognitiveBridge {
         }catch(Throwable e){DiagnosticsLog.error(db,"IntentionalCognitiveBridge","backfill",e,"INTENTIONAL_BACKFILL",0,0,0,0,0,null);}finally{if(c!=null)c.close();}
     }
 
-    public static void afterAnalysis(VaultDb db,KnowledgeItem item,AnalysisResult r){
+    public static void afterAnalysis(VaultDb db,KnowledgeItem item,AnalysisResult r){afterAnalysis(null,db,item,r);}
+
+    /** Context-aware entry used by the live analysis queue so a new Situation can wake Deep Brain. */
+    public static void afterAnalysis(Context context,VaultDb db,KnowledgeItem item,AnalysisResult r){
         if(db==null||item==null||r==null)return;CognitiveStore.ensure(db);
         if(passive(item))return;
         String text=bestText(item,r),norm=LocalSemanticEmbedder.norm(text);boolean intentional=intentional(item);
@@ -38,6 +42,13 @@ public final class IntentionalCognitiveBridge {
             // Inference can only create a candidate. The candidate itself must also look like a label, not a sentence fragment.
             for(AnalysisResult.Entity e:r.entities){if(!"PROJECT".equalsIgnoreCase(n(e.kind))||e.confidence<PROJECT_CANDIDATE_MIN_CONFIDENCE)continue;String name=EntityQualityPolicy.cleanProjectName(e.value);if(!EntityQualityPolicy.plausibleProject(name))continue;add(db,item,CognitiveTypes.DerivedKind.PROJECT_CANDIDATE,name,clip(text,700),"pending",Math.max(PROJECT_CANDIDATE_MIN_CONFIDENCE,e.confidence),60);}
         }catch(Throwable e){DiagnosticsLog.error(db,"IntentionalCognitiveBridge","after_analysis",e,"INTENTIONAL_BRIDGE",item.id,0,0,0,0,null);}
+
+        if(intentional){
+            try{
+                CognitiveIntentionalRealtimeV4.Result v4=CognitiveIntentionalRealtimeV4.project(db,item.id);
+                if(context!=null&&v4.material())CognitiveReasoningOrchestratorV4.schedule(context,"intentional_capture");
+            }catch(Throwable e){DiagnosticsLog.error(db,"IntentionalCognitiveBridge","v4_projection",e,"INTENTIONAL_V4",item.id,0,0,0,0,null);}
+        }
     }
 
     private static long add(VaultDb db,KnowledgeItem item,String kind,String title,String body,String state,double confidence,int importance){

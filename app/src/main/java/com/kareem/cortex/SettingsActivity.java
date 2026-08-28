@@ -17,13 +17,15 @@ public class SettingsActivity extends Activity {
         LinearLayout head=new LinearLayout(this);head.setOrientation(LinearLayout.HORIZONTAL);head.setGravity(Gravity.CENTER_VERTICAL);TextView back=CortexUi.plain(this,"‹",34,CortexUi.TEXT);back.setGravity(Gravity.CENTER);back.setOnClickListener(v->finish());head.addView(back,new LinearLayout.LayoutParams(dp(42),dp(48)));TextView h=CortexUi.plain(this,"Settings",29,CortexUi.TEXT);CortexUi.bold(h);head.addView(h,new LinearLayout.LayoutParams(0,-2,1));body.addView(head);
 
         body.addView(CortexUi.section(this,"Intelligence"));
-        String remote=OpenRouterKeyStore.has(this)?"Primary reasoning · "+OpenRouterModelConfig.generationModel(this):"Configure external reasoning";
-        row(body,"Reasoning",remote,OpenRouterSettingsActivity.class);
-        row(body,"Vision & fallback",GeminiKeyStore.has(this)?"Vision provider configured":"Optional cloud vision and provider fallback",GeminiSettingsActivity.class);
+        boolean geminiKey=GeminiKeyStore.has(this),auto=CognitiveAutoReasoningSettingsV4.enabled(this);String model=GeminiModelConfig.generationModel(this);
+        String gemini=geminiKey?(auto?"Automatic prioritization ON · "+model:"Configured but automatic prioritization is paused · "+model):"REQUIRED for automatic prioritization · Gemini key not configured";
+        row(body,"Automatic Deep Brain · Gemini",gemini,GeminiSettingsActivity.class);
+        String remote=OpenRouterKeyStore.has(this)?"Optional Ask/external reasoning · "+OpenRouterModelConfig.generationModel(this):"Optional Ask/external reasoning provider";
+        row(body,"Ask / external reasoning",remote,OpenRouterSettingsActivity.class);
 
         body.addView(CortexUi.section(this,"Awareness & capture"));
         row(body,"Phone awareness","Notifications, current app/window context and recent app usage",PhoneContextAccessActivity.class);
-        row(body,"Voice transcription","Transcription providers and language preferences",AsrSettingsActivity.class);
+        row(body,"Voice transcription","Gemini/Groq transcription providers and language preferences",AsrSettingsActivity.class);
         actionRow(body,"Screen understanding",CortexScreenAccessibilityService.connected()?"Ready":"Enable explicit screen understanding",()->{try{startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS));}catch(Throwable ignored){}});
 
         body.addView(CortexUi.section(this,"Memory & learning"));
@@ -32,7 +34,7 @@ public class SettingsActivity extends Activity {
         row(body,"Data & integrations","Backup, restore, privacy, calendar and contacts",FeatureHubActivity.class);
 
         body.addView(CortexUi.section(this,"Advanced"));
-        row(body,"Diagnostics & internals","Evaluation, capability status, audits, OCR and recovery tools",AdvancedSettingsActivity.class);
+        row(body,"Diagnostics & internals","Runtime pipeline, provider health, audits, OCR and recovery tools",AdvancedSettingsActivity.class);
         setContentView(root);CortexUi.fitSystemBars(this,root);
     }
     void row(LinearLayout parent,String title,String sub,Class<?> cls){actionRow(parent,title,sub,()->startActivity(new Intent(this,cls)));}

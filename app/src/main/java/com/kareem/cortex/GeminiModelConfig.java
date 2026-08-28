@@ -8,7 +8,7 @@ import java.util.regex.Pattern;
 public final class GeminiModelConfig {
     private static final String PREF="cortex_gemini_model_config";
     private static final String KEY="generation_model";
-    public static final String DEFAULT_GENERATION_MODEL="gemini-3.6-flash";
+    public static final String DEFAULT_GENERATION_MODEL="gemini-3.7-flash";
     private static final Pattern SAFE=Pattern.compile("[A-Za-z0-9._-]{3,80}");
     private GeminiModelConfig(){}
 

@@ -16,6 +16,7 @@ public final class StartupMaintenance {
         Context app=context.getApplicationContext();
         PhoneContextScheduler.schedule(app);
         AttentionAiScheduler.kick(app);
+        CognitiveMemoryBackfillSchedulerV4.schedule(app);
         new Handler(Looper.getMainLooper()).postDelayed(()->{
             Thread t=new Thread(()->run(app),"cortex-maintenance");
             t.setPriority(Thread.NORM_PRIORITY-1);
@@ -27,18 +28,47 @@ public final class StartupMaintenance {
         VaultDb db=null;
         try{
             db=new VaultDb(context);
-            CognitiveSchema.ensure(db.getWritableDatabase());
-            RelevanceDecisionStatusStore.ensure(db);
-            AttentionAdjudicationStore.ensure(db);
-            PhoneContextStore.ensure(db);
-            if(PhoneUsageAccess.has(context))PhoneUsageAccess.syncRecent(context,db,System.currentTimeMillis()-2L*60L*60L*1000L);
-            importLastCrash(context,db);
-            AdjudicationRecovery.run(context,db);
-            ContactSafetyMaintenance.run(db);
-            EntityGraphMaintenance.run(db);
-            IntentionalCognitiveBridge.backfill(db,250);
-            EnvironmentPreflight.run(context);
-            AdjudicationRecovery.schedule(context);
+            // V4 schema creation is a startup invariant and must not depend on WorkManager constraints.
+            CognitiveStoreV4.ensure(db);
+
+            // A recent Second Brain event may already have been accepted by an older Cortex build
+            // before trusted enrichment could promote the deduped Raw Signal. Revisit only those
+            // already-stored, recent, unpromoted connector events; Evidence itself stays immutable.
+            try{CognitiveConnectorEnrichmentRescueV4.run(db);}catch(Throwable ignored){}
+
+            // User-intentional captures must be present in canonical Memory before Stage E runs.
+            // This also rescues analyzed voice notes created by an older build, including explicit
+            // future-time captures that should become Pulse Situations immediately after upgrade.
+            try{IntentionalCognitiveBridge.backfill(db,250);}catch(Throwable ignored){}
+
+            // Stage E is product-critical and must not be skipped because an unrelated legacy
+            // maintenance task throws. Run it as soon as canonical V4 storage is available.
+            try{
+                CognitiveSituationEngineV4.refresh(db);
+                CognitiveDeepBrainReconcilerV4.reconcile(db);
+            }catch(Throwable ignored){
+            }
+
+            // Once canonical Situations are current, the autonomous brain may evaluate whether any
+            // meaningful change deserves a Gemini pass. Its own policy/cooldown/budget decides;
+            // startup itself never forces a cloud call.
+            try{CognitiveReasoningOrchestratorV4.schedule(context,"startup_refresh");}catch(Throwable ignored){}
+
+            // Older maintenance remains best-effort. A failure here must not undo/skip Stage E.
+            try{
+                CognitiveSchema.ensure(db.getWritableDatabase());
+                RelevanceDecisionStatusStore.ensure(db);
+                AttentionAdjudicationStore.ensure(db);
+                PhoneContextStore.ensure(db);
+                if(PhoneUsageAccess.has(context))PhoneUsageAccess.syncRecent(context,db,System.currentTimeMillis()-2L*60L*60L*1000L);
+                importLastCrash(context,db);
+                AdjudicationRecovery.run(context,db);
+                ContactSafetyMaintenance.run(db);
+                EntityGraphMaintenance.run(db);
+                EnvironmentPreflight.run(context);
+                AdjudicationRecovery.schedule(context);
+            }catch(Throwable ignored){
+            }
         }catch(Throwable ignored){
         }finally{
             if(db!=null)try{db.close();}catch(Throwable ignored){}

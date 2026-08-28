@@ -43,14 +43,23 @@ public final class CommunicationEvidenceNormalizer {
     }
 
     private static String kindFor(String pkg,Notification n,Bundle e,String title,String body){
-        String p=clean(pkg).toLowerCase(Locale.US),all=(title+" "+body).toLowerCase(Locale.US);
-        if(n!=null&&Notification.CATEGORY_CALL.equals(n.category))return"call";
-        if(n!=null&&Notification.CATEGORY_EMAIL.equals(n.category))return"email";
-        if(e!=null&&e.getParcelableArray(Notification.EXTRA_MESSAGES)!=null)return"message";
+        boolean hasMessages=e!=null&&e.getParcelableArray(Notification.EXTRA_MESSAGES)!=null;
+        String category=n==null?"":clean(n.category);
+        return kindForDiagnostics(pkg,category,hasMessages,title,body);
+    }
+
+    /** Pure hook used by regression tests so package heuristics cannot silently promote service noise. */
+    static String kindForDiagnostics(String pkg,String category,boolean hasMessages,String title,String body){
+        String p=clean(pkg).toLowerCase(Locale.US),all=(clean(title)+" "+clean(body)).toLowerCase(Locale.US);
+        String c=clean(category);
+        if(Notification.CATEGORY_CALL.equals(c))return"call";
+        if(Notification.CATEGORY_EMAIL.equals(c))return"email";
+        if(Notification.CATEGORY_MESSAGE.equals(c)||hasMessages)return"message";
         if("com.google.android.gm".equals(p)||p.contains("outlook"))return"email";
-        if("com.whatsapp".equals(p)||p.contains("facebook.orca")||p.contains("telegram")||p.contains("snapchat"))return"message";
         if(p.contains("instagram")&&(all.contains("message")||all.contains("sent you")||all.contains("رسالة")))return"message";
         if(all.contains("missed call")||all.contains("incoming call")||all.contains("مكالمة فائتة"))return"call";
+        // Package membership alone is not evidence that a notification is a message. WhatsApp,
+        // Telegram, Messenger, etc. also emit backup, sync, connection, and service notifications.
         return"notification";
     }
 
@@ -63,7 +72,7 @@ public final class CommunicationEvidenceNormalizer {
         return"";
     }
 
-    private static boolean looksGeneric(String s){String x=s.toLowerCase(Locale.US);return x.equals("whatsapp")||x.equals("messenger")||x.equals("instagram")||x.equals("telegram")||x.equals("gmail")||x.equals("outlook")||x.equals("missed call");}
+    private static boolean looksGeneric(String s){String x=s.toLowerCase(Locale.US);return x.equals("whatsapp")||x.equals("messenger")||x.equals("instagram")||x.equals("telegram")||x.equals("gmail")||x.equals("outlook")||x.equals("missed call")||CognitiveWorldCandidateClassifierV4.looksGenericSystemLabel(x);}
 
     private static String latestMessage(Bundle e){
         if(e==null)return"";try{android.os.Parcelable[] a=e.getParcelableArray(Notification.EXTRA_MESSAGES);if(a==null)return"";for(int i=a.length-1;i>=0;i--){if(!(a[i] instanceof Bundle))continue;Bundle b=(Bundle)a[i];String text=clean(b.getCharSequence("text")),sender=clean(b.getCharSequence("sender"));if(!text.isEmpty())return sender.isEmpty()?text:sender+": "+text;}}catch(Throwable ignored){}return"";
