@@ -30,6 +30,57 @@ public class CognitiveMemoryEquivalenceV4RegressionTest {
         }
     }
 
+    @Test public void emptyLegacyThreadDoesNotBlockCutover() {
+        SQLiteDatabase db = SQLiteDatabase.create(null);
+        try {
+            legacyTables(db);
+            CognitiveSchemaV4.ensure(db);
+            long now = System.currentTimeMillis();
+
+            ContentValues t = new ContentValues();
+            t.put("id", 48); t.put("kind", "notification"); t.put("source", "com.android.systemui");
+            t.put("external_key", "edge-lighting"); t.put("state", "open");
+            t.put("started_at", now); t.put("last_event_at", now);
+            db.insertOrThrow("signal_threads", null, t);
+
+            CognitiveMemoryEquivalenceV4.Report r = CognitiveMemoryEquivalenceV4.evaluate(db, now);
+            assertEquals(0, r.eligibleThreads);
+            assertEquals(0, r.pendingEpisodes());
+            assertTrue(r.migrationComplete());
+        } finally {
+            db.close();
+        }
+    }
+
+    @Test public void threadWithRawEvidenceRemainsEpisodeCandidate() {
+        SQLiteDatabase db = SQLiteDatabase.create(null);
+        try {
+            legacyTables(db);
+            CognitiveSchemaV4.ensure(db);
+            long now = System.currentTimeMillis();
+
+            ContentValues t = new ContentValues();
+            t.put("id", 7); t.put("kind", "notification"); t.put("source", "com.test");
+            t.put("external_key", "thread-7"); t.put("state", "open");
+            t.put("started_at", now); t.put("last_event_at", now);
+            db.insertOrThrow("signal_threads", null, t);
+
+            ContentValues raw = new ContentValues();
+            raw.put("id", 1); raw.put("kind", "notification"); raw.put("source", "com.test");
+            raw.put("title", "Test"); raw.put("body", "hello"); raw.put("metadata_json", "{}");
+            raw.put("content_hash", Fingerprint.text("hello")); raw.put("occurred_at", now); raw.put("created_at", now);
+            raw.put("retention_until", now + 1000); raw.put("state", "filtered"); raw.put("thread_id", 7);
+            db.insertOrThrow("raw_signals", null, raw);
+
+            CognitiveMemoryEquivalenceV4.Report r = CognitiveMemoryEquivalenceV4.evaluate(db, now);
+            assertEquals(1, r.eligibleThreads);
+            assertEquals(1, r.pendingEpisodes());
+            assertFalse(r.migrationComplete());
+        } finally {
+            db.close();
+        }
+    }
+
     @Test public void mappedGroundedRowsCanPassEquivalenceGate() {
         SQLiteDatabase db = SQLiteDatabase.create(null);
         try {
