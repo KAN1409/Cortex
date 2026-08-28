@@ -39,7 +39,7 @@
         <activity android:name=".AskCortexActivity" android:exported="false" android:windowSoftInputMode="adjustResize" />
         <activity android:name=".ProposalAskCortexActivity" android:exported="false" android:windowSoftInputMode="adjustResize" />
         <activity android:name=".DeepBrainActivity" android:exported="false" android:windowSoftInputMode="adjustResize" />
-        <activity android:name=".DeepBrainImportActivity" android:exported="true" android:label="Apply ChatGPT to Cortex" android:excludeFromRecents="true"><intent-filter><action android:name="android.intent.action.SEND" /><category android:name="android.intent.category.DEFAULT" /><data android:mimeType="text/plain" /></intent-filter></activity>
+        <activity android:name=".DeepBrainImportActivity" android:exported="false" android:label="Apply ChatGPT to Cortex" android:excludeFromRecents="true" />
         <activity android:name=".SettingsActivity" android:exported="false" />
         <activity android:name=".AdvancedSettingsActivity" android:exported="false" />
         <activity android:name=".ReviewQueueActivity" android:exported="false" />
