@@ -8,7 +8,11 @@ import android.service.notification.NotificationListenerService;
 import android.service.notification.StatusBarNotification;
 import org.json.JSONObject;
 
-/** Every visible notification gets bounded context; communication-shaped ones receive donor-derived normalization hints. */
+/**
+ * Temporary direct-capture compatibility listener. Production ownership moves to Cortex Relay after
+ * the Relay->Cortex acceptance test is green; while this listener remains present it feeds the exact
+ * same Tier-0 -> CognitiveAdjudicatorV2 pipeline and cannot create a parallel semantic authority.
+ */
 public class NotificationCaptureService extends NotificationListenerService {
     @Override public void onListenerConnected(){super.onListenerConnected();try{StatusBarNotification[] xs=getActiveNotifications();if(xs!=null)for(StatusBarNotification x:xs)ingest(x,"active_snapshot");}catch(Throwable ignored){}}
     @Override public void onNotificationPosted(StatusBarNotification sbn){ingest(sbn,"posted");}
@@ -24,14 +28,12 @@ public class NotificationCaptureService extends NotificationListenerService {
                 NotificationEnrichmentEngine.enrich(db,signalId,itemId,threadId,signal);
                 long personEntityId=CanonicalPersonResolver.resolveSignal(db,signalId,normalized,meta);
                 CrossSourceSituationStitcher.stitchSignal(db,signalId,personEntityId);
+                if(CognitiveSignalV2.CognitiveState.PENDING_ADJUDICATION.name().equals(RawSignalStore.cognitiveState(db,signalId)))
+                    CognitiveAdjudicatorV2.enqueue(this,threadId,signalId);
             }
-            if(threadId>0)ThreadModelAdjudicator.enqueue(this,threadId,signalId);
-            if(itemId>0){
-                AnalysisQueue.kick(this,null,null);
-                // Native Cortex capture and Second Brain tunnel feed the same realtime V4 cognition
-                // boundary. The projection itself remains relevance-gated and deduped by signal ID.
-                CognitiveRealtimeProjectionV4.schedule(this,signalId);
-            }
+            // Compatibility projection only for pre-V2/already-promoted rows. New V2 notifications
+            // project after validated adjudication inside CognitiveAdjudicatorV2.
+            if(itemId>0){AnalysisQueue.kick(this,null,null);CognitiveRealtimeProjectionV4.schedule(this,signalId);}
         }catch(Throwable error){android.util.Log.e("CortexNotification","Notification ingestion failed",error);VaultDb d=null;try{d=new VaultDb(this);JSONObject meta=new JSONObject();meta.put("package",sbn==null?"":String.valueOf(sbn.getPackageName()));DiagnosticsLog.error(d,"NotificationCaptureService","notification_ingest",error,"NOTIFICATION_INGEST",0,0,0,0,0,meta);}catch(Throwable ignored){}finally{if(d!=null)try{d.close();}catch(Throwable ignored){}}}finally{if(db!=null)try{db.close();}catch(Throwable ignored){}}}
     private String label(String pkg){if(pkg==null||pkg.isEmpty())return"Notification";try{ApplicationInfo ai=getPackageManager().getApplicationInfo(pkg,0);CharSequence x=getPackageManager().getApplicationLabel(ai);return x==null?pkg:x.toString();}catch(Throwable e){return pkg;}}
     private static String str(CharSequence s){return s==null?"":s.toString().trim();}
