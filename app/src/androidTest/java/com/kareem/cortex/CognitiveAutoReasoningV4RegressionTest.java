@@ -41,6 +41,14 @@ public class CognitiveAutoReasoningV4RegressionTest {
         assertFalse(CognitiveAutoReasoningPolicyV4.evaluate(pulse,now).shouldRun);
     }
 
+    @Test public void realtimeProjectionWakesBrainOnlyWhenSituationWasActuallyCreated(){
+        CognitiveSituationEngineV4.Result oldCandidateOnly=new CognitiveSituationEngineV4.Result(25,0,Collections.singletonList("si_old"));
+        CognitiveSituationEngineV4.Result newlyDetected=new CognitiveSituationEngineV4.Result(25,1,Collections.singletonList("si_new"));
+        assertFalse(CognitiveRealtimeProjectionV4.shouldScheduleReasoning(oldCandidateOnly));
+        assertTrue(CognitiveRealtimeProjectionV4.shouldScheduleReasoning(newlyDetected));
+        assertFalse(CognitiveRealtimeProjectionV4.shouldScheduleReasoning(null));
+    }
+
     @Test public void geminiAutonomousResponseRequiresCompleteContract()throws Exception{
         JSONObject ok=new JSONObject();ok.put("request_id","brq_test");ok.put("answer","ok");ok.put("priority_items",new JSONArray());ok.put("priority_updates",new JSONArray());ok.put("suggested_actions",new JSONArray());ok.put("reasoning_blocks",new JSONArray());
         GeminiCognitiveReasoningProviderV4.validateShape(ok);
