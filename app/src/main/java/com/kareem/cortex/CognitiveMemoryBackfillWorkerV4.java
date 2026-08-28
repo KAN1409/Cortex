@@ -18,7 +18,8 @@ public final class CognitiveMemoryBackfillWorkerV4 extends Worker {
                 evidence+=s.evidenceMapped;episodes+=s.episodesMapped;memories+=s.memoriesMapped;deferred+=s.deferred;failed+=s.failed;
                 if(s.totalMapped()==0)break;
             }
-            Data out=new Data.Builder().putInt("evidence_mapped",evidence).putInt("episodes_mapped",episodes).putInt("memories_mapped",memories).putInt("deferred",deferred).putInt("failed",failed).build();
+            int pinnedEvidence=CognitiveRetentionV4.reconcilePinnedEvidence(db);
+            Data out=new Data.Builder().putInt("evidence_mapped",evidence).putInt("episodes_mapped",episodes).putInt("memories_mapped",memories).putInt("deferred",deferred).putInt("failed",failed).putInt("pinned_evidence_protected",pinnedEvidence).build();
             return Result.success(out);
         }catch(Throwable e){return Result.retry();}
         finally{if(db!=null)try{db.close();}catch(Throwable ignored){}}
