@@ -14,7 +14,7 @@ Worlds remain projections over grounded canonical data. Evidence and Memory prov
 
 ## Candidate pipeline
 
-Stage D now separates four different questions that legacy Cortex often mixed together:
+Stage D separates four different questions that legacy Cortex often mixed together:
 
 1. **Did a source mention something entity-shaped?**
 2. **What semantic class is it?** Person, organization, group/conversation, app/system, or unknown.
@@ -65,8 +65,24 @@ Analysis-derived proposals:
 - never authorize automatic merge
 - never create a canonical World by themselves
 - reject obvious generic app/system labels
+- pass through `CognitiveWorldProposalQualityV4` before entering the candidate stream
 
 This lets Stage D recover historical candidate coverage without re-running AI over all Memory and without pretending heuristic/model extraction is identity truth.
+
+## Proposal quality and corroboration
+
+Real-device validation showed that the preserved local analyzer has useful recall but noisy precision. Historical examples included valid-looking names mixed with generic labels, sentence fragments, and contact-table artifacts such as a trailing `Phone` column label.
+
+`CognitiveWorldProposalQualityV4` therefore applies a narrow quality gate only to analysis-derived proposals. It may reject generic/test/system labels, reject obvious sentence fragments, and remove generic trailing contact-column labels while preserving the raw value as an alias. It does not rewrite structured durable identities.
+
+`CognitiveWorldProposalConsolidatorV4` then groups weak proposals by normalized type/name across active Memory. Corroboration is deliberately conservative:
+
+- a multi-token proposal needs at least two distinct Evidence rows and two distinct Memory rows before it becomes review-eligible
+- a single-token Person proposal needs at least three distinct Evidence rows and two distinct Memory rows
+- repeated extraction only makes a proposal worth reviewing; it never grants World materialization or merge authority
+- model/heuristic proposals remain non-canonical until durable identity/type evidence or explicit user confirmation exists
+
+This preserves a hard boundary between **candidate confidence** and **canonical truth**.
 
 ## Notification capture hardening
 
@@ -120,7 +136,10 @@ Current regression coverage includes:
 - generic backup/system labels are rejected
 - messaging-app package membership alone cannot classify service notifications as messages
 - preserved analysis PERSON/PROJECT entities remain grounded, weak, and deferred
+- observed historical noise tokens and sentence fragments are rejected
+- generic `Phone` suffix cleanup preserves the original value as an alias
+- corroboration changes review eligibility only, never canonical materialization authority
 - projection returns only active canonical Worlds with grounded counts
 - `%` and `_` remain literal in World search
 
-The next gate is a clean `assembleDebug + assembleDebugAndroidTest` compile on the real Termux environment, followed by a read-only real-data analysis-entity dry run. Compiling the androidTest APK does not execute instrumentation tests.
+The next gate is a clean `assembleDebug + assembleDebugAndroidTest` compile on the real Termux environment, followed by a read-only real-data proposal-quality/corroboration dry run. Compiling the androidTest APK does not execute instrumentation tests.
