@@ -46,137 +46,94 @@ public final class CognitiveDeepBrainStoreV4 {
                 "created_at INTEGER NOT NULL," +
                 "applied_at INTEGER DEFAULT 0)");
         db.execSQL("CREATE INDEX IF NOT EXISTS idx_v4_deep_brain_resp_req ON v4_deep_brain_responses(request_id,created_at DESC)");
+        db.execSQL("CREATE TABLE IF NOT EXISTS v4_deep_brain_priority_items(" +
+                "id TEXT PRIMARY KEY," +
+                "request_id TEXT NOT NULL," +
+                "rank_order INTEGER NOT NULL," +
+                "title TEXT NOT NULL," +
+                "reason TEXT," +
+                "attention_score REAL NOT NULL DEFAULT 0," +
+                "situation_id TEXT," +
+                "memory_ids_json TEXT NOT NULL," +
+                "world_ids_json TEXT NOT NULL," +
+                "state TEXT NOT NULL DEFAULT 'ACTIVE'," +
+                "created_at INTEGER NOT NULL," +
+                "updated_at INTEGER NOT NULL)");
+        db.execSQL("CREATE INDEX IF NOT EXISTS idx_v4_deep_priority_active ON v4_deep_brain_priority_items(state,rank_order,created_at DESC)");
+        db.execSQL("CREATE INDEX IF NOT EXISTS idx_v4_deep_priority_request ON v4_deep_brain_priority_items(request_id,rank_order)");
     }
 
-    public static String newRequestId() {
-        return "brq_" + UUID.randomUUID().toString().replace("-", "");
-    }
+    public static String newRequestId() { return "brq_" + UUID.randomUUID().toString().replace("-", ""); }
 
     public static void saveRequest(VaultDb db, CognitiveDeepBrainPacketBuilderV4.Packet packet) {
         if (db == null || packet == null) throw new IllegalArgumentException("db and packet required");
-        ensure(db);
-        saveRequest(db.getWritableDatabase(), packet);
+        ensure(db); saveRequest(db.getWritableDatabase(), packet);
     }
 
     static void saveRequest(SQLiteDatabase sql, CognitiveDeepBrainPacketBuilderV4.Packet packet) {
-        ensure(sql);
-        long now = System.currentTimeMillis();
-        ContentValues v = new ContentValues();
-        v.put("id", packet.requestId);
-        v.put("question", packet.question);
-        v.put("context_json", packet.contextJson);
-        v.put("share_text_hash", Fingerprint.text(packet.shareText));
-        v.put("situation_ids_json", json(packet.situationIds));
-        v.put("memory_ids_json", json(packet.memoryIds));
-        v.put("world_ids_json", json(packet.worldIds));
-        v.put("fact_ids_json", json(packet.factIds));
-        v.put("state", "CREATED");
-        v.put("created_at", now);
-        v.put("exported_at", 0);
-        v.put("applied_at", 0);
-        v.put("updated_at", now);
+        ensure(sql); long now = System.currentTimeMillis(); ContentValues v = new ContentValues();
+        v.put("id", packet.requestId); v.put("question", packet.question); v.put("context_json", packet.contextJson);
+        v.put("share_text_hash", Fingerprint.text(packet.shareText)); v.put("situation_ids_json", json(packet.situationIds));
+        v.put("memory_ids_json", json(packet.memoryIds)); v.put("world_ids_json", json(packet.worldIds)); v.put("fact_ids_json", json(packet.factIds));
+        v.put("state", "CREATED"); v.put("created_at", now); v.put("exported_at", 0); v.put("applied_at", 0); v.put("updated_at", now);
         long row = sql.insertWithOnConflict("v4_deep_brain_requests", null, v, SQLiteDatabase.CONFLICT_IGNORE);
         if (row < 0 && !requestExists(sql, packet.requestId)) throw new IllegalStateException("Could not persist Deep Brain request");
     }
 
     public static void markExported(VaultDb db, String requestId) {
-        ensure(db);
-        ContentValues v = new ContentValues();
-        long now = System.currentTimeMillis();
-        v.put("state", "EXPORTED");
-        v.put("exported_at", now);
-        v.put("updated_at", now);
+        ensure(db); ContentValues v = new ContentValues(); long now = System.currentTimeMillis();
+        v.put("state", "EXPORTED"); v.put("exported_at", now); v.put("updated_at", now);
         db.getWritableDatabase().update("v4_deep_brain_requests", v, "id=? AND state<>'APPLIED'", new String[]{requestId});
     }
 
     static Request load(SQLiteDatabase sql, String requestId) {
-        ensure(sql);
-        Cursor c = sql.query("v4_deep_brain_requests",
+        ensure(sql); Cursor c = sql.query("v4_deep_brain_requests",
                 new String[]{"id","question","context_json","situation_ids_json","memory_ids_json","world_ids_json","fact_ids_json","state","created_at","exported_at","applied_at"},
                 "id=?", new String[]{requestId}, null, null, null, "1");
-        try {
-            if (!c.moveToFirst()) return null;
-            return new Request(c.getString(0), c.getString(1), c.getString(2),
-                    list(c.getString(3)), list(c.getString(4)), list(c.getString(5)), list(c.getString(6)),
-                    c.getString(7), c.getLong(8), c.getLong(9), c.getLong(10));
-        } finally { c.close(); }
+        try { if (!c.moveToFirst()) return null; return new Request(c.getString(0), c.getString(1), c.getString(2), list(c.getString(3)), list(c.getString(4)), list(c.getString(5)), list(c.getString(6)), c.getString(7), c.getLong(8), c.getLong(9), c.getLong(10)); }
+        finally { c.close(); }
     }
 
     public static Status latest(VaultDb db) {
-        ensure(db);
-        SQLiteDatabase sql = db.getReadableDatabase();
-        Cursor c = sql.rawQuery("SELECT r.id,r.question,r.state,r.created_at,COALESCE(x.answer,'') " +
-                "FROM v4_deep_brain_requests r LEFT JOIN v4_deep_brain_responses x ON x.request_id=r.id " +
-                "ORDER BY r.created_at DESC LIMIT 1", null);
-        try {
-            if (!c.moveToFirst()) return null;
-            return new Status(c.getString(0), c.getString(1), c.getString(2), c.getLong(3), c.getString(4));
-        } finally { c.close(); }
+        ensure(db); SQLiteDatabase sql = db.getReadableDatabase();
+        Cursor c = sql.rawQuery("SELECT r.id,r.question,r.state,r.created_at,COALESCE(x.answer,'') FROM v4_deep_brain_requests r LEFT JOIN v4_deep_brain_responses x ON x.request_id=r.id ORDER BY r.created_at DESC LIMIT 1", null);
+        try { if (!c.moveToFirst()) return null; return new Status(c.getString(0), c.getString(1), c.getString(2), c.getLong(3), c.getString(4)); }
+        finally { c.close(); }
     }
 
-    static boolean requestExists(SQLiteDatabase sql, String requestId) {
-        Cursor c = sql.rawQuery("SELECT 1 FROM v4_deep_brain_requests WHERE id=? LIMIT 1", new String[]{requestId});
-        try { return c.moveToFirst(); } finally { c.close(); }
+    public static String latestPrioritySummary(VaultDb db, int limit) {
+        ensure(db); int lim=Math.max(1,Math.min(20,limit)); StringBuilder b=new StringBuilder();
+        Cursor c=db.getReadableDatabase().rawQuery("SELECT rank_order,title,COALESCE(reason,''),attention_score FROM v4_deep_brain_priority_items WHERE state='ACTIVE' ORDER BY rank_order ASC,created_at DESC LIMIT ?",new String[]{String.valueOf(lim)});
+        try{while(c.moveToNext()){if(b.length()>0)b.append('\n');b.append(c.getInt(0)).append(". ").append(c.getString(1));String reason=c.getString(2);if(reason!=null&&!reason.trim().isEmpty())b.append(" — ").append(reason.trim());b.append("  [").append(Math.round(c.getDouble(3)*100)).append("%]");}}finally{c.close();}return b.toString();
     }
 
-    static void saveResponse(SQLiteDatabase sql, String responseId, CognitiveDeepBrainProtocolV4.ParsedResponse response,
-                             String appliedSummaryJson, long appliedAt) {
-        ensure(sql);
-        ContentValues v = new ContentValues();
-        v.put("id", responseId);
-        v.put("request_id", response.requestId);
-        v.put("answer", response.answer);
-        v.put("raw_response", response.raw);
-        v.put("response_json", response.json.toString());
-        v.put("applied_summary_json", appliedSummaryJson == null ? "{}" : appliedSummaryJson);
-        v.put("created_at", System.currentTimeMillis());
-        v.put("applied_at", appliedAt);
-        sql.insertWithOnConflict("v4_deep_brain_responses", null, v, SQLiteDatabase.CONFLICT_REPLACE);
+    static boolean requestExists(SQLiteDatabase sql, String requestId) { Cursor c = sql.rawQuery("SELECT 1 FROM v4_deep_brain_requests WHERE id=? LIMIT 1", new String[]{requestId}); try { return c.moveToFirst(); } finally { c.close(); } }
+
+    static void saveResponse(SQLiteDatabase sql, String responseId, CognitiveDeepBrainProtocolV4.ParsedResponse response, String appliedSummaryJson, long appliedAt) {
+        ensure(sql); ContentValues v = new ContentValues(); v.put("id", responseId); v.put("request_id", response.requestId); v.put("answer", response.answer);
+        v.put("raw_response", response.raw); v.put("response_json", response.json.toString()); v.put("applied_summary_json", appliedSummaryJson == null ? "{}" : appliedSummaryJson);
+        v.put("created_at", System.currentTimeMillis()); v.put("applied_at", appliedAt); sql.insertWithOnConflict("v4_deep_brain_responses", null, v, SQLiteDatabase.CONFLICT_REPLACE);
     }
 
-    static void markApplied(SQLiteDatabase sql, String requestId, long when) {
-        ContentValues v = new ContentValues();
-        v.put("state", "APPLIED");
-        v.put("applied_at", when);
-        v.put("updated_at", when);
-        sql.update("v4_deep_brain_requests", v, "id=?", new String[]{requestId});
+    static void supersedeActivePriorities(SQLiteDatabase sql, long when) {
+        ContentValues v=new ContentValues();v.put("state","SUPERSEDED");v.put("updated_at",when);sql.update("v4_deep_brain_priority_items",v,"state='ACTIVE'",null);
     }
 
-    private static String json(List<String> ids) {
-        JSONArray a = new JSONArray();
-        if (ids != null) for (String id : ids) if (id != null && !id.trim().isEmpty()) a.put(id.trim());
-        return a.toString();
+    static boolean putPriority(SQLiteDatabase sql,String id,String requestId,int rank,String title,String reason,double attention,String situationId,List<String>memoryIds,List<String>worldIds,long when){
+        ContentValues v=new ContentValues();v.put("id",id);v.put("request_id",requestId);v.put("rank_order",rank);v.put("title",title);v.put("reason",reason);v.put("attention_score",attention);if(situationId==null||situationId.isEmpty())v.putNull("situation_id");else v.put("situation_id",situationId);v.put("memory_ids_json",json(memoryIds));v.put("world_ids_json",json(worldIds));v.put("state","ACTIVE");v.put("created_at",when);v.put("updated_at",when);return sql.insertWithOnConflict("v4_deep_brain_priority_items",null,v,SQLiteDatabase.CONFLICT_IGNORE)>=0;
     }
 
-    private static List<String> list(String raw) {
-        LinkedHashSet<String> out = new LinkedHashSet<>();
-        try {
-            JSONArray a = new JSONArray(raw == null ? "[]" : raw);
-            for (int i = 0; i < a.length(); i++) {
-                String x = a.optString(i, "").trim();
-                if (!x.isEmpty()) out.add(x);
-            }
-        } catch (Throwable ignored) {}
-        return Collections.unmodifiableList(new ArrayList<>(out));
-    }
+    static void markApplied(SQLiteDatabase sql, String requestId, long when) { ContentValues v = new ContentValues(); v.put("state", "APPLIED"); v.put("applied_at", when); v.put("updated_at", when); sql.update("v4_deep_brain_requests", v, "id=?", new String[]{requestId}); }
+
+    private static String json(List<String> ids) { JSONArray a = new JSONArray(); if (ids != null) for (String id : ids) if (id != null && !id.trim().isEmpty()) a.put(id.trim()); return a.toString(); }
+    private static List<String> list(String raw) { LinkedHashSet<String> out = new LinkedHashSet<>(); try { JSONArray a = new JSONArray(raw == null ? "[]" : raw); for (int i = 0; i < a.length(); i++) { String x = a.optString(i, "").trim(); if (!x.isEmpty()) out.add(x); } } catch (Throwable ignored) {} return Collections.unmodifiableList(new ArrayList<>(out)); }
 
     public static final class Request {
-        public final String id, question, contextJson, state;
-        public final List<String> situationIds, memoryIds, worldIds, factIds;
-        public final long createdAt, exportedAt, appliedAt;
-        Request(String id, String question, String contextJson, List<String> situationIds, List<String> memoryIds,
-                List<String> worldIds, List<String> factIds, String state, long createdAt, long exportedAt, long appliedAt) {
-            this.id=id; this.question=question; this.contextJson=contextJson; this.situationIds=situationIds;
-            this.memoryIds=memoryIds; this.worldIds=worldIds; this.factIds=factIds; this.state=state;
-            this.createdAt=createdAt; this.exportedAt=exportedAt; this.appliedAt=appliedAt;
-        }
+        public final String id, question, contextJson, state; public final List<String> situationIds, memoryIds, worldIds, factIds; public final long createdAt, exportedAt, appliedAt;
+        Request(String id, String question, String contextJson, List<String> situationIds, List<String> memoryIds, List<String> worldIds, List<String> factIds, String state, long createdAt, long exportedAt, long appliedAt) { this.id=id;this.question=question;this.contextJson=contextJson;this.situationIds=situationIds;this.memoryIds=memoryIds;this.worldIds=worldIds;this.factIds=factIds;this.state=state;this.createdAt=createdAt;this.exportedAt=exportedAt;this.appliedAt=appliedAt; }
     }
-
     public static final class Status {
-        public final String requestId, question, state, answer;
-        public final long createdAt;
-        Status(String requestId, String question, String state, long createdAt, String answer) {
-            this.requestId=requestId; this.question=question; this.state=state; this.createdAt=createdAt; this.answer=answer;
-        }
+        public final String requestId, question, state, answer; public final long createdAt;
+        Status(String requestId, String question, String state, long createdAt, String answer) { this.requestId=requestId;this.question=question;this.state=state;this.createdAt=createdAt;this.answer=answer; }
     }
 }
