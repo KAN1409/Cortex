@@ -2,7 +2,9 @@ name: Cortex CI
 
 on:
   push:
-    branches: [ main ]
+    branches:
+      - main
+      - 'architecture/**'
   pull_request:
     branches: [ main ]
   workflow_dispatch:
