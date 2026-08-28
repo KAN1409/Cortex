@@ -63,9 +63,12 @@ public final class CognitiveDeepBrainApplyV4 {
                 String id=CognitiveIdentityV4.objectId("pri",identity);
                 if(CognitiveDeepBrainStoreV4.putPriority(sql,id,response.requestId,rank,title,reason,attention,situationId,memoryIds,worldIds,now))rankedStored++;else skipped++;
             }
-            // Replace the previous model ranking only when the new ranking section itself is valid:
-            // explicit [] means "none now"; a hallucinated/fully-invalid non-empty list preserves
-            // the last known-good ranking rather than erasing it.
+            // A non-empty ranking whose every item failed grounding is not a successful reasoning
+            // pass. Roll the whole transaction back so the request stays fresh and can be retried;
+            // otherwise a hallucinated response could falsely mark all packet Situations covered.
+            if(!rankingGrounded(rankingFieldPresent,ranked.length(),rankedStored))throw new IllegalArgumentException("Deep Brain priority_items contained no grounded Cortex IDs");
+            // Replace the previous model ranking only when the new ranking section itself is valid.
+            // Explicit [] means "none now"; missing field is tolerated for legacy/manual responses.
             if(rankingFieldPresent&&(ranked.length()==0||rankedStored>0))prioritiesSuperseded=supersedePriorPriorities(sql,response.requestId,now);
 
             JSONArray priorities = CognitiveDeepBrainProtocolV4.array(response.json, "priority_updates");
@@ -118,6 +121,7 @@ public final class CognitiveDeepBrainApplyV4 {
         return new Result(response.requestId,response.answer,rankedStored,prioritiesApplied,actionsCreated,skipped,false);
     }
 
+    static boolean rankingGrounded(boolean fieldPresent,int inputCount,int storedCount){return !fieldPresent||inputCount<=0||storedCount>0;}
     private static int supersedePriorPriorities(SQLiteDatabase sql,String currentRequestId,long when){ContentValues v=new ContentValues();v.put("state","SUPERSEDED");v.put("updated_at",when);return sql.update("v4_deep_brain_priority_items",v,"state='ACTIVE' AND request_id<>?",new String[]{currentRequestId});}
     private static int supersedePriorDeepBrainActions(SQLiteDatabase sql,String currentRequestId,long when){ContentValues v=new ContentValues();v.put("state","SUPERSEDED");v.put("updated_at",when);String current="%\"deep_brain_request_id\":\""+currentRequestId+"\"%";return sql.update("v4_action_proposals",v,"state='PROPOSED' AND payload_json LIKE ? AND payload_json NOT LIKE ?",new String[]{"%\"deep_brain_request_id\":\"%",current});}
     private static SituationSnapshot snapshot(SQLiteDatabase sql,String id){Cursor c=sql.rawQuery("SELECT state,attention_score,interruption_score FROM v4_situations WHERE id=? LIMIT 1",new String[]{id});try{return c.moveToFirst()?new SituationSnapshot(c.getString(0),c.getDouble(1),c.getDouble(2)):null;}finally{c.close();}}
