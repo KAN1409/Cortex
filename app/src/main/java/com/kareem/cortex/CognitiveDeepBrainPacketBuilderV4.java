@@ -20,6 +20,8 @@ public final class CognitiveDeepBrainPacketBuilderV4 {
         if (db == null) throw new IllegalArgumentException("db required");
         String q = question == null ? "" : question.trim(); if (q.isEmpty()) throw new IllegalArgumentException("question required");
         CognitiveStoreV4.ensure(db); CognitiveDeepBrainStoreV4.ensure(db); PhoneContextStore.ensure(db);
+        // A user-triggered Deep Brain request must not depend on background-maintenance timing.
+        CognitiveSituationEngineV4.refresh(db); CognitiveDeepBrainReconcilerV4.reconcile(db);
         String requestId = CognitiveDeepBrainStoreV4.newRequestId(); SQLiteDatabase sql = db.getReadableDatabase();
         try {
             JSONObject root = new JSONObject(); root.put("protocol", "CORTEX_CONTEXT_V2"); root.put("request_id", requestId); root.put("generated_at", System.currentTimeMillis()); root.put("question", q);
