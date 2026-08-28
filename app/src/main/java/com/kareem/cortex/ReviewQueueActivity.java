@@ -37,12 +37,19 @@ public class ReviewQueueActivity extends Activity {
         if(!x.body.isEmpty()){TextView body=CortexUi.text(this,clip(x.body,420),13,CortexUi.TEXT);body.setPadding(0,dp(7),0,0);body.setTextIsSelectable(true);card.addView(body);}
         if(!x.reason.isEmpty()){TextView why=CortexUi.text(this,"Why Cortex is unsure: "+x.reason,11,CortexUi.MUTED);why.setPadding(0,dp(8),0,0);card.addView(why);}
         LinearLayout actions=new LinearLayout(this);actions.setOrientation(LinearLayout.HORIZONTAL);actions.setPadding(0,dp(12),0,0);
-        TextView confirm=smallAction(confirmLabel(x.candidateKind));confirm.setOnClickListener(v->{long id=ReviewQueueStore.confirm(db,x.id);toast(id>0?"Confirmed":"Could not confirm");refresh();});actions.addView(confirm,new LinearLayout.LayoutParams(0,dp(40),1));
+        TextView confirm=smallAction(confirmLabel(x.candidateKind));confirm.setOnClickListener(v->{confirm(x);refresh();});actions.addView(confirm,new LinearLayout.LayoutParams(0,dp(40),1));
         TextView reject=smallAction(rejectLabel(x.candidateKind));LinearLayout.LayoutParams rp=new LinearLayout.LayoutParams(0,dp(40),1);rp.setMargins(dp(7),0,0,0);reject.setOnClickListener(v->{reject(x);refresh();});actions.addView(reject,rp);card.addView(actions);
         TextView dismiss=CortexUi.plain(this,"Not important / hide",11,CortexUi.MUTED);dismiss.setGravity(Gravity.CENTER);dismiss.setPadding(0,dp(8),0,0);dismiss.setOnClickListener(v->{ReviewQueueStore.notImportant(db,x.id);toast("Hidden and learned as not important");refresh();});card.addView(dismiss,new LinearLayout.LayoutParams(-1,dp(38)));
         LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,-2);p.setMargins(0,0,0,dp(10));list.addView(card,p);
     }
 
+    void confirm(ReviewQueueStore.Item x){
+        long derived=ReviewQueueStore.confirm(db,x.id);if(derived<=0){toast("Could not confirm");return;}
+        if("PROJECT_CANDIDATE".equals(x.candidateKind)){
+            boolean created=ProjectCandidateStore.confirm(db,derived);
+            toast(created?"Project confirmed":"Saved as a project candidate; its name still needs review");
+        }else toast("Confirmed");
+    }
     void reject(ReviewQueueStore.Item x){
         boolean ok;if("ACTION".equals(x.candidateKind))ok=ReviewQueueStore.notAction(db,x.id);else ok=ReviewQueueStore.dismiss(db,x.id);
         toast(ok?rejectFeedback(x.candidateKind):"Could not save correction");
