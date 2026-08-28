@@ -24,7 +24,8 @@ public final class AdjudicationRecovery {
         if(context==null||db==null)return 0;CognitiveStore.ensure(db);RelevanceDecisionStatusStore.ensure(db);CognitiveRunStoreV2.ensure(db);
         long now=System.currentTimeMillis(),cutoff=now-STALE_MS;ArrayList<Target> legacyRetry=new ArrayList<>(),v2Retry=new ArrayList<>();HashSet<Long> seenV2=new HashSet<>();SQLiteDatabase sql=db.getWritableDatabase();
 
-        // Preserve recovery for the superseded thread-only adjudicator while old jobs can still exist.
+        // Preserve recovery for pre-V2 thread jobs. Once V2 is authoritative, interrupted legacy
+        // work is re-routed through V2 instead of reviving semanticCue() gating.
         Cursor c=sql.query("ai_jobs",new String[]{"id","input_json","updated_at"},"kind='relevance_adjudication' AND state IN ('queued','running') AND updated_at<?",new String[]{String.valueOf(cutoff)},null,null,"updated_at ASC","100");
         while(c.moveToNext()){
             long jobId=c.getLong(0),lastUpdated=c.getLong(2),staleAge=Math.max(0,now-lastUpdated);String input=c.getString(1)==null?"":c.getString(1);long threadId=0,signalId=0;try{JSONObject o=new JSONObject(input);threadId=o.optLong("thread_id",0);signalId=o.optLong("latest_signal_id",0);}catch(Exception ignored){}
@@ -39,7 +40,7 @@ public final class AdjudicationRecovery {
         while(v2Jobs.moveToNext()){
             long jobId=v2Jobs.getLong(0),lastUpdated=v2Jobs.getLong(2),staleAge=Math.max(0,now-lastUpdated);String input=v2Jobs.getString(1)==null?"":v2Jobs.getString(1);long threadId=0,signalId=0;try{JSONObject o=new JSONObject(input);threadId=o.optLong("thread_id",0);signalId=o.optLong("latest_signal_id",0);}catch(Exception ignored){}
             interruptJob(sql,jobId,now);
-            if(signalId>0){ContentValues u=new ContentValues();u.put("cognitive_state",CognitiveSignalV2.CognitiveState.MODEL_FAILED.name());u.put("final_reason","Android process ended during cognitive adjudication; bounded retry queued");u.put("updated_at",now);sql.update("raw_signals",u,"id=? AND cognitive_state=?",new String[]{String.valueOf(signalId),CognitiveSignalV2.CognitiveState.PENDING_ADJUDICATION.name()});}
+            if(signalId>0){ContentValues u=new ContentValues();u.put("cognitive_state",CognitiveSignalV2.CognitiveState.MODEL_FAILED.name());u.put("final_reason","Android process ended during cognitive adjudication; bounded retry queued");u.put("updated_at",now);sql.update("raw_signals",u,"id=? AND cognitive_state IN ('LOCAL_QUEUED','LOCAL_RUNNING','DEEP_QUEUED','PENDING_ADJUDICATION')",new String[]{String.valueOf(signalId)});}
             if(eligibleCurrent(sql,threadId,signalId)&&seenV2.add(signalId))v2Retry.add(new Target(threadId,signalId));
             DiagnosticsLog.info(db,"AdjudicationRecovery","v2_process_interrupted","recovered",0,threadId,signalId,jobId,0,staleAge,null);
         }v2Jobs.close();
@@ -54,8 +55,11 @@ public final class AdjudicationRecovery {
         }failed.close();
 
         if(LocalModelManager.installed(context)){
-            for(Target t:legacyRetry)ThreadModelAdjudicator.enqueue(context,t.threadId,t.signalId);
-            if(LocalBrainRuntimePolicy.thermalAllowsInference(context))for(Target t:v2Retry){ContentValues u=new ContentValues();u.put("cognitive_state",CognitiveSignalV2.CognitiveState.PENDING_ADJUDICATION.name());u.put("final_reason","bounded recovery retry queued");u.put("updated_at",now);sql.update("raw_signals",u,"id=?",new String[]{String.valueOf(t.signalId)});CognitiveAdjudicatorV2.enqueue(context,t.threadId,t.signalId);}
+            for(Target t:legacyRetry){
+                if(CognitiveFeatureFlags.authoritative(context)){ContentValues u=new ContentValues();u.put("cognitive_state",CognitiveSignalV2.CognitiveState.LOCAL_QUEUED.name());u.put("final_reason","legacy recovery routed to authoritative Cognitive V2");u.put("updated_at",now);sql.update("raw_signals",u,"id=?",new String[]{String.valueOf(t.signalId)});CognitiveAdjudicatorV2.enqueue(context,t.threadId,t.signalId);}
+                else ThreadModelAdjudicator.enqueue(context,t.threadId,t.signalId);
+            }
+            if(LocalBrainRuntimePolicy.thermalAllowsInference(context))for(Target t:v2Retry){ContentValues u=new ContentValues();u.put("cognitive_state",CognitiveSignalV2.CognitiveState.LOCAL_QUEUED.name());u.put("final_reason","bounded recovery retry queued");u.put("updated_at",now);sql.update("raw_signals",u,"id=?",new String[]{String.valueOf(t.signalId)});CognitiveAdjudicatorV2.enqueue(context,t.threadId,t.signalId);}
         }
         return legacyRetry.size()+v2Retry.size();
     }
