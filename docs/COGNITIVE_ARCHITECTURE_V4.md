@@ -143,11 +143,11 @@ Implemented in draft:
 - `v4_legacy_map` for non-destructive backfill
 - `CognitiveGroundingV4`
 - identity, grounding and schema regression tests
-- `CognitiveStore.ensure()` bootstraps the additive V4 schema while all existing product reads/writes remain authoritative
+- `CognitiveStore.ensure()` creates the additive V4 schema alongside the existing schema
+
+The schema bootstrap only creates empty V4 tables. Existing capture, analysis, Now, Inbox, Atlas and Ask writes/reads remain on the current authoritative paths until explicit backfill/cut-over stages are validated.
 
 There is deliberately no `pulse_cards`, `memory_screen_rows`, `world_dashboard`, or `think_answers` truth store.
-
-No existing product surface has been redirected to V4 yet.
 
 ### Next — Stage C: Memory projection
 
