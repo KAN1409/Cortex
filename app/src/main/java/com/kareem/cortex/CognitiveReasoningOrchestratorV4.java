@@ -25,13 +25,15 @@ public final class CognitiveReasoningOrchestratorV4 {
     public static void removeListener(Listener l){for(WeakReference<Listener> r:LISTENERS){Listener x=r.get();if(x==null||x==l)LISTENERS.remove(r);}}
 
     /**
-     * Durable coalescing queue. New triggers are appended instead of replacing a currently-running
-     * provider call, so a fresh notification cannot cancel an in-flight Gemini request. Every queued
-     * Worker re-evaluates canonical freshness, fingerprint, cooldown and budget at execution time;
-     * once an earlier pass has covered the context, later queued work becomes a cheap no-op.
+     * Durable coalescing queue. New triggers never replace/cancel a currently-running provider call.
+     * Bursty callbacks inside the short enqueue debounce share the already-queued reevaluation; later
+     * meaningful changes append safely. Every Worker re-evaluates canonical freshness, fingerprint,
+     * cooldown and budget at execution time, so already-covered queued work becomes a cheap no-op.
      */
-    public static void schedule(Context context,String trigger){
-        if(context==null)return;Context app=context.getApplicationContext();if(!CognitiveAutoReasoningSettingsV4.enabled(app)||!GeminiKeyStore.has(app))return;
+    public static void schedule(Context context,String trigger){schedule(context,trigger,false);}
+    private static void schedule(Context context,String trigger,boolean force){
+        if(context==null)return;Context app=context.getApplicationContext();if(!CognitiveAutoReasoningSettingsV4.enabled(app)||!GeminiKeyStore.has(app))return;long claimedAt=System.currentTimeMillis();
+        if(!CognitiveAutoReasoningSettingsV4.claimEnqueueSlot(app,claimedAt,force))return;
         try{
             Constraints constraints=new Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build();
             Data input=new Data.Builder().putString(CognitiveReasoningWorkerV4.KEY_TRIGGER,n(trigger)).build();
@@ -42,7 +44,7 @@ public final class CognitiveReasoningOrchestratorV4 {
                     .addTag(UNIQUE_WORK)
                     .build();
             WorkManager.getInstance(app).enqueueUniqueWork(UNIQUE_WORK,ExistingWorkPolicy.APPEND_OR_REPLACE,work);
-        }catch(Throwable ignored){}
+        }catch(Throwable ignored){CognitiveAutoReasoningSettingsV4.releaseEnqueueSlot(app,claimedAt);}
     }
 
     static RunResult run(Context context,String trigger){
@@ -66,7 +68,9 @@ public final class CognitiveReasoningOrchestratorV4 {
                 CognitiveAutoReasoningSettingsV4.clearTransientGateAfterStaleContext(app);
                 if(db!=null&&!runId.isEmpty())try{CognitiveReasoningRunStoreV4.stale(db,runId,Math.max(0,now-started),now);}catch(Throwable ignored){}
                 if(db!=null)try{DiagnosticsLog.info(db,"CognitiveReasoningOrchestratorV4","autonomous_reasoning_stale_context","fresh canonical context superseded provider response",0,0,0,0,0,Math.max(0,now-started),null);}catch(Throwable ignored){}
-                schedule(app,"stale_context_refresh");
+                // Forced recovery must not be swallowed by the normal burst debounce. It appends
+                // behind the current Worker and therefore still never cancels an in-flight call.
+                schedule(app,"stale_context_refresh",true);
                 return new RunResult(false,true,"stale_context","gemini",GeminiModelConfig.generationModel(app),"",decision==null?0:decision.freshCount,0,0);
             }
             CognitiveAutoReasoningSettingsV4.markFailure(app,now);if(db!=null&&!runId.isEmpty())try{CognitiveReasoningRunStoreV4.fail(db,runId,e.getClass().getSimpleName()+": "+n(e.getMessage()),Math.max(0,now-started),now);}catch(Throwable ignored){}if(db!=null)try{DiagnosticsLog.warn(db,"CognitiveReasoningOrchestratorV4","autonomous_reasoning_failed","failed",e.getClass().getSimpleName(),0,0,0,0,0,null);}catch(Throwable ignored){}return new RunResult(false,false,"failed:"+e.getClass().getSimpleName(),"gemini",GeminiModelConfig.generationModel(app),"",decision==null?0:decision.freshCount,0,0);
