@@ -4,6 +4,7 @@ import android.content.Context;
 import androidx.work.Data;
 import androidx.work.Worker;
 import androidx.work.WorkerParameters;
+import org.json.JSONObject;
 
 /** Runs additive V4 migration outside capture callbacks and outside the UI thread. */
 public final class CognitiveMemoryBackfillWorkerV4 extends Worker {
@@ -17,19 +18,23 @@ public final class CognitiveMemoryBackfillWorkerV4 extends Worker {
             db = new VaultDb(getApplicationContext());
             int rescued = 0, evidence = 0, episodes = 0, memories = 0, deferred = 0, failed = 0;
             for (int pass = 0; pass < 4; pass++) {
-                rescued += CognitiveMemoryHistoricalRescueV4.runBatch(db, 100);
+                int rescuedThisPass = CognitiveMemoryHistoricalRescueV4.runBatch(db, 100);
+                rescued += rescuedThisPass;
                 CognitiveMemoryBackfillV4.Stats s = CognitiveMemoryBackfillV4.runBatch(db, 100);
                 evidence += s.evidenceMapped;
                 episodes += s.episodesMapped;
                 memories += s.memoriesMapped;
                 deferred += s.deferred;
                 failed += s.failed;
-                if (s.totalMapped() == 0 && rescued == 0) break;
+                if (s.totalMapped() == 0 && rescuedThisPass == 0) break;
             }
 
             int pinnedEvidence = CognitiveRetentionV4.reconcilePinnedEvidence(db);
             CognitiveMemoryEquivalenceV4.Report report = CognitiveMemoryEquivalenceV4.evaluate(db);
             if (!report.integrityClean()) {
+                JSONObject metadata;
+                try { metadata = new JSONObject(report.toJson()); }
+                catch (Throwable ignored) { metadata = new JSONObject(); }
                 DiagnosticsLog.warn(
                         db,
                         "CognitiveMemoryBackfillWorkerV4",
@@ -41,7 +46,7 @@ public final class CognitiveMemoryBackfillWorkerV4 extends Worker {
                         0,
                         0,
                         0,
-                        report.toJson());
+                        metadata);
             }
 
             Data out = new Data.Builder()
