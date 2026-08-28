@@ -40,6 +40,14 @@ public final class CognitiveAutoReasoningSettingsV4 {
     static void markFailure(Context c,long now){
         if(c==null)return;SharedPreferences p=c.getSharedPreferences(PREF,Context.MODE_PRIVATE);int failures=Math.min(6,p.getInt(K_FAILURES,0)+1);long delay=Math.min(60L*60L*1000L,(1L<<Math.max(0,failures-1))*60L*1000L);p.edit().putInt(K_FAILURES,failures).putLong(K_NEXT_ALLOWED,now+delay).apply();
     }
+    /**
+     * A stale response means the provider completed successfully but the canonical world changed
+     * before apply. Do not punish the newer context with provider-failure backoff or the cooldown
+     * from the obsolete pass. The cloud call still counts against the daily budget.
+     */
+    static void clearTransientGateAfterStaleContext(Context c){
+        if(c==null)return;c.getSharedPreferences(PREF,Context.MODE_PRIVATE).edit().putLong(K_LAST_STARTED,0).putString(K_LAST_STARTED_FP,"").putLong(K_NEXT_ALLOWED,0).apply();
+    }
     static long lastSuccessAt(Context c){return c==null?0:c.getSharedPreferences(PREF,Context.MODE_PRIVATE).getLong(K_LAST_SUCCESS,0);}
 
     private static void rollDay(SharedPreferences p,long now){String day=new SimpleDateFormat("yyyyMMdd",Locale.US).format(new Date(now));if(!day.equals(p.getString(K_DAY,"")))p.edit().putString(K_DAY,day).putInt(K_DAY_CALLS,0).apply();}
