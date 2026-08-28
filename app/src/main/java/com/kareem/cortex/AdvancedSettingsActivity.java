@@ -21,6 +21,7 @@ public final class AdvancedSettingsActivity extends Activity {
         row(body,"Attention evaluation","Inspect what Cortex surfaces, why, and how ranking changes",AttentionEvaluationActivity.class);
         row(body,"Review queue","Resolve uncertain actions, waiting items, decisions and project candidates",ReviewQueueActivity.class);
         row(body,"Relevance evaluation","Inspect relevance decisions and evidence quality",RelevanceEvaluationActivity.class);
+        if(BuildConfig.DEBUG)row(body,"Cognitive V2 Shadow","Compare local Qwen V2 with legacy decisions without changing production intelligence",CognitiveShadowActivity.class);
 
         body.addView(CortexUi.section(this,"Runtime & capabilities"));
         row(body,"Capabilities","See what is active, ready, blocked or failed",CapabilityMatrixActivity.class);
