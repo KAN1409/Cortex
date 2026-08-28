@@ -4,44 +4,55 @@ import android.content.ContentValues;
 import android.database.Cursor;
 import android.database.sqlite.SQLiteDatabase;
 
-/** Per-signal execution ledger so no cognition attempt becomes an invisible black box. */
+/**
+ * Compatibility facade for per-signal V2 execution lifecycle.
+ *
+ * V2 no longer creates a separate cognitive_runs authority. Lifecycle rows live in the existing
+ * model_runs telemetry table; upgraded databases may retain an old cognitive_runs table as inert
+ * historical telemetry, but no new V2 decision depends on it.
+ */
 public final class CognitiveRunStoreV2 {
+    private static final String ROLE="cognitive_adjudicator_lifecycle";
+    private static final String ROUTE="signal_cognition_v2_lifecycle";
     private CognitiveRunStoreV2(){}
 
-    public static void ensure(VaultDb db){
-        SQLiteDatabase s=db.getWritableDatabase();
-        s.execSQL("CREATE TABLE IF NOT EXISTS cognitive_runs(id INTEGER PRIMARY KEY AUTOINCREMENT,raw_signal_id INTEGER NOT NULL,provider TEXT NOT NULL,model TEXT NOT NULL,started_at INTEGER NOT NULL,completed_at INTEGER DEFAULT 0,latency_ms INTEGER DEFAULT 0,disposition TEXT,confidence REAL DEFAULT 0,result_json TEXT,status TEXT NOT NULL,error TEXT)");
-        s.execSQL("CREATE INDEX IF NOT EXISTS idx_cognitive_runs_signal ON cognitive_runs(raw_signal_id,id DESC)");
-        s.execSQL("CREATE INDEX IF NOT EXISTS idx_cognitive_runs_status ON cognitive_runs(status,started_at DESC)");
-        s.execSQL("CREATE INDEX IF NOT EXISTS idx_cognitive_runs_provider ON cognitive_runs(provider,model,started_at DESC)");
-        s.execSQL("DROP TRIGGER IF EXISTS trg_cognitive_run_queue_state_v2");
-        s.execSQL("CREATE TRIGGER trg_cognitive_run_queue_state_v2 AFTER INSERT ON cognitive_runs BEGIN UPDATE raw_signals SET cognitive_state=CASE WHEN UPPER(NEW.provider)='DEEP' THEN 'DEEP_QUEUED' ELSE 'LOCAL_QUEUED' END,cognitive_run_id=NEW.id,final_reason=CASE WHEN UPPER(NEW.provider)='DEEP' THEN 'optional Deep Qwen queued' ELSE 'local Qwen queued' END,updated_at=strftime('%s','now')*1000 WHERE id=NEW.raw_signal_id AND cognitive_state NOT IN ('IGNORED_NOISE','CONTEXT_ONLY','DERIVED','REVIEW_REQUIRED','SENSITIVE_BLOCKED','SUPERSEDED'); END");
-        s.execSQL("DROP TRIGGER IF EXISTS trg_cognitive_run_running_state_v2");
-        s.execSQL("CREATE TRIGGER trg_cognitive_run_running_state_v2 AFTER UPDATE OF status ON cognitive_runs WHEN NEW.status='RUNNING' BEGIN UPDATE raw_signals SET cognitive_state=CASE WHEN UPPER(NEW.provider)='DEEP' THEN 'DEEP_QUEUED' ELSE 'LOCAL_RUNNING' END,cognitive_run_id=NEW.id,final_reason=CASE WHEN UPPER(NEW.provider)='DEEP' THEN 'optional Deep Qwen analyzing' ELSE 'local Qwen analyzing' END,updated_at=strftime('%s','now')*1000 WHERE id=NEW.raw_signal_id AND cognitive_state NOT IN ('IGNORED_NOISE','CONTEXT_ONLY','DERIVED','REVIEW_REQUIRED','SENSITIVE_BLOCKED','SUPERSEDED'); END");
-    }
+    public static void ensure(VaultDb db){if(db!=null)CognitiveSchema.ensure(db.getWritableDatabase());}
 
     public static long queued(VaultDb db,long signalId,String provider,String model){
-        ensure(db);ContentValues v=new ContentValues();v.put("raw_signal_id",signalId);v.put("provider",n(provider));v.put("model",n(model));v.put("started_at",System.currentTimeMillis());v.put("status","QUEUED");v.put("result_json","");v.put("error","");return db.getWritableDatabase().insert("cognitive_runs",null,v);
+        if(db==null||signalId<=0)return 0;ensure(db);long now=System.currentTimeMillis();ContentValues v=new ContentValues();
+        v.put("job_id",0);v.put("pass_index",0);v.put("role",ROLE);v.put("provider",n(provider));v.put("model",n(model));v.put("route",ROUTE);v.put("state","QUEUED");v.put("input_hash",signalKey(signalId));v.put("latency_ms",0);v.put("tokens_in",0);v.put("tokens_out",0);v.put("confidence",0);v.put("output_json","");v.put("error","");v.put("created_at",now);
+        long id=db.getWritableDatabase().insert("model_runs",null,v);if(id>0)setRawState(db,signalId,deep(provider)?CognitiveSignalV2.CognitiveState.DEEP_QUEUED:CognitiveSignalV2.CognitiveState.LOCAL_QUEUED,id,deep(provider)?"optional Deep Qwen queued":"local Qwen queued");return id;
     }
 
-    public static void running(VaultDb db,long runId){state(db,runId,"RUNNING","",0,"",0,0,false);}
-    public static void escalated(VaultDb db,long runId,String detail){state(db,runId,"ESCALATED",detail,0,"",0,0,false);}
-    public static void succeeded(VaultDb db,long runId,String disposition,double confidence,String resultJson,long latencyMs){state(db,runId,"SUCCEEDED","",latencyMs,disposition,confidence,resultJson,true);}
-    public static void rejected(VaultDb db,long runId,String error,String resultJson,long latencyMs){state(db,runId,"REJECTED",error,latencyMs,"",0,resultJson,true);}
-    public static void failed(VaultDb db,long runId,String error,long latencyMs){state(db,runId,"FAILED",error,latencyMs,"",0,"",true);}
+    public static void running(VaultDb db,long runId){
+        Snapshot before=byId(db,runId);state(db,runId,"RUNNING","",0,"",0,0);if(before!=null)setRawState(db,before.signalId,deep(before.provider)?CognitiveSignalV2.CognitiveState.DEEP_QUEUED:CognitiveSignalV2.CognitiveState.LOCAL_RUNNING,runId,deep(before.provider)?"optional Deep Qwen analyzing":"local Qwen analyzing");
+    }
+    public static void escalated(VaultDb db,long runId,String detail){state(db,runId,"ESCALATED",detail,0,"",0,0);}
+    public static void succeeded(VaultDb db,long runId,String disposition,double confidence,String resultJson,long latencyMs){state(db,runId,"SUCCEEDED","",latencyMs,disposition,confidence,resultJson);}
+    public static void rejected(VaultDb db,long runId,String error,String resultJson,long latencyMs){state(db,runId,"REJECTED",error,latencyMs,"",0,resultJson);}
+    public static void failed(VaultDb db,long runId,String error,long latencyMs){state(db,runId,"FAILED",error,latencyMs,"",0,"");}
 
-    private static void state(VaultDb db,long runId,String status,String error,long latency,String disposition,double confidence,Object resultJson,boolean done){
-        if(db==null||runId<=0)return;ensure(db);ContentValues v=new ContentValues();v.put("status",status);v.put("error",n(error));v.put("latency_ms",Math.max(0,latency));v.put("disposition",n(disposition));v.put("confidence",Math.max(0,Math.min(1,confidence)));v.put("result_json",resultJson==null?"":String.valueOf(resultJson));if(done)v.put("completed_at",System.currentTimeMillis());db.getWritableDatabase().update("cognitive_runs",v,"id=?",new String[]{String.valueOf(runId)});
+    private static void state(VaultDb db,long runId,String status,String error,long latency,String disposition,double confidence,Object resultJson){
+        if(db==null||runId<=0)return;ensure(db);ContentValues v=new ContentValues();v.put("state",status);v.put("error",n(error));v.put("latency_ms",Math.max(0,latency));v.put("disposition",n(disposition));v.put("confidence",Math.max(0,Math.min(1,confidence)));v.put("output_json",resultJson==null?"":String.valueOf(resultJson));db.getWritableDatabase().update("model_runs",v,"id=? AND role=?",new String[]{String.valueOf(runId),ROLE});
     }
 
     public static Snapshot latestForSignal(VaultDb db,long signalId){
-        if(db==null||signalId<=0)return null;ensure(db);Cursor c=db.getReadableDatabase().query("cognitive_runs",new String[]{"id","provider","model","started_at","completed_at","latency_ms","disposition","confidence","status","error"},"raw_signal_id=?",new String[]{String.valueOf(signalId)},null,null,"id DESC","1");
-        try{return c.moveToFirst()?new Snapshot(c.getLong(0),n(c.getString(1)),n(c.getString(2)),c.getLong(3),c.getLong(4),c.getLong(5),n(c.getString(6)),c.getDouble(7),n(c.getString(8)),n(c.getString(9))):null;}finally{c.close();}
+        if(db==null||signalId<=0)return null;ensure(db);Cursor c=db.getReadableDatabase().query("model_runs",new String[]{"id","provider","model","created_at","latency_ms","disposition","confidence","state","error","input_hash"},"role=? AND input_hash=?",new String[]{ROLE,signalKey(signalId)},null,null,"id DESC","1");
+        try{return c.moveToFirst()?snapshot(c,signalId):null;}finally{c.close();}
     }
 
+    private static Snapshot byId(VaultDb db,long runId){if(db==null||runId<=0)return null;ensure(db);Cursor c=db.getReadableDatabase().query("model_runs",new String[]{"id","provider","model","created_at","latency_ms","disposition","confidence","state","error","input_hash"},"id=? AND role=?",new String[]{String.valueOf(runId),ROLE},null,null,null,"1");try{if(!c.moveToFirst())return null;return snapshot(c,signalId(c.getString(9)));}finally{c.close();}}
+    private static Snapshot snapshot(Cursor c,long signalId){return new Snapshot(c.getLong(0),signalId,n(c.getString(1)),n(c.getString(2)),c.getLong(3),c.getLong(4),n(c.getString(5)),c.getDouble(6),n(c.getString(7)),n(c.getString(8)));}
+
+    private static void setRawState(VaultDb db,long signalId,CognitiveSignalV2.CognitiveState state,long runId,String reason){ContentValues v=new ContentValues();v.put("cognitive_state",state.name());v.put("cognitive_run_id",runId);v.put("final_reason",reason);v.put("updated_at",System.currentTimeMillis());db.getWritableDatabase().update("raw_signals",v,"id=? AND cognitive_state NOT IN ('IGNORED_NOISE','CONTEXT_ONLY','DERIVED','REVIEW_REQUIRED','SENSITIVE_BLOCKED','SUPERSEDED')",new String[]{String.valueOf(signalId)});}
+    private static boolean deep(String provider){return"DEEP".equalsIgnoreCase(n(provider));}
+    static String role(){return ROLE;}
+    static String signalKey(long signalId){return"raw_signal:"+Math.max(0,signalId);}
+    static long signalId(String key){String x=n(key);if(!x.startsWith("raw_signal:"))return 0;try{return Long.parseLong(x.substring("raw_signal:".length()));}catch(Throwable ignored){return 0;}}
+
     public static final class Snapshot{
-        public final long id,startedAt,completedAt,latencyMs;public final String provider,model,disposition,status,error;public final double confidence;
-        Snapshot(long id,String provider,String model,long started,long completed,long latency,String disposition,double confidence,String status,String error){this.id=id;this.provider=provider;this.model=model;this.startedAt=started;this.completedAt=completed;this.latencyMs=latency;this.disposition=disposition;this.confidence=confidence;this.status=status;this.error=error;}
+        public final long id,signalId,startedAt,latencyMs;public final String provider,model,disposition,status,error;public final double confidence;
+        Snapshot(long id,long signalId,String provider,String model,long started,long latency,String disposition,double confidence,String status,String error){this.id=id;this.signalId=signalId;this.provider=provider;this.model=model;this.startedAt=started;this.latencyMs=latency;this.disposition=disposition;this.confidence=confidence;this.status=status;this.error=error;}
     }
     private static String n(String s){return s==null?"":s.trim();}
 }
