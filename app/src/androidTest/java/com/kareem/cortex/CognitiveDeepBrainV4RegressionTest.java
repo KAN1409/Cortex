@@ -62,6 +62,17 @@ public class CognitiveDeepBrainV4RegressionTest {
         }finally{db.close();}
     }
 
+    @Test public void emptyNewRankingSupersedesOlderActiveRanking() {
+        SQLiteDatabase db=SQLiteDatabase.create(null);try{
+            seed(db,"brq_empty");long now=System.currentTimeMillis()-10_000L;
+            assertTrue(CognitiveDeepBrainStoreV4.putPriority(db,"pri_old","brq_old",1,"Old priority","Old model judgement",.93,"si_allowed",Collections.singletonList("mem_allowed"),Collections.<String>emptyList(),now));
+            assertEquals(1,countWhere(db,"v4_deep_brain_priority_items","state='ACTIVE'"));
+            String raw="CORTEX_RESPONSE_V1\n{\"request_id\":\"brq_empty\",\"answer\":\"Nothing currently needs model-ranked priority\",\"priority_items\":[]}";
+            CognitiveDeepBrainApplyV4.Result r=CognitiveDeepBrainApplyV4.apply(db,CognitiveDeepBrainProtocolV4.parseResponse(raw));
+            assertEquals(0,r.rankedPrioritiesStored);assertEquals(0,countWhere(db,"v4_deep_brain_priority_items","state='ACTIVE'"));assertEquals(1,countWhere(db,"v4_deep_brain_priority_items","state='SUPERSEDED'"));
+        }finally{db.close();}
+    }
+
     private static void seed(SQLiteDatabase db,String requestId){
         CognitiveSchemaV4.ensure(db);CognitiveDeepBrainStoreV4.ensure(db);long now=System.currentTimeMillis();
         insertSituation(db,"si_allowed",.2,now);insertSituation(db,"si_other",.1,now);insertMemory(db,"mem_allowed",now);
@@ -73,4 +84,5 @@ public class CognitiveDeepBrainV4RegressionTest {
     private static void insertSituation(SQLiteDatabase db,String id,double score,long now){ContentValues v=new ContentValues();v.put("id",id);v.put("identity_key","identity_"+id);v.put("kind","FOLLOW_UP");v.put("state","DETECTED");v.put("headline",id);v.put("semantic_anchor","anchor_"+id);v.put("attention_score",score);v.put("interruption_score",.1);v.put("confidence",.8);v.put("created_at",now);v.put("last_evaluated_at",now);v.put("updated_at",now);db.insert("v4_situations",null,v);}
     private static void insertMemory(SQLiteDatabase db,String id,long now){ContentValues v=new ContentValues();v.put("id",id);v.put("identity_key","identity_"+id);v.put("kind","MOMENT");v.put("title","Grounded memory");v.put("body","A real captured memory");v.put("started_at",now);v.put("importance",.5);v.put("pinned",0);v.put("retention_class","EPISODIC_90_DAY");v.put("state","ACTIVE");v.put("created_at",now);v.put("updated_at",now);db.insert("v4_memories",null,v);}
     private static int count(SQLiteDatabase db,String table){Cursor c=db.rawQuery("SELECT COUNT(*) FROM "+table,null);try{return c.moveToFirst()?c.getInt(0):0;}finally{c.close();}}
+    private static int countWhere(SQLiteDatabase db,String table,String where){Cursor c=db.rawQuery("SELECT COUNT(*) FROM "+table+" WHERE "+where,null);try{return c.moveToFirst()?c.getInt(0):0;}finally{c.close();}}
 }
