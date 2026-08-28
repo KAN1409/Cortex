@@ -14,18 +14,21 @@ public final class CognitiveReasoningFreshnessV4 {
         SQLiteDatabase sql = db.getReadableDatabase();
         long latestAppliedAt = scalarLong(sql,
                 "SELECT COALESCE(MAX(applied_at),0) FROM v4_deep_brain_requests WHERE state='APPLIED' AND applied_at>0");
+        // updated_at, not created_at: new Evidence can materially change an existing canonical
+        // Situation. That must invalidate an older ChatGPT judgement even when the Situation ID is
+        // stable and was originally created days earlier.
         long newestSituationAt = scalarLong(sql,
-                "SELECT COALESCE(MAX(created_at),0) FROM v4_situations WHERE state NOT IN ('RESOLVED','CANCELLED','DISMISSED')");
+                "SELECT COALESCE(MAX(updated_at),0) FROM v4_situations WHERE state NOT IN ('RESOLVED','CANCELLED','DISMISSED')");
         int newOpen = scalarInt(sql,
                 latestAppliedAt > 0
-                        ? "SELECT COUNT(*) FROM v4_situations WHERE state NOT IN ('RESOLVED','CANCELLED','DISMISSED') AND created_at>" + latestAppliedAt
+                        ? "SELECT COUNT(*) FROM v4_situations WHERE state NOT IN ('RESOLVED','CANCELLED','DISMISSED') AND updated_at>" + latestAppliedAt
                         : "SELECT COUNT(*) FROM v4_situations WHERE state NOT IN ('RESOLVED','CANCELLED','DISMISSED')");
         return new Snapshot(latestAppliedAt, newOpen, newestSituationAt);
     }
 
-    static boolean isNew(long situationCreatedAt, long latestAppliedAt) {
-        if (situationCreatedAt <= 0) return false;
-        return latestAppliedAt <= 0 || situationCreatedAt > latestAppliedAt;
+    static boolean isNew(long situationChangedAt, long latestAppliedAt) {
+        if (situationChangedAt <= 0) return false;
+        return latestAppliedAt <= 0 || situationChangedAt > latestAppliedAt;
     }
 
     private static long scalarLong(SQLiteDatabase sql, String query) {
