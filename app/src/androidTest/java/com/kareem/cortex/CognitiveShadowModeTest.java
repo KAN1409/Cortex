@@ -10,6 +10,7 @@ import android.database.sqlite.SQLiteDatabase;
 import androidx.test.ext.junit.runners.AndroidJUnit4;
 import androidx.test.platform.app.InstrumentationRegistry;
 
+import org.json.JSONArray;
 import org.json.JSONObject;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -39,6 +40,16 @@ public final class CognitiveShadowModeTest {
         assertFalse(o.toString().contains("voice note payload raw body"));
     }
 
+    @Test public void derivedAgreementRequiresMatchingSemanticKind(){
+        LegacyCognitiveSnapshot legacy=new LegacyCognitiveSnapshot("ACTION","ACTION",0.88,"legacy_model");
+        CognitiveResult same=new CognitiveResult(CognitiveDisposition.DERIVE,0.9,"",Collections.singletonList(
+                new CognitiveItem(CognitiveKind.ACTION,"Send the file.",70,50,"",null,true,false,false)));
+        CognitiveResult different=new CognitiveResult(CognitiveDisposition.DERIVE,0.9,"",Collections.singletonList(
+                new CognitiveItem(CognitiveKind.WAITING,"Wait for the file.",70,50,"",null,false,true,false)));
+        assertEquals("BOTH_DERIVE",CognitiveShadowComparator.comparison(legacy,same));
+        assertEquals("DERIVED_KIND_DISAGREEMENT",CognitiveShadowComparator.comparison(legacy,different));
+    }
+
     @Test public void inputFactoryUsesBoundedThreadContextAndRedactsSecrets(){
         TestDb x=open("cognitive-shadow-input.db");
         try{
@@ -61,11 +72,25 @@ public final class CognitiveShadowModeTest {
             int derivedBefore=count(x.db,"derived_items");String dispositionBefore=scalarString(x.db,"SELECT disposition FROM raw_signals WHERE id=1");
             JSONObject out=new JSONObject().put("schema","cognitive_shadow_001").put("signal_id",1).put("comparison","V2_FOUND_MISSED_VALUE")
                     .put("legacy",new JSONObject().put("disposition","CONTEXT"))
-                    .put("v2",new JSONObject().put("disposition","DERIVE").put("items",new org.json.JSONArray().put(new JSONObject().put("kind","ACTION").put("summary","Send Ahmed the file."))));
+                    .put("v2",new JSONObject().put("disposition","DERIVE").put("items",new JSONArray().put(new JSONObject().put("kind","ACTION").put("summary","Send Ahmed the file."))));
             long runId=AiJobStore.modelRun(x.vault,0,1,"cognitive_shadow","local",LocalModelManager.MODEL_NAME,"cognitive_v2_shadow","complete","hash",100,0,30,0.9,out.toString(),"");
             CognitiveShadowStore.rate(x.vault,runId,"SHADOW_V2_BETTER");
             assertEquals(derivedBefore,count(x.db,"derived_items"));assertEquals(dispositionBefore,scalarString(x.db,"SELECT disposition FROM raw_signals WHERE id=1"));
             assertEquals(1,scalarLong(x.db,"SELECT COUNT(*) FROM feedback_events WHERE target_type='model_run' AND target_id="+runId+" AND event_type='SHADOW_V2_BETTER'"));
+            CognitiveShadowStore.Stats stats=CognitiveShadowStore.stats(x.vault);
+            assertEquals(0,stats.shadowDerivedMutations);assertEquals(1,stats.ratedMisses);assertEquals(1,stats.recoveredMisses);assertEquals(100.0,stats.missRecoveryRate(),0.001);
+        }catch(Exception e){throw new AssertionError(e);}finally{x.close();}
+    }
+
+    @Test public void shadowStatsExposeInvalidContractAndMutationGuard(){
+        TestDb x=open("cognitive-shadow-stats.db");
+        try{
+            JSONObject failed=new JSONObject().put("schema","cognitive_shadow_001").put("signal_id",1).put("outcome","FAILED").put("failure_kind","INVALID_CONTRACT");
+            AiJobStore.modelRun(x.vault,0,1,"cognitive_shadow","local",LocalModelManager.MODEL_NAME,"cognitive_v2_shadow","failed","",20,0,0,0,failed.toString(),"invalid");
+            CognitiveShadowStore.Stats before=CognitiveShadowStore.stats(x.vault);assertEquals(1,before.invalidContract);assertEquals(100.0,before.invalidJsonRate(),0.001);assertEquals(0,before.shadowDerivedMutations);
+
+            long now=System.currentTimeMillis();ContentValues d=new ContentValues();d.put("kind","ACTION");d.put("title","bad shadow write");d.put("body","");d.put("state","open");d.put("confidence",0.9);d.put("importance",80);d.put("fingerprint","illegal-shadow-derived");d.put("metadata_json","{\"policy\":\"cognitive_v2_shadow_001\"}");d.put("created_at",now);d.put("updated_at",now);x.db.insertOrThrow("derived_items",null,d);
+            assertEquals(1,CognitiveShadowStore.stats(x.vault).shadowDerivedMutations);
         }catch(Exception e){throw new AssertionError(e);}finally{x.close();}
     }
 
