@@ -1,5 +1,6 @@
 package com.kareem.cortex;
 
+import android.content.ContentValues;
 import android.database.Cursor;
 import android.database.sqlite.SQLiteDatabase;
 import java.util.ArrayList;
@@ -28,7 +29,7 @@ public final class CognitiveSituationEngineV4 {
         long now=System.currentTimeMillis(),cutoff=now-LOOKBACK_MS;
         SQLiteDatabase sql=db.getReadableDatabase();
         Cursor c=sql.rawQuery("SELECT id,kind,COALESCE(title,''),body,COALESCE(source_package,''),started_at,importance FROM v4_memories WHERE state='ACTIVE' AND started_at>=? ORDER BY started_at DESC,id DESC LIMIT ?",new String[]{String.valueOf(cutoff),String.valueOf(MAX_MEMORIES)});
-        int scanned=0,detected=0;ArrayList<String> ids=new ArrayList<>();
+        int scanned=0,detected=0,updated=0;ArrayList<String> ids=new ArrayList<>();
         try{
             while(c.moveToNext()){
                 scanned++;
@@ -41,9 +42,10 @@ public final class CognitiveSituationEngineV4 {
                 String identity="situation|"+x.kind.name()+"|"+anchor+"|"+occurrenceKey;
                 String id=CognitiveIdentityV4.objectId("si",identity);
                 ids.add(id);
-                // Never reset an existing Situation to DETECTED. User deferral/dismissal and prior
-                // Deep Brain relevance are durable state; immutable Memory does not need re-write.
-                if(situationExists(sql,id))continue;
+                // Preserve user/model state. Trusted enrichment may, however, add a concrete time to
+                // an already-existing Situation; that is a material canonical change and should make
+                // the Situation fresh for the next Deep Brain pass.
+                if(situationExists(sql,id)){if(refreshExistingGrounding(sql,id,x,now))updated++;continue;}
                 CognitiveDomainV4.Situation s=new CognitiveDomainV4.Situation(
                         id,x.kind,CognitiveDomainV4.SituationState.DETECTED,x.headline,x.explanation,
                         Collections.<String>emptyList(),Collections.<String>emptyList(),Collections.singletonList(memoryId),Collections.<String>emptyList(),
@@ -52,7 +54,7 @@ public final class CognitiveSituationEngineV4 {
                 detected++;
             }
         }finally{c.close();}
-        return new Result(scanned,detected,ids);
+        return new Result(scanned,detected,updated,ids);
     }
 
     static Candidate detect(String memoryId,String kind,String title,String body,String source,long startedAt,double importance,String text,long now){
@@ -93,6 +95,25 @@ public final class CognitiveSituationEngineV4 {
                     "Memory contains an explicit future commitment phrase.",startedAt,eventAt,baseAttention(.42,importance),.10,.70);
         }
         return null;
+    }
+
+    /** Update evidence-derived timing without resetting durable user/model state. */
+    static boolean refreshExistingGrounding(SQLiteDatabase sql,String id,Candidate x,long now){
+        if(sql==null||id==null||id.isEmpty()||x==null)return false;
+        Cursor c=sql.rawQuery("SELECT state,COALESCE(headline,''),relevant_from,relevant_until,attention_score,interruption_score,confidence FROM v4_situations WHERE id=? LIMIT 1",new String[]{id});
+        String state,oldHeadline;long oldFrom,oldUntil;double oldAttention,oldInterruption,oldConfidence;
+        try{if(!c.moveToFirst())return false;state=c.getString(0);oldHeadline=clean(c.getString(1));oldFrom=c.getLong(2);oldUntil=c.getLong(3);oldAttention=c.getDouble(4);oldInterruption=c.getDouble(5);oldConfidence=c.getDouble(6);}finally{c.close();}
+        if("RESOLVED".equals(state)||"CANCELLED".equals(state)||"DISMISSED".equals(state))return false;
+        ContentValues v=new ContentValues();boolean changed=false;
+        long candidateFrom=x.relevantFrom==null?0:x.relevantFrom.longValue(),candidateUntil=x.relevantUntil==null?0:x.relevantUntil.longValue();
+        if(oldFrom<=0&&candidateFrom>0){v.put("relevant_from",candidateFrom);changed=true;}
+        // Never erase a known explicit time because a later preview became shorter. But when richer
+        // evidence supplies or corrects an explicit time, adopt it and let Deep Brain reconsider.
+        if(candidateUntil>0&&candidateUntil!=oldUntil){v.put("relevant_until",candidateUntil);changed=true;}
+        if(oldHeadline.isEmpty()&&!clean(x.headline).isEmpty()){v.put("headline",x.headline);changed=true;}
+        if(!changed)return false;
+        v.put("attention_score",Math.max(oldAttention,x.attention));v.put("interruption_score",Math.max(oldInterruption,x.interruption));v.put("confidence",Math.max(oldConfidence,x.confidence));v.put("last_evaluated_at",now);v.put("updated_at",now);
+        return sql.update("v4_situations",v,"id=?",new String[]{id})>0;
     }
 
     private static boolean situationExists(SQLiteDatabase sql,String id){Cursor c=sql.rawQuery("SELECT 1 FROM v4_situations WHERE id=? LIMIT 1",new String[]{id});try{return c.moveToFirst();}finally{c.close();}}
@@ -171,5 +192,10 @@ public final class CognitiveSituationEngineV4 {
         final CognitiveDomainV4.SituationKind kind;final String headline,explanation;final Long relevantFrom,relevantUntil;final double attention,interruption,confidence;
         Candidate(CognitiveDomainV4.SituationKind kind,String headline,String explanation,Long relevantFrom,Long relevantUntil,double attention,double interruption,double confidence){this.kind=kind;this.headline=headline;this.explanation=explanation;this.relevantFrom=relevantFrom;this.relevantUntil=relevantUntil;this.attention=attention;this.interruption=interruption;this.confidence=confidence;}
     }
-    public static final class Result{public final int memoriesScanned,situationsDetected;public final List<String>situationIds;Result(int scanned,int detected,List<String>ids){memoriesScanned=scanned;situationsDetected=detected;situationIds=Collections.unmodifiableList(new ArrayList<>(ids));}}
+    public static final class Result{
+        public final int memoriesScanned,situationsDetected,situationsUpdated;public final List<String>situationIds;
+        Result(int scanned,int detected,List<String>ids){this(scanned,detected,0,ids);}
+        Result(int scanned,int detected,int updated,List<String>ids){memoriesScanned=scanned;situationsDetected=detected;situationsUpdated=updated;situationIds=Collections.unmodifiableList(new ArrayList<>(ids));}
+        public int materialChanges(){return situationsDetected+situationsUpdated;}
+    }
 }
