@@ -7,6 +7,7 @@ import org.json.JSONObject;
 /** Temporary/raw signal layer. Only an applied authoritative decision may enter durable Cortex memory. */
 public final class RawSignalStore {
     private static final String FAST_POLICY = "relevance_fast_004";
+    private static final String THREAD_POLICY = "thread_authority";
     private static final String CONNECTOR_POLICY = "trusted_connector_enrichment_v1";
     private RawSignalStore() {}
 
@@ -65,7 +66,7 @@ public final class RawSignalStore {
 
         // The fast gate is only authoritative when there is no thread-aware policy. Never promote from a stale fast decision.
         if (authority.durable() && (!threadAuthority || RelevanceDecisionStatusStore.isApplied(db, signalId))) {
-            promote(db, signalId, threadId, signal, authority, !threadAuthority);
+            promote(db, signalId, threadId, signal, authority, !threadAuthority, threadAuthority ? THREAD_POLICY : FAST_POLICY);
         }
         return signalId;
     }
@@ -91,22 +92,36 @@ public final class RawSignalStore {
      */
     public static long promoteTrustedEnrichment(VaultDb db,long signalId,long threadId,MasterRelevanceFilter.Signal enriched){
         if(db==null||signalId<=0||enriched==null)return 0;ensure(db);long existing=promotedItemId(db,signalId);if(existing>0)return existing;
-        String recent=threadId>0?SignalThreadStore.recentContext(db,threadId,8):"";
-        MasterRelevanceFilter.Decision base=evaluateTrustedEnrichment(enriched,recent);
-        MasterRelevanceFilter.Decision d=threadId>0?AdaptiveRelevanceLearning.adapt(db,enriched.source,base):base;
+        boolean threadEligible=threadId>0&&relevanceThread(db,threadId);
+        String recent=threadEligible?SignalThreadStore.recentContext(db,threadId,8):"";
+        MasterRelevanceFilter.Decision base=evaluateTrustedEnrichment(enriched,recent,threadEligible);
+        MasterRelevanceFilter.Decision d=threadEligible?AdaptiveRelevanceLearning.adapt(db,enriched.source,base):base;
         if(!d.durable())return 0;
         ContentValues v=new ContentValues();v.put("disposition",d.disposition.name());v.put("importance",d.importance);v.put("confidence",d.confidence);v.put("policy_version",CONNECTOR_POLICY);v.put("filter_engine","trusted_connector_enrichment");v.put("reason",d.reason);v.put("updated_at",System.currentTimeMillis());
         db.getWritableDatabase().update("raw_signals",v,"id=? AND promoted_item_id=0",new String[]{String.valueOf(signalId)});
-        long item=promote(db,signalId,threadId,enriched,d,false);
+        long item=promote(db,signalId,threadId,enriched,d,false,CONNECTOR_POLICY);
         if(item>0)DiagnosticsLog.info(db,"RawSignalStore","connector_enrichment_promoted",d.disposition.name(),item,threadId,signalId,0,0,0,null);
         return item;
     }
 
-    /** Pure policy hook kept visible to regression tests. */
+    /** Pure policy hooks kept visible to regression tests. */
     static MasterRelevanceFilter.Decision evaluateTrustedEnrichment(MasterRelevanceFilter.Signal enriched,String recentContext){
+        return evaluateTrustedEnrichment(enriched,recentContext,communicationLike(enriched));
+    }
+    static MasterRelevanceFilter.Decision evaluateTrustedEnrichment(MasterRelevanceFilter.Signal enriched,String recentContext,boolean threadEligible){
         MasterRelevanceFilter.Decision fast=fastDecision(enriched);if(fast.durable())return fast;
-        if(recentContext!=null)return MasterRelevanceFilter.evaluateThread(enriched.body,recentContext);
+        if(threadEligible)return MasterRelevanceFilter.evaluateThread(enriched.body,recentContext==null?"":recentContext);
         return fast;
+    }
+
+    private static boolean relevanceThread(VaultDb db,long threadId){
+        Cursor c=db.getReadableDatabase().query("signal_threads",new String[]{"kind"},"id=?",new String[]{String.valueOf(threadId)},null,null,null,"1");
+        try{if(!c.moveToFirst())return false;String kind=c.getString(0);return "communication".equals(kind)||"email".equals(kind);}finally{c.close();}
+    }
+    private static boolean communicationLike(MasterRelevanceFilter.Signal s){
+        if(s==null)return false;String src=s.source==null?"":s.source.toLowerCase(java.util.Locale.ROOT);
+        if(src.contains("whatsapp")||src.contains("telegram")||src.contains("messenger")||src.contains("messaging")||src.contains("messages")||src.contains("signal")||src.contains("sms")||src.contains("gmail")||src.contains("outlook")||src.contains("mail")||src.contains("slack")||src.contains("teams")||src.contains("discord"))return true;
+        try{String kind=new JSONObject(s.metadataJson==null?"":s.metadataJson).optString("notification_kind","").toLowerCase(java.util.Locale.ROOT);return "message".equals(kind)||"email".equals(kind);}catch(Throwable ignored){return false;}
     }
 
     /**
@@ -119,8 +134,10 @@ public final class RawSignalStore {
             long threadId,
             MasterRelevanceFilter.Signal s,
             MasterRelevanceFilter.Decision d,
-            boolean createDerived) {
+            boolean createDerived,
+            String policyVersion) {
         try {
+            String policy=(policyVersion==null||policyVersion.trim().isEmpty())?(createDerived?FAST_POLICY:THREAD_POLICY):policyVersion.trim();
             JSONObject meta = new JSONObject();
             meta.put("raw_signal_id", signalId);
             if (threadId > 0) meta.put("thread_id", threadId);
@@ -129,7 +146,7 @@ public final class RawSignalStore {
             meta.put("relevance_disposition", d.disposition.name());
             meta.put("importance", d.importance);
             meta.put("filter_reason", d.reason);
-            meta.put("policy_version", createDerived ? FAST_POLICY : "thread_authority");
+            meta.put("policy_version", policy);
             if (!s.metadataJson.isEmpty()) meta.put("source_metadata", new JSONObject(s.metadataJson));
 
             String title = s.title.isEmpty() ? friendlyTitle(s) : s.title;
@@ -160,7 +177,7 @@ public final class RawSignalStore {
                         itemId,
                         "promoted_to",
                         1.0,
-                        "{\"policy\":\"" + (createDerived ? FAST_POLICY : "thread_authority") + "\"}");
+                        "{\"policy\":\"" + policy + "\"}");
                 if (threadId > 0) {
                     CognitiveStore.link(db, "memory", itemId, "thread", threadId, "from_thread", 1.0, "");
                 }
