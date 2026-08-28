@@ -6,6 +6,7 @@ BUILD_LOG="$REPO_DIR/termux-build-last.log"
 BUILD_LOG_OUT="/sdcard/Download/Cortex-build-last.log"
 CLEAN_BUILD="${CORTEX_CLEAN_BUILD:-0}"
 AUTO_INSTALL="${CORTEX_AUTO_INSTALL:-0}"
+EXPECTED_CERT_SHA256="5c6550a070abe477dcad5f23f3f437e183bff8aeaeb6ac52e1beaa8243ee69a7"
 AUTO_STASH_NAME="cortex-prebuild-$(date +%Y%m%d-%H%M%S)"
 AUTO_STASHED=0
 
@@ -58,6 +59,11 @@ AAPT_PROP="android.aapt2FromMavenOverride=$PREFIX/bin/aapt2"
 touch "$HOME/.gradle/gradle.properties"
 if grep -q '^android.aapt2FromMavenOverride=' "$HOME/.gradle/gradle.properties"; then sed -i "s|^android.aapt2FromMavenOverride=.*|$AAPT_PROP|" "$HOME/.gradle/gradle.properties"; else printf '%s\n' "$AAPT_PROP" >> "$HOME/.gradle/gradle.properties"; fi
 
+APKSIGNER="${APKSIGNER:-}"
+if [ -z "$APKSIGNER" ]; then APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner 2>/dev/null | sort -V | tail -n1 || true)"; fi
+if [ -z "$APKSIGNER" ]; then APKSIGNER="$(command -v apksigner 2>/dev/null || true)"; fi
+[ -n "$APKSIGNER" ] && [ -x "$APKSIGNER" ] || fail "apksigner not found; signer verification is mandatory"
+
 VERSION_NAME="$(sed -nE "s/^[[:space:]]*versionName[[:space:]]+['\"]([^'\"]+)['\"].*/\1/p" app/build.gradle | head -n 1)"
 [ -n "$VERSION_NAME" ] || VERSION_NAME="debug"
 APK_SRC="$REPO_DIR/app/build/outputs/apk/debug/app-debug.apk"
@@ -95,6 +101,13 @@ if [ "$BUILD_RC" -ne 0 ]; then
 fi
 
 [ -f "$APK_SRC" ] || fail "Build finished but APK was not found at $APK_SRC"
+log "Verifying permanent Cortex signer"
+VERIFY_OUTPUT="$($APKSIGNER verify --verbose --print-certs "$APK_SRC")"
+printf '%s\n' "$VERIFY_OUTPUT"
+ACTUAL_CERT_SHA256="$(printf '%s\n' "$VERIFY_OUTPUT" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -n1 | tr -d ':[:space:]' | tr '[:upper:]' '[:lower:]')"
+[ "$ACTUAL_CERT_SHA256" = "$EXPECTED_CERT_SHA256" ] || fail "Unexpected Cortex signer. Expected $EXPECTED_CERT_SHA256, got ${ACTUAL_CERT_SHA256:-<missing>}. No install attempted."
+printf 'Permanent Cortex signer verified: %s\n' "$ACTUAL_CERT_SHA256"
+
 log "Copying APK to Downloads"
 cp -f "$APK_SRC" "$APK_OUT"
 sha256sum "$APK_OUT" | tee "$APK_OUT.sha256"
@@ -103,8 +116,11 @@ printf 'APK: %s\n' "$APK_OUT"
 
 if [ "$AUTO_INSTALL" = "1" ]; then
   if command -v rish >/dev/null 2>&1; then
-    log "Installing APK through Shizuku/rish"
-    rish -c "cp '$APK_OUT' '$INSTALL_TMP' && chmod 644 '$INSTALL_TMP' && pm install -r '$INSTALL_TMP'"
+    log "Installing APK update-in-place through Shizuku/rish"
+    INSTALL_OUT="$(rish -c "cp '$APK_OUT' '$INSTALL_TMP' && chmod 644 '$INSTALL_TMP' && pm install -r '$INSTALL_TMP'; rc=\$?; rm -f '$INSTALL_TMP'; exit \$rc" 2>&1)" || { printf '%s\n' "$INSTALL_OUT"; fail "Cortex update-in-place failed; existing app was not uninstalled"; }
+    printf '%s\n' "$INSTALL_OUT"
+    printf '%s\n' "$INSTALL_OUT" | grep -q 'Success' || fail "PackageManager did not report Success"
+    printf 'CORTEX_UPDATE_SUCCESS\n'
   else
     printf 'CORTEX_AUTO_INSTALL=1 requested, but rish is not available. APK is ready in Downloads.\n' >&2
   fi
