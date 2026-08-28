@@ -72,13 +72,14 @@ if [ "$CLEAN_BUILD" = "1" ]; then
   rm -rf "$REPO_DIR/app/build" "$REPO_DIR/build"
 fi
 log "Building Cortex ${VERSION_NAME} from $TARGET_REF"
+log "Compile gate: debug APK + instrumented-test Java sources"
 rm -f "$BUILD_LOG"
 set +e
 if [ -x ./gradlew ]; then
-  if [ "$CLEAN_BUILD" = "1" ]; then ./gradlew :app:clean :app:assembleDebug --stacktrace --console=plain 2>&1 | tee "$BUILD_LOG"; else ./gradlew :app:assembleDebug --stacktrace --console=plain 2>&1 | tee "$BUILD_LOG"; fi
+  if [ "$CLEAN_BUILD" = "1" ]; then ./gradlew :app:clean :app:assembleDebug :app:compileDebugAndroidTestJavaWithJavac --stacktrace --console=plain 2>&1 | tee "$BUILD_LOG"; else ./gradlew :app:assembleDebug :app:compileDebugAndroidTestJavaWithJavac --stacktrace --console=plain 2>&1 | tee "$BUILD_LOG"; fi
   BUILD_RC=${PIPESTATUS[0]}
 else
-  if [ "$CLEAN_BUILD" = "1" ]; then gradle :app:clean :app:assembleDebug --stacktrace --console=plain 2>&1 | tee "$BUILD_LOG"; else gradle :app:assembleDebug --stacktrace --console=plain 2>&1 | tee "$BUILD_LOG"; fi
+  if [ "$CLEAN_BUILD" = "1" ]; then gradle :app:clean :app:assembleDebug :app:compileDebugAndroidTestJavaWithJavac --stacktrace --console=plain 2>&1 | tee "$BUILD_LOG"; else gradle :app:assembleDebug :app:compileDebugAndroidTestJavaWithJavac --stacktrace --console=plain 2>&1 | tee "$BUILD_LOG"; fi
   BUILD_RC=${PIPESTATUS[0]}
 fi
 set -e
