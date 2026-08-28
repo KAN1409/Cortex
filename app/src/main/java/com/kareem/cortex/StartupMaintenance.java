@@ -28,6 +28,9 @@ public final class StartupMaintenance {
         VaultDb db=null;
         try{
             db=new VaultDb(context);
+            // V4 schema creation is a startup invariant and must not depend on WorkManager constraints.
+            // Backfill remains bounded/background work, but canonical tables must exist once Cortex opens.
+            CognitiveStoreV4.ensure(db);
             CognitiveSchema.ensure(db.getWritableDatabase());
             RelevanceDecisionStatusStore.ensure(db);
             AttentionAdjudicationStore.ensure(db);
