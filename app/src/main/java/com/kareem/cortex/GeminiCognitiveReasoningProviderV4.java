@@ -3,6 +3,7 @@ package com.kareem.cortex;
 import android.content.Context;
 import android.os.SystemClock;
 import org.json.JSONArray;
+import org.json.JSONException;
 import org.json.JSONObject;
 import java.io.BufferedReader;
 import java.io.InputStream;
@@ -35,13 +36,13 @@ public final class GeminiCognitiveReasoningProviderV4 implements CognitiveReason
     private static void requireArray(JSONObject json,String key){if(json.optJSONArray(key)==null)throw new IllegalArgumentException("Gemini response missing "+key);}
 
     /** Current Gemini structured-output transport. Cortex validation remains authoritative. */
-    static JSONObject generationConfig(){
+    static JSONObject generationConfig()throws JSONException{
         JSONObject text=new JSONObject().put("mimeType","application/json").put("schema",responseSchema());
         return new JSONObject().put("maxOutputTokens",4096).put("responseFormat",new JSONObject().put("text",text));
     }
 
     /** JSON Schema constrains transport shape; Cortex still performs grounding/state/action validation. */
-    static JSONObject responseSchema(){
+    static JSONObject responseSchema()throws JSONException{
         JSONObject idArray=arrayOf(type("string"),12);
         JSONObject priorityItem=object(
                 new JSONObject().put("rank",type("integer")).put("title",type("string")).put("reason",type("string")).put("attention_score",number01())
@@ -70,11 +71,11 @@ public final class GeminiCognitiveReasoningProviderV4 implements CognitiveReason
                         .put("suggested_actions",arrayOf(action,20)).put("reasoning_blocks",arrayOf(reasoning,20)),
                 "request_id","answer","priority_items","priority_updates","suggested_actions","reasoning_blocks");
     }
-    private static JSONObject object(JSONObject properties,String...required){JSONObject o=new JSONObject().put("type","object").put("properties",properties).put("additionalProperties",false);JSONArray a=new JSONArray();for(String x:required)a.put(x);return o.put("required",a);}
-    private static JSONObject arrayOf(JSONObject item,int max){return new JSONObject().put("type","array").put("items",item).put("maxItems",max);}
-    private static JSONObject type(String type){return new JSONObject().put("type",type);}
-    private static JSONObject number01(){return new JSONObject().put("type","number").put("minimum",0).put("maximum",1);}
-    private static JSONObject enumString(String...values){JSONArray a=new JSONArray();for(String x:values)a.put(x);return new JSONObject().put("type","string").put("enum",a);}
+    private static JSONObject object(JSONObject properties,String...required)throws JSONException{JSONObject o=new JSONObject().put("type","object").put("properties",properties).put("additionalProperties",false);JSONArray a=new JSONArray();for(String x:required)a.put(x);return o.put("required",a);}
+    private static JSONObject arrayOf(JSONObject item,int max)throws JSONException{return new JSONObject().put("type","array").put("items",item).put("maxItems",max);}
+    private static JSONObject type(String type)throws JSONException{return new JSONObject().put("type",type);}
+    private static JSONObject number01()throws JSONException{return new JSONObject().put("type","number").put("minimum",0).put("maximum",1);}
+    private static JSONObject enumString(String...values)throws JSONException{JSONArray a=new JSONArray();for(String x:values)a.put(x);return new JSONObject().put("type","string").put("enum",a);}
 
     private static String prompt(CognitiveDeepBrainPacketBuilderV4.Packet p){
         return "You are the autonomous Deep Brain inside Cortex. Use only the grounded Cortex JSON below for claims about the user's history. Think deeply about what needs attention now, why, and what should happen next. Never invent events, IDs, facts, completion, or resolution. Treat attention_score as live current attention and canonical_attention_score as the durable baseline. Reconsider anything with new_since_deep_brain=true. connector_enriched=true means trusted Second Brain context is available but does not by itself prove urgency.\n\n"+
