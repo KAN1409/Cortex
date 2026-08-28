@@ -31,7 +31,7 @@ public final class CognitiveDeepBrainApplyV4 {
         Set<String> allowedMemories = new HashSet<>(request.memoryIds);
         Set<String> allowedWorlds = new HashSet<>(request.worldIds);
         long now = System.currentTimeMillis();
-        int rankedStored = 0, prioritiesApplied = 0, actionsCreated = 0, skipped = 0;
+        int rankedStored = 0, prioritiesApplied = 0, actionsCreated = 0, skipped = 0, actionsSuperseded = 0;
         sql.beginTransaction();
         try {
             // A successfully validated newer reasoning pass is authoritative for ranking freshness,
@@ -39,6 +39,10 @@ public final class CognitiveDeepBrainApplyV4 {
             // empty/new response would leave an older ranking ACTIVE forever and Pulse would keep
             // presenting stale model judgement as current.
             CognitiveDeepBrainStoreV4.supersedeActivePriorities(sql,now);
+            // Suggested actions are projections of one reasoning pass, not durable facts. A newer
+            // applied pass supersedes still-unaccepted ChatGPT proposals; user/local actions are not
+            // touched, and already executed/completed actions are never rewritten here.
+            actionsSuperseded=supersedePriorDeepBrainActions(sql,now);
 
             JSONArray ranked = CognitiveDeepBrainProtocolV4.array(response.json, "priority_items");
             for (int i = 0; i < ranked.length(); i++) {
@@ -97,13 +101,14 @@ public final class CognitiveDeepBrainApplyV4 {
             }
 
             JSONObject summary = new JSONObject();
-            try { summary.put("ranked_priorities_stored",rankedStored);summary.put("priority_updates_applied",prioritiesApplied);summary.put("actions_created",actionsCreated);summary.put("skipped",skipped); } catch(Throwable ignored){}
+            try { summary.put("ranked_priorities_stored",rankedStored);summary.put("priority_updates_applied",prioritiesApplied);summary.put("actions_created",actionsCreated);summary.put("actions_superseded",actionsSuperseded);summary.put("skipped",skipped); } catch(Throwable ignored){}
             String responseId = CognitiveIdentityV4.objectId("brr", "deep-brain-response|" + response.requestId + "|" + Fingerprint.text(response.raw));
             CognitiveDeepBrainStoreV4.saveResponse(sql,responseId,response,summary.toString(),now); CognitiveDeepBrainStoreV4.markApplied(sql,response.requestId,now); sql.setTransactionSuccessful();
         } finally { sql.endTransaction(); }
         return new Result(response.requestId,response.answer,rankedStored,prioritiesApplied,actionsCreated,skipped,false);
     }
 
+    private static int supersedePriorDeepBrainActions(SQLiteDatabase sql,long when){ContentValues v=new ContentValues();v.put("state","SUPERSEDED");v.put("updated_at",when);return sql.update("v4_action_proposals",v,"state='PROPOSED' AND payload_json LIKE ?",new String[]{"%\"origin\":\"chatgpt_plus_share\"%"});}
     private static SituationSnapshot snapshot(SQLiteDatabase sql,String id){Cursor c=sql.rawQuery("SELECT state,attention_score,interruption_score FROM v4_situations WHERE id=? LIMIT 1",new String[]{id});try{return c.moveToFirst()?new SituationSnapshot(c.getString(0),c.getDouble(1),c.getDouble(2)):null;}finally{c.close();}}
     private static List<String> allowedIds(SQLiteDatabase sql,String table,JSONArray raw,Set<String> allowed){ArrayList<String>out=new ArrayList<>();if(raw==null)return out;for(int i=0;i<raw.length()&&out.size()<12;i++){String id=clean(raw.optString(i,""));if(!id.isEmpty()&&allowed.contains(id)&&exists(sql,table,id)&&!out.contains(id))out.add(id);}return out;}
     private static boolean safeSituationState(String state) { return "DETECTED".equals(state)||"RELEVANT".equals(state)||"SURFACED".equals(state)||"DEFERRED".equals(state)||"WAITING".equals(state); }
