@@ -18,69 +18,74 @@ public final class CognitiveBridgeStatusV4 {
             CortexLocalBusStoreV1.ensure(db);
             CognitiveDeepBrainStoreV4.ensure(db);
             CognitiveStoreV4.ensure(db);
-            SQLiteDatabase sql = db.getReadableDatabase();
-
-            boolean secondBrainSeen = false;
-            long secondBrainLastSeenAt = 0L, secondBrainLastEventAt = 0L;
-            int accepted = 0, rejected = 0;
-            Cursor client = sql.rawQuery(
-                    "SELECT last_seen_at,last_event_at,accepted_events,rejected_events " +
-                    "FROM connector_clients WHERE connector_id='second_brain' LIMIT 1", null);
-            try {
-                if (client.moveToFirst()) {
-                    secondBrainSeen = true;
-                    secondBrainLastSeenAt = client.getLong(0);
-                    secondBrainLastEventAt = client.getLong(1);
-                    accepted = client.getInt(2);
-                    rejected = client.getInt(3);
-                }
-            } finally { client.close(); }
-
-            String latestSource = "", latestEventId = "";
-            long latestOccurredAt = 0L, latestReceivedAt = 0L, latestSignalId = 0L;
-            Cursor event = sql.rawQuery(
-                    "SELECT event_id,source_package,occurred_at,received_at,signal_id " +
-                    "FROM connector_ingest_events WHERE connector_id='second_brain' AND state='ACCEPTED' " +
-                    "ORDER BY received_at DESC,event_id DESC LIMIT 1", null);
-            try {
-                if (event.moveToFirst()) {
-                    latestEventId = n(event.getString(0));
-                    latestSource = n(event.getString(1));
-                    latestOccurredAt = event.getLong(2);
-                    latestReceivedAt = event.getLong(3);
-                    latestSignalId = event.getLong(4);
-                }
-            } finally { event.close(); }
-
-            int enrichedEvidence = scalarInt(sql,
-                    "SELECT COUNT(DISTINCT evidence_id) FROM v4_evidence_analysis " +
-                    "WHERE analysis_kind='CONNECTOR_ENRICHMENT' AND engine='local_bus:second_brain'");
-            int enrichedSituations = scalarInt(sql,
-                    "SELECT COUNT(*) FROM v4_situations s WHERE s.state NOT IN ('RESOLVED','CANCELLED','DISMISSED') " +
-                    "AND EXISTS (SELECT 1 FROM v4_provenance sp " +
-                    "JOIN v4_memory_evidence me ON me.memory_id=sp.source_id " +
-                    "JOIN v4_evidence_analysis ea ON ea.evidence_id=me.evidence_id " +
-                    "AND ea.analysis_kind='CONNECTOR_ENRICHMENT' AND ea.engine='local_bus:second_brain' " +
-                    "WHERE sp.object_type='SITUATION' AND sp.object_id=s.id AND sp.source_type='MEMORY')");
-
-            long latestAppliedAt = scalarLong(sql,
-                    "SELECT COALESCE(MAX(applied_at),0) FROM v4_deep_brain_requests " +
-                    "WHERE state='APPLIED' AND applied_at>0");
-            int activePriorities = scalarInt(sql,
-                    "SELECT COUNT(*) FROM v4_deep_brain_priority_items WHERE state='ACTIVE'");
-            int activeActions = scalarInt(sql,
-                    "SELECT COUNT(*) FROM v4_action_proposals WHERE state='PROPOSED' " +
-                    "AND payload_json LIKE '%\"origin\":\"chatgpt_plus_share\"%'");
-            CognitiveReasoningFreshnessV4.Snapshot freshness = CognitiveReasoningFreshnessV4.current(db);
-
-            return new Snapshot(secondBrainSeen, secondBrainLastSeenAt, secondBrainLastEventAt,
-                    accepted, rejected, latestEventId, latestSource, latestOccurredAt,
-                    latestReceivedAt, latestSignalId, enrichedEvidence, enrichedSituations,
-                    latestAppliedAt, activePriorities, activeActions,
-                    freshness == null ? 0 : freshness.newOpenSituations);
+            return read(db.getReadableDatabase());
         } catch (Throwable ignored) {
             return Snapshot.empty();
         }
+    }
+
+    /** Package-visible pure database projection used by regression tests. Schema must already exist. */
+    static Snapshot read(SQLiteDatabase sql) {
+        if (sql == null) return Snapshot.empty();
+        boolean secondBrainSeen = false;
+        long secondBrainLastSeenAt = 0L, secondBrainLastEventAt = 0L;
+        int accepted = 0, rejected = 0;
+        Cursor client = sql.rawQuery(
+                "SELECT last_seen_at,last_event_at,accepted_events,rejected_events " +
+                "FROM connector_clients WHERE connector_id='second_brain' LIMIT 1", null);
+        try {
+            if (client.moveToFirst()) {
+                secondBrainSeen = true;
+                secondBrainLastSeenAt = client.getLong(0);
+                secondBrainLastEventAt = client.getLong(1);
+                accepted = client.getInt(2);
+                rejected = client.getInt(3);
+            }
+        } finally { client.close(); }
+
+        String latestSource = "", latestEventId = "";
+        long latestOccurredAt = 0L, latestReceivedAt = 0L, latestSignalId = 0L;
+        Cursor event = sql.rawQuery(
+                "SELECT event_id,source_package,occurred_at,received_at,signal_id " +
+                "FROM connector_ingest_events WHERE connector_id='second_brain' AND state='ACCEPTED' " +
+                "ORDER BY received_at DESC,event_id DESC LIMIT 1", null);
+        try {
+            if (event.moveToFirst()) {
+                latestEventId = n(event.getString(0));
+                latestSource = n(event.getString(1));
+                latestOccurredAt = event.getLong(2);
+                latestReceivedAt = event.getLong(3);
+                latestSignalId = event.getLong(4);
+            }
+        } finally { event.close(); }
+
+        int enrichedEvidence = scalarInt(sql,
+                "SELECT COUNT(DISTINCT evidence_id) FROM v4_evidence_analysis " +
+                "WHERE analysis_kind='CONNECTOR_ENRICHMENT' AND engine='local_bus:second_brain'");
+        int enrichedSituations = scalarInt(sql,
+                "SELECT COUNT(*) FROM v4_situations s WHERE s.state NOT IN ('RESOLVED','CANCELLED','DISMISSED') " +
+                "AND EXISTS (SELECT 1 FROM v4_provenance sp " +
+                "JOIN v4_memory_evidence me ON me.memory_id=sp.source_id " +
+                "JOIN v4_evidence_analysis ea ON ea.evidence_id=me.evidence_id " +
+                "AND ea.analysis_kind='CONNECTOR_ENRICHMENT' AND ea.engine='local_bus:second_brain' " +
+                "WHERE sp.object_type='SITUATION' AND sp.object_id=s.id AND sp.source_type='MEMORY')");
+
+        long latestAppliedAt = scalarLong(sql,
+                "SELECT COALESCE(MAX(applied_at),0) FROM v4_deep_brain_requests " +
+                "WHERE state='APPLIED' AND applied_at>0");
+        int activePriorities = scalarInt(sql,
+                "SELECT COUNT(*) FROM v4_deep_brain_priority_items WHERE state='ACTIVE'");
+        int activeActions = scalarInt(sql,
+                "SELECT COUNT(*) FROM v4_action_proposals WHERE state='PROPOSED' " +
+                "AND payload_json LIKE '%\"origin\":\"chatgpt_plus_share\"%'");
+        int newOpen = latestAppliedAt > 0
+                ? scalarInt(sql,"SELECT COUNT(*) FROM v4_situations WHERE state NOT IN ('RESOLVED','CANCELLED','DISMISSED') AND updated_at>"+latestAppliedAt)
+                : scalarInt(sql,"SELECT COUNT(*) FROM v4_situations WHERE state NOT IN ('RESOLVED','CANCELLED','DISMISSED')");
+
+        return new Snapshot(secondBrainSeen, secondBrainLastSeenAt, secondBrainLastEventAt,
+                accepted, rejected, latestEventId, latestSource, latestOccurredAt,
+                latestReceivedAt, latestSignalId, enrichedEvidence, enrichedSituations,
+                latestAppliedAt, activePriorities, activeActions, newOpen);
     }
 
     private static int scalarInt(SQLiteDatabase sql, String query) {
