@@ -9,10 +9,41 @@ import org.json.JSONObject;
  */
 public final class CognitiveSignalV2 {
     public enum SignalFamily { COMMUNICATION, EVENT, CONTENT, TRANSACTION, SECURITY, DELIVERY, SOCIAL, SYSTEM, UNKNOWN }
-    public enum CognitiveState { PENDING_ADJUDICATION, IGNORED_NOISE, CONTEXT_ONLY, DERIVED, REVIEW_REQUIRED, SENSITIVE_BLOCKED, MODEL_FAILED, SUPERSEDED }
+    public enum CognitiveState {
+        LOCAL_QUEUED,
+        LOCAL_RUNNING,
+        DEEP_QUEUED,
+        IGNORED_NOISE,
+        CONTEXT_ONLY,
+        DERIVED,
+        REVIEW_REQUIRED,
+        SENSITIVE_BLOCKED,
+        MODEL_FAILED,
+        SUPERSEDED,
+        /** Legacy migration alias only. New writes must use LOCAL_QUEUED/LOCAL_RUNNING. */
+        PENDING_ADJUDICATION
+    }
     public enum Kind { ACTION, WAITING, DECISION, EVENT, CONTENT, MESSAGE, REMINDER, INSIGHT, MEMORY }
 
     private CognitiveSignalV2() {}
+
+    public static boolean awaitingAdjudication(String state){
+        String x=n(state).toUpperCase(Locale.ROOT);
+        return x.equals(CognitiveState.LOCAL_QUEUED.name())
+                ||x.equals(CognitiveState.LOCAL_RUNNING.name())
+                ||x.equals(CognitiveState.DEEP_QUEUED.name())
+                ||x.equals(CognitiveState.PENDING_ADJUDICATION.name());
+    }
+
+    public static boolean terminal(String state){
+        String x=n(state).toUpperCase(Locale.ROOT);
+        return x.equals(CognitiveState.IGNORED_NOISE.name())
+                ||x.equals(CognitiveState.CONTEXT_ONLY.name())
+                ||x.equals(CognitiveState.DERIVED.name())
+                ||x.equals(CognitiveState.REVIEW_REQUIRED.name())
+                ||x.equals(CognitiveState.SENSITIVE_BLOCKED.name())
+                ||x.equals(CognitiveState.SUPERSEDED.name());
+    }
 
     public static SignalFamily classify(MasterRelevanceFilter.Signal signal) {
         if (signal == null) return SignalFamily.UNKNOWN;
