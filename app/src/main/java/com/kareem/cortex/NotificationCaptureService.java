@@ -28,7 +28,8 @@ public class NotificationCaptureService extends NotificationListenerService {
                 NotificationEnrichmentEngine.enrich(db,signalId,itemId,threadId,signal);
                 long personEntityId=CanonicalPersonResolver.resolveSignal(db,signalId,normalized,meta);
                 CrossSourceSituationStitcher.stitchSignal(db,signalId,personEntityId);
-                if(CognitiveSignalV2.CognitiveState.PENDING_ADJUDICATION.name().equals(RawSignalStore.cognitiveState(db,signalId)))
+                String state=RawSignalStore.cognitiveState(db,signalId);
+                if(CognitiveFeatureFlags.enabled(this)&&CognitiveSignalV2.awaitingAdjudication(state))
                     CognitiveAdjudicatorV2.enqueue(this,threadId,signalId);
             }
             // Compatibility projection only for pre-V2/already-promoted rows. New V2 notifications
