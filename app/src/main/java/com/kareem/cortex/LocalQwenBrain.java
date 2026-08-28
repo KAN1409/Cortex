@@ -7,6 +7,13 @@ public final class LocalQwenBrain implements CortexBrain {
     private final Context app;
     public LocalQwenBrain(Context context){this.app=context==null?null:context.getApplicationContext();}
 
+    @Override public CognitiveResult classify(CognitiveInput input)throws BrainException{
+        BrainCompletion completion=run(new BrainRequest(CognitivePromptBuilder.system(),CognitivePromptBuilder.build(input),LocalBrainConfig.MAX_OUTPUT_TOKENS));
+        CognitiveResultParser.Outcome parsed=CognitiveResultParser.parse(completion.text);if(!parsed.valid())throw new BrainException("LOCAL_INVALID_JSON",parsed.status+": "+parsed.error);
+        CognitiveResultValidator.Outcome validated=CognitiveResultValidator.validate(input,parsed.result);if(!validated.valid())throw new BrainException("LOCAL_INVALID_RESULT",validated.error);
+        return validated.result;
+    }
+
     @Override public BrainCompletion classify(BrainRequest input)throws BrainException{return run(input);}
     @Override public BrainCompletion synthesizePulse(BrainRequest input)throws BrainException{return run(input);}
     @Override public BrainCompletion answer(BrainRequest input)throws BrainException{return run(input);}
