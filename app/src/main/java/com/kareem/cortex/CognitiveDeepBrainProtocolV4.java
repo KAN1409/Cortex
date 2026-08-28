@@ -10,11 +10,18 @@ public final class CognitiveDeepBrainProtocolV4 {
     public static final String RESPONSE_MARKER = "CORTEX_RESPONSE_V1";
     private CognitiveDeepBrainProtocolV4() {}
 
+    private static final String FRESHNESS_RULES =
+            "Treat attention_score as Cortex's live current score and canonical_attention_score as the durable baseline when both are present. " +
+            "A situation with new_since_deep_brain=true changed after the last applied ChatGPT pass and must be reconsidered rather than inheriting an older ranking by inertia. " +
+            "connector_enriched=true means trusted Second Brain evidence added richer captured context; use the supplied grounded text/IDs, but do not treat the connector label itself as proof of urgency. " +
+            "If the current evidence supports no model-ranked priorities, return an empty priority_items array; Cortex will retire the previous model ranking. ";
+
     public static String buildShareText(String requestId, String question, JSONObject context) {
         StringBuilder b = new StringBuilder();
         b.append(CONTEXT_MARKER).append('\n');
         b.append("You are Cortex Deep Brain. Use only the grounded Cortex context below for claims about the user's history. ");
-        b.append("Reason deeply about priority, meaning, planning and next actions. Do not invent events or mark anything resolved.\n\n");
+        b.append("Reason deeply about priority, meaning, planning and next actions. Do not invent events or mark anything resolved. ");
+        b.append(FRESHNESS_RULES).append("\n\n");
         b.append("QUESTION:\n").append(question == null ? "" : question.trim()).append("\n\n");
         b.append("RETURN FORMAT (important):\n");
         b.append("Return a short natural-language answer inside the JSON field 'answer', but the complete response must contain the marker ")
@@ -23,7 +30,7 @@ public final class CognitiveDeepBrainProtocolV4 {
         b.append("Always return priority_items as the best current ranked list when the context supports priorities. Each item must cite at least one allowed situation_id, memory_id or world_id.\n");
         b.append("When a supplied situation already represents the issue, prefer its situation_id in priority_items, emit a priority_update for it, and attach suggested actions to it. Use memory-only priorities when no supplied situation fits.\n");
         b.append("Allowed priority states: DETECTED, RELEVANT, SURFACED, DEFERRED, WAITING. Never RESOLVED/CANCELLED/DISMISSED.\n");
-        b.append("Suggested actions are proposals only; do not claim they were executed.\n\n");
+        b.append("Suggested actions are proposals only; do not claim they were executed. Do not repeat an older suggestion merely because it existed before; propose what is useful for this current pass.\n\n");
         b.append("Example schema:\n");
         b.append(RESPONSE_MARKER).append('\n');
         b.append("{\"request_id\":\"").append(escape(requestId)).append("\",\"answer\":\"...\",\"priority_items\":[{\"rank\":1,\"title\":\"...\",\"reason\":\"...\",\"attention_score\":0.95,\"situation_id\":\"si_...\",\"memory_ids\":[\"mem_...\"],\"world_ids\":[\"wo_...\"]}],\"priority_updates\":[{\"situation_id\":\"si_...\",\"attention_score\":0.9,\"interruption_score\":0.5,\"state\":\"RELEVANT\",\"reason\":\"...\"}],\"suggested_actions\":[{\"situation_id\":\"si_...\",\"world_id\":\"wo_...\",\"type\":\"REPLY\",\"label\":\"...\",\"risk\":\"CONFIRMATION_REQUIRED\",\"payload\":{}}],\"reasoning_blocks\":[{\"type\":\"INFERENCE\",\"grounding\":\"INFERRED\",\"text\":\"...\",\"evidence_ids\":[],\"memory_ids\":[],\"fact_ids\":[]}]}\n\n");
@@ -36,6 +43,7 @@ public final class CognitiveDeepBrainProtocolV4 {
         StringBuilder b=new StringBuilder();
         b.append(COMPACT_MARKER).append('\n');
         b.append("Act as Cortex Deep Brain. Use only IDs/data in JSON. Rank what needs attention, explain why, and propose next actions. Do not invent history or mark anything resolved. ");
+        b.append(FRESHNESS_RULES);
         b.append("Return ").append(RESPONSE_MARKER).append(" then one JSON object with request_id, answer, priority_items, priority_updates, suggested_actions, reasoning_blocks. ");
         b.append("Prefer supplied situation_id values whenever a situation already represents the issue; update those situations and attach actions to them. Use memory-only priority items only when no supplied situation fits. ");
         b.append("Every priority item must cite at least one situation_id, memory_id or world_id present below. Allowed states: DETECTED, RELEVANT, SURFACED, DEFERRED, WAITING. Actions are proposals only.\n");
@@ -50,7 +58,7 @@ public final class CognitiveDeepBrainProtocolV4 {
             file.put("protocol","CORTEX_DEEP_BRAIN_FILE_V1");
             file.put("request_id",requestId==null?"":requestId);
             file.put("question",question==null?"":question.trim());
-            file.put("instructions","Act as Cortex Deep Brain. Use only IDs/data in context. Rank what needs attention, explain why, and propose next actions. Do not invent history or mark anything resolved. Return CORTEX_RESPONSE_V1 followed by one JSON object with request_id, answer, priority_items, priority_updates, suggested_actions, reasoning_blocks. Prefer supplied situation_id values whenever a situation already represents the issue; update those situations and attach actions to them. Use memory-only priority items only when no supplied situation fits. Every priority item must cite at least one situation_id, memory_id or world_id present in context. Allowed states: DETECTED, RELEVANT, SURFACED, DEFERRED, WAITING. Actions are proposals only.");
+            file.put("instructions","Act as Cortex Deep Brain. Use only IDs/data in context. Rank what needs attention, explain why, and propose next actions. Do not invent history or mark anything resolved. "+FRESHNESS_RULES+"Return CORTEX_RESPONSE_V1 followed by one JSON object with request_id, answer, priority_items, priority_updates, suggested_actions, reasoning_blocks. Prefer supplied situation_id values whenever a situation already represents the issue; update those situations and attach actions to them. Use memory-only priority items only when no supplied situation fits. Every priority item must cite at least one situation_id, memory_id or world_id present in context. Allowed states: DETECTED, RELEVANT, SURFACED, DEFERRED, WAITING. Actions are proposals only.");
             file.put("context",compactContext==null?new JSONObject():compactContext);
             return file.toString();
         } catch(Throwable e) { throw new IllegalStateException("Could not build Deep Brain JSON file",e); }
