@@ -16,9 +16,13 @@ public final class CognitiveWorldCandidateExtractorV4 {
 
     public static List<CognitiveWorldResolverV4.Candidate> fromMemory(VaultDb db, String memoryId) {
         if (db == null) throw new IllegalArgumentException("db required");
-        if (memoryId == null || memoryId.trim().isEmpty()) throw new IllegalArgumentException("memoryId required");
         CognitiveStoreV4.ensure(db);
-        SQLiteDatabase sql = db.getReadableDatabase();
+        return fromMemory(db.getReadableDatabase(), memoryId);
+    }
+
+    static List<CognitiveWorldResolverV4.Candidate> fromMemory(SQLiteDatabase sql, String memoryId) {
+        if (sql == null) throw new IllegalArgumentException("db required");
+        if (memoryId == null || memoryId.trim().isEmpty()) throw new IllegalArgumentException("memoryId required");
         ArrayList<CognitiveWorldResolverV4.Candidate> out = new ArrayList<>();
         Cursor c = sql.rawQuery(
                 "SELECT e.id,e.metadata_json,e.occurred_at,e.source_package FROM v4_memory_evidence me " +
