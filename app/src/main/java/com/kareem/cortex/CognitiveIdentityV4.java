@@ -71,6 +71,10 @@ public final class CognitiveIdentityV4 {
             this.evidenceId = evidenceId == null ? "" : evidenceId.trim();
             if (this.normalizedValue.isEmpty()) throw new IllegalArgumentException("claim value required");
         }
+
+        boolean durable() {
+            return userConfirmed || strength == ClaimStrength.STRONG;
+        }
     }
 
     public static final class Match {
@@ -89,15 +93,6 @@ public final class CognitiveIdentityV4 {
         }
     }
 
-    /**
-     * Stable evidence revision identity.
-     *
-     * <p>When the platform provides an external identity (notification key, capture UUID, file
-     * identity), the same external object + same content hash is the same evidence revision no
-     * matter how many callbacks are delivered. Without an external identity, bounded time buckets
-     * prevent high-volume screen/app callbacks from duplicating while avoiding permanent collapse
-     * of repeated real events.</p>
-     */
     public static String evidenceKey(
             CognitiveDomainV4.EvidenceSourceType sourceType,
             String sourcePackage,
@@ -114,13 +109,9 @@ public final class CognitiveIdentityV4 {
         if (!ext.isEmpty()) {
             return "evidence|" + sourceType.name() + "|" + pkg + "|ext:" + ext + "|hash:" + hash;
         }
-
-        // Assets are intrinsically content-addressable. Re-importing the exact bytes should reuse
-        // the same evidence asset identity unless the caller supplies an explicit external ID.
         if (isContentAddressable(sourceType) && !hash.isEmpty()) {
             return "evidence|" + sourceType.name() + "|" + pkg + "|asset:" + hash;
         }
-
         long bucket = timeBucket(sourceType, occurredAt);
         return "evidence|" + sourceType.name() + "|" + pkg + "|hash:" + hash + "|t:" + bucket;
     }
@@ -135,7 +126,7 @@ public final class CognitiveIdentityV4 {
         return objectId("ev", evidenceKey(sourceType, sourcePackage, externalId, contentHash, normalizedText, occurredAt));
     }
 
-    /** Episodes are mutable groupings; allocate their opaque ID once and persist the identity key. */
+    /** Episodes are mutable groupings; allocate their opaque ID once and persist this candidate key. */
     public static String episodeIdentityKey(
             CognitiveDomainV4.EpisodeKind kind,
             String primarySourcePackage,
@@ -149,7 +140,7 @@ public final class CognitiveIdentityV4 {
                 + "|ctx:" + context + "|t:" + bucket;
     }
 
-    /** Memory identity describes a retrievable unit, not the current title generated for it. */
+    /** Memory identity describes a retrievable unit, not its generated display title. */
     public static String memoryIdentityKey(
             CognitiveDomainV4.MemoryKind kind,
             String episodeId,
@@ -193,10 +184,8 @@ public final class CognitiveIdentityV4 {
 
     /**
      * Stable Situation identity for one unresolved reality.
-     *
-     * <p>The semantic anchor should represent the obligation/change itself, not notification copy.
-     * Long-lived kinds deliberately ignore clock time. Event-shaped kinds may add occurrenceKey
-     * (transaction ID, appointment ID, due-date bucket, etc.) so two real events are not merged.</p>
+     * Long-lived obligations ignore notification occurrence IDs; event-shaped Situations require
+     * a transaction/date/event discriminator so distinct occurrences cannot collapse forever.
      */
     public static String situationIdentityKey(
             CognitiveDomainV4.SituationKind kind,
@@ -208,9 +197,12 @@ public final class CognitiveIdentityV4 {
         String anchor = normalizeText(semanticAnchor);
         if (anchor.isEmpty()) throw new IllegalArgumentException("semanticAnchor required");
         String occurrence = normalizeText(occurrenceKey);
+        if (requiresOccurrenceDiscriminator(kind) && occurrence.isEmpty()) {
+            throw new IllegalArgumentException(kind.name() + " Situation requires occurrenceKey");
+        }
         StringBuilder b = new StringBuilder("situation|").append(kind.name())
                 .append("|world:").append(world).append("|anchor:").append(anchor);
-        if (requiresOccurrenceDiscriminator(kind) && !occurrence.isEmpty()) b.append("|event:").append(occurrence);
+        if (requiresOccurrenceDiscriminator(kind)) b.append("|event:").append(occurrence);
         return b.toString();
     }
 
@@ -222,7 +214,7 @@ public final class CognitiveIdentityV4 {
         return objectId("si", situationIdentityKey(kind, primaryWorldId, semanticAnchor, occurrenceKey));
     }
 
-    /** Conservative World matching. Exact names alone never auto-merge. */
+    /** Conservative World matching. Exact names and weak claims never authorize auto-merge. */
     public static Match matchWorlds(
             CognitiveDomainV4.WorldTypeHint leftType,
             List<IdentityClaim> leftClaims,
@@ -230,20 +222,21 @@ public final class CognitiveIdentityV4 {
             List<IdentityClaim> rightClaims) {
         List<IdentityClaim> a = leftClaims == null ? Collections.emptyList() : leftClaims;
         List<IdentityClaim> b = rightClaims == null ? Collections.emptyList() : rightClaims;
-
         Map<ClaimType, Set<String>> av = byType(a);
         Map<ClaimType, Set<String>> bv = byType(b);
 
-        // Explicit user identity is the strongest authority.
-        if (sharedUserConfirmed(a, b)) return new Match(MatchDecision.SAME, 1.0, "shared user-confirmed identity anchor");
-
-        for (ClaimType t : strongAnchorOrder(leftType, rightType)) {
-            String shared = firstShared(av.get(t), bv.get(t));
-            if (shared != null) return new Match(MatchDecision.SAME, 0.995, "shared durable " + t.name().toLowerCase(Locale.ROOT));
+        if (sharedUserConfirmed(a, b)) {
+            return new Match(MatchDecision.SAME, 1.0, "shared user-confirmed identity anchor");
         }
 
-        // A direct user key conflict is the rare case where we can say distinct deterministically.
-        if (disjointNonEmpty(av.get(ClaimType.USER_KEY), bv.get(ClaimType.USER_KEY))) {
+        for (ClaimType t : strongAnchorOrder(leftType, rightType)) {
+            String shared = firstSharedDurable(a, b, t);
+            if (shared != null) {
+                return new Match(MatchDecision.SAME, 0.995, "shared durable " + t.name().toLowerCase(Locale.ROOT));
+            }
+        }
+
+        if (disjointDurable(a, b, ClaimType.USER_KEY)) {
             return new Match(MatchDecision.DISTINCT, 0.999, "different explicit user identity keys");
         }
 
@@ -251,7 +244,7 @@ public final class CognitiveIdentityV4 {
         String reason = "no durable shared identity";
         if (firstShared(av.get(ClaimType.EMAIL), bv.get(ClaimType.EMAIL)) != null) {
             evidence = Math.max(evidence, 0.96);
-            reason = "shared email";
+            reason = "shared email without durable merge authority";
         }
         if (firstShared(av.get(ClaimType.DOMAIN), bv.get(ClaimType.DOMAIN)) != null
                 && organizationLike(leftType, rightType)) {
@@ -266,7 +259,6 @@ public final class CognitiveIdentityV4 {
             evidence = Math.max(evidence, 0.60);
             reason = "model alias similarity only";
         }
-
         return new Match(MatchDecision.POSSIBLE, evidence, reason);
     }
 
@@ -278,7 +270,7 @@ public final class CognitiveIdentityV4 {
         List<IdentityClaim> xs = claims == null ? Collections.emptyList() : new ArrayList<>(claims);
         xs.sort(Comparator.comparing((IdentityClaim c) -> c.type.name()).thenComparing(c -> c.normalizedValue));
         for (IdentityClaim c : xs) {
-            if (c.userConfirmed || c.strength == ClaimStrength.STRONG) {
+            if (c != null && c.durable()) {
                 return "world|" + type.name() + "|" + c.type.name() + ":" + c.normalizedValue;
             }
         }
@@ -415,14 +407,29 @@ public final class CognitiveIdentityV4 {
         return false;
     }
 
+    private static String firstSharedDurable(List<IdentityClaim> a, List<IdentityClaim> b, ClaimType type) {
+        for (IdentityClaim x : a) {
+            if (x == null || x.type != type || !x.durable()) continue;
+            for (IdentityClaim y : b) {
+                if (y == null || y.type != type || !y.durable()) continue;
+                if (x.normalizedValue.equals(y.normalizedValue)) return x.normalizedValue;
+            }
+        }
+        return null;
+    }
+
+    private static boolean disjointDurable(List<IdentityClaim> a, List<IdentityClaim> b, ClaimType type) {
+        HashSet<String> left = new HashSet<>();
+        HashSet<String> right = new HashSet<>();
+        for (IdentityClaim x : a) if (x != null && x.type == type && x.durable()) left.add(x.normalizedValue);
+        for (IdentityClaim y : b) if (y != null && y.type == type && y.durable()) right.add(y.normalizedValue);
+        return !left.isEmpty() && !right.isEmpty() && firstShared(left, right) == null;
+    }
+
     private static String firstShared(Set<String> a, Set<String> b) {
         if (a == null || b == null || a.isEmpty() || b.isEmpty()) return null;
         for (String x : a) if (b.contains(x)) return x;
         return null;
-    }
-
-    private static boolean disjointNonEmpty(Set<String> a, Set<String> b) {
-        return a != null && b != null && !a.isEmpty() && !b.isEmpty() && firstShared(a, b) == null;
     }
 
     private static List<String> sortedIds(List<String> ids) {
