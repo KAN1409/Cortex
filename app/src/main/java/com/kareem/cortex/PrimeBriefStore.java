@@ -6,7 +6,7 @@ import java.util.*;
 /**
  * Read model for Today. Derived relevance remains authoritative; candidates are consolidated
  * into canonical attention events before presentation so duplicate evidence cannot consume
- * multiple attention slots. Stored kind and presentation-time attentionKind are both retained.
+ * multiple attention slots. V2 EVENT/CONTENT are first-class read-model sections.
  */
 public final class PrimeBriefStore {
     private PrimeBriefStore(){}
@@ -14,6 +14,7 @@ public final class PrimeBriefStore {
         public final long id,threadId,signalId,updatedAt;
         public final String kind,attentionKind,title,body,source,state;
         public final double confidence;
+        /** V2 read paths feed deterministic priority_score here when available. */
         public final int importance,attentionScore;
         public final AttentionEngine.Band attentionBand;
         public final String whyNow;
@@ -24,16 +25,23 @@ public final class PrimeBriefStore {
         }
     }
     public static final class Snapshot {
-        public final ArrayList<KnowledgeItem> recent;public final ArrayList<Item> actions,waiting,decisions,changes,worthKnowing;public final ArrayList<ReviewQueueStore.Item> reviews;
-        Snapshot(ArrayList<KnowledgeItem> recent,ArrayList<Item>a,ArrayList<Item>w,ArrayList<Item>d,ArrayList<Item>c,ArrayList<Item>k,ArrayList<ReviewQueueStore.Item>r){this.recent=recent;actions=a;waiting=w;decisions=d;changes=c;worthKnowing=k;reviews=r;}
+        public final ArrayList<KnowledgeItem> recent;
+        public final ArrayList<Item> actions,waiting,upcoming,worthChecking,decisions,changes,worthKnowing;
+        public final ArrayList<ReviewQueueStore.Item> reviews;
+        Snapshot(ArrayList<KnowledgeItem> recent,ArrayList<Item>a,ArrayList<Item>w,ArrayList<Item>u,ArrayList<Item>check,ArrayList<Item>d,ArrayList<Item>c,ArrayList<Item>k,ArrayList<ReviewQueueStore.Item>r){this.recent=recent;actions=a;waiting=w;upcoming=u;worthChecking=check;decisions=d;changes=c;worthKnowing=k;reviews=r;}
         /** Whether the attention surface itself is clear; recent passive context must not defeat this state. */
-        public boolean attentionEmpty(){return actions.isEmpty()&&waiting.isEmpty()&&decisions.isEmpty()&&reviews.isEmpty()&&changes.isEmpty()&&worthKnowing.isEmpty();}
+        public boolean attentionEmpty(){return actions.isEmpty()&&waiting.isEmpty()&&upcoming.isEmpty()&&worthChecking.isEmpty()&&decisions.isEmpty()&&reviews.isEmpty()&&changes.isEmpty()&&worthKnowing.isEmpty();}
         public boolean empty(){return recent.isEmpty()&&attentionEmpty();}
     }
     public static Snapshot load(VaultDb db){
         CognitiveStore.ensure(db);AttentionAdjudicationStore.ensure(db);
-        ArrayList<Item> canonical=safeItems(db,"attention_candidates",()->attentionCandidates(db,80));
-        ArrayList<Item> actions=pickAny(canonical,12,"ACTION","REMINDER"),waiting=pickAny(canonical,12,"WAITING"),decisions=pickAny(canonical,8,"DECISION"),attentionChanges=pickAny(canonical,12,"ALERT","CHANGE");
+        ArrayList<Item> canonical=safeItems(db,"attention_candidates",()->attentionCandidates(db,120));
+        ArrayList<Item> actions=pickAny(canonical,12,"ACTION","REMINDER");
+        ArrayList<Item> waiting=pickAny(canonical,12,"WAITING");
+        ArrayList<Item> upcoming=pickAny(canonical,12,"EVENT");
+        ArrayList<Item> worthChecking=pickAny(canonical,12,"CONTENT");
+        ArrayList<Item> decisions=pickAny(canonical,8,"DECISION");
+        ArrayList<Item> attentionChanges=pickAny(canonical,12,"ALERT","CHANGE");
         ArrayList<Item> changes=safeItems(db,"recent_changes",()->recentChanges(db,12));changes.addAll(attentionChanges);changes=safeConsolidate(db,"changes_consolidation",changes,16,false);
         ArrayList<Item> worth=safeItems(db,"worth_knowing",()->worthKnowing(db,12));
 
@@ -42,20 +50,27 @@ public final class PrimeBriefStore {
         ArrayList<Item> seen=new ArrayList<>();
         actions=safeUnique(db,"actions_unique",actions,seen,12);
         waiting=safeUnique(db,"waiting_unique",waiting,seen,12);
+        upcoming=safeUnique(db,"upcoming_unique",upcoming,seen,12);
+        worthChecking=safeUnique(db,"worth_checking_unique",worthChecking,seen,12);
         decisions=safeUnique(db,"decisions_unique",decisions,seen,8);
         changes=safeUnique(db,"changes_unique",changes,seen,10);
         worth=safeUnique(db,"worth_unique",worth,seen,10);
 
         ArrayList<KnowledgeItem> recent=safeRecent(db);
         ArrayList<ReviewQueueStore.Item> reviews=safeReviews(db);
-        return new Snapshot(recent,actions,waiting,decisions,changes,worth,reviews);
+        return new Snapshot(recent,actions,waiting,upcoming,worthChecking,decisions,changes,worth,reviews);
     }
     private static ArrayList<KnowledgeItem> recentCaptures(VaultDb db,int limit){ArrayList<KnowledgeItem> out=new ArrayList<>();for(KnowledgeItem k:db.lexicalSearch("",100)){if(!intentionalCapture(k))continue;out.add(k);if(out.size()>=limit)break;}return out;}
     private static boolean intentionalCapture(KnowledgeItem k){if(k==null)return false;String s=n(k.source);if("CONTACT".equals(k.type)||"NOTIFICATION".equals(k.type))return false;return"manual".equals(s)||"manual_recording".equals(s)||"android_share".equals(s)||"audio_import".equals(s)||"quick_capture".equals(s)||"screen_understanding".equals(s)||"screen_understand".equals(s);}
-    private static ArrayList<Item> attentionCandidates(VaultDb db,int limit){ArrayList<Item> all=new ArrayList<>();Cursor c=db.getReadableDatabase().rawQuery("SELECT id,kind,title,body,source_key,state,confidence,importance,thread_id,anchor_signal_id,updated_at FROM derived_items WHERE state='open' AND kind IN ('ACTION','WAITING','DECISION','ALERT','CHANGE') ORDER BY updated_at DESC LIMIT 300",null);try{while(c.moveToNext()){long rowId=safeLong(c,0);try{Item x=from(c,db);if(hardSurfaceNoise(x))continue;if(x.attentionBand!=AttentionEngine.Band.QUIET)all.add(x);}catch(Throwable e){DiagnosticsLog.error(db,"PrimeBriefStore","attention_candidate_row",e,"PRIME_ROW",rowId,0,0,0,0,null);}}}finally{c.close();}all.sort(PrimeBriefStore::compareAttention);return consolidate(all,limit,true);}
+    private static String priorityExpr(){return"CASE WHEN COALESCE(priority_score,0)>0 THEN priority_score ELSE importance END";}
+    private static ArrayList<Item> attentionCandidates(VaultDb db,int limit){
+        ArrayList<Item> all=new ArrayList<>();String score=priorityExpr();
+        String sql="SELECT id,kind,title,body,source_key,state,confidence,"+score+" AS importance,thread_id,anchor_signal_id,updated_at FROM derived_items WHERE state='open' AND (kind IN ('ACTION','WAITING','DECISION','REMINDER','ALERT','CHANGE','EVENT') OR (kind='CONTENT' AND (COALESCE(requires_content_extraction,0)=1 OR "+score+">=35))) ORDER BY "+score+" DESC,updated_at DESC LIMIT 300";
+        Cursor c=db.getReadableDatabase().rawQuery(sql,null);try{while(c.moveToNext()){long rowId=safeLong(c,0);try{Item x=from(c,db);if(hardSurfaceNoise(x))continue;if(x.attentionBand!=AttentionEngine.Band.QUIET||"EVENT".equals(x.kind)||"CONTENT".equals(x.kind))all.add(x);}catch(Throwable e){DiagnosticsLog.error(db,"PrimeBriefStore","attention_candidate_row",e,"PRIME_ROW",rowId,0,0,0,0,null);}}}finally{c.close();}all.sort(PrimeBriefStore::compareAttention);return consolidate(all,limit,true);
+    }
     private static ArrayList<Item> pickAny(ArrayList<Item> xs,int limit,String... kinds){HashSet<String>want=new HashSet<>(Arrays.asList(kinds));ArrayList<Item> out=new ArrayList<>();for(Item x:xs)if(want.contains(x.attentionKind)){out.add(x);if(out.size()>=limit)break;}return out;}
-    private static ArrayList<Item> recentChanges(VaultDb db,int limit){ArrayList<Item> out=new ArrayList<>();Cursor c=db.getReadableDatabase().rawQuery("SELECT id,kind,title,body,source_key,state,confidence,importance,thread_id,anchor_signal_id,updated_at FROM derived_items WHERE state IN ('open','pending') AND kind IN ('DECISION','PROJECT_CANDIDATE','GOAL_SIGNAL','ALERT','CHANGE') ORDER BY updated_at DESC LIMIT ?",new String[]{String.valueOf(limit*6)});try{while(c.moveToNext()){long rowId=safeLong(c,0);try{Item x=from(c,db);if("DECISION".equals(x.kind)&&!"CHANGE".equals(x.attentionKind))continue;out.add(x);}catch(Throwable e){DiagnosticsLog.error(db,"PrimeBriefStore","recent_change_row",e,"PRIME_ROW",rowId,0,0,0,0,null);}}}finally{c.close();}return consolidate(out,limit,false);}
-    private static ArrayList<Item> worthKnowing(VaultDb db,int limit){ArrayList<Item> out=new ArrayList<>();Cursor c=db.getReadableDatabase().rawQuery("SELECT id,kind,title,body,source_key,state,confidence,importance,thread_id,anchor_signal_id,updated_at FROM derived_items WHERE state='open' AND kind IN ('IDEA','OPPORTUNITY','INSIGHT','HYPOTHESIS') ORDER BY updated_at DESC LIMIT ?",new String[]{String.valueOf(limit*5)});try{while(c.moveToNext()){long rowId=safeLong(c,0);try{out.add(from(c,db));}catch(Throwable e){DiagnosticsLog.error(db,"PrimeBriefStore","worth_knowing_row",e,"PRIME_ROW",rowId,0,0,0,0,null);}}}finally{c.close();}return consolidate(out,limit,false);}
+    private static ArrayList<Item> recentChanges(VaultDb db,int limit){ArrayList<Item> out=new ArrayList<>();String score=priorityExpr();Cursor c=db.getReadableDatabase().rawQuery("SELECT id,kind,title,body,source_key,state,confidence,"+score+" AS importance,thread_id,anchor_signal_id,updated_at FROM derived_items WHERE state IN ('open','pending') AND kind IN ('DECISION','PROJECT_CANDIDATE','GOAL_SIGNAL','ALERT','CHANGE') ORDER BY "+score+" DESC,updated_at DESC LIMIT ?",new String[]{String.valueOf(limit*6)});try{while(c.moveToNext()){long rowId=safeLong(c,0);try{Item x=from(c,db);if("DECISION".equals(x.kind)&&!"CHANGE".equals(x.attentionKind))continue;out.add(x);}catch(Throwable e){DiagnosticsLog.error(db,"PrimeBriefStore","recent_change_row",e,"PRIME_ROW",rowId,0,0,0,0,null);}}}finally{c.close();}return consolidate(out,limit,false);}
+    private static ArrayList<Item> worthKnowing(VaultDb db,int limit){ArrayList<Item> out=new ArrayList<>();String score=priorityExpr();Cursor c=db.getReadableDatabase().rawQuery("SELECT id,kind,title,body,source_key,state,confidence,"+score+" AS importance,thread_id,anchor_signal_id,updated_at FROM derived_items WHERE state='open' AND (kind IN ('IDEA','OPPORTUNITY','INSIGHT','HYPOTHESIS','DECISION') OR (kind='MEMORY' AND "+score+">=65)) ORDER BY "+score+" DESC,updated_at DESC LIMIT ?",new String[]{String.valueOf(limit*5)});try{while(c.moveToNext()){long rowId=safeLong(c,0);try{out.add(from(c,db));}catch(Throwable e){DiagnosticsLog.error(db,"PrimeBriefStore","worth_knowing_row",e,"PRIME_ROW",rowId,0,0,0,0,null);}}}finally{c.close();}return consolidate(out,limit,false);}
 
     /**
      * Last-resort product guard for a known class of stale over-promotions. The canonical
