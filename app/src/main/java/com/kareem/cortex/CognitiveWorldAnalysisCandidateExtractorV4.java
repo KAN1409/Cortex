@@ -48,17 +48,22 @@ public final class CognitiveWorldAnalysisCandidateExtractorV4 {
             JSONObject entity = entities.optJSONObject(i);
             if (entity == null) continue;
             String kind = clean(entity.optString("kind", "")).toUpperCase(Locale.ROOT);
-            String value = clean(entity.optString("value", ""));
+            String rawValue = clean(entity.optString("value", ""));
             double confidence = entity.optDouble("confidence", 0.0);
-            if (value.length() < 2 || value.length() > 160 || confidence < 0.60) continue;
-            if (CognitiveWorldCandidateClassifierV4.looksGenericSystemLabel(value)) continue;
+            if (rawValue.length() < 2 || rawValue.length() > 160 || confidence < 0.60) continue;
+            if (CognitiveWorldCandidateClassifierV4.looksGenericSystemLabel(rawValue)) continue;
 
             CognitiveDomainV4.WorldTypeHint type = typeFor(kind);
             if (type == null) continue;
 
-            // PERSON extracted from text is semantically provisional. Project/topic/place/org labels
-            // can carry a type hint, but identity is still weak because there is no durable key.
-            boolean typeApproved = type != CognitiveDomainV4.WorldTypeHint.PERSON;
+            CognitiveWorldProposalQualityV4.Result quality =
+                    CognitiveWorldProposalQualityV4.inspect(type, rawValue);
+            if (!quality.accepted) continue;
+            String value = quality.canonicalName;
+
+            // Analysis-derived type is always provisional. A repeated/model-extracted label may be
+            // useful for review and retrieval, but it does not establish canonical semantic type.
+            boolean typeApproved = false;
             CognitiveIdentityV4.IdentityClaim claim = new CognitiveIdentityV4.IdentityClaim(
                     CognitiveIdentityV4.ClaimType.MODEL_ALIAS,
                     value,
@@ -68,7 +73,7 @@ public final class CognitiveWorldAnalysisCandidateExtractorV4 {
             CognitiveWorldResolverV4.Candidate candidate = new CognitiveWorldResolverV4.Candidate(
                     value,
                     type,
-                    Collections.<String>emptyList(),
+                    rawValue.equals(value) ? Collections.<String>emptyList() : Collections.singletonList(rawValue),
                     Collections.singletonList(claim),
                     Collections.singletonList(evidenceId),
                     Collections.singletonList(memoryId),
