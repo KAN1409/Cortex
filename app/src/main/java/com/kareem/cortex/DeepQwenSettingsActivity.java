@@ -23,9 +23,9 @@ public final class DeepQwenSettingsActivity extends Activity {
         enabled=new CheckBox(this);enabled.setText("Allow Deep Qwen escalation");enabled.setTextColor(CortexUi.TEXT);enabled.setChecked(DeepQwenConfig.enabled(this));body.addView(enabled);
 
         status=CortexUi.text(this,currentStatus(),12,CortexUi.MUTED);status.setPadding(0,dp(10),0,dp(12));body.addView(status);
-        TextView save=CortexUi.action(this,"SAVE SETTINGS",false);save.setGravity(Gravity.CENTER);save.setOnClickListener(v->save());body.addView(save,new LinearLayout.LayoutParams(-1,dp(52)));
-        TextView test=CortexUi.action(this,"RUN DEEP QWEN HEALTH TEST",false);test.setGravity(Gravity.CENTER);LinearLayout.LayoutParams tp=new LinearLayout.LayoutParams(-1,dp(52));tp.topMargin=dp(10);body.addView(test,tp);test.setOnClickListener(v->test());
-        TextView close=CortexUi.action(this,"CLOSE",false);close.setGravity(Gravity.CENTER);LinearLayout.LayoutParams cp=new LinearLayout.LayoutParams(-1,dp(52));cp.topMargin=dp(10);body.addView(close,cp);close.setOnClickListener(v->finish());
+        TextView save=CortexUi.action(this,"SAVE SETTINGS",CortexUi.BRAND,false);save.setGravity(Gravity.CENTER);save.setOnClickListener(v->save());body.addView(save,new LinearLayout.LayoutParams(-1,dp(52)));
+        TextView test=CortexUi.action(this,"RUN DEEP QWEN HEALTH TEST",CortexUi.AURORA,false);test.setGravity(Gravity.CENTER);LinearLayout.LayoutParams tp=new LinearLayout.LayoutParams(-1,dp(52));tp.topMargin=dp(10);body.addView(test,tp);test.setOnClickListener(v->test());
+        TextView close=CortexUi.action(this,"CLOSE",CortexUi.MUTED,false);close.setGravity(Gravity.CENTER);LinearLayout.LayoutParams cp=new LinearLayout.LayoutParams(-1,dp(52));cp.topMargin=dp(10);body.addView(close,cp);close.setOnClickListener(v->finish());
         setContentView(scroll);CortexUi.fitSystemBars(this,scroll);
     }
 
