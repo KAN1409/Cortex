@@ -57,6 +57,9 @@ public final class GeminiCognitiveReasoningProviderV4 implements CognitiveReason
                         .put("type",enumString("OPEN","REPLY","CALL","DRAFT","SEND","REMIND","SCHEDULE","COMPLETE","DECIDE","REVIEW","CUSTOM"))
                         .put("label",type("string")).put("risk",enumString("SAFE","CONFIRMATION_REQUIRED","SENSITIVE","BLOCKED")).put("reason",type("string")).put("payload",payload),
                 "type","label");
+        action.put("anyOf",new JSONArray()
+                .put(new JSONObject().put("required",new JSONArray().put("situation_id")))
+                .put(new JSONObject().put("required",new JSONArray().put("world_id"))));
         JSONObject reasoning=object(
                 new JSONObject().put("type",type("string")).put("grounding",type("string")).put("text",type("string"))
                         .put("evidence_ids",arrayOf(type("string"),12)).put("memory_ids",arrayOf(type("string"),12)).put("fact_ids",arrayOf(type("string"),12)).put("world_ids",arrayOf(type("string"),12)),
@@ -75,7 +78,7 @@ public final class GeminiCognitiveReasoningProviderV4 implements CognitiveReason
 
     private static String prompt(CognitiveDeepBrainPacketBuilderV4.Packet p){
         return "You are the autonomous Deep Brain inside Cortex. Use only the grounded Cortex JSON below for claims about the user's history. Think deeply about what needs attention now, why, and what should happen next. Never invent events, IDs, facts, completion, or resolution. Treat attention_score as live current attention and canonical_attention_score as the durable baseline. Reconsider anything with new_since_deep_brain=true. connector_enriched=true means trusted Second Brain context is available but does not by itself prove urgency.\n\n"+
-                "Return ONLY one JSON object, with no markdown and no prose outside JSON. The object must contain request_id exactly as supplied, answer, priority_items, priority_updates, suggested_actions, reasoning_blocks. Keep each array at 20 items or fewer. Every priority must cite at least one supplied situation_id, memory_id, or world_id. Prefer an existing situation_id when it already represents the issue. Allowed situation states are DETECTED, RELEVANT, SURFACED, DEFERRED, WAITING. Never return RESOLVED, CANCELLED, or DISMISSED. suggested_actions are proposals only and must never claim execution. reasoning_blocks must be concise conclusions, not hidden chain-of-thought. If nothing deserves model priority now, return priority_items: [].\n\n"+
+                "Return ONLY one JSON object, with no markdown and no prose outside JSON. The object must contain request_id exactly as supplied, answer, priority_items, priority_updates, suggested_actions, reasoning_blocks. Keep each array at 20 items or fewer. Every priority must cite at least one supplied situation_id, memory_id, or world_id. Prefer an existing situation_id when it already represents the issue. Every suggested action must reference a supplied situation_id or world_id; never return a free-floating action. Allowed situation states are DETECTED, RELEVANT, SURFACED, DEFERRED, WAITING. Never return RESOLVED, CANCELLED, or DISMISSED. suggested_actions are proposals only and must never claim execution. reasoning_blocks must be concise conclusions, not hidden chain-of-thought. If nothing deserves model priority now, return priority_items: [].\n\n"+
                 "REQUEST_ID: "+p.requestId+"\nQUESTION: "+p.question+"\nCONTEXT_JSON:\n"+p.compactContextJson;
     }
 
