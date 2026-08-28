@@ -61,15 +61,15 @@ public final class CognitiveDeepBrainApplyV4 {
                 if (x == null) { skipped++; continue; }
                 String situationId = clean(x.optString("situation_id", ""));
                 if (situationId.isEmpty() || !allowedSituations.contains(situationId) || !exists(sql,"v4_situations",situationId)) { skipped++; continue; }
-                ContentValues v = new ContentValues();
-                if (x.has("attention_score")) v.put("attention_score", clamp01(x.optDouble("attention_score", 0.0)));
-                if (x.has("interruption_score")) v.put("interruption_score", clamp01(x.optDouble("interruption_score", 0.0)));
+                SituationSnapshot before=snapshot(sql,situationId);if(before==null){skipped++;continue;}
+                Double attention=x.has("attention_score")?Double.valueOf(clamp01(x.optDouble("attention_score",before.attention))):null;
+                Double interruption=x.has("interruption_score")?Double.valueOf(clamp01(x.optDouble("interruption_score",before.interruption))):null;
                 String state = clean(x.optString("state", "")).toUpperCase(Locale.ROOT);
-                if (!state.isEmpty()) { if (!safeSituationState(state)) { skipped++; continue; } v.put("state", state); }
-                if (v.size() == 0) { skipped++; continue; }
-                v.put("last_evaluated_at", now); v.put("updated_at", now);
+                if (!state.isEmpty() && !safeSituationState(state)) { skipped++; continue; }
+                if(attention==null&&interruption==null&&state.isEmpty()){skipped++;continue;}
+                ContentValues v = new ContentValues();if(attention!=null)v.put("attention_score",attention);if(interruption!=null)v.put("interruption_score",interruption);if(!state.isEmpty())v.put("state",state);v.put("last_evaluated_at",now);v.put("updated_at",now);
                 int changed = sql.update("v4_situations", v, "id=?", new String[]{situationId});
-                if (changed > 0) prioritiesApplied++; else skipped++;
+                if (changed > 0) {prioritiesApplied++;String afterState=state.isEmpty()?before.state:state;double afterAttention=attention==null?before.attention:attention.doubleValue();double afterInterruption=interruption==null?before.interruption:interruption.doubleValue();CognitiveDeepBrainStoreV4.recordSituationUpdate(sql,response.requestId,situationId,before.state,before.attention,before.interruption,afterState,afterAttention,afterInterruption,clip(clean(x.optString("reason","")),700),now);} else skipped++;
             }
 
             JSONArray actions = CognitiveDeepBrainProtocolV4.array(response.json, "suggested_actions");
@@ -98,6 +98,7 @@ public final class CognitiveDeepBrainApplyV4 {
         return new Result(response.requestId,response.answer,rankedStored,prioritiesApplied,actionsCreated,skipped,false);
     }
 
+    private static SituationSnapshot snapshot(SQLiteDatabase sql,String id){Cursor c=sql.rawQuery("SELECT state,attention_score,interruption_score FROM v4_situations WHERE id=? LIMIT 1",new String[]{id});try{return c.moveToFirst()?new SituationSnapshot(c.getString(0),c.getDouble(1),c.getDouble(2)):null;}finally{c.close();}}
     private static List<String> allowedIds(SQLiteDatabase sql,String table,JSONArray raw,Set<String> allowed){ArrayList<String>out=new ArrayList<>();if(raw==null)return out;for(int i=0;i<raw.length()&&out.size()<12;i++){String id=clean(raw.optString(i,""));if(!id.isEmpty()&&allowed.contains(id)&&exists(sql,table,id)&&!out.contains(id))out.add(id);}return out;}
     private static boolean safeSituationState(String state) { return "DETECTED".equals(state)||"RELEVANT".equals(state)||"SURFACED".equals(state)||"DEFERRED".equals(state)||"WAITING".equals(state); }
     private static String safeActionType(String raw){String x=clean(raw).toUpperCase(Locale.ROOT);try{return CognitiveDomainV4.ActionType.valueOf(x).name();}catch(Throwable ignored){return "CUSTOM";}}
@@ -106,6 +107,7 @@ public final class CognitiveDeepBrainApplyV4 {
     private static double clamp01(double x){if(Double.isNaN(x)||Double.isInfinite(x))return 0.0;return Math.max(0.0,Math.min(1.0,x));}
     private static String clean(String s){return s==null?"":s.replace('\n',' ').replace('\r',' ').replaceAll("\\s+"," ").trim();}
     private static String clip(String s,int n){return s.length()<=n?s:s.substring(0,n)+"…";}
+    private static final class SituationSnapshot{final String state;final double attention,interruption;SituationSnapshot(String state,double attention,double interruption){this.state=state;this.attention=attention;this.interruption=interruption;}}
 
     public static final class Result {
         public final String requestId, answer; public final int rankedPrioritiesStored, priorityUpdatesApplied, actionsCreated, skipped; public final boolean alreadyApplied;
