@@ -4,7 +4,10 @@ import android.database.Cursor;
 import android.database.sqlite.SQLiteDatabase;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
+import org.json.JSONArray;
 
 /** Read-only Stage-E Pulse projection: canonical Situations + optional Deep Brain ranking/actions. */
 public final class CognitivePulseProjectionV4 {
@@ -35,12 +38,9 @@ public final class CognitivePulseProjectionV4 {
     }
 
     private static boolean coveredByBrainCluster(SQLiteDatabase sql,String situationId,String kind){
-        String q="SELECT 1 FROM v4_provenance sp "+
-                "JOIN v4_deep_brain_priority_items p ON p.state='ACTIVE' AND p.situation_id<>'' AND p.situation_id<>? "+
-                "JOIN v4_situations linked ON linked.id=p.situation_id AND linked.kind=? "+
-                "JOIN json_each(CASE WHEN json_valid(p.memory_ids_json) THEN p.memory_ids_json ELSE '[]' END) j ON CAST(j.value AS TEXT)=sp.source_id "+
-                "WHERE sp.object_type='SITUATION' AND sp.object_id=? AND sp.source_type='MEMORY' LIMIT 1";
-        Cursor c=sql.rawQuery(q,new String[]{situationId,kind,situationId});try{return c.moveToFirst();}finally{c.close();}
+        Set<String> memories=new HashSet<>();Cursor s=sql.rawQuery("SELECT source_id FROM v4_provenance WHERE object_type='SITUATION' AND object_id=? AND source_type='MEMORY'",new String[]{situationId});try{while(s.moveToNext()){String id=s.getString(0);if(id!=null&&!id.trim().isEmpty())memories.add(id.trim());}}finally{s.close();}if(memories.isEmpty())return false;
+        Cursor p=sql.rawQuery("SELECT p.memory_ids_json FROM v4_deep_brain_priority_items p JOIN v4_situations linked ON linked.id=p.situation_id WHERE p.state='ACTIVE' AND p.situation_id<>'' AND p.situation_id<>? AND linked.kind=?",new String[]{situationId,kind});
+        try{while(p.moveToNext()){try{JSONArray a=new JSONArray(p.getString(0)==null?"[]":p.getString(0));for(int i=0;i<a.length();i++){String id=a.optString(i,"").trim();if(memories.contains(id))return true;}}catch(Throwable ignored){}}}finally{p.close();}return false;
     }
 
     public static final class Item{
