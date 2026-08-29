@@ -27,6 +27,8 @@ object LocalLlmBridge {
         val durationMs: Long,
         val modelLoadMs: Long,
         val generationMs: Long,
+        val promptEvalMs: Long,
+        val tokenGenerationMs: Long,
         val cacheHit: Boolean,
     )
 
@@ -133,6 +135,8 @@ object LocalLlmBridge {
                 durationMs = System.currentTimeMillis() - totalStarted,
                 modelLoadMs = loadMs,
                 generationMs = generationMs,
+                promptEvalMs = result.promptEvalTimeMs,
+                tokenGenerationMs = result.generateTimeMs,
                 cacheHit = hit,
             )
         }
@@ -151,7 +155,17 @@ object LocalLlmBridge {
             val generationStarted = System.currentTimeMillis()
             val result = Llama.complete(model, prompt, systemPrompt, maxTokens)
             val generationMs = System.currentTimeMillis() - generationStarted
-            CompletionResult(result.text.trim(), result.tokensGenerated, result.tokensPerSecond, System.currentTimeMillis() - started, loadMs, generationMs, false)
+            CompletionResult(
+                result.text.trim(),
+                result.tokensGenerated,
+                result.tokensPerSecond,
+                System.currentTimeMillis() - started,
+                loadMs,
+                generationMs,
+                result.promptEvalTimeMs,
+                result.generateTimeMs,
+                false,
+            )
         } finally {
             model?.let { try { Llama.releaseModel(it) } catch (_: Throwable) {} }
         }
