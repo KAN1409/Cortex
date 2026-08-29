@@ -44,7 +44,7 @@ public final class MasterRelevanceFilter {
         "REVIEW\n"+
         "Use REVIEW when there is plausible value but intent/responsibility/identity is not confident enough for durable promotion. Include the most likely candidate kind such as ACTION, WAITING or DECISION. Never guess when a user confirmation can resolve it.\n\n"+
         "ALWAYS IGNORE OR AGGREGATE, NEVER CREATE STANDALONE MEMORIES FOR\n"+
-        "battery percentage, charging state, estimated time to full, signal strength, Wi-Fi connected/disconnected chatter, Bluetooth state, VPN state, media playback controls, typing indicators, app sync/progress, background service status, keyboard notices, clipboard notices, repeated system status, duplicate notifications, transient progress percentages, routine running-in-background notices.\n"+
+        "battery percentage, charging state, estimated time to full, signal strength, Wi-Fi connected/disconnected chatter, Bluetooth state, VPN state, media playback controls, typing indicators, app sync/progress, background service status, keyboard notices, clipboard notices, notification-stack counters such as N more notifications, tap-to-copy URL/help prompts, repeated system status, duplicate notifications, transient progress percentages, routine running-in-background notices.\n"+
         "Example: Charging 11% (1 h 30 m until full) => IGNORE.\n\n"+
         "CONTEXT BY DEFAULT\n"+
         "ordinary chat messages, ordinary email previews, social notifications and app updates should first become thread context. Promote only when grouped context contains a durable fact, request, commitment, decision, deadline, address/reference, meaningful relationship/project development, or other future value.\n\n"+
@@ -67,6 +67,7 @@ public final class MasterRelevanceFilter {
         String text=ruleNorm(s.text()),src=low(s.source);
         if(text.isEmpty())return d(Disposition.IGNORE,0,"empty signal");
         if(secret(text))return d(Disposition.CONTEXT,25,"sensitive one-time credential; short-lived context only");
+        if(CortexSurfacePolicy.notificationChrome(text))return d(Disposition.IGNORE,2,"notification/UI chrome");
         if(deviceNoise(text,src,s.ongoing))return d(Disposition.IGNORE,3,"ephemeral device/system state");
         if(mediaNoise(text,src,s.ongoing))return d(Disposition.IGNORE,4,"ongoing media/UI state");
         if(security(text))return d(Disposition.MEMORY,78,"security or account event with future value");
