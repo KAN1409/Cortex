@@ -1,6 +1,5 @@
 package com.kareem.cortex;
 
-import android.content.ContentValues;
 import android.content.Context;
 import android.database.Cursor;
 
@@ -16,21 +15,23 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 
-/** Cognitive V2 local runner. Shadow remains telemetry-only; canary authority is explicitly guarded. */
+/** Cognitive V2 local runner. Shadow is telemetry-only; production authority is single-owner. */
 public final class CognitiveAdjudicatorV2 {
     public static final String POLICY="cognitive_v2_shadow_001";
     public static final String CANARY_POLICY="cognitive_v2_canary_001";
+    public static final String PRIMARY_POLICY="cognitive_v2_primary_001";
 
     private static final long AUTHORITY_QUIET_MS=3000L;
     private static final long SHADOW_QUIET_MS=15_000L;
-    private static final long CANARY_TIMEOUT_MS=12_000L;
+    private static final long AUTHORITY_TIMEOUT_MS=12_000L;
 
     private static final ScheduledExecutorService SCHEDULER=Executors.newSingleThreadScheduledExecutor();
     private static final ExecutorService AUTHORITY_EXECUTOR=Executors.newCachedThreadPool();
     private static final ExecutorService SHADOW_EXECUTOR=Executors.newCachedThreadPool();
     private static final ConcurrentHashMap<String,Slot> SHADOW_SLOTS=new ConcurrentHashMap<>();
     private static final ConcurrentHashMap<String,AuthoritySlot> AUTHORITY_SLOTS=new ConcurrentHashMap<>();
-    private static final AtomicLong GENERATION=new AtomicLong();
+    private static final ConcurrentHashMap<String,AtomicLong> AUTHORITY_GENERATIONS=new ConcurrentHashMap<>();
+    private static final AtomicLong SHADOW_GENERATION=new AtomicLong();
 
     private CognitiveAdjudicatorV2(){}
 
@@ -46,16 +47,16 @@ public final class CognitiveAdjudicatorV2 {
         String key=slotKey(threadId,signalId);
         SHADOW_SLOTS.compute(key,(ignored,previous)->{
             if(previous!=null&&previous.future!=null)previous.future.cancel(false);
-            Slot next=new Slot(key,signalId,threadId,GENERATION.incrementAndGet());
+            Slot next=new Slot(key,signalId,threadId,SHADOW_GENERATION.incrementAndGet());
             next.future=SCHEDULER.schedule(()->fireShadow(app,next),SHADOW_QUIET_MS,TimeUnit.MILLISECONDS);
             return next;
         });
     }
 
-    /** Compatibility entry point for callers that do not yet carry detailed router provenance. */
+    /** Compatibility entry point: historical callers are Canary. */
     public static void enqueueAuthoritative(Context context,long signalId,long threadId,AuthorityCallback callback){
         enqueueAuthoritative(
-                context,signalId,threadId,
+                context,signalId,threadId,CognitiveAuthorityMode.CANARY,
                 CognitiveAuthorityRouter.RoutingReason.HASH_CANARY.name(),-1,callback
         );
     }
@@ -68,16 +69,38 @@ public final class CognitiveAdjudicatorV2 {
             int routingBucket,
             AuthorityCallback callback
     ){
-        if(context==null||signalId<=0){safeFallback(callback,"INVALID_INPUT");return;}
+        enqueueAuthoritative(
+                context,signalId,threadId,CognitiveAuthorityMode.CANARY,
+                routingReason,routingBucket,callback
+        );
+    }
+
+    public static void enqueueAuthoritative(
+            Context context,
+            long signalId,
+            long threadId,
+            CognitiveAuthorityMode authorityMode,
+            String routingReason,
+            int routingBucket,
+            AuthorityCallback callback
+    ){
+        if(context==null||signalId<=0){safeFallback(callback,V2FailureReason.MODEL_FAILED.name());return;}
         Context app=context.getApplicationContext();
-        if(!CognitiveFeatureFlags.authorityCanaryEnabled(app)){safeFallback(callback,"CANARY_DISABLED");return;}
+        CognitiveAuthorityMode mode=authorityMode==null?CognitiveAuthorityMode.CANARY:authorityMode;
+        if(mode==CognitiveAuthorityMode.LEGACY||!CognitiveFeatureFlags.authorityCanaryEnabled(app)){
+            safeFallback(callback,V2FailureReason.MODE_DISABLED.name());return;
+        }
+        if(CognitiveFeatureFlags.authorityMode(app)!=mode){
+            safeFallback(callback,V2FailureReason.MODE_DISABLED.name());return;
+        }
+
         String key=slotKey(threadId,signalId);
-        String routeReason=normalizedRoutingReason(routingReason);
+        long generation=nextAuthorityGeneration(key);
+        String routeReason=normalizedRoutingReason(mode,routingReason);
         AUTHORITY_SLOTS.compute(key,(ignored,previous)->{
             if(previous!=null)supersede(previous);
             AuthoritySlot next=new AuthoritySlot(
-                    key,signalId,threadId,GENERATION.incrementAndGet(),
-                    routeReason,routingBucket,callback
+                    key,signalId,threadId,generation,mode,routeReason,routingBucket,callback
             );
             next.future=SCHEDULER.schedule(()->fireAuthority(app,next),AUTHORITY_QUIET_MS,TimeUnit.MILLISECONDS);
             return next;
@@ -126,9 +149,7 @@ public final class CognitiveAdjudicatorV2 {
                     db,"CognitiveAdjudicatorV2","shadow_complete",
                     telemetry.optString("comparison",""),0,slot.threadId,slot.signalId,0,
                     modelRunId,latency,
-                    new JSONObject().put("policy",POLICY)
-                            .put("comparison",telemetry.optString("comparison",""))
-                            .put("family",input.family.name())
+                    json("policy",POLICY,"comparison",telemetry.optString("comparison",""),"family",input.family.name())
             );
         }catch(Throwable error){
             if(LocalInferenceCoordinator.isBusy(error)){
@@ -138,13 +159,7 @@ public final class CognitiveAdjudicatorV2 {
             String message=error.getClass().getSimpleName()+(error.getMessage()==null?"":": "+error.getMessage());
             try{
                 if(modelRunId<=0){
-                    JSONObject out=new JSONObject()
-                            .put("schema","cognitive_shadow_001")
-                            .put("signal_id",slot.signalId)
-                            .put("policy",POLICY)
-                            .put("outcome","FAILED")
-                            .put("failure_kind",failureKind(error))
-                            .put("wire_schema",FastCognitivePromptBuilder.WIRE_SCHEMA);
+                    JSONObject out=json("schema","cognitive_shadow_001","signal_id",slot.signalId,"policy",POLICY,"outcome","FAILED","failure_kind",failureKind(error),"wire_schema",FastCognitivePromptBuilder.WIRE_SCHEMA);
                     modelRunId=AiJobStore.modelRun(
                             db,0,1,"cognitive_shadow","local",LocalModelManager.MODEL_NAME,
                             "cognitive_v2_shadow","failed","",0,0,0,0,
@@ -154,7 +169,7 @@ public final class CognitiveAdjudicatorV2 {
                 DiagnosticsLog.error(
                         db,"CognitiveAdjudicatorV2","shadow_failed",error,"COGNITIVE_V2_SHADOW",
                         0,slot.threadId,slot.signalId,0,modelRunId,
-                        new JSONObject().put("policy",POLICY).put("failure_kind",failureKind(error))
+                        json("policy",POLICY,"failure_kind",failureKind(error))
                 );
             }catch(Throwable ignored){}
         }finally{
@@ -167,28 +182,40 @@ public final class CognitiveAdjudicatorV2 {
         VaultDb db=new VaultDb(app);LocalBrainRun run=null;long latency=0;
         try{
             if(!isAuthorityCurrent(slot)||slot.terminal.get())return;
-            if(!CognitiveFeatureFlags.authorityCanaryEnabled(app)){authorityFallback(db,slot,"CANARY_DISABLED","fallback",null,0,null);return;}
+            if(!authorityEnabledForSlot(app,slot)){
+                authorityFallback(db,slot,V2FailureReason.MODE_DISABLED,"fallback",null,0,null);return;
+            }
 
             CognitiveInput input=CognitiveInputFactory.load(db,slot.signalId);
-            if(input==null){authorityFallback(db,slot,"SIGNAL_MISSING","fallback",null,0,null);return;}
-            if(input.latestText.isEmpty()){authorityFallback(db,slot,"EMPTY_CONTENT","fallback",null,0,input);return;}
-            if(SensitiveSignalPolicy.containsSecret(input.latestText)){authorityFallback(db,slot,"SENSITIVE_BLOCKED","fallback",null,0,input);return;}
-            if(isHardNoise(db,slot.signalId)){authorityFallback(db,slot,"HARD_NOISE","fallback",null,0,input);return;}
-            if(!LocalModelManager.installed(app)){authorityFallback(db,slot,"MODEL_NOT_READY","fallback",null,0,input);return;}
+            if(input==null){authorityFallback(db,slot,V2FailureReason.MODEL_FAILED,"fallback",null,0,null);return;}
+            if(input.latestText.isEmpty()){authorityFallback(db,slot,V2FailureReason.MODEL_FAILED,"fallback",null,0,input);return;}
+            if(SensitiveSignalPolicy.containsSecret(input.latestText)){
+                authorityFallback(db,slot,V2FailureReason.SENSITIVE_BLOCKED,"fallback",null,0,input);return;
+            }
+            // This is a defensive re-check only. Normal hard-noise routing never enqueues V2 and therefore creates 0 model runs.
+            if(isHardNoise(db,slot.signalId)){
+                if(claimAuthority(slot))CognitiveStore.updateRawCognitiveState(
+                        db,slot.signalId,"IGNORED_NOISE","legacy-cognitive-003","Hard deterministic noise gate revalidated before V2 inference"
+                );
+                return;
+            }
+            if(!LocalModelManager.installed(app)){
+                authorityFallback(db,slot,V2FailureReason.MODEL_FAILED,"fallback",null,0,input);return;
+            }
             if(!CognitiveStore.updateRawCognitiveState(
-                    db,slot.signalId,"LOCAL_RUNNING",CANARY_POLICY,
-                    "V2 canary local inference running"
+                    db,slot.signalId,"LOCAL_RUNNING",slot.policy,
+                    slot.mode==CognitiveAuthorityMode.V2_PRIMARY
+                            ?"V2 primary local inference running"
+                            :"V2 canary local inference running"
             )){
-                authorityFallback(db,slot,"STATE_TRANSITION_FAILED","failed",null,0,input);
+                authorityFallback(db,slot,V2FailureReason.STATE_TRANSITION_FAILED,"failed",null,0,input);
                 return;
             }
 
             slot.started=true;
             slot.inferenceEnqueuedAt=System.currentTimeMillis();
             slot.timeoutFuture=SCHEDULER.schedule(
-                    ()->timeoutAuthority(app,slot),
-                    CANARY_TIMEOUT_MS,
-                    TimeUnit.MILLISECONDS
+                    ()->timeoutAuthority(app,slot),AUTHORITY_TIMEOUT_MS,TimeUnit.MILLISECONDS
             );
 
             LocalQwenBrain brain=new LocalQwenBrain(app);
@@ -203,64 +230,72 @@ public final class CognitiveAdjudicatorV2 {
 
             if(slot.terminal.get())return;
             if(slot.superseded||!isAuthorityCurrent(slot)){
-                recordAuthorityRun(db,slot,"superseded","SUPERSEDED",run,latency,input,null);
+                recordAuthorityRun(db,slot,"superseded",V2FailureReason.SUPERSEDED.name(),run,latency,input,null);
                 return;
             }
             if(!claimAuthority(slot))return;
 
-            if(!CognitiveFeatureFlags.authorityCanaryEnabled(app)){
-                recordAuthorityRun(db,slot,"fallback","CANARY_DISABLED",run,latency,input,null);
-                safeFallback(slot.callback,"CANARY_DISABLED");
+            if(!authorityEnabledForSlot(app,slot)){
+                recordAuthorityRun(db,slot,"fallback",V2FailureReason.MODE_DISABLED.name(),run,latency,input,null);
+                safeFallback(slot.callback,V2FailureReason.MODE_DISABLED.name());
                 return;
             }
-            if(!canAcceptAuthoritatively(run.result)){
-                String reason=authorityFallbackReason(run.result);
+
+            CognitiveDecisionApplier.Validation validation=CognitiveDecisionApplier.validate(run.result);
+            if(!validation.accepted){
+                String reason=validation.failureReason.name();
                 recordAuthorityRun(db,slot,"fallback",reason,run,latency,input,null);
                 safeFallback(slot.callback,reason);
                 return;
             }
+            CognitiveResult effective=validation.effectiveResult;
 
             try{
-                CognitiveStore.CanaryApply applied=CognitiveStore.applyCanaryAuthority(
-                        db,slot.signalId,slot.threadId,run.result,run,latency,
-                        inputHash(input),CANARY_POLICY,slot.routingReason,slot.routingBucket
+                CognitiveDecisionApplier.ApplyResult applied=CognitiveDecisionApplier.apply(
+                        db,slot.signalId,slot.threadId,effective,run,latency,inputHash(input),
+                        slot.mode,slot.policy,slot.routingReason,slot.routingBucket,slot.generation
                 );
-                enrichAppliedRunTelemetry(db,applied.modelRunId,run);
                 DiagnosticsLog.info(
-                        db,"CognitiveAdjudicatorV2","canary_applied",run.result.disposition.name(),
-                        0,slot.threadId,slot.signalId,0,applied.modelRunId,latency,
-                        new JSONObject().put("policy",CANARY_POLICY)
-                                .put("routing_reason",slot.routingReason)
-                                .put("routing_bucket",slot.routingBucket)
-                                .put("disposition",run.result.disposition.name())
-                                .put("derived_count",applied.derivedIds.size())
-                                .put("queue_wait_ms",run.queueWaitMs)
-                                .put("native_total_ms",run.nativeTotalMs)
-                                .put("total_ms",run.totalMs)
+                        db,"CognitiveAdjudicatorV2",
+                        slot.mode==CognitiveAuthorityMode.V2_PRIMARY?"primary_applied":"canary_applied",
+                        effective.disposition.name(),0,slot.threadId,slot.signalId,0,applied.modelRunId,latency,
+                        json(
+                                "policy",slot.policy,
+                                "authority_mode",slot.mode.name(),
+                                "routing_reason",slot.routingReason,
+                                "routing_bucket",slot.routingBucket,
+                                "generation",slot.generation,
+                                "disposition",effective.disposition.name(),
+                                "derived_count",applied.derivedIds.size(),
+                                "queue_wait_ms",run.queueWaitMs,
+                                "native_total_ms",run.nativeTotalMs,
+                                "total_ms",run.totalMs
+                        )
                 );
-                safeAccepted(slot.callback,run.result,applied.modelRunId);
+                safeAccepted(slot.callback,effective,applied.modelRunId);
             }catch(Throwable applyError){
                 String detail=applyError.getMessage()==null?applyError.getClass().getSimpleName():applyError.getMessage();
-                if(detail.contains("CANARY_SUPERSEDED")){
+                if(detail.contains("STALE_GENERATION")){
                     CognitiveStore.updateRawCognitiveState(
-                            db,slot.signalId,"SUPERSEDED",CANARY_POLICY,
-                            "Newer signal superseded V2 canary before apply"
+                            db,slot.signalId,"SUPERSEDED",slot.policy,
+                            "Newer signal superseded V2 generation before authoritative apply"
                     );
-                    recordAuthorityRun(db,slot,"superseded","SUPERSEDED",run,latency,input,applyError);
+                    recordAuthorityRun(db,slot,"superseded",V2FailureReason.SUPERSEDED.name(),run,latency,input,applyError);
                     return;
                 }
-                recordAuthorityRun(db,slot,"failed","APPLY_FAILED",run,latency,input,applyError);
-                safeFallback(slot.callback,"APPLY_FAILED");
+                recordAuthorityRun(db,slot,"failed",V2FailureReason.APPLY_FAILED.name(),run,latency,input,applyError);
+                safeFallback(slot.callback,V2FailureReason.APPLY_FAILED.name());
             }
         }catch(Throwable error){
             if(slot.superseded){
-                try{recordAuthorityRun(db,slot,"superseded","SUPERSEDED",run,latency,null,error);}catch(Throwable ignored){}
+                try{recordAuthorityRun(db,slot,"superseded",V2FailureReason.SUPERSEDED.name(),run,latency,null,error);}catch(Throwable ignored){}
                 return;
             }
             if(slot.terminal.get())return;
             if(claimAuthority(slot)){
-                try{recordAuthorityRun(db,slot,"failed",failureKind(error),run,latency,null,error);}catch(Throwable ignored){}
-                safeFallback(slot.callback,failureKind(error));
+                String reason=failureKind(error);
+                try{recordAuthorityRun(db,slot,"failed",reason,run,latency,null,error);}catch(Throwable ignored){}
+                safeFallback(slot.callback,reason);
             }
         }finally{
             cancel(slot.timeoutFuture);
@@ -273,66 +308,39 @@ public final class CognitiveAdjudicatorV2 {
         if(slot==null||!isAuthorityCurrent(slot)||!slot.terminal.compareAndSet(false,true))return;
         slot.timedOut=true;
         AUTHORITY_SLOTS.remove(slot.key,slot);
-
         long now=System.currentTimeMillis();
-        long elapsed=slot.inferenceEnqueuedAt>0
-                ? Math.max(0L,now-slot.inferenceEnqueuedAt)
-                : CANARY_TIMEOUT_MS;
-        String reason=slot.nativeStartedAt>0?"INFERENCE_TIMEOUT":"QUEUE_TIMEOUT";
-        String code=slot.nativeStartedAt>0
-                ?"COGNITIVE_V2_CANARY_INFERENCE_TIMEOUT"
-                :"COGNITIVE_V2_CANARY_QUEUE_TIMEOUT";
-
+        long elapsed=slot.inferenceEnqueuedAt>0?Math.max(0L,now-slot.inferenceEnqueuedAt):AUTHORITY_TIMEOUT_MS;
+        String timeoutKind=slot.nativeStartedAt>0?"INFERENCE_TIMEOUT":"QUEUE_TIMEOUT";
         VaultDb db=new VaultDb(app);
         try{
-            recordAuthorityRun(db,slot,"timeout",reason,null,elapsed,null,null);
+            recordAuthorityRun(db,slot,"timeout",V2FailureReason.TIMEOUT.name(),null,elapsed,null,null);
             DiagnosticsLog.warn(
-                    db,"CognitiveAdjudicatorV2","canary_timeout","legacy_fallback",code,
+                    db,"CognitiveAdjudicatorV2","authority_timeout","legacy_fallback","COGNITIVE_V2_AUTHORITY_TIMEOUT",
                     0,slot.threadId,slot.signalId,0,0,
-                    new JSONObject().put("reason",reason)
-                            .put("routing_reason",slot.routingReason)
-                            .put("routing_bucket",slot.routingBucket)
-                            .put("queue_wait_ms",slot.nativeStartedAt>0
-                                    ? Math.max(0L,slot.nativeStartedAt-slot.inferenceEnqueuedAt)
-                                    : elapsed)
-                            .put("total_ms",elapsed)
+                    json(
+                            "reason",V2FailureReason.TIMEOUT.name(),
+                            "timeout_kind",timeoutKind,
+                            "authority_mode",slot.mode.name(),
+                            "routing_reason",slot.routingReason,
+                            "routing_bucket",slot.routingBucket,
+                            "generation",slot.generation,
+                            "queue_wait_ms",slot.nativeStartedAt>0?Math.max(0L,slot.nativeStartedAt-slot.inferenceEnqueuedAt):elapsed,
+                            "total_ms",elapsed
+                    )
             );
         }catch(Throwable ignored){
-        }finally{
-            try{db.close();}catch(Throwable ignored){}
-        }
-        safeFallback(slot.callback,reason);
-    }
-
-    private static boolean canAcceptAuthoritatively(CognitiveResult result){
-        if(result==null||result.disposition==null)return false;
-        switch(result.disposition){
-            case DERIVE:return result.confidence>=0.80&&result.items!=null&&!result.items.isEmpty();
-            case CONTEXT:return result.confidence>=0.85;
-            case IGNORE:
-            case REVIEW:
-            default:return false;
-        }
-    }
-
-    private static String authorityFallbackReason(CognitiveResult result){
-        if(result==null||result.disposition==null)return"INVALID_RESULT";
-        switch(result.disposition){
-            case IGNORE:return"AI_IGNORE_NOT_AUTHORITATIVE";
-            case REVIEW:return"AI_REVIEW_NOT_AUTHORITATIVE";
-            case DERIVE:return result.items==null||result.items.isEmpty()?"EMPTY_DERIVE":"LOW_CONFIDENCE_DERIVE";
-            case CONTEXT:return"LOW_CONFIDENCE_CONTEXT";
-            default:return"UNSUPPORTED_DISPOSITION";
-        }
+        }finally{try{db.close();}catch(Throwable ignored){}}
+        safeFallback(slot.callback,V2FailureReason.TIMEOUT.name());
     }
 
     private static void authorityFallback(
-            VaultDb db,AuthoritySlot slot,String reason,String state,
+            VaultDb db,AuthoritySlot slot,V2FailureReason reason,String state,
             LocalBrainRun run,long latency,CognitiveInput input
     ){
         if(!claimAuthority(slot))return;
-        recordAuthorityRun(db,slot,state,reason,run,latency,input,null);
-        safeFallback(slot.callback,reason);
+        String why=(reason==null?V2FailureReason.MODEL_FAILED:reason).name();
+        recordAuthorityRun(db,slot,state,why,run,latency,input,null);
+        safeFallback(slot.callback,why);
     }
 
     private static boolean claimAuthority(AuthoritySlot slot){
@@ -347,7 +355,7 @@ public final class CognitiveAdjudicatorV2 {
         slot.superseded=true;
         cancel(slot.future);
         cancel(slot.timeoutFuture);
-        if(slot.terminal.compareAndSet(false,true))safeFallback(slot.callback,"SUPERSEDED");
+        if(slot.terminal.compareAndSet(false,true))safeFallback(slot.callback,V2FailureReason.SUPERSEDED.name());
     }
 
     private static long recordAuthorityRun(
@@ -355,92 +363,62 @@ public final class CognitiveAdjudicatorV2 {
             LocalBrainRun run,long latency,CognitiveInput input,Throwable error
     ){
         try{
-            JSONObject output=new JSONObject()
-                    .put("schema","cognitive_canary_001")
-                    .put("signal_id",slot.signalId)
-                    .put("policy",CANARY_POLICY)
-                    .put("routing_reason",slot.routingReason)
-                    .put("routing_bucket",slot.routingBucket)
-                    .put("outcome",n(state).toUpperCase())
-                    .put("reason",n(reason))
-                    .put("generation",slot.generation)
-                    .put("wire_schema",FastCognitivePromptBuilder.WIRE_SCHEMA);
-
-            double confidence=0;
-            int tokens=0;
+            JSONObject output=json(
+                    "schema","cognitive_authority_002",
+                    "signal_id",slot.signalId,
+                    "policy",slot.policy,
+                    "route",slot.route,
+                    "authority_mode",slot.mode.name(),
+                    "routing_reason",slot.routingReason,
+                    "routing_bucket",slot.routingBucket,
+                    "outcome",n(state).toUpperCase(),
+                    "reason",n(reason),
+                    "generation",slot.generation,
+                    "wire_schema",FastCognitivePromptBuilder.WIRE_SCHEMA
+            );
+            double confidence=0;int tokens=0;
             if(run!=null&&run.result!=null){
-                confidence=run.result.confidence;
-                tokens=run.tokensGenerated;
+                confidence=run.result.confidence;tokens=run.tokensGenerated;
                 output.put("disposition",run.result.disposition==null?"":run.result.disposition.name());
                 output.put("confidence",run.result.confidence);
                 JSONArray items=new JSONArray();
                 for(CognitiveItem item:run.result.items){
                     if(item==null||item.kind==null)continue;
-                    items.put(new JSONObject()
-                            .put("kind",item.kind.name())
-                            .put("summary",clip(item.summary,240))
-                            .put("importance",item.importance)
-                            .put("urgency",item.urgency));
+                    items.put(json("kind",item.kind.name(),"summary",clip(item.summary,240),"importance",item.importance,"urgency",item.urgency));
                 }
                 output.put("items",items);
                 putRunTelemetry(output,run);
-            }else{
-                putSlotTelemetry(output,slot,latency);
-            }
+            }else putSlotTelemetry(output,slot,latency);
 
             String hash=input==null?"":inputHash(input);
-            String err=error==null?"":clip(
-                    error.getClass().getSimpleName()
-                            +(error.getMessage()==null?"":": "+error.getMessage()),
-                    500
-            );
+            String err=error==null?"":clip(error.getClass().getSimpleName()+(error.getMessage()==null?"":": "+error.getMessage()),500);
             long runId=AiJobStore.modelRun(
                     db,0,1,"cognitive_authority","local",LocalModelManager.MODEL_NAME,
-                    "cognitive_v2_canary",state,hash,Math.max(0,latency),0,tokens,
-                    confidence,output.toString(),err
+                    slot.route,state,hash,Math.max(0,latency),0,tokens,confidence,output.toString(),err
             );
             if(runId>0){
-                JSONObject metadata=new JSONObject()
-                        .put("policy",CANARY_POLICY)
-                        .put("routing_reason",slot.routingReason)
-                        .put("routing_bucket",slot.routingBucket);
                 CognitiveStore.link(
                         db,"model_run",runId,"raw_signal",slot.signalId,
-                        "canary_evaluated",confidence,metadata.toString()
+                        slot.mode==CognitiveAuthorityMode.V2_PRIMARY?"primary_evaluated":"canary_evaluated",
+                        confidence,
+                        json(
+                                "policy",slot.policy,"route",slot.route,"authority_mode",slot.mode.name(),
+                                "routing_reason",slot.routingReason,"routing_bucket",slot.routingBucket,
+                                "generation",slot.generation
+                        ).toString()
                 );
             }
             DiagnosticsLog.info(
-                    db,"CognitiveAdjudicatorV2","canary_terminal",reason,
+                    db,"CognitiveAdjudicatorV2","authority_terminal",reason,
                     0,slot.threadId,slot.signalId,0,runId,latency,
-                    new JSONObject().put("policy",CANARY_POLICY)
-                            .put("routing_reason",slot.routingReason)
-                            .put("routing_bucket",slot.routingBucket)
-                            .put("state",state).put("reason",reason)
+                    json(
+                            "policy",slot.policy,"route",slot.route,"authority_mode",slot.mode.name(),
+                            "routing_reason",slot.routingReason,"routing_bucket",slot.routingBucket,
+                            "generation",slot.generation,"state",state,"reason",reason
+                    )
             );
             return runId;
-        }catch(Throwable ignored){
-            return 0;
-        }
-    }
-
-    private static void enrichAppliedRunTelemetry(VaultDb db,long modelRunId,LocalBrainRun run){
-        if(db==null||modelRunId<=0||run==null)return;
-        Cursor cursor=db.getReadableDatabase().query(
-                "model_runs",new String[]{"output_json"},"id=?",
-                new String[]{String.valueOf(modelRunId)},null,null,null,"1"
-        );
-        String raw=cursor.moveToFirst()&&!cursor.isNull(0)?cursor.getString(0):"";
-        cursor.close();
-        try{
-            JSONObject output=raw==null||raw.trim().isEmpty()?new JSONObject():new JSONObject(raw);
-            putRunTelemetry(output,run);
-            ContentValues values=new ContentValues();
-            values.put("output_json",output.toString());
-            db.getWritableDatabase().update(
-                    "model_runs",values,"id=?",
-                    new String[]{String.valueOf(modelRunId)}
-            );
-        }catch(Throwable ignored){}
+        }catch(Throwable ignored){return 0;}
     }
 
     private static void putRunTelemetry(JSONObject output,LocalBrainRun run){
@@ -466,16 +444,9 @@ public final class CognitiveAdjudicatorV2 {
     private static void putSlotTelemetry(JSONObject output,AuthoritySlot slot,long totalMs){
         if(output==null||slot==null)return;
         try{
-            long now=System.currentTimeMillis();
-            long enqueued=slot.inferenceEnqueuedAt;
-            long started=slot.nativeStartedAt;
-            long finished=slot.nativeFinishedAt;
-            long queueWait=enqueued>0
-                    ? (started>0?Math.max(0L,started-enqueued):Math.max(0L,now-enqueued))
-                    : 0L;
-            long nativeTotal=started>0
-                    ? Math.max(0L,(finished>0?finished:now)-started)
-                    : 0L;
+            long now=System.currentTimeMillis(),enqueued=slot.inferenceEnqueuedAt,started=slot.nativeStartedAt,finished=slot.nativeFinishedAt;
+            long queueWait=enqueued>0?(started>0?Math.max(0L,started-enqueued):Math.max(0L,now-enqueued)):0L;
+            long nativeTotal=started>0?Math.max(0L,(finished>0?finished:now)-started):0L;
             output.put("queue_wait_ms",queueWait);
             output.put("native_total_ms",nativeTotal);
             output.put("total_ms",Math.max(0L,totalMs));
@@ -496,81 +467,59 @@ public final class CognitiveAdjudicatorV2 {
                 new String[]{String.valueOf(signalId)},null,null,null,"1"
         );
         boolean noise=false;
-        if(c.moveToFirst()){
-            noise="IGNORE".equalsIgnoreCase(c.getString(0))
-                    &&"deterministic_fast_gate".equalsIgnoreCase(c.getString(1));
-        }
-        c.close();
-        return noise;
+        if(c.moveToFirst())noise="IGNORE".equalsIgnoreCase(c.getString(0))&&"deterministic_fast_gate".equalsIgnoreCase(c.getString(1));
+        c.close();return noise;
     }
 
     private static void recordSkipped(VaultDb db,Slot slot,String reason){
         try{
-            JSONObject output=new JSONObject()
-                    .put("schema","cognitive_shadow_001")
-                    .put("signal_id",slot.signalId)
-                    .put("policy",POLICY)
-                    .put("outcome","SKIPPED")
-                    .put("reason",reason)
-                    .put("wire_schema",FastCognitivePromptBuilder.WIRE_SCHEMA);
+            JSONObject output=json("schema","cognitive_shadow_001","signal_id",slot.signalId,"policy",POLICY,"outcome","SKIPPED","reason",reason,"wire_schema",FastCognitivePromptBuilder.WIRE_SCHEMA);
             long runId=AiJobStore.modelRun(
                     db,0,1,"cognitive_shadow","local",LocalModelManager.MODEL_NAME,
                     "cognitive_v2_shadow","skipped","",0,0,0,0,output.toString(),""
             );
-            DiagnosticsLog.info(
-                    db,"CognitiveAdjudicatorV2","shadow_skipped",reason,
-                    0,slot.threadId,slot.signalId,0,runId,0,
-                    new JSONObject().put("policy",POLICY).put("reason",reason)
-            );
+            DiagnosticsLog.info(db,"CognitiveAdjudicatorV2","shadow_skipped",reason,0,slot.threadId,slot.signalId,0,runId,0,json("policy",POLICY,"reason",reason));
         }catch(Throwable ignored){}
     }
 
     private static void recordSuperseded(VaultDb db,Slot slot,LocalBrainRun run,long latency){
         try{
-            JSONObject output=new JSONObject()
-                    .put("schema","cognitive_shadow_001")
-                    .put("signal_id",slot.signalId)
-                    .put("policy",POLICY)
-                    .put("outcome","SUPERSEDED")
-                    .put("generation",slot.generation);
+            JSONObject output=json("schema","cognitive_shadow_001","signal_id",slot.signalId,"policy",POLICY,"outcome","SUPERSEDED","generation",slot.generation);
             putRunTelemetry(output,run);
             long runId=AiJobStore.modelRun(
                     db,0,1,"cognitive_shadow","local",LocalModelManager.MODEL_NAME,
                     "cognitive_v2_shadow","superseded","",latency,0,
                     run.tokensGenerated,run.result.confidence,output.toString(),""
             );
-            DiagnosticsLog.info(
-                    db,"CognitiveAdjudicatorV2","shadow_superseded","safe",
-                    0,slot.threadId,slot.signalId,0,runId,latency,
-                    new JSONObject().put("policy",POLICY).put("generation",slot.generation)
-            );
+            DiagnosticsLog.info(db,"CognitiveAdjudicatorV2","shadow_superseded","safe",0,slot.threadId,slot.signalId,0,runId,latency,json("policy",POLICY,"generation",slot.generation));
         }catch(Throwable ignored){}
     }
 
     private static String inputHash(CognitiveInput input){
         StringBuilder s=new StringBuilder()
-                .append(input.signalId).append('|')
-                .append(input.occurredAt).append('|')
-                .append(input.family.name()).append('|')
-                .append(input.sourcePackage).append('|')
-                .append(input.latestText);
+                .append(input.signalId).append('|').append(input.occurredAt).append('|')
+                .append(input.family.name()).append('|').append(input.sourcePackage).append('|').append(input.latestText);
         for(CognitiveMessage m:input.recentContext){
-            s.append('|').append(m.occurredAt)
-                    .append('|').append(m.direction)
-                    .append('|').append(m.sender)
-                    .append('|').append(m.sensitiveRedacted?"<redacted>":m.text);
+            s.append('|').append(m.occurredAt).append('|').append(m.direction).append('|').append(m.sender).append('|').append(m.sensitiveRedacted?"<redacted>":m.text);
         }
         return Fingerprint.text(s.toString());
     }
 
     private static String failureKind(Throwable error){
         Throwable x=error;
-        while(x!=null){
-            if(x instanceof CognitiveContractException)return"INVALID_CONTRACT";
-            x=x.getCause();
-        }
+        while(x!=null){if(x instanceof CognitiveContractException)return V2FailureReason.INVALID_CONTRACT.name();x=x.getCause();}
         String message=error==null||error.getMessage()==null?"":error.getMessage();
-        return message.contains("invalid cognitive output")?"INVALID_CONTRACT":"INFERENCE_FAILED";
+        return message.contains("invalid cognitive output")?V2FailureReason.INVALID_CONTRACT.name():V2FailureReason.MODEL_FAILED.name();
+    }
+
+    private static boolean authorityEnabledForSlot(Context app,AuthoritySlot slot){
+        return app!=null&&slot!=null
+                &&CognitiveFeatureFlags.authorityCanaryEnabled(app)
+                &&CognitiveFeatureFlags.authorityMode(app)==slot.mode;
+    }
+
+    private static long nextAuthorityGeneration(String key){
+        return AUTHORITY_GENERATIONS.computeIfAbsent(key,ignored->new AtomicLong()).incrementAndGet();
     }
 
     private static boolean isShadowCurrent(Slot slot){
@@ -583,50 +532,37 @@ public final class CognitiveAdjudicatorV2 {
         return current==slot&&current!=null&&current.generation==slot.generation;
     }
 
-    private static String slotKey(long threadId,long signalId){
-        return threadId>0?"thread:"+threadId:"signal:"+signalId;
-    }
+    private static String slotKey(long threadId,long signalId){return threadId>0?"thread:"+threadId:"signal:"+signalId;}
+    private static void cancel(ScheduledFuture<?> future){if(future!=null)future.cancel(false);}
+    private static void safeAccepted(AuthorityCallback callback,CognitiveResult result,long modelRunId){if(callback!=null)try{callback.accepted(result,modelRunId);}catch(Throwable ignored){}}
+    private static void safeFallback(AuthorityCallback callback,String reason){if(callback!=null)try{callback.fallback(reason);}catch(Throwable ignored){}}
 
-    private static void cancel(ScheduledFuture<?> future){
-        if(future!=null)future.cancel(false);
-    }
-
-    private static void safeAccepted(AuthorityCallback callback,CognitiveResult result,long modelRunId){
-        if(callback!=null)try{callback.accepted(result,modelRunId);}catch(Throwable ignored){}
-    }
-
-    private static void safeFallback(AuthorityCallback callback,String reason){
-        if(callback!=null)try{callback.fallback(reason);}catch(Throwable ignored){}
-    }
-
-    private static String normalizedRoutingReason(String value){
+    private static String normalizedRoutingReason(CognitiveAuthorityMode mode,String value){
         String clean=n(value).trim();
-        return clean.isEmpty()?CognitiveAuthorityRouter.RoutingReason.HASH_CANARY.name():clean;
+        if(!clean.isEmpty())return clean;
+        return mode==CognitiveAuthorityMode.V2_PRIMARY?CognitiveAuthorityRouter.RoutingReason.PRIMARY.name():CognitiveAuthorityRouter.RoutingReason.HASH_CANARY.name();
     }
 
-    private static String clip(String value,int max){
-        String clean=value==null?"":value.trim();
-        return clean.length()<=max?clean:clean.substring(0,max);
+    private static JSONObject json(Object... pairs){
+        JSONObject o=new JSONObject();
+        if(pairs==null)return o;
+        try{for(int i=0;i+1<pairs.length;i+=2)o.put(String.valueOf(pairs[i]),pairs[i+1]);}catch(Throwable ignored){}
+        return o;
     }
 
-    private static String n(String value){
-        return value==null?"":value;
-    }
+    private static String clip(String value,int max){String clean=value==null?"":value.trim();return clean.length()<=max?clean:clean.substring(0,max);}
+    private static String n(String value){return value==null?"":value;}
 
     private static final class Slot{
-        final String key;
-        final long signalId,threadId,generation;
-        volatile ScheduledFuture<?> future;
-        Slot(String key,long signalId,long threadId,long generation){
-            this.key=key;this.signalId=signalId;this.threadId=threadId;this.generation=generation;
-        }
+        final String key;final long signalId,threadId,generation;volatile ScheduledFuture<?> future;
+        Slot(String key,long signalId,long threadId,long generation){this.key=key;this.signalId=signalId;this.threadId=threadId;this.generation=generation;}
     }
 
     private static final class AuthoritySlot{
-        final String key;
+        final String key,policy,route,routingReason;
         final long signalId,threadId,generation;
-        final String routingReason;
         final int routingBucket;
+        final CognitiveAuthorityMode mode;
         final AuthorityCallback callback;
         final AtomicBoolean terminal=new AtomicBoolean(false);
         volatile ScheduledFuture<?> future,timeoutFuture;
@@ -634,21 +570,15 @@ public final class CognitiveAdjudicatorV2 {
         volatile long inferenceEnqueuedAt,nativeStartedAt,nativeFinishedAt;
 
         AuthoritySlot(
-                String key,
-                long signalId,
-                long threadId,
-                long generation,
-                String routingReason,
-                int routingBucket,
-                AuthorityCallback callback
+                String key,long signalId,long threadId,long generation,CognitiveAuthorityMode mode,
+                String routingReason,int routingBucket,AuthorityCallback callback
         ){
-            this.key=key;
-            this.signalId=signalId;
-            this.threadId=threadId;
-            this.generation=generation;
-            this.routingReason=normalizedRoutingReason(routingReason);
-            this.routingBucket=routingBucket;
-            this.callback=callback;
+            this.key=key;this.signalId=signalId;this.threadId=threadId;this.generation=generation;
+            this.mode=mode==null?CognitiveAuthorityMode.CANARY:mode;
+            this.policy=this.mode==CognitiveAuthorityMode.V2_PRIMARY?PRIMARY_POLICY:CANARY_POLICY;
+            this.route=this.mode==CognitiveAuthorityMode.V2_PRIMARY?"cognitive_v2_primary":"cognitive_v2_canary";
+            this.routingReason=normalizedRoutingReason(this.mode,routingReason);
+            this.routingBucket=routingBucket;this.callback=callback;
         }
     }
 }

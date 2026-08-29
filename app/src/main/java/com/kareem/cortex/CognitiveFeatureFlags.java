@@ -5,17 +5,20 @@ import android.content.SharedPreferences;
 
 import java.util.Collections;
 import java.util.LinkedHashSet;
+import java.util.Locale;
 import java.util.Set;
 
 /** Migration switches for Cognitive Brain V2. All authority switches are instant kill-switches. */
 public final class CognitiveFeatureFlags {
     private static final String PREFS="cortex_cognitive_flags";
+    private static final String AUTHORITY_MODE="cognitive_authority_mode";
     private static final String V2_SHADOW="cognitive_v2_shadow";
     private static final String V2_AUTHORITY_CANARY="cognitive_v2_authority_canary";
     private static final String V2_CANARY_PERCENT="cognitive_v2_canary_percent";
     private static final String V2_VALIDATION_OVERRIDE="cognitive_v2_validation_override";
     private static final String V2_VALIDATION_THREADS="cognitive_v2_validation_threads";
 
+    private static final CognitiveAuthorityMode DEFAULT_AUTHORITY_MODE=CognitiveAuthorityMode.CANARY;
     private static final boolean DEFAULT_SHADOW=true;
     private static final boolean DEFAULT_AUTHORITY_CANARY=true;
     private static final int DEFAULT_CANARY_PERCENT=5;
@@ -25,6 +28,21 @@ public final class CognitiveFeatureFlags {
 
     private CognitiveFeatureFlags(){}
 
+    public static CognitiveAuthorityMode authorityMode(Context context){
+        SharedPreferences p=prefs(context);
+        if(p==null)return CognitiveAuthorityMode.LEGACY;
+        String raw;
+        try{raw=p.getString(AUTHORITY_MODE,DEFAULT_AUTHORITY_MODE.name());}
+        catch(Throwable ignored){return DEFAULT_AUTHORITY_MODE;}
+        if(raw==null)return DEFAULT_AUTHORITY_MODE;
+        try{return CognitiveAuthorityMode.valueOf(raw.trim().toUpperCase(Locale.ROOT));}
+        catch(Throwable ignored){return DEFAULT_AUTHORITY_MODE;}
+    }
+
+    public static void setAuthorityMode(Context context,CognitiveAuthorityMode mode){
+        SharedPreferences p=prefs(context);if(p!=null)p.edit().putString(AUTHORITY_MODE,(mode==null?DEFAULT_AUTHORITY_MODE:mode).name()).apply();
+    }
+
     public static boolean shadowEnabled(Context context){
         SharedPreferences p=prefs(context);return p!=null&&p.getBoolean(V2_SHADOW,DEFAULT_SHADOW);
     }
@@ -33,6 +51,7 @@ public final class CognitiveFeatureFlags {
         SharedPreferences p=prefs(context);if(p!=null)p.edit().putBoolean(V2_SHADOW,enabled).apply();
     }
 
+    /** Existing 7.2 safety switch remains the global V2-authority kill switch. */
     public static boolean authorityCanaryEnabled(Context context){
         SharedPreferences p=prefs(context);return p!=null&&p.getBoolean(V2_AUTHORITY_CANARY,DEFAULT_AUTHORITY_CANARY);
     }

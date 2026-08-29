@@ -3,7 +3,9 @@ package com.kareem.cortex;
 import android.content.Context;
 import android.os.Handler;
 import android.os.Looper;
+
 import org.json.JSONObject;
+
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /** Runs non-UI maintenance only after the app is already visible. */
@@ -33,6 +35,7 @@ public final class StartupMaintenance {
             PhoneContextStore.ensure(db);
             if(PhoneUsageAccess.has(context))PhoneUsageAccess.syncRecent(context,db,System.currentTimeMillis()-2L*60L*60L*1000L);
             importLastCrash(context,db);
+            CognitiveRecoverySweep.run(context,db);
             AdjudicationRecovery.run(context,db);
             ContactSafetyMaintenance.run(db);
             EntityGraphMaintenance.run(db);

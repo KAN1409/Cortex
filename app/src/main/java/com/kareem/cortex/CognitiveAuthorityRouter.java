@@ -6,16 +6,18 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.util.Locale;
 
-/** Stable conversation-level routing for the guarded Cognitive V2 authority canary. */
+/** Stable production routing across Legacy, guarded Canary and explicitly enabled V2 Primary authority. */
 public final class CognitiveAuthorityRouter {
-    public enum Route { HARD_GATE, LEGACY, V2_CANARY }
+    public enum Route { HARD_GATE, LEGACY, V2_CANARY, V2_PRIMARY }
 
     public enum RoutingReason {
         HARD_NOISE,
         CANARY_DISABLED,
+        MODE_LEGACY,
         VALIDATION_OVERRIDE,
         HASH_CANARY,
-        HASH_LEGACY
+        HASH_LEGACY,
+        PRIMARY
     }
 
     public static final class Decision {
@@ -23,10 +25,8 @@ public final class CognitiveAuthorityRouter {
         public final RoutingReason reason;
         public final int bucket;
 
-        Decision(Route route, RoutingReason reason, int bucket) {
-            this.route = route;
-            this.reason = reason;
-            this.bucket = bucket;
+        Decision(Route route,RoutingReason reason,int bucket){
+            this.route=route;this.reason=reason;this.bucket=bucket;
         }
     }
 
@@ -36,13 +36,7 @@ public final class CognitiveAuthorityRouter {
         return routeDetailed(context,threadId,source,sender,hardNoise).route;
     }
 
-    public static Decision routeDetailed(
-            Context context,
-            long threadId,
-            String source,
-            String sender,
-            boolean hardNoise
-    ){
+    public static Decision routeDetailed(Context context,long threadId,String source,String sender,boolean hardNoise){
         return routeInternal(context,threadId,source,sender,hardNoise,BuildConfig.DEBUG);
     }
 
@@ -57,12 +51,23 @@ public final class CognitiveAuthorityRouter {
         String key=threadId>0?"thread:"+threadId:"signal-family:"+clean(source)+"|"+clean(sender);
         int bucket=stableBucket(key);
 
-        if(hardNoise){
-            return new Decision(Route.HARD_GATE,RoutingReason.HARD_NOISE,bucket);
-        }
+        // Hard deterministic noise always wins. No model is allowed below this branch.
+        if(hardNoise)return new Decision(Route.HARD_GATE,RoutingReason.HARD_NOISE,bucket);
+
+        // Null-context compatibility and the existing kill switch both collapse safely to Legacy.
         if(context==null||!CognitiveFeatureFlags.authorityCanaryEnabled(context)){
             return new Decision(Route.LEGACY,RoutingReason.CANARY_DISABLED,bucket);
         }
+
+        CognitiveAuthorityMode mode=CognitiveFeatureFlags.authorityMode(context);
+        if(mode==CognitiveAuthorityMode.LEGACY){
+            return new Decision(Route.LEGACY,RoutingReason.MODE_LEGACY,bucket);
+        }
+        if(mode==CognitiveAuthorityMode.V2_PRIMARY){
+            return new Decision(Route.V2_PRIMARY,RoutingReason.PRIMARY,bucket);
+        }
+
+        // Debug validation override exists only inside CANARY mode and never outranks the kill switch/hard gate.
         if(debugBuild
                 &&threadId>0
                 &&CognitiveFeatureFlags.validationOverrideEnabled(context,debugBuild)
