@@ -84,8 +84,8 @@ if [ -n "$version_code" ] && [ "$version_code" -ge 54 ]; then ok "V2 reconciliat
 require_text "$BUILD" "versionName[[:space:]]+'2\\.0" 'V2 reconciliation keeps Version 2 identity'
 require_text "$SCHEMA" 'DB_VERSION[[:space:]]*=[[:space:]]*7' 'Cognitive schema stays at DB version 7'
 require_text "$SCHEMA" 'REVISION[[:space:]]*=[[:space:]]*"cognitive_004"' 'Cognitive schema revision is canonical cognitive_004'
-require_text "$FLAGS" 'DEFAULT_AUTHORITY_MODE[[:space:]]*=[[:space:]]*CognitiveAuthorityMode\.CANARY' 'V2 default authority remains guarded canary'
-require_text "$FLAGS" 'DEFAULT_CANARY_PERCENT[[:space:]]*=[[:space:]]*5' 'V2 default canary remains 5 percent'
+require_text "$FLAGS" 'DEFAULT_AUTHORITY_MODE[[:space:]]*=[[:space:]]*CognitiveAuthorityMode\.V2_PRIMARY' 'brain-primary build defaults meaningful signals to V2 primary authority'
+require_text "$FLAGS" 'DEFAULT_CANARY_PERCENT[[:space:]]*=[[:space:]]*5' 'V2 canary rollback configuration remains 5 percent'
 require_text "$MAN" 'android:allowBackup="false"' 'automatic Android backup is disabled for private Cortex state'
 require_text "$MAN" 'activity android:name="\.StableSelfContainedReviewActivity"[^>]*exported="false"' 'phone-only self review is not externally triggerable'
 
