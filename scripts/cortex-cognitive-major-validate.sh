@@ -69,6 +69,14 @@ gradle \
   --console=plain
 
 echo
+echo "===== FAST TYPE-ONLY PARSER CONTRACT ====="
+gradle :app:connectedDebugAndroidTest \
+  -Pandroid.testInstrumentationRunnerArguments.class=com.kareem.cortex.FastCognitiveResultParserTest \
+  --stacktrace \
+  --console=plain
+echo "✅ tolerant type-only parser contract passed"
+
+echo
 echo "===== ISOLATE PRODUCTION CANARY DURING BENCHMARK ====="
 adb shell am force-stop "$PKG"
 write_flags 0
@@ -175,6 +183,7 @@ LEGACY_EVALS="$($SQLITE "$DB" "SELECT COUNT(*) FROM relevance_evaluations WHERE 
 echo
 echo "===== MAJOR UPDATE DEVICE GATE ====="
 echo "✅ Build + androidTest compile"
+echo "✅ Tolerant type-only parser contract"
 echo "✅ Qwen3-1.7B runtime/model identity"
 echo "✅ 10-case benchmark with Shadow OFF"
 echo "✅ 10-case benchmark with Shadow ON"

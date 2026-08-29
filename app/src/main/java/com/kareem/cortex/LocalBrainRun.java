@@ -19,6 +19,7 @@ public final class LocalBrainRun {
     public final long totalMs;
     public final int promptChars;
     public final String wireSchema;
+    public final String confidenceSource;
 
     public LocalBrainRun(
             CognitiveResult result,
@@ -46,6 +47,7 @@ public final class LocalBrainRun {
                 durationMs,
                 durationMs,
                 0,
+                "",
                 ""
         );
     }
@@ -68,6 +70,46 @@ public final class LocalBrainRun {
             int promptChars,
             String wireSchema
     ) {
+        this(
+                result,
+                rawOutput,
+                durationMs,
+                modelLoadMs,
+                generationMs,
+                tokensGenerated,
+                tokensPerSecond,
+                cacheHit,
+                enqueuedAt,
+                nativeStartedAt,
+                nativeFinishedAt,
+                queueWaitMs,
+                nativeTotalMs,
+                totalMs,
+                promptChars,
+                wireSchema,
+                ""
+        );
+    }
+
+    public LocalBrainRun(
+            CognitiveResult result,
+            String rawOutput,
+            long durationMs,
+            long modelLoadMs,
+            long generationMs,
+            int tokensGenerated,
+            float tokensPerSecond,
+            boolean cacheHit,
+            long enqueuedAt,
+            long nativeStartedAt,
+            long nativeFinishedAt,
+            long queueWaitMs,
+            long nativeTotalMs,
+            long totalMs,
+            int promptChars,
+            String wireSchema,
+            String confidenceSource
+    ) {
         this.result = result;
         this.rawOutput = rawOutput == null ? "" : rawOutput;
         this.durationMs = Math.max(0L, durationMs);
@@ -84,5 +126,6 @@ public final class LocalBrainRun {
         this.totalMs = Math.max(0L, totalMs);
         this.promptChars = Math.max(0, promptChars);
         this.wireSchema = wireSchema == null ? "" : wireSchema;
+        this.confidenceSource = confidenceSource == null ? "" : confidenceSource;
     }
 }

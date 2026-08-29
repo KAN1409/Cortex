@@ -15,7 +15,6 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.FutureTask;
 import java.util.concurrent.TimeUnit;
 
@@ -41,15 +40,10 @@ public final class CognitiveLatencyBenchmark {
             assertGate("shadow_on", shadowOn);
             assertEquals("Shadow must never block authority", 0, shadowOn.shadowBlocksAuthority);
             assertEquals(
-                    "Every actual native contention attempt should be SKIPPED_BUSY",
-                    shadowOn.shadowContentionAttempts,
+                    "Every contending shadow attempt should be SKIPPED_BUSY",
+                    shadowOn.total,
                     shadowOn.shadowSkippedBusy
             );
-
-            // The benchmark corpus is intentionally allowed to become entirely deterministic.
-            // Keep one explicit coordinator probe so the shadow-safety contract remains tested even
-            // when no corpus case needs native Qwen inference.
-            assertCoordinatorRejectsContendingShadow();
         } finally {
             CognitiveFeatureFlags.setShadowEnabled(app, oldShadow);
         }
@@ -78,44 +72,40 @@ public final class CognitiveLatencyBenchmark {
         int classification = 0;
         int canaryEligible = 0;
         int nonEmptyThinking = 0;
-        int shadowContentionAttempts = 0;
         int shadowSkippedBusy = 0;
         int shadowBlocksAuthority = 0;
 
         for (Case test : cases) {
-            LocalBrainRun run;
+            long caseStarted = System.currentTimeMillis();
+            try {
+                LocalBrainRun run;
 
-            if (!contendWithShadow) {
-                run = brain.classifyWithTelemetry(
-                        test.input,
-                        LocalInferenceCoordinator.Priority.AUTHORITATIVE
-                );
-            } else {
-                FutureTask<LocalBrainRun> authority = new FutureTask<>(
-                        () -> brain.classifyWithTelemetry(
-                                test.input,
-                                LocalInferenceCoordinator.Priority.AUTHORITATIVE
-                        )
-                );
-                Thread thread = new Thread(authority, "cortex-benchmark-authority");
-                thread.start();
+                if (!contendWithShadow) {
+                    run = brain.classifyWithTelemetry(
+                            test.input,
+                            LocalInferenceCoordinator.Priority.AUTHORITATIVE
+                    );
+                } else {
+                    FutureTask<LocalBrainRun> authority = new FutureTask<>(
+                            () -> brain.classifyWithTelemetry(
+                                    test.input,
+                                    LocalInferenceCoordinator.Priority.AUTHORITATIVE
+                            )
+                    );
+                    Thread thread = new Thread(authority, "cortex-benchmark-authority");
+                    thread.start();
 
-                long waitDeadline = System.currentTimeMillis() + 1_000L;
-                while (LocalInferenceCoordinator.authorityPendingCount() <= 0
-                        && !authority.isDone()
-                        && System.currentTimeMillis() < waitDeadline) {
-                    Thread.sleep(2L);
-                }
-                assertTrue(
-                        "Authority did not complete or reach coordinator in benchmark window",
-                        LocalInferenceCoordinator.authorityPendingCount() > 0 || authority.isDone()
-                );
+                    long waitDeadline = System.currentTimeMillis() + 1_000L;
+                    while (LocalInferenceCoordinator.authorityPendingCount() <= 0
+                            && !authority.isDone()
+                            && System.currentTimeMillis() < waitDeadline) {
+                        Thread.sleep(2L);
+                    }
+                    assertTrue(
+                            "Authority did not reach coordinator in benchmark window",
+                            LocalInferenceCoordinator.authorityPendingCount() > 0 || authority.isDone()
+                    );
 
-                // A deterministic fast-lane result legitimately completes without ever owning the
-                // native model. Only inject a competing shadow when authority actually reached the
-                // native coordinator; otherwise there is no shared native resource to contend for.
-                if (LocalInferenceCoordinator.authorityPendingCount() > 0) {
-                    shadowContentionAttempts++;
                     long beforeShadow = System.currentTimeMillis();
                     try {
                         brain.classifyWithTelemetry(
@@ -132,36 +122,55 @@ public final class CognitiveLatencyBenchmark {
                     }
                     long shadowElapsed = System.currentTimeMillis() - beforeShadow;
                     if (shadowElapsed >= 500L) shadowBlocksAuthority++;
+
+                    run = authority.get(60, TimeUnit.SECONDS);
                 }
 
-                run = authority.get(60, TimeUnit.SECONDS);
+                valid++;
+                if (matches(run.result, test)) classification++;
+                if (canaryEligible(run.result)) canaryEligible++;
+                if (FastCognitiveResultParser.hasNonEmptyThinking(run.rawOutput)) nonEmptyThinking++;
+
+                queue.add(run.queueWaitMs);
+                total.add(run.totalMs);
+                generated.add(run.tokensGenerated);
+
+                Log.i(
+                        TAG,
+                        (contendWithShadow ? "shadow_on" : "shadow_off")
+                                + " case=" + test.name
+                                + " valid=true"
+                                + " queue_wait_ms=" + run.queueWaitMs
+                                + " native_total_ms=" + run.nativeTotalMs
+                                + " total_ms=" + run.totalMs
+                                + " prompt_chars=" + run.promptChars
+                                + " tokens=" + run.tokensGenerated
+                                + " tok_s=" + run.tokensPerSecond
+                                + " cache_hit=" + run.cacheHit
+                                + " wire_schema=" + run.wireSchema
+                                + " disposition=" + run.result.disposition
+                                + " confidence=" + run.result.confidence
+                                + " confidence_source=" + run.confidenceSource
+                                + " canary_eligible=" + canaryEligible(run.result)
+                );
+            } catch (Throwable error) {
+                long elapsed = Math.max(0L, System.currentTimeMillis() - caseStarted);
+                queue.add(0L);
+                total.add(elapsed);
+                generated.add(0);
+                Log.e(
+                        TAG,
+                        (contendWithShadow ? "shadow_on" : "shadow_off")
+                                + " case=" + test.name
+                                + " valid=false"
+                                + " queue_wait_ms=0"
+                                + " total_ms=" + elapsed
+                                + " tokens=0"
+                                + " canary_eligible=false"
+                                + " error=" + error.getClass().getSimpleName()
+                                + ":" + String.valueOf(error.getMessage())
+                );
             }
-
-            valid++;
-            if (matches(run.result, test)) classification++;
-            if (canaryEligible(run.result)) canaryEligible++;
-            if (FastCognitiveResultParser.hasNonEmptyThinking(run.rawOutput)) nonEmptyThinking++;
-
-            queue.add(run.queueWaitMs);
-            total.add(run.totalMs);
-            generated.add(run.tokensGenerated);
-
-            Log.i(
-                    TAG,
-                    (contendWithShadow ? "shadow_on" : "shadow_off")
-                            + " case=" + test.name
-                            + " queue_wait_ms=" + run.queueWaitMs
-                            + " native_total_ms=" + run.nativeTotalMs
-                            + " total_ms=" + run.totalMs
-                            + " prompt_chars=" + run.promptChars
-                            + " tokens=" + run.tokensGenerated
-                            + " tok_s=" + run.tokensPerSecond
-                            + " cache_hit=" + run.cacheHit
-                            + " wire_schema=" + run.wireSchema
-                            + " disposition=" + run.result.disposition
-                            + " confidence=" + run.result.confidence
-                            + " canary_eligible=" + canaryEligible(run.result)
-            );
         }
 
         PhaseResult result = new PhaseResult(
@@ -176,7 +185,6 @@ public final class CognitiveLatencyBenchmark {
                 percentileLong(total, 95),
                 percentileInt(generated, 50),
                 maxInt(generated),
-                shadowContentionAttempts,
                 shadowSkippedBusy,
                 shadowBlocksAuthority
         );
@@ -185,58 +193,19 @@ public final class CognitiveLatencyBenchmark {
         return result;
     }
 
-    private static void assertCoordinatorRejectsContendingShadow() throws Exception {
-        CountDownLatch authorityInsideNative = new CountDownLatch(1);
-        CountDownLatch releaseAuthority = new CountDownLatch(1);
-        FutureTask<LocalInferenceCoordinator.Result<String>> authority = new FutureTask<>(
-                () -> LocalInferenceCoordinator.execute(
-                        LocalInferenceCoordinator.Priority.AUTHORITATIVE,
-                        () -> {
-                            authorityInsideNative.countDown();
-                            if (!releaseAuthority.await(2, TimeUnit.SECONDS)) {
-                                throw new IllegalStateException("Coordinator contention probe timed out");
-                            }
-                            return "authority";
-                        }
-                )
-        );
-        Thread thread = new Thread(authority, "cortex-benchmark-coordinator-probe");
-        thread.start();
-
-        assertTrue(
-                "Coordinator probe authority did not enter native lane",
-                authorityInsideNative.await(2, TimeUnit.SECONDS)
-        );
-
-        long started = System.currentTimeMillis();
-        boolean skippedBusy = false;
-        try {
-            LocalInferenceCoordinator.execute(
-                    LocalInferenceCoordinator.Priority.SHADOW,
-                    () -> "shadow"
-            );
-        } catch (LocalInferenceCoordinator.BusyException expected) {
-            skippedBusy = true;
-        } finally {
-            releaseAuthority.countDown();
-        }
-        long elapsed = System.currentTimeMillis() - started;
-
-        assertTrue("Contending shadow must be SKIPPED_BUSY", skippedBusy);
-        assertTrue("Contending shadow rejection must be non-blocking, got " + elapsed + "ms", elapsed < 500L);
-        assertEquals("authority", authority.get(3, TimeUnit.SECONDS).value);
-    }
-
     private static void assertGate(String phase, PhaseResult result) {
+        // Mechanical contract gates first. Classification and latency remain visible as separate
+        // numbers in the phase summary so the next engineering move is evidence-driven.
         assertEquals(phase + ": valid JSON/contract must be 100% for a 10-case corpus", result.total, result.valid);
-        assertEquals(phase + ": classification regression", result.total, result.classification);
         assertEquals(phase + ": every benchmark result must be canary-eligible", result.total, result.canaryEligible);
         assertEquals(phase + ": actual reasoning tokens are not allowed", 0, result.nonEmptyThinking);
         assertTrue(phase + ": authority queue P95 must be <500ms, got " + result.queueP95, result.queueP95 < 500L);
-        assertTrue(phase + ": authority total P50 must be <=8s, got " + result.totalP50, result.totalP50 <= 8_000L);
-        assertTrue(phase + ": authority total P95 must be <=12s, got " + result.totalP95, result.totalP95 <= 12_000L);
         assertTrue(phase + ": generated-token P50 must be <=70, got " + result.tokensP50, result.tokensP50 <= 70);
         assertTrue(phase + ": generated-token max must be <=96, got " + result.tokensMax, result.tokensMax <= 96);
+
+        assertEquals(phase + ": classification regression", result.total, result.classification);
+        assertTrue(phase + ": authority total P50 must be <=8s, got " + result.totalP50, result.totalP50 <= 8_000L);
+        assertTrue(phase + ": authority total P95 must be <=12s, got " + result.totalP95, result.totalP95 <= 12_000L);
     }
 
     private static boolean matches(CognitiveResult result, Case test) {
@@ -385,7 +354,6 @@ public final class CognitiveLatencyBenchmark {
         final long totalP95;
         final int tokensP50;
         final int tokensMax;
-        final int shadowContentionAttempts;
         final int shadowSkippedBusy;
         final int shadowBlocksAuthority;
 
@@ -401,7 +369,6 @@ public final class CognitiveLatencyBenchmark {
                 long totalP95,
                 int tokensP50,
                 int tokensMax,
-                int shadowContentionAttempts,
                 int shadowSkippedBusy,
                 int shadowBlocksAuthority
         ) {
@@ -416,7 +383,6 @@ public final class CognitiveLatencyBenchmark {
             this.totalP95 = totalP95;
             this.tokensP50 = tokensP50;
             this.tokensMax = tokensMax;
-            this.shadowContentionAttempts = shadowContentionAttempts;
             this.shadowSkippedBusy = shadowSkippedBusy;
             this.shadowBlocksAuthority = shadowBlocksAuthority;
         }
@@ -433,7 +399,6 @@ public final class CognitiveLatencyBenchmark {
                     + " total_p95=" + totalP95
                     + " tokens_p50=" + tokensP50
                     + " tokens_max=" + tokensMax
-                    + " shadow_contention_attempts=" + shadowContentionAttempts
                     + " shadow_skipped_busy=" + shadowSkippedBusy
                     + " shadow_blocks_authority=" + shadowBlocksAuthority;
         }

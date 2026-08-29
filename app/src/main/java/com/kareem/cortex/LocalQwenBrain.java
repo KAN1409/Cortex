@@ -4,7 +4,6 @@ import android.content.Context;
 
 import java.util.function.BooleanSupplier;
 
-/** Hybrid local cognitive brain: deterministic obvious cases, Qwen for ambiguity. */
 public final class LocalQwenBrain implements CortexBrain {
 
     private static final int MAX_TOKENS = 96;
@@ -45,43 +44,12 @@ public final class LocalQwenBrain implements CortexBrain {
         if (app == null) {
             throw new BrainException("Android context is unavailable");
         }
-        if (input == null) {
-            throw new BrainException("CognitiveInput is null");
+
+        if (!LocalModelManager.installed(app)) {
+            throw new BrainException("Local Cortex model is not ready");
         }
 
         try {
-            long deterministicStarted = System.currentTimeMillis();
-            CognitiveResult fast = HybridFastClassifier.classify(input);
-            if (fast != null) {
-                CognitiveResult validated = CognitiveResultValidator.validate(fast);
-                long finished = System.currentTimeMillis();
-                String raw = "{\"path\":\"deterministic_fast\",\"disposition\":\""
-                        + validated.disposition.name()
-                        + "\"}";
-                return new LocalBrainRun(
-                        validated,
-                        raw,
-                        Math.max(0L, finished - deterministicStarted),
-                        0L,
-                        0L,
-                        0,
-                        0f,
-                        false,
-                        deterministicStarted,
-                        0L,
-                        0L,
-                        0L,
-                        0L,
-                        Math.max(0L, finished - deterministicStarted),
-                        0,
-                        FastCognitivePromptBuilder.WIRE_SCHEMA
-                );
-            }
-
-            if (!LocalModelManager.installed(app)) {
-                throw new BrainException("Local Cortex model is not ready");
-            }
-
             String system = FastCognitivePromptBuilder.systemPrompt();
             String prompt = FastCognitivePromptBuilder.build(input);
             int promptChars = system.length() + prompt.length();
@@ -102,7 +70,10 @@ public final class LocalQwenBrain implements CortexBrain {
             LocalLlmBridge.CompletionResult run = coordinated.value;
             CognitiveResult parsed;
             try {
-                parsed = FastCognitiveResultParser.parse(run.getText(), input.latestText);
+                parsed = FastCognitiveResultParser.parse(
+                        run.getText(),
+                        input.latestText
+                );
             } catch (CognitiveContractException error) {
                 throw new BrainException(
                         "Local model returned invalid cognitive output: "
@@ -131,7 +102,8 @@ public final class LocalQwenBrain implements CortexBrain {
                     coordinated.nativeTotalMs,
                     totalMs,
                     promptChars,
-                    FastCognitivePromptBuilder.WIRE_SCHEMA
+                    FastCognitivePromptBuilder.WIRE_SCHEMA,
+                    FastCognitiveResultParser.confidenceSource(run.getText())
             );
         } catch (BrainException error) {
             throw error;
