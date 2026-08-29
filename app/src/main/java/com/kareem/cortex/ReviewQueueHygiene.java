@@ -11,6 +11,7 @@ public final class ReviewQueueHygiene {
     private static final long HIGH_TTL=7L*24L*60L*60L*1000L;
     private ReviewQueueHygiene(){}
 
+    /** Returns only review items important enough to consume Now; the full queue remains in ReviewQueueActivity. */
     public static ArrayList<ReviewQueueStore.Item> pending(VaultDb db,int limit){
         ArrayList<ReviewQueueStore.Item> raw=ReviewQueueStore.pending(db,80);
         ArrayList<BrainSituationStore.Item> current=BrainSituationStore.current(db,200);
@@ -20,10 +21,11 @@ public final class ReviewQueueHygiene {
         for(ReviewQueueStore.Item r:raw){
             long ttl=r.importance>=70?HIGH_TTL:NORMAL_TTL;
             boolean stale=r.createdAt>0&&now-r.createdAt>ttl;
-            boolean noise=mechanical(r.title+" "+r.body);
+            boolean noise=mechanical(r.title+" "+r.body)||CortexSurfacePolicy.isSurfaceNoise(r.candidateKind,r.title,r.body,r.sourceKey);
             BrainSituationStore.Item s=r.threadId>0?byThread.get(r.threadId):null;
             boolean superseded=s!=null&&s.lastChangedAt>=r.createdAt&&(r.signalId<=0||s.signalId>=r.signalId);
             if(stale||noise||superseded){retire(db,r.id,stale?"expired":(noise?"dismissed":"superseded"));continue;}
+            if(!CortexSurfacePolicy.reviewDeservesNow(r.candidateKind,r.importance,r.confidence,r.createdAt,now))continue;
             out.add(r);if(out.size()>=Math.max(1,limit))break;
         }
         return out;
