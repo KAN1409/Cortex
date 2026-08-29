@@ -3,6 +3,9 @@ set -euo pipefail
 
 PACKAGE="com.kareem.cortex"
 RELAY_BRANCH="integration/cognitive-relay-v2-v54"
+# This commit contains the exact app/manifest/test Relay overlay that passed debug + release +
+# androidTest-source CI. Later commits on the branch only harden this local snapshot script.
+RELAY_CODE_REF="66d822faee9a6fd6ef11796d6f11cbdc705c66fd"
 EXPECTED_VERSION_CODE=54
 EXPECTED_VERSION_NAME="2.0.1-cognitive-relay-v2-candidate"
 EXPECTED_CERT_SHA256="e869f4390c3508738758ed2d94d391e86e728a300c760afb8bc50add185987a8"
@@ -65,8 +68,8 @@ copy_installed_base(){
 extract_remote(){
   local path="$1"
   mkdir -p "$TARGET/$(dirname "$path")"
-  git -C "$SRC" show "origin/$RELAY_BRANCH:$path" > "$TARGET/$path" \
-    || fail "Could not extract $path from origin/$RELAY_BRANCH"
+  git -C "$SRC" show "$RELAY_CODE_REF:$path" > "$TARGET/$path" \
+    || fail "Could not extract $path from pinned Relay code $RELAY_CODE_REF"
 }
 
 echo "===== 1. VERIFY INSTALLED CORTEX ====="
@@ -98,11 +101,16 @@ if ! git -C "$SRC" diff --quiet -- app/src/main/AndroidManifest.xml app/src/main
 fi
 
 echo
-echo "===== 3. FETCH RELAY V54 WITHOUT TOUCHING WORKTREE ====="
+echo "===== 3. FETCH PINNED RELAY V54 WITHOUT TOUCHING WORKTREE ====="
 git -C "$SRC" fetch origin "$RELAY_BRANCH"
 REMOTE_HEAD="$(git -C "$SRC" rev-parse "origin/$RELAY_BRANCH")"
-echo "relay_ref=$RELAY_BRANCH"
-echo "relay_head=$REMOTE_HEAD"
+git -C "$SRC" cat-file -e "$RELAY_CODE_REF^{commit}" 2>/dev/null \
+  || fail "Pinned Relay code commit $RELAY_CODE_REF was not fetched"
+git -C "$SRC" merge-base --is-ancestor "$RELAY_CODE_REF" "origin/$RELAY_BRANCH" \
+  || fail "Pinned Relay code is no longer an ancestor of origin/$RELAY_BRANCH"
+echo "relay_branch=$RELAY_BRANCH"
+echo "relay_branch_head=$REMOTE_HEAD"
+echo "pinned_relay_code=$RELAY_CODE_REF"
 
 echo
 echo "===== 4. CREATE ISOLATED SNAPSHOT ====="
@@ -119,7 +127,7 @@ mkdir -p "$TARGET"
 ) | (cd "$TARGET" && tar -xf -)
 echo "snapshot=$TARGET"
 
-# Add only Relay/Local-Bus implementation files from the reviewed integration branch.
+# Add only Relay/Local-Bus implementation files from the CI-validated pinned integration commit.
 for path in \
   app/src/main/java/com/kareem/cortex/CortexLocalBusProtocolV1.java \
   app/src/main/java/com/kareem/cortex/CortexLocalBusProtocolV2.java \
