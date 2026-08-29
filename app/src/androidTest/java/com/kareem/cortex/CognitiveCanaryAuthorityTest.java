@@ -90,6 +90,29 @@ public final class CognitiveCanaryAuthorityTest {
         }finally{x.close();}
     }
 
+    @Test public void staleThreadResultRollsBackWholeAuthorityTransaction(){
+        TestDb x=open("cognitive-canary-superseded.db");
+        try{
+            long oldSignal=insertRaw(x.sql,"com.whatsapp","Ahmed","هبعتلك الملف","CONTEXT","deterministic_fast_gate");
+            long threadId=42L;ContentValues oldThread=new ContentValues();oldThread.put("thread_id",threadId);oldThread.put("occurred_at",System.currentTimeMillis()-2000);x.sql.update("raw_signals",oldThread,"id=?",new String[]{String.valueOf(oldSignal)});
+            long newerSignal=insertRaw(x.sql,"com.whatsapp","Ahmed","خلاص بعته","CONTEXT","deterministic_fast_gate");ContentValues newThread=new ContentValues();newThread.put("thread_id",threadId);newThread.put("occurred_at",System.currentTimeMillis());x.sql.update("raw_signals",newThread,"id=?",new String[]{String.valueOf(newerSignal)});
+
+            CognitiveItem item=new CognitiveItem(CognitiveKind.WAITING,"Wait for the file",80,60,"Ahmed",null,false,true,false);
+            CognitiveResult result=new CognitiveResult(CognitiveDisposition.DERIVE,0.94,"Old message looked like waiting",Collections.singletonList(item));
+            LocalBrainRun run=new LocalBrainRun(result,"",260,0,220,25,95f,false);
+
+            try{
+                CognitiveStore.applyCanaryAuthority(x.vault,oldSignal,threadId,result,run,260,"stale-input",CognitiveAdjudicatorV2.CANARY_POLICY);
+                fail("Expected stale canary result to be rejected");
+            }catch(IllegalStateException expected){assertEquals("CANARY_SUPERSEDED",expected.getMessage());}
+
+            assertEquals(0,scalarLong(x.sql,"SELECT COUNT(*) FROM model_runs WHERE route='cognitive_v2_canary'"));
+            assertEquals(0,scalarLong(x.sql,"SELECT COUNT(*) FROM derived_items WHERE metadata_json LIKE '%\"authority\":\"CANARY\"%'"));
+            assertEquals(0,scalarLong(x.sql,"SELECT COUNT(*) FROM source_links WHERE metadata_json LIKE '%\"authority\":\"CANARY\"%'"));
+            assertEquals("CONTEXT",scalarString(x.sql,"SELECT disposition FROM raw_signals WHERE id="+oldSignal));
+        }finally{x.close();}
+    }
+
     private static long insertRaw(SQLiteDatabase db,String source,String title,String body,String disposition,String engine){
         long now=System.currentTimeMillis();ContentValues v=new ContentValues();v.put("kind","notification");v.put("source",source);v.put("title",title);v.put("body",body);v.put("metadata_json","{}");v.put("fingerprint",Fingerprint.text(source+"|"+title+"|"+body+"|"+now+"|"+Math.random()));v.put("state","filtered");v.put("disposition",disposition);v.put("importance",0);v.put("reason","");v.put("occurred_at",now);v.put("retention_until",0);v.put("created_at",now);v.put("updated_at",now);v.put("confidence",0.8);v.put("filter_engine",engine);v.put("cognitive_state","LEGACY_UNRESOLVED");v.put("cognitive_version","legacy-cognitive-003");v.put("cognitive_updated_at",now);return db.insertOrThrow("raw_signals",null,v);
     }
