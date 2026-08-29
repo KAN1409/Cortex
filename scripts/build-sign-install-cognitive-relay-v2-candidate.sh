@@ -2,13 +2,13 @@
 set -euo pipefail
 
 PACKAGE="com.kareem.cortex"
-EXPECTED_VERSION_CODE=51
-EXPECTED_VERSION_NAME="1.0.0-v51-cognitive-relay-v2-candidate"
+EXPECTED_VERSION_CODE=54
+EXPECTED_VERSION_NAME="2.0.1-cognitive-relay-v2-candidate"
 EXPECTED_CERT_SHA256="e869f4390c3508738758ed2d94d391e86e728a300c760afb8bc50add185987a8"
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 KEYSTORE="${CORTEX_SIGNING_KEYSTORE:-$HOME/.config/mnemo/mnemo.keystore}"
 KEY_ALIAS="${CORTEX_SIGNING_ALIAS:-mnemo}"
-SIGNED_APK="${CORTEX_DEVICE_APK:-/sdcard/Download/Cortex-v51-cognitive-relay-v2-candidate.apk}"
+SIGNED_APK="${CORTEX_DEVICE_APK:-/sdcard/Download/Cortex-v54-cognitive-relay-v2-candidate.apk}"
 INSTALLED_COPY="${TMPDIR:-/data/data/com.termux/files/usr/tmp}/cortex-installed-base.apk"
 
 fail() { echo "ERROR: $*" >&2; exit 1; }
@@ -115,7 +115,7 @@ echo "Candidate signer OK: $SIGNED_CERT"
 
 echo
 echo "==> Install 5/6: update-in-place only (NO UNINSTALL)"
-TMP_REMOTE="/data/local/tmp/Cortex-v51-cognitive-relay-v2-candidate.apk"
+TMP_REMOTE="/data/local/tmp/Cortex-v54-cognitive-relay-v2-candidate.apk"
 cat "$SIGNED_APK" | rish -c "cat > '$TMP_REMOTE'" || fail "Failed to stage candidate APK"
 INSTALL_OUT="$(rish -c "chmod 644 '$TMP_REMOTE'; pm install -r '$TMP_REMOTE'; rc=\$?; rm -f '$TMP_REMOTE'; exit \$rc" 2>&1)" || {
   printf '%s\n' "$INSTALL_OUT"
