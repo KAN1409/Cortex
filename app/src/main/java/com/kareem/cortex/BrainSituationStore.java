@@ -187,9 +187,11 @@ public final class BrainSituationStore {
         v.put("importance",clamp100(x.importance));v.put("urgency",clamp100(x.urgency));v.put("evidence_count",Math.max(1,evidence));
         v.put("first_seen_at",firstSeen);v.put("last_changed_at",lastChanged);v.put("updated_at",now);v.put("resolved_at",0);
         v.put("why_changed",why);v.put("metadata_json",meta.toString());
-        db.insertWithOnConflict(TABLE,null,v,SQLiteDatabase.CONFLICT_REPLACE);
-        Cursor c=db.query(TABLE,new String[]{"id"},"situation_key=?",new String[]{key},null,null,null,"1");
-        try{return c.moveToFirst()?c.getLong(0):0;}finally{c.close();}
+        if(old==null){
+            long inserted=db.insert(TABLE,null,v);return inserted>0?inserted:0;
+        }
+        if(db.update(TABLE,v,"id=?",new String[]{String.valueOf(old.id)})<=0)return 0;
+        return old.id;
     }
 
     private static Existing existing(SQLiteDatabase db, String key) {
