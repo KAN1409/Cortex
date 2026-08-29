@@ -26,9 +26,11 @@ public final class CognitiveInputFactory {
 
         String latestText=cleanNotificationBody(title,body);if(latestText.isEmpty())latestText=title;
         String sender=senderFor(title,metadata);
+        String perception=RelayPerceptionContext.compact(metadata);
         SignalFamily family=SignalFamilyClassifier.classify(kind,source,title,body);
         List<CognitiveMessage> context=threadId>0?loadThreadContext(db,threadId,signalId):Collections.emptyList();
-        return new CognitiveInput(signalId,family,source,friendlyApp(source),sender,latestText,context,occurredAt,TimeZone.getDefault().getID(),baseline);
+        return new CognitiveInput(signalId,family,source,friendlyApp(source),sender,latestText,context,
+                occurredAt,TimeZone.getDefault().getID(),baseline,perception);
     }
 
     private static List<CognitiveMessage> loadThreadContext(VaultDb db,long threadId,long latestSignalId){
@@ -36,7 +38,7 @@ public final class CognitiveInputFactory {
                 "raw_signals",
                 new String[]{"id","title","body","metadata_json","occurred_at"},
                 "thread_id=? AND id<=?",new String[]{String.valueOf(threadId),String.valueOf(latestSignalId)},
-                null,null,"occurred_at DESC,id DESC","5");
+                null,null,"occurred_at DESC,id DESC","6");
         ArrayList<CognitiveMessage> out=new ArrayList<>();
         while(c.moveToNext()){
             String title=n(c.getString(1)),body=n(c.getString(2)),metadata=n(c.getString(3));long occurred=c.getLong(4);
@@ -53,6 +55,7 @@ public final class CognitiveInputFactory {
             String sender=n(o.optString("sender",""));if(!sender.isEmpty())return sender;
             String personHint=n(o.optString("person_hint",""));if(!personHint.isEmpty())return personHint;
         }catch(Throwable ignored){}
+        String relayActor=RelayPerceptionContext.actor(metadata);if(!relayActor.isEmpty())return relayActor;
         return n(title);
     }
 
@@ -60,6 +63,8 @@ public final class CognitiveInputFactory {
         try{
             JSONObject o=new JSONObject(n(metadata));String d=n(o.optString("direction","")).toLowerCase(Locale.ROOT);
             if(d.contains("out")||d.contains("sent")||d.contains("self"))return "SENT_BY_SELF";
+            JSONObject semantic=o.optJSONObject("relay_semantic_v2");
+            if(semantic!=null){String sd=n(semantic.optString("direction","")).toLowerCase(Locale.ROOT);if(sd.contains("out")||sd.contains("sent")||sd.contains("self"))return "SENT_BY_SELF";}
         }catch(Throwable ignored){}
         return "RECEIVED_FROM_OTHER";
     }
