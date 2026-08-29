@@ -25,7 +25,7 @@ public class NotificationCaptureService extends NotificationListenerService {
                 long personEntityId=CanonicalPersonResolver.resolveSignal(db,signalId,normalized);
                 CrossSourceSituationStitcher.stitchSignal(db,signalId,personEntityId);
             }
-            if(threadId>0)ThreadModelAdjudicator.enqueue(this,threadId,signalId);if(itemId>0)AnalysisQueue.kick(this,null,null);
+            if(threadId>0&&RawSignalStore.shouldEnqueueLegacyModel(db,signalId))ThreadModelAdjudicator.enqueue(this,threadId,signalId);if(itemId>0)AnalysisQueue.kick(this,null,null);
         }catch(Throwable error){android.util.Log.e("CortexNotification","Notification ingestion failed",error);VaultDb d=null;try{d=new VaultDb(this);JSONObject meta=new JSONObject();meta.put("package",sbn==null?"":String.valueOf(sbn.getPackageName()));DiagnosticsLog.error(d,"NotificationCaptureService","notification_ingest",error,"NOTIFICATION_INGEST",0,0,0,0,0,meta);}catch(Throwable ignored){}finally{if(d!=null)try{d.close();}catch(Throwable ignored){}}}finally{if(db!=null)try{db.close();}catch(Throwable ignored){}}}
     private String label(String pkg){if(pkg==null||pkg.isEmpty())return"Notification";try{ApplicationInfo ai=getPackageManager().getApplicationInfo(pkg,0);CharSequence x=getPackageManager().getApplicationLabel(ai);return x==null?pkg:x.toString();}catch(Throwable e){return pkg;}}
     private static String str(CharSequence s){return s==null?"":s.toString().trim();}
