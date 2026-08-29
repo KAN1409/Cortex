@@ -11,6 +11,15 @@ public final class LocalBrainRun {
     public final float tokensPerSecond;
     public final boolean cacheHit;
 
+    public final long enqueuedAt;
+    public final long nativeStartedAt;
+    public final long nativeFinishedAt;
+    public final long queueWaitMs;
+    public final long nativeTotalMs;
+    public final long totalMs;
+    public final int promptChars;
+    public final String wireSchema;
+
     public LocalBrainRun(
             CognitiveResult result,
             String rawOutput,
@@ -21,13 +30,59 @@ public final class LocalBrainRun {
             float tokensPerSecond,
             boolean cacheHit
     ) {
+        this(
+                result,
+                rawOutput,
+                durationMs,
+                modelLoadMs,
+                generationMs,
+                tokensGenerated,
+                tokensPerSecond,
+                cacheHit,
+                0L,
+                0L,
+                0L,
+                0L,
+                durationMs,
+                durationMs,
+                0,
+                ""
+        );
+    }
+
+    public LocalBrainRun(
+            CognitiveResult result,
+            String rawOutput,
+            long durationMs,
+            long modelLoadMs,
+            long generationMs,
+            int tokensGenerated,
+            float tokensPerSecond,
+            boolean cacheHit,
+            long enqueuedAt,
+            long nativeStartedAt,
+            long nativeFinishedAt,
+            long queueWaitMs,
+            long nativeTotalMs,
+            long totalMs,
+            int promptChars,
+            String wireSchema
+    ) {
         this.result = result;
-        this.rawOutput = rawOutput;
-        this.durationMs = durationMs;
-        this.modelLoadMs = modelLoadMs;
-        this.generationMs = generationMs;
-        this.tokensGenerated = tokensGenerated;
+        this.rawOutput = rawOutput == null ? "" : rawOutput;
+        this.durationMs = Math.max(0L, durationMs);
+        this.modelLoadMs = Math.max(0L, modelLoadMs);
+        this.generationMs = Math.max(0L, generationMs);
+        this.tokensGenerated = Math.max(0, tokensGenerated);
         this.tokensPerSecond = tokensPerSecond;
         this.cacheHit = cacheHit;
+        this.enqueuedAt = Math.max(0L, enqueuedAt);
+        this.nativeStartedAt = Math.max(0L, nativeStartedAt);
+        this.nativeFinishedAt = Math.max(0L, nativeFinishedAt);
+        this.queueWaitMs = Math.max(0L, queueWaitMs);
+        this.nativeTotalMs = Math.max(0L, nativeTotalMs);
+        this.totalMs = Math.max(0L, totalMs);
+        this.promptChars = Math.max(0, promptChars);
+        this.wireSchema = wireSchema == null ? "" : wireSchema;
     }
 }

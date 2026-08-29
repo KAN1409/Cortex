@@ -2,9 +2,11 @@ package com.kareem.cortex;
 
 import android.content.Context;
 
+import java.util.function.BooleanSupplier;
+
 public final class LocalQwenBrain implements CortexBrain {
 
-    private static final int MAX_TOKENS = 220;
+    private static final int MAX_TOKENS = 96;
 
     private final Context app;
 
@@ -18,6 +20,27 @@ public final class LocalQwenBrain implements CortexBrain {
     }
 
     public LocalBrainRun classifyWithTelemetry(CognitiveInput input) throws BrainException {
+        return classifyWithTelemetry(
+                input,
+                LocalInferenceCoordinator.Priority.INTERACTIVE,
+                null,
+                null
+        );
+    }
+
+    public LocalBrainRun classifyWithTelemetry(
+            CognitiveInput input,
+            LocalInferenceCoordinator.Priority priority
+    ) throws BrainException {
+        return classifyWithTelemetry(input, priority, null, null);
+    }
+
+    public LocalBrainRun classifyWithTelemetry(
+            CognitiveInput input,
+            LocalInferenceCoordinator.Priority priority,
+            LocalInferenceCoordinator.NativeStartListener listener,
+            BooleanSupplier cancelled
+    ) throws BrainException {
         if (app == null) {
             throw new BrainException("Android context is unavailable");
         }
@@ -27,18 +50,27 @@ public final class LocalQwenBrain implements CortexBrain {
         }
 
         try {
-            String system = CognitivePromptBuilder.systemPrompt();
-            String prompt = CognitivePromptBuilder.build(input);
+            String system = FastCognitivePromptBuilder.systemPrompt();
+            String prompt = FastCognitivePromptBuilder.build(input);
+            int promptChars = system.length() + prompt.length();
 
-            LocalLlmBridge.CompletionResult run = LocalLlmBridge.completeCached(
-                    LocalModelManager.modelFile(app).getAbsolutePath(),
-                    prompt,
-                    system,
-                    MAX_TOKENS
-            );
+            LocalInferenceCoordinator.Result<LocalLlmBridge.CompletionResult> coordinated =
+                    LocalInferenceCoordinator.execute(
+                            priority,
+                            listener,
+                            cancelled,
+                            () -> LocalLlmBridge.completeCached(
+                                    LocalModelManager.modelFile(app).getAbsolutePath(),
+                                    prompt,
+                                    system,
+                                    MAX_TOKENS
+                            )
+                    );
 
-            CognitiveResult parsed = CognitiveResultParser.parse(run.getText());
+            LocalLlmBridge.CompletionResult run = coordinated.value;
+            CognitiveResult parsed = FastCognitiveResultParser.parse(run.getText());
             CognitiveResult validated = CognitiveResultValidator.validate(parsed);
+            long totalMs = Math.max(0L, System.currentTimeMillis() - coordinated.enqueuedAt);
 
             return new LocalBrainRun(
                     validated,
@@ -48,17 +80,25 @@ public final class LocalQwenBrain implements CortexBrain {
                     run.getGenerationMs(),
                     run.getTokensGenerated(),
                     run.getTokensPerSecond(),
-                    run.getCacheHit()
+                    run.getCacheHit(),
+                    coordinated.enqueuedAt,
+                    coordinated.nativeStartedAt,
+                    coordinated.nativeFinishedAt,
+                    coordinated.queueWaitMs,
+                    coordinated.nativeTotalMs,
+                    totalMs,
+                    promptChars,
+                    FastCognitivePromptBuilder.WIRE_SCHEMA
             );
-        } catch (BrainException e) {
-            throw e;
-        } catch (CognitiveContractException e) {
+        } catch (BrainException error) {
+            throw error;
+        } catch (CognitiveContractException error) {
             throw new BrainException(
-                    "Local model returned invalid cognitive output: " + e.getMessage(),
-                    e
+                    "Local model returned invalid cognitive output: " + error.getMessage(),
+                    error
             );
-        } catch (Throwable t) {
-            throw new BrainException("Local cognitive inference failed", t);
+        } catch (Throwable error) {
+            throw new BrainException("Local cognitive inference failed", error);
         }
     }
 }
