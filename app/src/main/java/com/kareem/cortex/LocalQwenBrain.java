@@ -4,10 +4,9 @@ import android.content.Context;
 
 import java.util.function.BooleanSupplier;
 
+/** Hybrid local cognitive brain: deterministic obvious cases, Qwen for ambiguity. */
 public final class LocalQwenBrain implements CortexBrain {
 
-    // Keep the original fast-path hard ceiling. Exact type-only prompting should normally stop
-    // far earlier, while the ceiling still protects against unexpectedly verbose output.
     private static final int MAX_TOKENS = 96;
 
     private final Context app;
@@ -46,12 +45,43 @@ public final class LocalQwenBrain implements CortexBrain {
         if (app == null) {
             throw new BrainException("Android context is unavailable");
         }
-
-        if (!LocalModelManager.installed(app)) {
-            throw new BrainException("Local Cortex model is not ready");
+        if (input == null) {
+            throw new BrainException("CognitiveInput is null");
         }
 
         try {
+            long deterministicStarted = System.currentTimeMillis();
+            CognitiveResult fast = HybridFastClassifier.classify(input);
+            if (fast != null) {
+                CognitiveResult validated = CognitiveResultValidator.validate(fast);
+                long finished = System.currentTimeMillis();
+                String raw = "{\"path\":\"deterministic_fast\",\"disposition\":\""
+                        + validated.disposition.name()
+                        + "\"}";
+                return new LocalBrainRun(
+                        validated,
+                        raw,
+                        Math.max(0L, finished - deterministicStarted),
+                        0L,
+                        0L,
+                        0,
+                        0f,
+                        false,
+                        deterministicStarted,
+                        0L,
+                        0L,
+                        0L,
+                        0L,
+                        Math.max(0L, finished - deterministicStarted),
+                        0,
+                        FastCognitivePromptBuilder.WIRE_SCHEMA
+                );
+            }
+
+            if (!LocalModelManager.installed(app)) {
+                throw new BrainException("Local Cortex model is not ready");
+            }
+
             String system = FastCognitivePromptBuilder.systemPrompt();
             String prompt = FastCognitivePromptBuilder.build(input);
             int promptChars = system.length() + prompt.length();
