@@ -24,6 +24,7 @@ public final class AdvancedSettingsActivity extends Activity {
         if(BuildConfig.DEBUG)row(body,"Cognitive V2 Shadow","Compare local Qwen V2 with legacy decisions without changing production intelligence",CognitiveShadowActivity.class);
 
         body.addView(CortexUi.section(this,"Runtime & capabilities"));
+        row(body,"Relay V2 bridge","Inspect negotiated protocol, policy round-trip and explicitly approved Android actions",CortexRelayV2DiagnosticsActivity.class);
         row(body,"Capabilities","See what is active, ready, blocked or failed",CapabilityMatrixActivity.class);
         row(body,"Environment & diagnostics","Provider health, runtime state, phone context, OCR and recovery",EnvironmentActivity.class);
         row(body,"Cortex status","Internal health and system status",CortexStatusActivity.class);
