@@ -20,7 +20,7 @@ Base: `migration/cognitive-brain-v2-step1-2`
 - Phone-only self review is no longer externally deep-link triggerable.
 - Arabic OCR build asset is pinned to the known tessdata_fast 4.1.0 byte length and SHA-512 digest.
 - The build no longer reconstructs the installed-app signer from tracked base64 material.
-- The legacy tracked signing-material path is tombstoned at branch HEAD. Historical Git exposure still requires repository-history remediation.
+- The legacy encoded signing-material file is deleted from branch HEAD and future encoded keystore paths are ignored. Historical Git exposure still requires repository-history/visibility remediation.
 - CI/repo audit now guards V2 schema/release/privacy/signing/build-file invariants.
 - Backup export preserves the bounded streaming + consistent Vault snapshot implementation.
 - Backup restore preserves streaming inspection, extraction limits, database-atomic restore and rollback cleanup.
@@ -34,7 +34,7 @@ The earlier Compose UI work was not committed to Git. Known local-only candidate
 - `app/build.gradle.kts`
 - `gradlew`, `gradlew.bat`, and `gradle/` helper files
 
-Do not `reset --hard`, blindly `stash`, or overwrite these files while reconciling them. Run `tools/preserve-v2-local-work.sh` in the existing device working tree first. It records tracked binary patches, untracked source/config files, repository state, and only the SHA-256 fingerprint of the local signer. It never copies signing key bytes.
+Do not `reset --hard`, blindly `stash`, or overwrite these files while reconciling them. Run `bash tools/preserve-v2-local-work.sh` in the existing device working tree first. It records tracked binary patches, untracked source/config files, repository state, and only the SHA-256 fingerprint of the local signer. It never copies signing key bytes.
 
 After preservation, port only useful UI behavior/design into the canonical build. Do not replace canonical V2 cognitive files with stale UI-branch versions.
 
