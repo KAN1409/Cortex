@@ -69,6 +69,7 @@ public final class LocalInferenceCoordinator {
     private static final AtomicInteger INTERACTIVE_PENDING = new AtomicInteger();
     private static final AtomicInteger LEGACY_PENDING = new AtomicInteger();
     private static final AtomicBoolean NATIVE_BUSY = new AtomicBoolean(false);
+    private static final ThreadLocal<Integer> EXECUTION_DEPTH = ThreadLocal.withInitial(() -> 0);
     private static volatile long lastAuthorityAt = 0L;
 
     private LocalInferenceCoordinator() {}
@@ -123,9 +124,14 @@ public final class LocalInferenceCoordinator {
             }
 
             if (listener != null) listener.onNativeStarted(nativeStartedAt);
-            T value = task.run();
-            long nativeFinishedAt = System.currentTimeMillis();
-            return new Result<>(value, enqueuedAt, nativeStartedAt, nativeFinishedAt);
+            enterExecution();
+            try {
+                T value = task.run();
+                long nativeFinishedAt = System.currentTimeMillis();
+                return new Result<>(value, enqueuedAt, nativeStartedAt, nativeFinishedAt);
+            } finally {
+                exitExecution();
+            }
         } finally {
             synchronized (LOCK) {
                 if (!acquired) {
@@ -140,6 +146,11 @@ public final class LocalInferenceCoordinator {
                 LOCK.notifyAll();
             }
         }
+    }
+
+    /** True only while the current thread already owns the coordinated native lane. */
+    public static boolean isInsideExecution() {
+        return EXECUTION_DEPTH.get() > 0;
     }
 
     public static boolean canStartShadow() {
@@ -167,6 +178,16 @@ public final class LocalInferenceCoordinator {
             x = x.getCause();
         }
         return false;
+    }
+
+    private static void enterExecution() {
+        EXECUTION_DEPTH.set(EXECUTION_DEPTH.get() + 1);
+    }
+
+    private static void exitExecution() {
+        int next = EXECUTION_DEPTH.get() - 1;
+        if (next <= 0) EXECUTION_DEPTH.remove();
+        else EXECUTION_DEPTH.set(next);
     }
 
     private static boolean canStartShadowLocked(long now) {
