@@ -6,7 +6,10 @@ import java.util.function.BooleanSupplier;
 
 public final class LocalQwenBrain implements CortexBrain {
 
-    private static final int MAX_TOKENS = 56;
+    // Keep enough headroom for a complete compact JSON object. The previous 56-token cap
+    // truncated otherwise-valid fast responses on-device. The benchmark still enforces a
+    // generated-token hard maximum of 96, so 80 is a safe ceiling rather than a latency escape.
+    private static final int MAX_TOKENS = 80;
 
     private final Context app;
 
