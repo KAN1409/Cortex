@@ -63,6 +63,11 @@ public final class CortexLocalBusService extends Service {
 
         if (msg.what == CortexLocalBusProtocolV2.MSG_ACTION_RESULT ||
                 msg.what == CortexLocalBusProtocolV2.MSG_POLICY_RESULT) {
+            if (!"second_brain".equals(identity.connectorId) ||
+                    !CortexRelayBridgeV2.hasAuthenticatedV2Session(identity.connectorId)) {
+                reply(msg, false, "V2_SESSION_REQUIRED", "Control result arrived outside negotiated Relay V2 session", "", 0);
+                return true;
+            }
             String rawResult = data.getString(CortexLocalBusProtocolV2.KEY_RESULT_JSON, "");
             CortexRelayBridgeV2.recordControlResult(getApplicationContext(), identity, msg.what, rawResult);
             return true;
@@ -138,6 +143,11 @@ public final class CortexLocalBusService extends Service {
     }
 
     private boolean handleV2Ingest(Message msg, Bundle data, CortexConnectorRegistryV1.Identity identity) {
+        if (!"second_brain".equals(identity.connectorId) ||
+                !CortexRelayBridgeV2.hasAuthenticatedV2Session(identity.connectorId)) {
+            reply(msg, false, "V2_NOT_NEGOTIATED", "CORTEX_SIGNAL_V2 requires an authenticated negotiated HELLO session", "", 0);
+            return true;
+        }
         String raw = data.getString(CortexLocalBusProtocolV1.KEY_EVENT_JSON, "");
         CortexLocalBusProtocolV2.Event v2;
         CortexLocalBusProtocolV1.Event canonical;
@@ -145,9 +155,6 @@ public final class CortexLocalBusService extends Service {
             v2 = CortexLocalBusProtocolV2.parseEvent(raw);
             if (!identity.connectorId.equals(v2.connectorId)) {
                 throw new IllegalArgumentException("connector_id does not match caller identity");
-            }
-            if (!"second_brain".equals(identity.connectorId)) {
-                throw new IllegalArgumentException("CORTEX_SIGNAL_V2 is not enabled for this connector");
             }
             canonical = CortexLocalBusProtocolV2.toCanonicalV1(v2);
         } catch (Throwable e) {
