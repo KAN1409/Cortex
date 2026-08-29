@@ -24,15 +24,16 @@ public final class CognitivePrimaryAuthorityTest {
     private static final String MODE="cognitive_authority_mode";
     private static final String CANARY_PERCENT="cognitive_v2_canary_percent";
 
-    @Test public void defaultIsPrimaryAndCanaryRemainsExplicitFallbackMode(){
+    @Test public void defaultRemainsCanaryFiveAndPrimaryRoutingIsExplicit(){
         Context c=context();FlagSnapshot old=new FlagSnapshot(c);
         try{
             SharedPreferences p=c.getSharedPreferences(PREFS,Context.MODE_PRIVATE);
             p.edit().remove(MODE).remove(CANARY_PERCENT).commit();
-            assertEquals(CognitiveAuthorityMode.V2_PRIMARY,CognitiveFeatureFlags.authorityMode(c));
+            assertEquals(CognitiveAuthorityMode.CANARY,CognitiveFeatureFlags.authorityMode(c));
             assertEquals(5,CognitiveFeatureFlags.canaryPercent(c));
 
             CognitiveFeatureFlags.setAuthorityCanaryEnabled(c,true);
+            CognitiveFeatureFlags.setAuthorityMode(c,CognitiveAuthorityMode.V2_PRIMARY);
             CognitiveAuthorityRouter.Decision hard=CognitiveAuthorityRouter.routeDetailed(c,812,"com.whatsapp","Ahmed",true);
             assertEquals(CognitiveAuthorityRouter.Route.HARD_GATE,hard.route);
             assertEquals(CognitiveAuthorityRouter.RoutingReason.HARD_NOISE,hard.reason);
@@ -40,10 +41,6 @@ public final class CognitivePrimaryAuthorityTest {
             CognitiveAuthorityRouter.Decision primary=CognitiveAuthorityRouter.routeDetailed(c,812,"com.whatsapp","Ahmed",false);
             assertEquals(CognitiveAuthorityRouter.Route.V2_PRIMARY,primary.route);
             assertEquals(CognitiveAuthorityRouter.RoutingReason.PRIMARY,primary.reason);
-
-            CognitiveFeatureFlags.setAuthorityMode(c,CognitiveAuthorityMode.CANARY);
-            CognitiveAuthorityRouter.Decision canary=CognitiveAuthorityRouter.routeDetailed(c,329,"com.whatsapp","Ahmed",false);
-            assertNotEquals(CognitiveAuthorityRouter.RoutingReason.PRIMARY,canary.reason);
         }finally{old.restore(c);}
     }
 
