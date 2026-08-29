@@ -6,10 +6,9 @@ import java.util.function.BooleanSupplier;
 
 public final class LocalQwenBrain implements CortexBrain {
 
-    // Keep enough headroom for a complete compact JSON object. The previous 56-token cap
-    // truncated otherwise-valid fast responses on-device. The benchmark still enforces a
-    // generated-token hard maximum of 96, so 80 is a safe ceiling rather than a latency escape.
-    private static final int MAX_TOKENS = 80;
+    // Keep the original fast-path hard ceiling. The device benchmark enforces <=96 generated
+    // tokens, while exact-wire prompting should make normal classifications stop much earlier.
+    private static final int MAX_TOKENS = 96;
 
     private final Context app;
 
@@ -71,7 +70,18 @@ public final class LocalQwenBrain implements CortexBrain {
                     );
 
             LocalLlmBridge.CompletionResult run = coordinated.value;
-            CognitiveResult parsed = FastCognitiveResultParser.parse(run.getText());
+            CognitiveResult parsed;
+            try {
+                parsed = FastCognitiveResultParser.parse(run.getText());
+            } catch (CognitiveContractException error) {
+                throw new BrainException(
+                        "Local model returned invalid cognitive output: "
+                                + error.getMessage()
+                                + " raw="
+                                + diagnosticRaw(run.getText()),
+                        error
+                );
+            }
             CognitiveResult validated = CognitiveResultValidator.validate(parsed);
             long totalMs = Math.max(0L, System.currentTimeMillis() - coordinated.enqueuedAt);
 
@@ -103,5 +113,18 @@ public final class LocalQwenBrain implements CortexBrain {
         } catch (Throwable error) {
             throw new BrainException("Local cognitive inference failed", error);
         }
+    }
+
+    private static String diagnosticRaw(String raw) {
+        if (raw == null) return "<null>";
+        String compact = raw
+                .replace('\n', ' ')
+                .replace('\r', ' ')
+                .replace('\t', ' ')
+                .trim();
+        if (compact.length() > 600) {
+            compact = compact.substring(0, 600) + "…";
+        }
+        return compact.isEmpty() ? "<empty>" : compact;
     }
 }
