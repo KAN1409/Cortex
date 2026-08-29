@@ -82,8 +82,8 @@ public final class FastCognitiveResultParser {
     }
 
     private static CognitiveItem item(JSONObject object) throws CognitiveContractException {
-        CognitiveKind kind = kind(object.getString("k"));
-        String summary = object.getString("s").trim();
+        CognitiveKind kind = kind(requiredString(object, "k"));
+        String summary = requiredString(object, "s").trim();
         if (summary.isEmpty()) {
             throw new CognitiveContractException("Fast derived item has no summary");
         }
@@ -139,6 +139,17 @@ public final class FastCognitiveResultParser {
             throw new CognitiveContractException("Fast confidence out of range");
         }
         return c / 100.0;
+    }
+
+    private static String requiredString(JSONObject object, String key) throws CognitiveContractException {
+        if (object == null || key == null || !object.has(key) || object.isNull(key)) {
+            throw new CognitiveContractException("Missing fast field: " + key);
+        }
+        Object value = object.opt(key);
+        if (value == null || value == JSONObject.NULL) {
+            throw new CognitiveContractException("Missing fast field: " + key);
+        }
+        return String.valueOf(value);
     }
 
     private static int intValue(JSONObject object, String key, int fallback) {
