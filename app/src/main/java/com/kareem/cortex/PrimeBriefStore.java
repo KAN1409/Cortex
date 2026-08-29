@@ -162,7 +162,7 @@ public final class PrimeBriefStore {
     private static int compareAttention(Item a,Item b){int z=Integer.compare(b.attentionScore,a.attentionScore);if(z!=0)return z;z=Integer.compare(b.importance,a.importance);return z!=0?z:Long.compare(b.lastChangedAt,a.lastChangedAt);}
     private static ArrayList<BrainSituationStore.Item> safeProjection(VaultDb db){try{return BrainSituationStore.current(db,160);}catch(Throwable e){DiagnosticsLog.error(db,"PrimeBriefStore","projection_read",e,"PRIME_SECTION",0,0,0,0,0,null);return new ArrayList<>();}}
     private static ArrayList<KnowledgeItem> safeRecent(VaultDb db){try{return recentCaptures(db,10);}catch(Throwable e){DiagnosticsLog.error(db,"PrimeBriefStore","recent_captures",e,"PRIME_SECTION",0,0,0,0,0,null);return new ArrayList<>();}}
-    private static ArrayList<ReviewQueueStore.Item> safeReviews(VaultDb db){try{return ReviewQueueStore.pending(db,6);}catch(Throwable e){DiagnosticsLog.error(db,"PrimeBriefStore","review_queue",e,"PRIME_SECTION",0,0,0,0,0,null);return new ArrayList<>();}}
+    private static ArrayList<ReviewQueueStore.Item> safeReviews(VaultDb db){try{return ReviewQueueHygiene.pending(db,6);}catch(Throwable e){DiagnosticsLog.error(db,"PrimeBriefStore","review_queue",e,"PRIME_SECTION",0,0,0,0,0,null);return new ArrayList<>();}}
     private static<T> ArrayList<T> bounded(ArrayList<T> xs,int limit){if(xs==null||xs.isEmpty())return new ArrayList<>();return new ArrayList<>(xs.subList(0,Math.min(Math.max(0,limit),xs.size())));}
     private static String n(String s){return s==null?"":s.trim();}
 }
