@@ -29,8 +29,6 @@ public final class FastCognitiveResultParser {
         try {
             JSONObject root = new JSONObject(extractJson(stripThinking(raw)));
 
-            // Primary 7.1.1 contract: {"t":"TYPE"}. Keep only narrow transition support for the
-            // immediately previous d/k wire so deployed/cached prompts cannot crash the parser.
             String type = clean(root.optString("t", "")).toUpperCase(Locale.ROOT);
             if (type.isEmpty()) {
                 String d = clean(root.optString("d", "")).toUpperCase(Locale.ROOT);
@@ -41,7 +39,6 @@ public final class FastCognitiveResultParser {
                 }
             }
 
-            // Older verbose results remain readable during staged migration.
             if (type.isEmpty() && root.has("disposition")) {
                 return CognitiveResultParser.parse(raw);
             }
@@ -71,7 +68,7 @@ public final class FastCognitiveResultParser {
                         urgencyFor(kind),
                         "",
                         null,
-                        kind == CognitiveKind.ACTION,
+                        kind == CognitiveKind.ACTION || kind == CognitiveKind.REMINDER,
                         kind == CognitiveKind.WAITING,
                         kind == CognitiveKind.CONTENT
                 ));
@@ -224,6 +221,8 @@ public final class FastCognitiveResultParser {
     private static int importanceFor(CognitiveKind kind) {
         switch (kind) {
             case ACTION: return 70;
+            case REMINDER: return 66;
+            case DECISION: return 66;
             case WAITING: return 65;
             case EVENT: return 70;
             case CONTENT: return 55;
@@ -234,6 +233,8 @@ public final class FastCognitiveResultParser {
     private static int urgencyFor(CognitiveKind kind) {
         switch (kind) {
             case ACTION: return 60;
+            case REMINDER: return 56;
+            case DECISION: return 52;
             case WAITING: return 50;
             case EVENT: return 70;
             case CONTENT: return 35;
