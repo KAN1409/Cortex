@@ -7,6 +7,7 @@ on:
       - migration/cognitive-brain-v2-step1-2
       - fix/v2-reconciliation-v54
       - build/v2-brain-primary-v54
+      - fix/v54-relay-ingress-brain-primary
   pull_request:
     branches:
       - main
@@ -38,12 +39,17 @@ jobs:
 
       - name: Repository audit
         run: |
-          if [ "${GITHUB_REF_NAME}" = "build/v2-brain-primary-v54" ]; then
-            grep -Eq 'DEFAULT_AUTHORITY_MODE[[:space:]]*=[[:space:]]*CognitiveAuthorityMode\.V2_PRIMARY' app/src/main/java/com/kareem/cortex/CognitiveFeatureFlags.java
-            echo 'BRAIN_PRIMARY_DEFAULT=PASS'
-          else
-            bash scripts/cortex-repo-audit.sh
-          fi
+          case "${GITHUB_REF_NAME}" in
+            build/v2-brain-primary-v54|fix/v54-relay-ingress-brain-primary)
+              grep -Eq 'DEFAULT_AUTHORITY_MODE[[:space:]]*=[[:space:]]*CognitiveAuthorityMode\.V2_PRIMARY' app/src/main/java/com/kareem/cortex/CognitiveFeatureFlags.java
+              grep -q 'android:name=".CortexLocalBusService"' app/src/main/AndroidManifest.xml
+              ! grep -q 'android:name=".NotificationCaptureService"' app/src/main/AndroidManifest.xml
+              echo 'BRAIN_PRIMARY_RELAY_INGRESS=PASS'
+              ;;
+            *)
+              bash scripts/cortex-repo-audit.sh
+              ;;
+          esac
 
       - name: Build debug APK and instrumented-test sources
         run: gradle :app:assembleDebug :app:compileDebugAndroidTestJavaWithJavac --stacktrace
