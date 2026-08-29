@@ -8,7 +8,7 @@ import org.json.JSONObject;
 
 /** Temporary/raw signal layer. Exactly one production authority route owns every captured signal. */
 public final class RawSignalStore {
-    private static final String FAST_POLICY="relevance_fast_004";
+    private static final String FAST_POLICY="relevance_fast_005";
     private static final String LEGACY_COGNITIVE_VERSION="legacy-cognitive-003";
     private RawSignalStore(){}
 
@@ -94,7 +94,11 @@ public final class RawSignalStore {
     }
 
     private static void markHardGate(VaultDb db,long signalId,MasterRelevanceFilter.Decision fast){CognitiveStore.updateRawCognitiveState(db,signalId,"IGNORED_NOISE",LEGACY_COGNITIVE_VERSION,"Hard deterministic noise gate: "+n(fast.reason));}
-    private static MasterRelevanceFilter.Decision fastDecision(MasterRelevanceFilter.Signal s){if(s!=null&&"screen_context".equalsIgnoreCase(s.kind))return new MasterRelevanceFilter.Decision(MasterRelevanceFilter.Disposition.CONTEXT,38,"explicit screen evidence; short-lived context until the user asks or promotes it","",0.94);return MasterRelevanceFilter.evaluateFast(s);}
+    private static MasterRelevanceFilter.Decision fastDecision(MasterRelevanceFilter.Signal s){
+        if(MechanicalSignalNoise.matches(s))return new MasterRelevanceFilter.Decision(MasterRelevanceFilter.Disposition.IGNORE,1,"mechanical progress counter; never sent to cognitive model","",0.995);
+        if(s!=null&&"screen_context".equalsIgnoreCase(s.kind))return new MasterRelevanceFilter.Decision(MasterRelevanceFilter.Disposition.CONTEXT,38,"explicit screen evidence; short-lived context until the user asks or promotes it","",0.94);
+        return MasterRelevanceFilter.evaluateFast(s);
+    }
 
     private static long promote(VaultDb db,long signalId,long threadId,MasterRelevanceFilter.Signal s,MasterRelevanceFilter.Decision d,boolean createDerived){
         try{
