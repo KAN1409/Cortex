@@ -50,9 +50,14 @@ public final class CortexRelayBridgeV2 {
         }
     }
 
+    static boolean hasAuthenticatedV2Session(String connectorId) {
+        Session session = sessions.get(connectorId);
+        return session != null && CortexLocalBusProtocolV2.SIGNAL_PROTOCOL.equals(session.selectedProtocol)
+                && supports(session, CortexLocalBusProtocolV2.SIGNAL_PROTOCOL);
+    }
+
     public static boolean isRelayV2Connected() {
-        Session session = sessions.get(SECOND_BRAIN);
-        return session != null && CortexLocalBusProtocolV2.SIGNAL_PROTOCOL.equals(session.selectedProtocol);
+        return hasAuthenticatedV2Session(SECOND_BRAIN);
     }
 
     public static boolean requestAction(
@@ -62,7 +67,8 @@ public final class CortexRelayBridgeV2 {
             String capabilityId,
             String inputText) {
         JSONObject request = CortexLocalBusProtocolV2.actionRequest(requestId, logicalSignalId, capabilityId, inputText);
-        return send(context, SECOND_BRAIN, CortexLocalBusProtocolV2.MSG_ACTION_REQUEST, request, "action");
+        return send(context, SECOND_BRAIN, CortexLocalBusProtocolV2.MSG_ACTION_REQUEST, request,
+                "action", CortexLocalBusProtocolV2.ACTION_BRIDGE);
     }
 
     public static boolean updateMechanicalPolicy(
@@ -71,13 +77,19 @@ public final class CortexRelayBridgeV2 {
             int retentionHours,
             JSONArray disabledNoiseRules) {
         JSONObject request = CortexLocalBusProtocolV2.mechanicalPolicy(version, retentionHours, disabledNoiseRules);
-        return send(context, SECOND_BRAIN, CortexLocalBusProtocolV2.MSG_POLICY_UPDATE, request, "policy");
+        return send(context, SECOND_BRAIN, CortexLocalBusProtocolV2.MSG_POLICY_UPDATE, request,
+                "policy", CortexLocalBusProtocolV2.POLICY_FEEDBACK);
     }
 
-    private static boolean send(Context context, String connectorId, int what, JSONObject request, String kind) {
+    private static boolean send(Context context, String connectorId, int what, JSONObject request,
+                                String kind, String requiredCapability) {
         Session session = sessions.get(connectorId);
         if (session == null || !CortexLocalBusProtocolV2.SIGNAL_PROTOCOL.equals(session.selectedProtocol)) {
             persistSendFailure(context, kind, "NO_V2_SESSION");
+            return false;
+        }
+        if (!supports(session, requiredCapability)) {
+            persistSendFailure(context, kind, "CAPABILITY_NOT_ADVERTISED:" + requiredCapability);
             return false;
         }
         try {
@@ -96,13 +108,27 @@ public final class CortexRelayBridgeV2 {
         }
     }
 
+    private static boolean supports(Session session, String capability) {
+        if (session == null || capability == null || capability.trim().isEmpty()) return false;
+        try {
+            JSONArray caps = new JSONArray(session.capabilitiesJson);
+            for (int i = 0; i < caps.length(); i++) {
+                if (capability.equals(caps.optString(i, "").trim())) return true;
+            }
+        } catch (Throwable ignored) {}
+        return false;
+    }
+
     static void recordControlResult(Context context, CortexConnectorRegistryV1.Identity identity, int what, String raw) {
         if (context == null || identity == null) return;
         String kind = what == CortexLocalBusProtocolV2.MSG_ACTION_RESULT ? "action" :
                 what == CortexLocalBusProtocolV2.MSG_POLICY_RESULT ? "policy" : "unknown";
         JSONObject result;
         try { result = new JSONObject(raw == null || raw.trim().isEmpty() ? "{}" : raw); }
-        catch (Throwable e) { result = new JSONObject(); try { result.put("status", "INVALID_RESULT_JSON"); } catch (Throwable ignored) {} }
+        catch (Throwable e) {
+            result = new JSONObject();
+            try { result.put("status", "INVALID_RESULT_JSON"); } catch (Throwable ignored) {}
+        }
         SharedPreferences.Editor edit = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit();
         edit.putString("last_" + kind + "_result", result.toString());
         edit.putLong("last_" + kind + "_result_at", System.currentTimeMillis());
@@ -142,6 +168,7 @@ public final class CortexRelayBridgeV2 {
             out.put("connected_at", p.getLong("connected_at", 0L));
             out.put("last_request_kind", p.getString("last_request_kind", ""));
             out.put("last_request_json", parseOrString(p.getString("last_request_json", "")));
+            out.put("last_send_failure", p.getString("last_send_failure", ""));
             out.put("last_action_result", parseOrString(p.getString("last_action_result", "")));
             out.put("last_policy_result", parseOrString(p.getString("last_policy_result", "")));
             out.put("last_v2_signal", parseOrString(p.getString("last_v2_signal", "")));
@@ -161,6 +188,7 @@ public final class CortexRelayBridgeV2 {
                 .putString("connector_package", session.packageName)
                 .putString("capabilities_json", session.capabilitiesJson)
                 .putString("selected_protocol", session.selectedProtocol)
+                .putString("last_send_failure", "")
                 .putLong("connected_at", session.connectedAt)
                 .apply();
     }
@@ -170,6 +198,7 @@ public final class CortexRelayBridgeV2 {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
                 .putString("last_request_kind", kind)
                 .putString("last_request_json", request.toString())
+                .putString("last_send_failure", "")
                 .putLong("last_request_at", System.currentTimeMillis())
                 .apply();
     }
@@ -183,7 +212,8 @@ public final class CortexRelayBridgeV2 {
                 .apply();
     }
 
-    private static void logControl(Context context, CortexConnectorRegistryV1.Identity identity, String stage, JSONObject payload) {
+    private static void logControl(Context context, CortexConnectorRegistryV1.Identity identity,
+                                   String stage, JSONObject payload) {
         VaultDb db = null;
         try {
             db = new VaultDb(context.getApplicationContext());
