@@ -88,7 +88,19 @@ public final class CognitiveStore {
             if(result.disposition==CognitiveDisposition.DERIVE){raw.put("cognitive_state","DERIVED");raw.put("state","derived");raw.put("disposition",strongest==null?"CONTEXT":strongest.kind.name());raw.put("importance",strongest==null?0:clamp100(strongest.importance));}
             else if(result.disposition==CognitiveDisposition.CONTEXT){raw.put("cognitive_state","CONTEXT_ONLY");raw.put("state","context");raw.put("disposition","CONTEXT");raw.put("importance",0);}
             else throw new IllegalStateException("unsupported authoritative disposition "+result.disposition);
-            if(sql.update("raw_signals",raw,"id=?",new String[]{String.valueOf(signalId)})!=1)throw new IllegalStateException("canary raw state transition failed");
+
+            int rawUpdated;
+            if(threadId>0){
+                rawUpdated=sql.update(
+                        "raw_signals",
+                        raw,
+                        "id=? AND id=(SELECT id FROM raw_signals WHERE thread_id=? ORDER BY occurred_at DESC,id DESC LIMIT 1)",
+                        new String[]{String.valueOf(signalId),String.valueOf(threadId)});
+                if(rawUpdated!=1)throw new IllegalStateException("CANARY_SUPERSEDED");
+            }else{
+                rawUpdated=sql.update("raw_signals",raw,"id=?",new String[]{String.valueOf(signalId)});
+                if(rawUpdated!=1)throw new IllegalStateException("canary raw state transition failed");
+            }
             sql.setTransactionSuccessful();return new CanaryApply(modelRunId,derivedIds,result.disposition);
         }finally{sql.endTransaction();}
     }
