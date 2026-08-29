@@ -8,6 +8,7 @@ on:
       - fix/v2-reconciliation-v54
       - build/v2-brain-primary-v54
       - fix/v54-relay-ingress-brain-primary
+      - major/cortex-brain-product-v5
   pull_request:
     branches:
       - main
@@ -40,7 +41,7 @@ jobs:
       - name: Repository audit
         run: |
           case "${GITHUB_REF_NAME}" in
-            build/v2-brain-primary-v54|fix/v54-relay-ingress-brain-primary)
+            build/v2-brain-primary-v54|fix/v54-relay-ingress-brain-primary|major/cortex-brain-product-v5)
               grep -Eq 'DEFAULT_AUTHORITY_MODE[[:space:]]*=[[:space:]]*CognitiveAuthorityMode\.V2_PRIMARY' app/src/main/java/com/kareem/cortex/CognitiveFeatureFlags.java
               grep -q 'android:name=".CortexLocalBusService"' app/src/main/AndroidManifest.xml
               ! grep -q 'android:name=".NotificationCaptureService"' app/src/main/AndroidManifest.xml
