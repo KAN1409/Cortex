@@ -20,10 +20,15 @@ jobs:
         with:
           gradle-version: '8.9'
       - name: Verify fresh application identity
+        shell: bash
         run: |
+          set -euo pipefail
           grep -q "applicationId 'com.kareem.cortex.rebuild'" app/build.gradle
           grep -q 'android:label="Cortex"' app/src/main/AndroidManifest.xml
-          test ! -e app/src/main/java/com/kareem/cortex
+          if find app/src/main/java/com/kareem/cortex -mindepth 1 -maxdepth 1 ! -name rebuild -print -quit | grep -q .; then
+            echo 'Old Cortex source detected in fresh tree'
+            exit 1
+          fi
       - name: Build first installable APK
         run: gradle :app:assembleDebug --stacktrace
       - name: Upload APK
