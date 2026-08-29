@@ -84,8 +84,11 @@ if ! gradle :app:connectedDebugAndroidTest \
   -Pandroid.testInstrumentationRunnerArguments.class=com.kareem.cortex.CognitiveLatencyBenchmark \
   --stacktrace \
   --console=plain; then
-  adb logcat -d | grep 'CognitiveLatencyBenchmark' > "$BENCH_LOG" || true
+  adb logcat -d | grep -E 'CognitiveLatencyBenchmark|Local model returned invalid cognitive output' > "$BENCH_LOG" || true
   echo "Benchmark telemetry saved to $BENCH_LOG"
+  echo
+  echo "===== BENCHMARK FAILURE TELEMETRY ====="
+  cat "$BENCH_LOG" || true
   fail "CognitiveLatencyBenchmark failed. Major update gate remains RED."
 fi
 adb logcat -d | grep 'CognitiveLatencyBenchmark' > "$BENCH_LOG" || true
