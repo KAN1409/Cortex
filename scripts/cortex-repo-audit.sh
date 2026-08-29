@@ -55,6 +55,7 @@ for f in \
   app/src/main/java/com/kareem/cortex/ProposalAskCortexActivity.java \
   app/src/androidTest/java/com/kareem/cortex/CognitiveProductAdjudicationTest.java \
   app/src/androidTest/java/com/kareem/cortex/CognitivePrimaryAuthorityTest.java \
+  app/src/androidTest/java/com/kareem/cortex/FullApplicationSelfUserTest.java \
   termux-build-cortex.sh \
   tools/preserve-v2-local-work.sh; do
   require_file "$f"
@@ -66,6 +67,7 @@ SCHEMA=app/src/main/java/com/kareem/cortex/CognitiveSchema.java
 FLAGS=app/src/main/java/com/kareem/cortex/CognitiveFeatureFlags.java
 LINK=app/src/main/java/com/kareem/cortex/SharedLinkIntelligence.java
 SHARE=app/src/main/java/com/kareem/cortex/ShareImporter.java
+SELF_TEST=app/src/androidTest/java/com/kareem/cortex/FullApplicationSelfUserTest.java
 TERMUX_BUILD=termux-build-cortex.sh
 
 launcher_count="$(grep -o 'android.intent.action.MAIN' "$MAN" | wc -l | tr -d ' ')"
@@ -76,13 +78,14 @@ send_multi_count="$(grep -o 'android.intent.action.SEND_MULTIPLE' "$MAN" | wc -l
 [ "$send_multi_count" = "1" ] && ok "exactly one ACTION_SEND_MULTIPLE owner" || bad "expected 1 ACTION_SEND_MULTIPLE owner, found $send_multi_count"
 require_text "$MAN" 'activity android:name="\.CompactTodayActivity"[^>]*exported="true"' 'CompactTodayActivity is the current launcher surface'
 
-# V2 reconciliation invariants: update-in-place release, canonical schema, private backup surface.
+# V2 reconciliation invariants: update-in-place release, canonical schema, guarded authority, private backup surface.
 version_code="$(grep -Eo 'versionCode[[:space:]]+[0-9]+' "$BUILD" | head -n1 | grep -Eo '[0-9]+' || true)"
 if [ -n "$version_code" ] && [ "$version_code" -ge 54 ]; then ok "V2 reconciliation versionCode is >=54"; else bad "V2 reconciliation requires versionCode >=54, found ${version_code:-missing}"; fi
 require_text "$BUILD" "versionName[[:space:]]+'2\\.0" 'V2 reconciliation keeps Version 2 identity'
 require_text "$SCHEMA" 'DB_VERSION[[:space:]]*=[[:space:]]*7' 'Cognitive schema stays at DB version 7'
 require_text "$SCHEMA" 'REVISION[[:space:]]*=[[:space:]]*"cognitive_004"' 'Cognitive schema revision is canonical cognitive_004'
-require_text "$FLAGS" 'DEFAULT_AUTHORITY_MODE[[:space:]]*=[[:space:]]*CognitiveAuthorityMode\.V2_PRIMARY' 'Brain-first V2 primary is the default cognitive authority'
+require_text "$FLAGS" 'DEFAULT_AUTHORITY_MODE[[:space:]]*=[[:space:]]*CognitiveAuthorityMode\.CANARY' 'V2 default authority remains guarded canary'
+require_text "$FLAGS" 'DEFAULT_CANARY_PERCENT[[:space:]]*=[[:space:]]*5' 'V2 default canary remains 5 percent'
 require_text "$MAN" 'android:allowBackup="false"' 'automatic Android backup is disabled for private Cortex state'
 require_text "$MAN" 'activity android:name="\.StableSelfContainedReviewActivity"[^>]*exported="false"' 'phone-only self review is not externally triggerable'
 
@@ -122,6 +125,12 @@ require_text "$SHARE" 'MAX_IMAGE_BYTES' 'Android share imports bound image size'
 require_text "$SHARE" 'MAX_AUDIO_BYTES' 'Android share imports bound audio size'
 require_text "$SHARE" 'MAX_FILE_BYTES' 'Android share imports bound file size'
 require_text "$SHARE" 'total>maxBytes' 'Android share imports enforce streaming byte limits'
+
+# Current V2 shell/test contract must stay aligned with the shipped navigation and attention behavior.
+require_text "$SELF_TEST" 'CORTEX_INSTRUMENTED_SELF_USER_TEST_V4' 'self-user test uses the reconciled V4 contract'
+require_text "$SELF_TEST" '"Now","Inbox","Atlas","Ask"' 'self-user test covers current V2 bottom navigation'
+require_text "$SELF_TEST" 'attentionLifecycleRoundTrip' 'self-user test guards attention reopen semantics'
+require_text "$SELF_TEST" 'cortexAskSmoke' 'self-user test keeps grounded Ask smoke coverage'
 
 # The Termux helper must never silently mutate or hide local V2 work.
 require_text "$TERMUX_BUILD" 'CORTEX_SYNC_SOURCE' 'Termux source sync is explicit opt-in'
