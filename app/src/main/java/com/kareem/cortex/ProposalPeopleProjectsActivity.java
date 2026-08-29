@@ -6,11 +6,13 @@ import android.graphics.Color;
 import android.text.*;
 import android.view.*;
 import android.widget.*;
+import androidx.swiperefreshlayout.widget.SwipeRefreshLayout;
 import java.util.*;
 
 /** Approved Cortex Atlas People / Projects with dynamic insight hierarchy. */
 public final class ProposalPeopleProjectsActivity extends PeopleProjectsActivity {
     enum CardVariant { INSIGHT, ACTIVE, QUIET, PROJECT }
+    private SwipeRefreshLayout swipe;
 
     @Override void build(){
         LinearLayout root=new LinearLayout(this);root.setOrientation(LinearLayout.VERTICAL);root.setBackgroundColor(CortexUi.BG);
@@ -23,9 +25,12 @@ public final class ProposalPeopleProjectsActivity extends PeopleProjectsActivity
         search=new EditText(this);search.setHint("Search people or projects");search.setHintTextColor(CortexUi.MUTED);search.setTextColor(CortexUi.TEXT);search.setTextSize(14);search.setSingleLine(true);search.setIncludeFontPadding(false);search.setBackgroundColor(Color.TRANSPARENT);search.setPadding(dp(8),0,0,0);sb.addView(search,new LinearLayout.LayoutParams(0,dp(48),1));CortexGlyphView filter=CortexUi.glyph(this,"filter",CortexUi.TEXT,false);sb.addView(filter,new LinearLayout.LayoutParams(dp(40),dp(40)));LinearLayout.LayoutParams sp=new LinearLayout.LayoutParams(-1,dp(54));sp.setMargins(0,0,0,dp(9));body.addView(sb,sp);
         search.addTextChangedListener(new TextWatcher(){public void beforeTextChanged(CharSequence s,int st,int c,int a){}public void onTextChanged(CharSequence s,int st,int before,int count){render(lastRows,lastMode);}public void afterTextChanged(Editable e){}});
 
-        ScrollView sv=new ScrollView(this);sv.setFillViewport(true);sv.setClipToPadding(false);feed=new LinearLayout(this);feed.setOrientation(LinearLayout.VERTICAL);feed.setPadding(0,dp(1),0,dp(22));sv.addView(feed);body.addView(sv,new LinearLayout.LayoutParams(-1,0,1));
+        ScrollView sv=new ScrollView(this);sv.setFillViewport(true);sv.setClipToPadding(false);feed=new LinearLayout(this);feed.setOrientation(LinearLayout.VERTICAL);feed.setPadding(0,dp(1),0,dp(22));sv.addView(feed);
+        swipe=new SwipeRefreshLayout(this);swipe.setColorSchemeColors(CortexUi.BRAND,CortexUi.BLUE,CortexUi.ORANGE);swipe.setProgressBackgroundColorSchemeColor(CortexUi.SURFACE);swipe.addView(sv,new android.view.ViewGroup.LayoutParams(-1,-1));swipe.setOnRefreshListener(()->{maintained=false;refreshAsync();swipe.postDelayed(()->swipe.setRefreshing(false),1800);});body.addView(swipe,new LinearLayout.LayoutParams(-1,0,1));
         CortexUi.addBottomNav(this,root,"atlas",null);setContentView(root);CortexUi.fitSystemBars(this,root);styleTabs();
     }
+
+    @Override void render(ArrayList<Row> rows,String wanted){super.render(rows,wanted);if(swipe!=null)swipe.setRefreshing(false);}
 
     private View header(){LinearLayout row=new LinearLayout(this);row.setGravity(Gravity.CENTER_VERTICAL);CortexGlyphView mark=CortexUi.glyph(this,"brand",CortexUi.BRAND,false);row.addView(mark,new LinearLayout.LayoutParams(dp(40),dp(40)));TextView word=CortexUi.plain(this,"C O R T E X",15,CortexUi.TEXT);CortexUi.medium(word);if(android.os.Build.VERSION.SDK_INT>=21)word.setLetterSpacing(.20f);LinearLayout.LayoutParams wp=new LinearLayout.LayoutParams(0,dp(40),1);wp.setMargins(dp(8),0,0,0);row.addView(word,wp);CortexGlyphView menu=CortexUi.glyph(this,"menu",CortexUi.TEXT,false);menu.setOnClickListener(v->{try{startActivity(new Intent(this,SettingsActivity.class));}catch(Throwable ignored){}});row.addView(menu,new LinearLayout.LayoutParams(dp(44),dp(44)));return row;}
 
