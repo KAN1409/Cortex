@@ -52,14 +52,33 @@ public final class CognitiveAdjudicatorV2 {
         });
     }
 
+    /** Compatibility entry point for callers that do not yet carry detailed router provenance. */
     public static void enqueueAuthoritative(Context context,long signalId,long threadId,AuthorityCallback callback){
+        enqueueAuthoritative(
+                context,signalId,threadId,
+                CognitiveAuthorityRouter.RoutingReason.HASH_CANARY.name(),-1,callback
+        );
+    }
+
+    public static void enqueueAuthoritative(
+            Context context,
+            long signalId,
+            long threadId,
+            String routingReason,
+            int routingBucket,
+            AuthorityCallback callback
+    ){
         if(context==null||signalId<=0){safeFallback(callback,"INVALID_INPUT");return;}
         Context app=context.getApplicationContext();
         if(!CognitiveFeatureFlags.authorityCanaryEnabled(app)){safeFallback(callback,"CANARY_DISABLED");return;}
         String key=slotKey(threadId,signalId);
+        String routeReason=normalizedRoutingReason(routingReason);
         AUTHORITY_SLOTS.compute(key,(ignored,previous)->{
             if(previous!=null)supersede(previous);
-            AuthoritySlot next=new AuthoritySlot(key,signalId,threadId,GENERATION.incrementAndGet(),callback);
+            AuthoritySlot next=new AuthoritySlot(
+                    key,signalId,threadId,GENERATION.incrementAndGet(),
+                    routeReason,routingBucket,callback
+            );
             next.future=SCHEDULER.schedule(()->fireAuthority(app,next),AUTHORITY_QUIET_MS,TimeUnit.MILLISECONDS);
             return next;
         });
@@ -204,13 +223,15 @@ public final class CognitiveAdjudicatorV2 {
             try{
                 CognitiveStore.CanaryApply applied=CognitiveStore.applyCanaryAuthority(
                         db,slot.signalId,slot.threadId,run.result,run,latency,
-                        inputHash(input),CANARY_POLICY
+                        inputHash(input),CANARY_POLICY,slot.routingReason,slot.routingBucket
                 );
                 enrichAppliedRunTelemetry(db,applied.modelRunId,run);
                 DiagnosticsLog.info(
                         db,"CognitiveAdjudicatorV2","canary_applied",run.result.disposition.name(),
                         0,slot.threadId,slot.signalId,0,applied.modelRunId,latency,
                         new JSONObject().put("policy",CANARY_POLICY)
+                                .put("routing_reason",slot.routingReason)
+                                .put("routing_bucket",slot.routingBucket)
                                 .put("disposition",run.result.disposition.name())
                                 .put("derived_count",applied.derivedIds.size())
                                 .put("queue_wait_ms",run.queueWaitMs)
@@ -269,6 +290,8 @@ public final class CognitiveAdjudicatorV2 {
                     db,"CognitiveAdjudicatorV2","canary_timeout","legacy_fallback",code,
                     0,slot.threadId,slot.signalId,0,0,
                     new JSONObject().put("reason",reason)
+                            .put("routing_reason",slot.routingReason)
+                            .put("routing_bucket",slot.routingBucket)
                             .put("queue_wait_ms",slot.nativeStartedAt>0
                                     ? Math.max(0L,slot.nativeStartedAt-slot.inferenceEnqueuedAt)
                                     : elapsed)
@@ -336,6 +359,8 @@ public final class CognitiveAdjudicatorV2 {
                     .put("schema","cognitive_canary_001")
                     .put("signal_id",slot.signalId)
                     .put("policy",CANARY_POLICY)
+                    .put("routing_reason",slot.routingReason)
+                    .put("routing_bucket",slot.routingBucket)
                     .put("outcome",n(state).toUpperCase())
                     .put("reason",n(reason))
                     .put("generation",slot.generation)
@@ -375,16 +400,21 @@ public final class CognitiveAdjudicatorV2 {
                     confidence,output.toString(),err
             );
             if(runId>0){
+                JSONObject metadata=new JSONObject()
+                        .put("policy",CANARY_POLICY)
+                        .put("routing_reason",slot.routingReason)
+                        .put("routing_bucket",slot.routingBucket);
                 CognitiveStore.link(
                         db,"model_run",runId,"raw_signal",slot.signalId,
-                        "canary_evaluated",confidence,
-                        "{\"policy\":\""+CANARY_POLICY+"\"}"
+                        "canary_evaluated",confidence,metadata.toString()
                 );
             }
             DiagnosticsLog.info(
                     db,"CognitiveAdjudicatorV2","canary_terminal",reason,
                     0,slot.threadId,slot.signalId,0,runId,latency,
                     new JSONObject().put("policy",CANARY_POLICY)
+                            .put("routing_reason",slot.routingReason)
+                            .put("routing_bucket",slot.routingBucket)
                             .put("state",state).put("reason",reason)
             );
             return runId;
@@ -569,6 +599,11 @@ public final class CognitiveAdjudicatorV2 {
         if(callback!=null)try{callback.fallback(reason);}catch(Throwable ignored){}
     }
 
+    private static String normalizedRoutingReason(String value){
+        String clean=n(value).trim();
+        return clean.isEmpty()?CognitiveAuthorityRouter.RoutingReason.HASH_CANARY.name():clean;
+    }
+
     private static String clip(String value,int max){
         String clean=value==null?"":value.trim();
         return clean.length()<=max?clean:clean.substring(0,max);
@@ -590,6 +625,8 @@ public final class CognitiveAdjudicatorV2 {
     private static final class AuthoritySlot{
         final String key;
         final long signalId,threadId,generation;
+        final String routingReason;
+        final int routingBucket;
         final AuthorityCallback callback;
         final AtomicBoolean terminal=new AtomicBoolean(false);
         volatile ScheduledFuture<?> future,timeoutFuture;
@@ -597,12 +634,20 @@ public final class CognitiveAdjudicatorV2 {
         volatile long inferenceEnqueuedAt,nativeStartedAt,nativeFinishedAt;
 
         AuthoritySlot(
-                String key,long signalId,long threadId,long generation,AuthorityCallback callback
+                String key,
+                long signalId,
+                long threadId,
+                long generation,
+                String routingReason,
+                int routingBucket,
+                AuthorityCallback callback
         ){
             this.key=key;
             this.signalId=signalId;
             this.threadId=threadId;
             this.generation=generation;
+            this.routingReason=normalizedRoutingReason(routingReason);
+            this.routingBucket=routingBucket;
             this.callback=callback;
         }
     }

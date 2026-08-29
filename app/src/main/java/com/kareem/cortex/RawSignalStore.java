@@ -26,11 +26,11 @@ public final class RawSignalStore {
         long signalId=db.getWritableDatabase().insert("raw_signals",null,v);if(signalId<=0){DiagnosticsLog.warn(db,"RawSignalStore","capture_insert","failed","RAW_SIGNAL_INSERT",0,0,0,0,0,null);return signalId;}
 
         long threadId=SignalThreadStore.attach(db,signalId,signal);boolean hardNoise=fast.disposition==MasterRelevanceFilter.Disposition.IGNORE;
-        CognitiveAuthorityRouter.Route route=CognitiveAuthorityRouter.route(context,threadId,signal.source,senderHint(signal),hardNoise);
-        if(route==CognitiveAuthorityRouter.Route.HARD_GATE){
+        CognitiveAuthorityRouter.Decision routing=CognitiveAuthorityRouter.routeDetailed(context,threadId,signal.source,senderHint(signal),hardNoise);
+        if(routing.route==CognitiveAuthorityRouter.Route.HARD_GATE){
             markHardGate(db,signalId,fast);return signalId;
         }
-        if(route==CognitiveAuthorityRouter.Route.LEGACY){
+        if(routing.route==CognitiveAuthorityRouter.Route.LEGACY){
             runLegacyPipeline(db,signalId,threadId,signal,fast);syncLegacyCognitiveState(db,signalId,"");
             if(context!=null)try{CognitiveAdjudicatorV2.enqueueShadow(context,signalId,threadId);}catch(Throwable ignored){}
             return signalId;
@@ -40,12 +40,19 @@ public final class RawSignalStore {
             runLegacyPipeline(db,signalId,threadId,signal,fast);syncLegacyCognitiveState(db,signalId,"STATE_TRANSITION_FAILED");return signalId;
         }
         final Context app=context==null?null:context.getApplicationContext();
-        CognitiveAdjudicatorV2.enqueueAuthoritative(app,signalId,threadId,new CognitiveAdjudicatorV2.AuthorityCallback(){
-            @Override public void accepted(CognitiveResult result,long modelRunId){
-                // Atomic persistence already happened inside CognitiveStore. No legacy authority is started.
-            }
-            @Override public void fallback(String reason){handleCanaryFallback(app,signalId,threadId,signal,fast,reason);}
-        });
+        CognitiveAdjudicatorV2.enqueueAuthoritative(
+                app,
+                signalId,
+                threadId,
+                routing.reason.name(),
+                routing.bucket,
+                new CognitiveAdjudicatorV2.AuthorityCallback(){
+                    @Override public void accepted(CognitiveResult result,long modelRunId){
+                        // Atomic persistence already happened inside CognitiveStore. No legacy authority is started.
+                    }
+                    @Override public void fallback(String reason){handleCanaryFallback(app,signalId,threadId,signal,fast,reason);}
+                }
+        );
         return signalId;
     }
 

@@ -61,15 +61,37 @@ public final class CognitiveStore {
         Cursor c=sql.query("derived_items",new String[]{"id","model_run_id"},"fingerprint=?",new String[]{fingerprint},null,null,null,"1");long existing=0,owner=0;if(c.moveToFirst()){existing=c.getLong(0);owner=c.getLong(1);}c.close();return existing>0&&owner==modelRunId?existing:0;
     }
 
-    /** One short atomic authority transition: model provenance -> derived intelligence -> links -> raw truth. */
+    /** Backward-compatible helper for tests/diagnostics that do not carry an explicit router decision. */
     public static CanaryApply applyCanaryAuthority(VaultDb db,long signalId,long threadId,CognitiveResult result,LocalBrainRun run,long latencyMs,String inputHash,String policy){
+        return applyCanaryAuthority(
+                db,signalId,threadId,result,run,latencyMs,inputHash,policy,
+                CognitiveAuthorityRouter.RoutingReason.HASH_CANARY.name(),-1
+        );
+    }
+
+    /** One short atomic authority transition: model provenance -> derived intelligence -> links -> raw truth. */
+    public static CanaryApply applyCanaryAuthority(
+            VaultDb db,
+            long signalId,
+            long threadId,
+            CognitiveResult result,
+            LocalBrainRun run,
+            long latencyMs,
+            String inputHash,
+            String policy,
+            String routingReason,
+            int routingBucket
+    ){
         if(db==null||signalId<=0||result==null||result.disposition==null||run==null)throw new IllegalArgumentException("invalid canary apply input");
+        String routeReason=normalizedRoutingReason(routingReason);
         ensure(db);SQLiteDatabase sql=db.getWritableDatabase();long modelRunId=0;ArrayList<Long> derivedIds=new ArrayList<>();sql.beginTransaction();
         try{
-            JSONObject output=canaryOutput(signalId,result,run,policy,"ACCEPTED");
+            JSONObject output=canaryOutput(signalId,result,run,policy,"ACCEPTED",routeReason,routingBucket);
             modelRunId=AiJobStore.modelRun(db,0,1,"cognitive_authority","local",LocalModelManager.MODEL_NAME,"cognitive_v2_canary","complete",n(inputHash),Math.max(0,latencyMs),0,run.tokensGenerated,result.confidence,output.toString(),"");
             if(modelRunId<=0)throw new IllegalStateException("canary model_run persistence failed");
-            if(!linkChecked(db,"model_run",modelRunId,"raw_signal",signalId,"authoritative_evaluated",result.confidence,"{\"policy\":\""+escapeJson(policy)+"\"}"))throw new IllegalStateException("canary model-to-signal provenance failed");
+
+            String routeMeta=routingMetadata(policy,routeReason,routingBucket).toString();
+            if(!linkChecked(db,"model_run",modelRunId,"raw_signal",signalId,"authoritative_evaluated",result.confidence,routeMeta))throw new IllegalStateException("canary model-to-signal provenance failed");
 
             CognitiveItem strongest=null;
             if(result.disposition==CognitiveDisposition.DERIVE){
@@ -78,13 +100,13 @@ public final class CognitiveStore {
                     if(item==null||item.kind==null)throw new IllegalStateException("accepted DERIVE contains invalid item");
                     long derivedId=addCognitiveItem(db,item,signalId,threadId,modelRunId,policy);if(derivedId<=0)throw new IllegalStateException("canary derived item persistence failed");derivedIds.add(derivedId);
                     if(!linkChecked(db,"raw_signal",signalId,"derived",derivedId,"supports",1.0,"{\"authority\":\"CANARY\"}"))throw new IllegalStateException("canary signal provenance failed");
-                    if(!linkChecked(db,"model_run",modelRunId,"derived",derivedId,"generated",result.confidence,"{\"policy\":\""+escapeJson(policy)+"\"}"))throw new IllegalStateException("canary model provenance failed");
+                    if(!linkChecked(db,"model_run",modelRunId,"derived",derivedId,"generated",result.confidence,routeMeta))throw new IllegalStateException("canary model provenance failed");
                     if(threadId>0&&!linkChecked(db,"derived",derivedId,"thread",threadId,"derived_from_thread",1.0,"{\"authority\":\"CANARY\"}"))throw new IllegalStateException("canary thread provenance failed");
                     if(strongest==null||item.importance>strongest.importance||(item.importance==strongest.importance&&item.urgency>strongest.urgency))strongest=item;
                 }
             }
 
-            long now=System.currentTimeMillis();ContentValues raw=new ContentValues();raw.put("cognitive_version",n(policy));raw.put("cognitive_updated_at",now);raw.put("updated_at",now);raw.put("filter_engine","cognitive_v2");raw.put("policy_version",n(policy));raw.put("confidence",result.confidence);raw.put("reason",n(result.reason));raw.put("final_reason","V2 canary accepted local result at confidence "+String.format(Locale.US,"%.2f",result.confidence));
+            long now=System.currentTimeMillis();ContentValues raw=new ContentValues();raw.put("cognitive_version",n(policy));raw.put("cognitive_updated_at",now);raw.put("updated_at",now);raw.put("filter_engine","cognitive_v2");raw.put("policy_version",n(policy));raw.put("confidence",result.confidence);raw.put("reason",n(result.reason));raw.put("final_reason","V2 canary accepted local result at confidence "+String.format(Locale.US,"%.2f",result.confidence)+" via "+routeReason);
             if(result.disposition==CognitiveDisposition.DERIVE){raw.put("cognitive_state","DERIVED");raw.put("state","derived");raw.put("disposition",strongest==null?"CONTEXT":strongest.kind.name());raw.put("importance",strongest==null?0:clamp100(strongest.importance));}
             else if(result.disposition==CognitiveDisposition.CONTEXT){raw.put("cognitive_state","CONTEXT_ONLY");raw.put("state","context");raw.put("disposition","CONTEXT");raw.put("importance",0);}
             else throw new IllegalStateException("unsupported authoritative disposition "+result.disposition);
@@ -120,8 +142,23 @@ public final class CognitiveStore {
 
     public static String schemaRevision(VaultDb db){ensure(db);Cursor c=db.getReadableDatabase().query("schema_meta",new String[]{"value"},"key='cognitive_schema'",null,null,null,null,"1");String x=c.moveToFirst()?c.getString(0):"";c.close();return x==null?"":x;}
 
-    private static JSONObject canaryOutput(long signalId,CognitiveResult result,LocalBrainRun run,String policy,String outcome){
-        JSONObject root=new JSONObject();try{root.put("schema","cognitive_canary_001");root.put("signal_id",signalId);root.put("policy",n(policy));root.put("outcome",outcome);root.put("disposition",result.disposition.name());root.put("confidence",result.confidence);root.put("reason",clip(result.reason,300));JSONArray items=new JSONArray();for(CognitiveItem item:result.items){if(item==null||item.kind==null)continue;JSONObject x=new JSONObject();x.put("kind",item.kind.name());x.put("summary",clip(item.summary,240));x.put("importance",item.importance);x.put("urgency",item.urgency);x.put("person",clip(item.person,120));x.put("due_at",item.dueAt==null?0:item.dueAt);x.put("requires_user_action",item.requiresUserAction);x.put("requires_follow_up",item.requiresFollowUp);x.put("requires_content_extraction",item.requiresContentExtraction);items.put(x);}root.put("items",items);root.put("tokens_per_second",run.tokensPerSecond);root.put("tokens_generated",run.tokensGenerated);root.put("generation_ms",run.generationMs);root.put("model_load_ms",run.modelLoadMs);root.put("duration_ms",run.durationMs);root.put("cache_hit",run.cacheHit);}catch(Throwable ignored){}return root;
+    private static JSONObject canaryOutput(long signalId,CognitiveResult result,LocalBrainRun run,String policy,String outcome,String routingReason,int routingBucket){
+        JSONObject root=new JSONObject();try{root.put("schema","cognitive_canary_001");root.put("signal_id",signalId);root.put("policy",n(policy));root.put("routing_reason",normalizedRoutingReason(routingReason));root.put("routing_bucket",routingBucket);root.put("outcome",outcome);root.put("disposition",result.disposition.name());root.put("confidence",result.confidence);root.put("reason",clip(result.reason,300));JSONArray items=new JSONArray();for(CognitiveItem item:result.items){if(item==null||item.kind==null)continue;JSONObject x=new JSONObject();x.put("kind",item.kind.name());x.put("summary",clip(item.summary,240));x.put("importance",item.importance);x.put("urgency",item.urgency);x.put("person",clip(item.person,120));x.put("due_at",item.dueAt==null?0:item.dueAt);x.put("requires_user_action",item.requiresUserAction);x.put("requires_follow_up",item.requiresFollowUp);x.put("requires_content_extraction",item.requiresContentExtraction);items.put(x);}root.put("items",items);root.put("tokens_per_second",run.tokensPerSecond);root.put("tokens_generated",run.tokensGenerated);root.put("generation_ms",run.generationMs);root.put("model_load_ms",run.modelLoadMs);root.put("duration_ms",run.durationMs);root.put("cache_hit",run.cacheHit);}catch(Throwable ignored){}return root;
+    }
+
+    private static JSONObject routingMetadata(String policy,String routingReason,int routingBucket){
+        JSONObject meta=new JSONObject();
+        try{
+            meta.put("policy",n(policy));
+            meta.put("routing_reason",normalizedRoutingReason(routingReason));
+            meta.put("routing_bucket",routingBucket);
+        }catch(Throwable ignored){}
+        return meta;
+    }
+
+    private static String normalizedRoutingReason(String routingReason){
+        String value=n(routingReason).trim();
+        return value.isEmpty()?CognitiveAuthorityRouter.RoutingReason.HASH_CANARY.name():value;
     }
 
     private static String sourceForSignal(SQLiteDatabase sql,long signalId){Cursor c=sql.query("raw_signals",new String[]{"source"},"id=?",new String[]{String.valueOf(signalId)},null,null,null,"1");String x=c.moveToFirst()?n(c.getString(0)):"";c.close();return x;}
@@ -130,7 +167,6 @@ public final class CognitiveStore {
     private static String friendly(String kind){String x=n(kind).toLowerCase(Locale.ROOT).replace('_',' ');return x.isEmpty()?"Derived intelligence":Character.toUpperCase(x.charAt(0))+x.substring(1);}
     private static int clamp100(int x){return Math.max(0,Math.min(100,x));}
     private static String clip(String s,int max){String x=n(s).trim();return x.length()<=max?x:x.substring(0,max);}
-    private static String escapeJson(String s){return n(s).replace("\\","\\\\").replace("\"","\\\"");}
     private static boolean empty(String s){return s==null||s.trim().isEmpty();}
     private static String n(String s){return s==null?"":s;}
 
