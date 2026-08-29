@@ -18,8 +18,8 @@ public final class CognitiveFeatureFlags {
     private static final String V2_VALIDATION_OVERRIDE="cognitive_v2_validation_override";
     private static final String V2_VALIDATION_THREADS="cognitive_v2_validation_threads";
 
-    // V2 primary remains an explicit mode until the production performance/correctness gates are proven.
-    private static final CognitiveAuthorityMode DEFAULT_AUTHORITY_MODE=CognitiveAuthorityMode.CANARY;
+    /** Brain-first product line: V2 model authority owns meaningful signals unless explicitly killed/fallen back. */
+    private static final CognitiveAuthorityMode DEFAULT_AUTHORITY_MODE=CognitiveAuthorityMode.V2_PRIMARY;
     private static final boolean DEFAULT_SHADOW=true;
     private static final boolean DEFAULT_AUTHORITY_CANARY=true;
     private static final int DEFAULT_CANARY_PERCENT=5;
