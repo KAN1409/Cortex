@@ -16,6 +16,15 @@ public final class FastCognitiveResultParser {
     private FastCognitiveResultParser() {}
 
     public static CognitiveResult parse(String raw) throws CognitiveContractException {
+        return parse(raw, "");
+    }
+
+    /**
+     * Parses the compact fast wire. Confidence and summary are intentionally optional on this
+     * latency-sensitive path: when the model emits only a classification token, Cortex supplies
+     * conservative policy confidence and uses the grounded input text as the item summary.
+     */
+    public static CognitiveResult parse(String raw, String fallbackSummary) throws CognitiveContractException {
         if (raw == null || raw.trim().isEmpty()) {
             throw new CognitiveContractException("Empty fast cognitive response");
         }
@@ -33,7 +42,9 @@ public final class FastCognitiveResultParser {
                     ? requiredString(root, "t")
                     : requiredString(root, "d");
             Classification classification = classification(label);
-            double confidence = confidence(root.get("c"));
+            double confidence = root.has("c") && !root.isNull("c")
+                    ? confidence(root.get("c"))
+                    : defaultConfidence(classification.disposition);
             List<CognitiveItem> items = new ArrayList<>();
 
             if (classification.disposition == CognitiveDisposition.DERIVE) {
@@ -43,10 +54,10 @@ public final class FastCognitiveResultParser {
                         throw new CognitiveContractException("Fast DERIVE supports one or two items");
                     }
                     for (int i = 0; i < array.length(); i++) {
-                        items.add(item(array.getJSONObject(i), classification.kindCode));
+                        items.add(item(array.getJSONObject(i), classification.kindCode, fallbackSummary));
                     }
                 } else {
-                    items.add(item(root, classification.kindCode));
+                    items.add(item(root, classification.kindCode, fallbackSummary));
                 }
             }
 
@@ -84,7 +95,11 @@ public final class FastCognitiveResultParser {
         return !remainder.trim().isEmpty();
     }
 
-    private static CognitiveItem item(JSONObject object, String fallbackKind) throws CognitiveContractException {
+    private static CognitiveItem item(
+            JSONObject object,
+            String fallbackKind,
+            String fallbackSummary
+    ) throws CognitiveContractException {
         String kindValue = object.has("k") && !object.isNull("k")
                 ? requiredString(object, "k")
                 : fallbackKind;
@@ -93,9 +108,11 @@ public final class FastCognitiveResultParser {
         }
 
         CognitiveKind kind = kind(kindValue);
-        String summary = requiredString(object, "s").trim();
+        String summary = object.has("s") && !object.isNull("s")
+                ? clean(String.valueOf(object.opt("s")))
+                : compactSummary(fallbackSummary);
         if (summary.isEmpty()) {
-            throw new CognitiveContractException("Fast derived item has no summary");
+            throw new CognitiveContractException("Fast derived item has no grounded summary");
         }
 
         return new CognitiveItem(
@@ -105,9 +122,9 @@ public final class FastCognitiveResultParser {
                 intValue(object, "u", 0),
                 nullableString(object, "p"),
                 dueAt(object.opt("due")),
-                boolValue(object, "ua", false),
-                boolValue(object, "fu", false),
-                boolValue(object, "ce", false)
+                boolValue(object, "ua", kind == CognitiveKind.ACTION),
+                boolValue(object, "fu", kind == CognitiveKind.WAITING),
+                boolValue(object, "ce", kind == CognitiveKind.CONTENT)
         );
     }
 
@@ -182,6 +199,13 @@ public final class FastCognitiveResultParser {
         }
     }
 
+    private static double defaultConfidence(CognitiveDisposition disposition) {
+        if (disposition == CognitiveDisposition.DERIVE) return 0.90;
+        if (disposition == CognitiveDisposition.CONTEXT) return 0.90;
+        if (disposition == CognitiveDisposition.IGNORE) return 0.70;
+        return 0.60;
+    }
+
     private static double confidence(Object value) throws CognitiveContractException {
         if (!(value instanceof Number)) {
             try {
@@ -251,6 +275,12 @@ public final class FastCognitiveResultParser {
         } catch (Throwable ignored) {}
 
         return null;
+    }
+
+    private static String compactSummary(String value) {
+        String text = clean(value).replaceAll("\\s+", " ");
+        if (text.length() > 140) text = text.substring(0, 140).trim();
+        return text;
     }
 
     private static String stripThinking(String raw) {
