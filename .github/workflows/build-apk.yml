@@ -5,10 +5,12 @@ on:
     branches:
       - main
       - migration/cognitive-brain-v2-step1-2
+      - fix/v2-reconciliation-v54
   pull_request:
     branches:
       - main
       - cleanup/repo-consolidation
+      - migration/cognitive-brain-v2-step1-2
   workflow_dispatch:
 
 permissions:
