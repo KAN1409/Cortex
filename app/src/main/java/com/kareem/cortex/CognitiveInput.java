@@ -16,6 +16,8 @@ public final class CognitiveInput {
     public final long occurredAt;
     public final String timezone;
     public final String baselineDecision;
+    /** Bounded, factual Relay perception context. Never a priority/relevance judgement. */
+    public final String perceptionContext;
 
     public CognitiveInput(
             long signalId,
@@ -28,6 +30,23 @@ public final class CognitiveInput {
             long occurredAt,
             String timezone,
             String baselineDecision
+    ) {
+        this(signalId, family, sourcePackage, sourceApp, sender, latestText, recentContext,
+                occurredAt, timezone, baselineDecision, "");
+    }
+
+    public CognitiveInput(
+            long signalId,
+            SignalFamily family,
+            String sourcePackage,
+            String sourceApp,
+            String sender,
+            String latestText,
+            List<CognitiveMessage> recentContext,
+            long occurredAt,
+            String timezone,
+            String baselineDecision,
+            String perceptionContext
     ) {
         this.signalId = signalId;
         this.family = family == null ? SignalFamily.UNKNOWN : family;
@@ -43,6 +62,7 @@ public final class CognitiveInput {
         this.occurredAt = occurredAt;
         this.timezone = clean(timezone);
         this.baselineDecision = clean(baselineDecision);
+        this.perceptionContext = clean(perceptionContext);
     }
 
     private static String clean(String s) {
