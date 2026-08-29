@@ -111,7 +111,9 @@ public final class LocalQwenBrain implements CortexBrain {
                     totalMs,
                     promptChars,
                     FastCognitivePromptBuilder.WIRE_SCHEMA,
-                    confidenceSource
+                    confidenceSource,
+                    run.getPromptEvalMs(),
+                    run.getTokenGenerationMs()
             );
         } catch (BrainException error) {
             throw error;
