@@ -3,8 +3,8 @@ set -euo pipefail
 
 PACKAGE="com.kareem.cortex"
 RELAY_BRANCH="integration/cognitive-relay-v2-v54"
-# This commit contains the exact app/manifest/test Relay overlay that passed debug + release +
-# androidTest-source CI. Later commits on the branch only harden this local snapshot script.
+# This commit contains the exact Relay Java/test overlay that passed debug + release +
+# androidTest-source CI. Later commits only harden this local snapshot script.
 RELAY_CODE_REF="66d822faee9a6fd6ef11796d6f11cbdc705c66fd"
 EXPECTED_VERSION_CODE=54
 EXPECTED_VERSION_NAME="2.0.1-cognitive-relay-v2-candidate"
@@ -25,6 +25,7 @@ need tar
 need rish
 need sed
 need grep
+need awk
 need sha256sum
 [ -d "$SRC/.git" ] || fail "Source repo not found at $SRC"
 [ ! -e "$TARGET" ] || fail "Snapshot target already exists: $TARGET"
@@ -72,6 +73,20 @@ extract_remote(){
     || fail "Could not extract $path from pinned Relay code $RELAY_CODE_REF"
 }
 
+insert_after_once(){
+  local file="$1" pattern="$2" addition="$3" tmp
+  [ -f "$file" ] || fail "Patch target missing: $file"
+  if grep -Fq "$addition" "$file"; then return 0; fi
+  grep -Fq "$pattern" "$file" || fail "Could not find safe insertion anchor '$pattern' in $file"
+  tmp="$file.relay-v54.tmp"
+  awk -v pat="$pattern" -v add="$addition" '
+    { print }
+    !done && index($0, pat) { print add; done=1 }
+    END { if (!done) exit 42 }
+  ' "$file" > "$tmp" || { rm -f "$tmp"; fail "Could not patch $file"; }
+  mv "$tmp" "$file"
+}
+
 echo "===== 1. VERIFY INSTALLED CORTEX ====="
 CURRENT_CODE="$(installed_version_code)"
 CURRENT_NAME="$(installed_version_name)"
@@ -86,19 +101,12 @@ echo "installed_versionName=${CURRENT_NAME:-<unknown>}"
 echo "installed_signer=$CURRENT_CERT"
 
 echo
-echo "===== 2. VERIFY LOCAL SOURCE IS PRESERVED ====="
+echo "===== 2. RECORD LOCAL SOURCE WITHOUT MODIFYING IT ====="
 echo "source=$SRC"
 echo "source_head=$(git -C "$SRC" rev-parse HEAD)"
 echo "source_branch=$(git -C "$SRC" rev-parse --abbrev-ref HEAD)"
-echo "-- source status (informational; it is NOT modified) --"
+echo "-- source status (informational; original tree remains untouched) --"
 git -C "$SRC" status --short || true
-
-# These two files were clean in the audited local tree. Refuse rather than silently replacing an
-# unreported local edit. app/build.gradle is intentionally allowed to be dirty and is patched only
-# inside the snapshot so local Compose/Gradle work survives.
-if ! git -C "$SRC" diff --quiet -- app/src/main/AndroidManifest.xml app/src/main/java/com/kareem/cortex/AdvancedSettingsActivity.java; then
-  fail "Manifest or AdvancedSettings has local edits. Refusing to overwrite them in the snapshot without a reviewed merge."
-fi
 
 echo
 echo "===== 3. FETCH PINNED RELAY V54 WITHOUT TOUCHING WORKTREE ====="
@@ -127,7 +135,7 @@ mkdir -p "$TARGET"
 ) | (cd "$TARGET" && tar -xf -)
 echo "snapshot=$TARGET"
 
-# Add only Relay/Local-Bus implementation files from the CI-validated pinned integration commit.
+# Add only Relay/Local-Bus Java and regression-test files from the CI-validated integration commit.
 for path in \
   app/src/main/java/com/kareem/cortex/CortexLocalBusProtocolV1.java \
   app/src/main/java/com/kareem/cortex/CortexLocalBusProtocolV2.java \
@@ -142,10 +150,18 @@ for path in \
   extract_remote "$path"
 done
 
-# The audited source had no local changes in these two files, so use the reviewed component/UI
-# declarations verbatim rather than trying a fragile text insertion.
-extract_remote app/src/main/AndroidManifest.xml
-extract_remote app/src/main/java/com/kareem/cortex/AdvancedSettingsActivity.java
+# Keep the LOCAL v53 manifest and Advanced screen byte-for-byte except for the two additive entries.
+MANIFEST="$TARGET/app/src/main/AndroidManifest.xml"
+ADVANCED="$TARGET/app/src/main/java/com/kareem/cortex/AdvancedSettingsActivity.java"
+insert_after_once "$MANIFEST" \
+  '<activity android:name=".AdvancedSettingsActivity" android:exported="false" />' \
+  '        <activity android:name=".CortexRelayV2DiagnosticsActivity" android:exported="false" />'
+insert_after_once "$MANIFEST" \
+  '<service android:name=".CortexRecordService" android:exported="false" android:foregroundServiceType="microphone" />' \
+  '        <service android:name=".CortexLocalBusService" android:exported="true"><intent-filter><action android:name="com.kareem.cortex.LOCAL_BUS_V1" /></intent-filter></service>'
+insert_after_once "$ADVANCED" \
+  'body.addView(CortexUi.section(this,"Runtime & capabilities"));' \
+  '        row(body,"Relay V2 bridge","Inspect negotiated protocol, policy round-trip and explicitly approved Android actions",CortexRelayV2DiagnosticsActivity.class);'
 
 BUILD_FILE="$TARGET/app/build.gradle"
 [ -f "$BUILD_FILE" ] || fail "Snapshot app/build.gradle missing"
@@ -159,8 +175,9 @@ sed -i -E "s/^([[:space:]]*versionName[[:space:]]+)'2\.0'[[:space:]]*$/\1'2.0.1-
 
 grep -Eq '^[[:space:]]*versionCode[[:space:]]+54[[:space:]]*$' "$BUILD_FILE" || fail "versionCode patch failed"
 grep -Eq "versionName[[:space:]]+'2\.0\.1-cognitive-relay-v2-candidate'" "$BUILD_FILE" || fail "versionName patch failed"
-grep -q 'CortexLocalBusService' "$TARGET/app/src/main/AndroidManifest.xml" || fail "Local Bus service missing from snapshot manifest"
-grep -q 'CortexRelayV2DiagnosticsActivity' "$TARGET/app/src/main/AndroidManifest.xml" || fail "Relay diagnostics activity missing from snapshot manifest"
+grep -q 'CortexLocalBusService' "$MANIFEST" || fail "Local Bus service missing from snapshot manifest"
+grep -q 'CortexRelayV2DiagnosticsActivity' "$MANIFEST" || fail "Relay diagnostics activity missing from snapshot manifest"
+grep -q 'Relay V2 bridge' "$ADVANCED" || fail "Relay diagnostics row missing from snapshot Advanced screen"
 
 echo "Snapshot identity:"
 grep -nE 'versionCode|versionName' "$BUILD_FILE" | head -n4
