@@ -45,9 +45,10 @@ Battery/media/system noise -> I.
 
 Never invent people, dates or commitments.
 Prefer one item. Maximum two.
-c is an integer from 0 to 100.
+c is classification confidence as an integer 0..100.
+For clear D/C classifications use high confidence only when the signal supports it.
 For I/C/R use exactly one code, e.g. {"d":"C","c":92}.
-For one D item return {"d":"D","c":0,"k":"AC","s":"summary","i":0,"u":0,"p":"","due":null,"ua":0,"fu":0,"ce":0}.
+For one D item return {"d":"D","c":93,"k":"AC","s":"Send Ahmed the final file today","i":82,"u":78,"p":"Ahmed","due":null,"ua":1,"fu":0,"ce":0}.
 Only if two items are essential, use "it":[{item fields},{item fields}] instead of top-level item fields.
 Return JSON only.
 """;
