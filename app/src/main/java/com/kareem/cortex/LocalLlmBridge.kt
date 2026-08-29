@@ -91,26 +91,19 @@ object LocalLlmBridge {
 
     private fun productionThreads(): Int {
         val cores = Runtime.getRuntime().availableProcessors()
-        return min(6, max(4, cores - 2))
+        return min(4, max(2, cores - 2))
     }
 
     private fun productionConfig(): LlamaConfig = LlamaConfig(
-        contextSize = 3072,
+        contextSize = 2048,
         threads = productionThreads(),
         gpuLayers = 0,
-        // Classification should be deterministic. Removing stochastic sampling also keeps the
-        // fast wire contract stable across repeated authority decisions.
         temperature = 0.0f,
         topP = 1.0f,
         topK = 1,
         seed = 7,
     )
 
-    /**
-     * Production completion path. The expensive GGUF model is loaded once per app process and
-     * reused for later asks. Calls are serialized because the current Android llama bridge does
-     * not promise concurrent access to one model handle.
-     */
     @JvmStatic
     fun completeCached(modelPath: String, prompt: String, systemPrompt: String, maxTokens: Int): CompletionResult = synchronized(cacheLock) {
         runBlocking {
@@ -145,7 +138,6 @@ object LocalLlmBridge {
         }
     }
 
-    /** Compatibility path retained for diagnostics that explicitly need a cold one-shot run. */
     @JvmStatic
     fun completeOnce(modelPath: String, prompt: String, systemPrompt: String, maxTokens: Int): CompletionResult = runBlocking {
         val config = productionConfig()
