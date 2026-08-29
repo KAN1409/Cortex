@@ -53,6 +53,9 @@ for f in \
 done
 
 MAN=app/src/main/AndroidManifest.xml
+BUILD=app/build.gradle
+SCHEMA=app/src/main/java/com/kareem/cortex/CognitiveSchema.java
+
 launcher_count="$(grep -o 'android.intent.action.MAIN' "$MAN" | wc -l | tr -d ' ')"
 [ "$launcher_count" = "1" ] && ok "exactly one launcher intent" || bad "expected 1 launcher intent, found $launcher_count"
 send_count="$(grep -o 'android.intent.action.SEND"' "$MAN" | wc -l | tr -d ' ')"
@@ -60,6 +63,30 @@ send_multi_count="$(grep -o 'android.intent.action.SEND_MULTIPLE' "$MAN" | wc -l
 [ "$send_count" = "1" ] && ok "exactly one ACTION_SEND owner" || bad "expected 1 ACTION_SEND owner, found $send_count"
 [ "$send_multi_count" = "1" ] && ok "exactly one ACTION_SEND_MULTIPLE owner" || bad "expected 1 ACTION_SEND_MULTIPLE owner, found $send_multi_count"
 require_text "$MAN" 'activity android:name="\.CompactTodayActivity"[^>]*exported="true"' 'CompactTodayActivity is the current launcher surface'
+
+# V2 reconciliation invariants: update-in-place release, canonical schema, private backup surface.
+version_code="$(grep -Eo 'versionCode[[:space:]]+[0-9]+' "$BUILD" | head -n1 | grep -Eo '[0-9]+' || true)"
+if [ -n "$version_code" ] && [ "$version_code" -ge 54 ]; then ok "V2 reconciliation versionCode is >=54"; else bad "V2 reconciliation requires versionCode >=54, found ${version_code:-missing}"; fi
+require_text "$BUILD" "versionName[[:space:]]+'2\\.0" 'V2 reconciliation keeps Version 2 identity'
+require_text "$SCHEMA" 'DB_VERSION[[:space:]]*=[[:space:]]*7' 'Cognitive schema stays at DB version 7'
+require_text "$SCHEMA" 'REVISION[[:space:]]*=[[:space:]]*"cognitive_004"' 'Cognitive schema revision is canonical cognitive_004'
+require_text "$MAN" 'android:allowBackup="false"' 'automatic Android backup is disabled for private Cortex state'
+require_text "$MAN" 'activity android:name="\.StableSelfContainedReviewActivity"[^>]*exported="false"' 'phone-only self review is not externally triggerable'
+
+# Supply-chain/signing invariants.
+require_text "$BUILD" 'arabicOcrSha512' 'Arabic OCR asset has a pinned digest'
+require_text "$BUILD" '7641b0b0e888498aa3fe062d0d44eda9e08d34e46e1c5ef48f92e9a49d2477c0c4cda5f989862d5441d0804312abd81733baa18ef9945c22524f9b106fc4f81d' 'Arabic OCR digest matches the pinned 4.1.0 asset'
+forbid_text "$BUILD" 'cortex-debug\.keystore\.b64' 'build script never reconstructs signing material from tracked base64'
+if git ls-files | grep -Ei '(^|/).*keystore.*\.b64$' >/dev/null 2>&1; then
+  bad "encoded signing material must not be tracked in git"
+else
+  ok "no encoded signing material tracked"
+fi
+if git ls-files | grep -Eq '^app/build\.gradle\.kts$'; then
+  bad "non-canonical app/build.gradle.kts must not be tracked"
+else
+  ok "Groovy app/build.gradle remains the single canonical module build file"
+fi
 
 # One cognitive truth path: raw evidence -> relevance/adjudication -> derived_items -> attention -> Today/Ask/Brief/proactive.
 PRIME=app/src/main/java/com/kareem/cortex/PrimeBriefStore.java
