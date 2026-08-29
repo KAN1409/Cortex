@@ -49,13 +49,60 @@ public final class CognitiveLatencyBenchmark {
         }
     }
 
-    private static void warmModel(Context app) {
-        LocalLlmBridge.completeCached(
-                LocalModelManager.modelFile(app).getAbsolutePath(),
-                "Return {} only. /no_think",
-                "JSON only. /no_think",
-                8
+    /**
+     * This gate is explicitly a warm-authority benchmark. Warm the exact production prompt/parser
+     * path with two non-corpus signals so model pages, tokenizer/chat template and native kernels
+     * are resident before measured samples start. Cold-start behavior remains covered by the later
+     * controlled real E2E gate and is intentionally not mixed into this warm latency distribution.
+     */
+    private static void warmModel(Context app) throws Exception {
+        LocalQwenBrain brain = new LocalQwenBrain(app);
+        List<CognitiveInput> warmups = Arrays.asList(
+                new CognitiveInput(
+                        0,
+                        SignalFamily.COMMUNICATION,
+                        "",
+                        "Warmup",
+                        "Other",
+                        "Please review the sample before noon.",
+                        Collections.emptyList(),
+                        System.currentTimeMillis(),
+                        "Africa/Cairo",
+                        ""
+                ),
+                new CognitiveInput(
+                        0,
+                        SignalFamily.COMMUNICATION,
+                        "",
+                        "Warmup",
+                        "Other",
+                        "هأكدلك النتيجة بعد شوية",
+                        Collections.emptyList(),
+                        System.currentTimeMillis(),
+                        "Africa/Cairo",
+                        ""
+                )
         );
+
+        int index = 0;
+        for (CognitiveInput input : warmups) {
+            index++;
+            LocalBrainRun run = brain.classifyWithTelemetry(
+                    input,
+                    LocalInferenceCoordinator.Priority.AUTHORITATIVE
+            );
+            Log.i(
+                    TAG,
+                    "warmup=" + index
+                            + " total_ms=" + run.totalMs
+                            + " native_total_ms=" + run.nativeTotalMs
+                            + " model_load_ms=" + run.modelLoadMs
+                            + " generation_ms=" + run.generationMs
+                            + " prompt_chars=" + run.promptChars
+                            + " tokens=" + run.tokensGenerated
+                            + " raw=" + compactRaw(run.rawOutput)
+            );
+        }
     }
 
     private static PhaseResult runPhase(
@@ -126,9 +173,11 @@ public final class CognitiveLatencyBenchmark {
                     run = authority.get(60, TimeUnit.SECONDS);
                 }
 
+                boolean matched = matches(run.result, test);
+                boolean eligible = canaryEligible(run.result);
                 valid++;
-                if (matches(run.result, test)) classification++;
-                if (canaryEligible(run.result)) canaryEligible++;
+                if (matched) classification++;
+                if (eligible) canaryEligible++;
                 if (FastCognitiveResultParser.hasNonEmptyThinking(run.rawOutput)) nonEmptyThinking++;
 
                 queue.add(run.queueWaitMs);
@@ -140,18 +189,25 @@ public final class CognitiveLatencyBenchmark {
                         (contendWithShadow ? "shadow_on" : "shadow_off")
                                 + " case=" + test.name
                                 + " valid=true"
+                                + " matched=" + matched
+                                + " expected_disposition=" + test.disposition
+                                + " expected_kind=" + (test.kind == null ? "NONE" : test.kind.name())
+                                + " actual_disposition=" + run.result.disposition
+                                + " actual_kind=" + actualKind(run.result)
+                                + " raw=" + compactRaw(run.rawOutput)
                                 + " queue_wait_ms=" + run.queueWaitMs
                                 + " native_total_ms=" + run.nativeTotalMs
                                 + " total_ms=" + run.totalMs
+                                + " model_load_ms=" + run.modelLoadMs
+                                + " generation_ms=" + run.generationMs
                                 + " prompt_chars=" + run.promptChars
                                 + " tokens=" + run.tokensGenerated
                                 + " tok_s=" + run.tokensPerSecond
                                 + " cache_hit=" + run.cacheHit
                                 + " wire_schema=" + run.wireSchema
-                                + " disposition=" + run.result.disposition
                                 + " confidence=" + run.result.confidence
                                 + " confidence_source=" + run.confidenceSource
-                                + " canary_eligible=" + canaryEligible(run.result)
+                                + " canary_eligible=" + eligible
                 );
             } catch (Throwable error) {
                 long elapsed = Math.max(0L, System.currentTimeMillis() - caseStarted);
@@ -163,6 +219,8 @@ public final class CognitiveLatencyBenchmark {
                         (contendWithShadow ? "shadow_on" : "shadow_off")
                                 + " case=" + test.name
                                 + " valid=false"
+                                + " expected_disposition=" + test.disposition
+                                + " expected_kind=" + (test.kind == null ? "NONE" : test.kind.name())
                                 + " queue_wait_ms=0"
                                 + " total_ms=" + elapsed
                                 + " tokens=0"
@@ -194,8 +252,8 @@ public final class CognitiveLatencyBenchmark {
     }
 
     private static void assertGate(String phase, PhaseResult result) {
-        // Mechanical contract gates first. Classification and latency remain visible as separate
-        // numbers in the phase summary so the next engineering move is evidence-driven.
+        // Keep all acceptance thresholds unchanged. Better diagnostics must never turn a red gate
+        // green by weakening correctness or latency requirements.
         assertEquals(phase + ": valid JSON/contract must be 100% for a 10-case corpus", result.total, result.valid);
         assertEquals(phase + ": every benchmark result must be canary-eligible", result.total, result.canaryEligible);
         assertEquals(phase + ": actual reasoning tokens are not allowed", 0, result.nonEmptyThinking);
@@ -215,6 +273,26 @@ public final class CognitiveLatencyBenchmark {
             if (item != null && item.kind == test.kind) return true;
         }
         return false;
+    }
+
+    private static String actualKind(CognitiveResult result) {
+        if (result == null || result.items == null || result.items.isEmpty()) return "NONE";
+        for (CognitiveItem item : result.items) {
+            if (item != null && item.kind != null) return item.kind.name();
+        }
+        return "NONE";
+    }
+
+    private static String compactRaw(String raw) {
+        if (raw == null) return "<null>";
+        String compact = raw
+                .replace('\n', ' ')
+                .replace('\r', ' ')
+                .replace('\t', ' ')
+                .replaceAll("\\s+", " ")
+                .trim();
+        if (compact.length() > 120) compact = compact.substring(0, 120) + "…";
+        return compact.isEmpty() ? "<empty>" : compact;
     }
 
     private static boolean canaryEligible(CognitiveResult result) {
