@@ -18,7 +18,7 @@ import java.util.Locale;
  * thread therefore becomes one changing situation instead of a growing pile of notification cards.
  */
 public final class BrainSituationStore {
-    public static final String VERSION = "brain_situation_001";
+    public static final String VERSION = "brain_situation_002";
     private static final String TABLE = "brain_situations";
     private BrainSituationStore() {}
 
@@ -61,6 +61,7 @@ public final class BrainSituationStore {
         db.execSQL("CREATE INDEX IF NOT EXISTS idx_brain_situation_thread ON "+TABLE+"(thread_id,state,updated_at DESC)");
         db.execSQL("CREATE INDEX IF NOT EXISTS idx_brain_situation_signal ON "+TABLE+"(anchor_signal_id)");
         db.execSQL("CREATE INDEX IF NOT EXISTS idx_brain_situation_changed ON "+TABLE+"(last_changed_at DESC)");
+        db.execSQL("CREATE INDEX IF NOT EXISTS idx_brain_situation_due ON "+TABLE+"(state,due_at ASC)");
     }
 
     /** Rebuilds the replaceable projection from canonical open derived truth without deleting history. */
@@ -77,7 +78,7 @@ public final class BrainSituationStore {
 
         for (Candidate candidate : candidates) {
             String key = situationKey(candidate);
-            if (key.isEmpty() || !touched.add(key)) continue; // query is newest-first: first is current.
+            if (key.isEmpty() || !touched.add(key)) continue;
             long id = upsert(db, key, candidate, now);
             if (id > 0) {
                 changed++;
@@ -85,8 +86,6 @@ public final class BrainSituationStore {
             }
         }
 
-        // Anything that was current before but no longer has an open canonical derived state is no
-        // longer current. Keep the row as history, but remove it from all product surfaces.
         Cursor active = db.query(TABLE, new String[]{"id","situation_key"}, "state='active'", null,
                 null,null,null);
         ArrayList<Long> retire = new ArrayList<>();
@@ -170,7 +169,9 @@ public final class BrainSituationStore {
 
     private static long upsert(SQLiteDatabase db, String key, Candidate x, long now) {
         Existing old = existing(db, key);
-        String why = changeReason(old, x);
+        long anchor = x.createdAt>0 ? x.createdAt : (x.updatedAt>0 ? x.updatedAt : now);
+        long resolvedDue = x.dueAt>0 ? x.dueAt : TemporalResolver.resolveForAttention(title(x)+" "+x.body, anchor);
+        String why = changeReason(old, x, resolvedDue);
         long firstSeen = old == null || old.firstSeenAt <= 0 ? Math.max(1, x.createdAt) : old.firstSeenAt;
         long lastChanged = old == null || !why.isEmpty() ? now : old.lastChangedAt;
         int evidence = evidenceCount(db, x);
@@ -178,12 +179,13 @@ public final class BrainSituationStore {
         try {
             meta.put("projection", VERSION);meta.put("semantic_key",x.semanticKey);
             meta.put("current_derived_id",x.derivedId);meta.put("anchor_signal_id",x.signalId);
+            meta.put("temporal_anchor_at",anchor);meta.put("resolved_due_at",Math.max(0,resolvedDue));
         } catch (Throwable ignored) {}
         ContentValues v = new ContentValues();
         v.put("situation_key", key);v.put("kind",x.kind);v.put("title",title(x));v.put("body",n(x.body));
         v.put("state","active");v.put("source_key",x.source);v.put("person_key",x.person);
         v.put("current_derived_id",x.derivedId);v.put("thread_id",Math.max(0,x.threadId));v.put("anchor_signal_id",Math.max(0,x.signalId));
-        v.put("model_run_id",Math.max(0,x.modelRunId));v.put("due_at",Math.max(0,x.dueAt));v.put("confidence",x.confidence);
+        v.put("model_run_id",Math.max(0,x.modelRunId));v.put("due_at",Math.max(0,resolvedDue));v.put("confidence",x.confidence);
         v.put("importance",clamp100(x.importance));v.put("urgency",clamp100(x.urgency));v.put("evidence_count",Math.max(1,evidence));
         v.put("first_seen_at",firstSeen);v.put("last_changed_at",lastChanged);v.put("updated_at",now);v.put("resolved_at",0);
         v.put("why_changed",why);v.put("metadata_json",meta.toString());
@@ -195,12 +197,12 @@ public final class BrainSituationStore {
     }
 
     private static Existing existing(SQLiteDatabase db, String key) {
-        Cursor c=db.query(TABLE,new String[]{"id","kind","title","body","current_derived_id","first_seen_at","last_changed_at"},
+        Cursor c=db.query(TABLE,new String[]{"id","kind","title","body","current_derived_id","due_at","first_seen_at","last_changed_at"},
                 "situation_key=?",new String[]{key},null,null,null,"1");
         try {
             if(!c.moveToFirst())return null;
             Existing e=new Existing();e.id=c.getLong(0);e.kind=n(c.getString(1));e.title=n(c.getString(2));e.body=n(c.getString(3));
-            e.derivedId=c.getLong(4);e.firstSeenAt=c.getLong(5);e.lastChangedAt=c.getLong(6);return e;
+            e.derivedId=c.getLong(4);e.dueAt=c.getLong(5);e.firstSeenAt=c.getLong(6);e.lastChangedAt=c.getLong(7);return e;
         } finally { c.close(); }
     }
 
@@ -212,10 +214,11 @@ public final class BrainSituationStore {
         return x.signalId>0?1:0;
     }
 
-    private static String changeReason(Existing old, Candidate x) {
+    private static String changeReason(Existing old, Candidate x, long dueAt) {
         if (old == null) return "New grounded situation";
         if (!old.kind.equalsIgnoreCase(x.kind)) return old.kind + " → " + x.kind;
         if (!canon(old.title+" "+old.body).equals(canon(title(x)+" "+x.body))) return "Meaning changed with newer evidence";
+        if (old.dueAt != Math.max(0,dueAt)) return "Timing changed with newer evidence";
         if (old.derivedId != x.derivedId) return "Refreshed by newer evidence";
         return "";
     }
@@ -241,5 +244,5 @@ public final class BrainSituationStore {
     private static String n(String s){return s==null?"":s.trim();}
 
     private static final class Candidate {long derivedId,threadId,signalId,modelRunId,dueAt,createdAt,updatedAt;String kind,title,body,source,person,semanticKey;double confidence;int importance,urgency;}
-    private static final class Existing {long id,derivedId,firstSeenAt,lastChangedAt;String kind,title,body;}
+    private static final class Existing {long id,derivedId,dueAt,firstSeenAt,lastChangedAt;String kind,title,body;}
 }
