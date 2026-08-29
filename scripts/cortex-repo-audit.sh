@@ -33,6 +33,8 @@ for f in \
   app/src/main/java/com/kareem/cortex/VaultDb.java \
   app/src/main/java/com/kareem/cortex/CognitiveSchema.java \
   app/src/main/java/com/kareem/cortex/CognitiveStore.java \
+  app/src/main/java/com/kareem/cortex/CognitiveFeatureFlags.java \
+  app/src/main/java/com/kareem/cortex/CognitiveAuthorityRouter.java \
   app/src/main/java/com/kareem/cortex/RawSignalStore.java \
   app/src/main/java/com/kareem/cortex/MasterRelevanceFilter.java \
   app/src/main/java/com/kareem/cortex/AttentionEngine.java \
@@ -52,6 +54,7 @@ for f in \
   app/src/main/java/com/kareem/cortex/ProposalPeopleProjectsActivity.java \
   app/src/main/java/com/kareem/cortex/ProposalAskCortexActivity.java \
   app/src/androidTest/java/com/kareem/cortex/CognitiveProductAdjudicationTest.java \
+  app/src/androidTest/java/com/kareem/cortex/CognitivePrimaryAuthorityTest.java \
   termux-build-cortex.sh \
   tools/preserve-v2-local-work.sh; do
   require_file "$f"
@@ -60,6 +63,7 @@ done
 MAN=app/src/main/AndroidManifest.xml
 BUILD=app/build.gradle
 SCHEMA=app/src/main/java/com/kareem/cortex/CognitiveSchema.java
+FLAGS=app/src/main/java/com/kareem/cortex/CognitiveFeatureFlags.java
 LINK=app/src/main/java/com/kareem/cortex/SharedLinkIntelligence.java
 SHARE=app/src/main/java/com/kareem/cortex/ShareImporter.java
 TERMUX_BUILD=termux-build-cortex.sh
@@ -78,6 +82,7 @@ if [ -n "$version_code" ] && [ "$version_code" -ge 54 ]; then ok "V2 reconciliat
 require_text "$BUILD" "versionName[[:space:]]+'2\\.0" 'V2 reconciliation keeps Version 2 identity'
 require_text "$SCHEMA" 'DB_VERSION[[:space:]]*=[[:space:]]*7' 'Cognitive schema stays at DB version 7'
 require_text "$SCHEMA" 'REVISION[[:space:]]*=[[:space:]]*"cognitive_004"' 'Cognitive schema revision is canonical cognitive_004'
+require_text "$FLAGS" 'DEFAULT_AUTHORITY_MODE[[:space:]]*=[[:space:]]*CognitiveAuthorityMode\.V2_PRIMARY' 'Brain-first V2 primary is the default cognitive authority'
 require_text "$MAN" 'android:allowBackup="false"' 'automatic Android backup is disabled for private Cortex state'
 require_text "$MAN" 'activity android:name="\.StableSelfContainedReviewActivity"[^>]*exported="false"' 'phone-only self review is not externally triggerable'
 
