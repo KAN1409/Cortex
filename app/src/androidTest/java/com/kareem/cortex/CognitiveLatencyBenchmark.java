@@ -70,6 +70,7 @@ public final class CognitiveLatencyBenchmark {
 
         int valid = 0;
         int classification = 0;
+        int canaryEligible = 0;
         int nonEmptyThinking = 0;
         int shadowSkippedBusy = 0;
         int shadowBlocksAuthority = 0;
@@ -125,6 +126,7 @@ public final class CognitiveLatencyBenchmark {
 
             valid++;
             if (matches(run.result, test)) classification++;
+            if (canaryEligible(run.result)) canaryEligible++;
             if (FastCognitiveResultParser.hasNonEmptyThinking(run.rawOutput)) nonEmptyThinking++;
 
             queue.add(run.queueWaitMs);
@@ -144,6 +146,8 @@ public final class CognitiveLatencyBenchmark {
                             + " cache_hit=" + run.cacheHit
                             + " wire_schema=" + run.wireSchema
                             + " disposition=" + run.result.disposition
+                            + " confidence=" + run.result.confidence
+                            + " canary_eligible=" + canaryEligible(run.result)
             );
         }
 
@@ -151,6 +155,7 @@ public final class CognitiveLatencyBenchmark {
                 cases.size(),
                 valid,
                 classification,
+                canaryEligible,
                 nonEmptyThinking,
                 percentileLong(queue, 50),
                 percentileLong(queue, 95),
@@ -169,6 +174,7 @@ public final class CognitiveLatencyBenchmark {
     private static void assertGate(String phase, PhaseResult result) {
         assertEquals(phase + ": valid JSON/contract must be 100% for a 10-case corpus", result.total, result.valid);
         assertEquals(phase + ": classification regression", result.total, result.classification);
+        assertEquals(phase + ": every benchmark result must be canary-eligible", result.total, result.canaryEligible);
         assertEquals(phase + ": actual reasoning tokens are not allowed", 0, result.nonEmptyThinking);
         assertTrue(phase + ": authority queue P95 must be <500ms, got " + result.queueP95, result.queueP95 < 500L);
         assertTrue(phase + ": authority total P50 must be <=8s, got " + result.totalP50, result.totalP50 <= 8_000L);
@@ -184,6 +190,22 @@ public final class CognitiveLatencyBenchmark {
             if (item != null && item.kind == test.kind) return true;
         }
         return false;
+    }
+
+    private static boolean canaryEligible(CognitiveResult result) {
+        if (result == null || result.disposition == null) return false;
+        switch (result.disposition) {
+            case DERIVE:
+                return result.confidence >= 0.80
+                        && result.items != null
+                        && !result.items.isEmpty();
+            case CONTEXT:
+                return result.confidence >= 0.85;
+            case IGNORE:
+            case REVIEW:
+            default:
+                return false;
+        }
     }
 
     private static List<Case> cases() {
@@ -299,6 +321,7 @@ public final class CognitiveLatencyBenchmark {
         final int total;
         final int valid;
         final int classification;
+        final int canaryEligible;
         final int nonEmptyThinking;
         final long queueP50;
         final long queueP95;
@@ -313,6 +336,7 @@ public final class CognitiveLatencyBenchmark {
                 int total,
                 int valid,
                 int classification,
+                int canaryEligible,
                 int nonEmptyThinking,
                 long queueP50,
                 long queueP95,
@@ -326,6 +350,7 @@ public final class CognitiveLatencyBenchmark {
             this.total = total;
             this.valid = valid;
             this.classification = classification;
+            this.canaryEligible = canaryEligible;
             this.nonEmptyThinking = nonEmptyThinking;
             this.queueP50 = queueP50;
             this.queueP95 = queueP95;
@@ -341,6 +366,7 @@ public final class CognitiveLatencyBenchmark {
             return phase
                     + " valid=" + valid + "/" + total
                     + " classification=" + classification + "/" + total
+                    + " canary_eligible=" + canaryEligible + "/" + total
                     + " think=" + nonEmptyThinking
                     + " queue_p50=" + queueP50
                     + " queue_p95=" + queueP95
