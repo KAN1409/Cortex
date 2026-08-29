@@ -6,7 +6,7 @@ import java.util.function.BooleanSupplier;
 
 public final class LocalQwenBrain implements CortexBrain {
 
-    private static final int MAX_TOKENS = 96;
+    private static final int MAX_TOKENS = 56;
 
     private final Context app;
 
