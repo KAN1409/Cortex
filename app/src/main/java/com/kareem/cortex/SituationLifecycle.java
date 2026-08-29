@@ -57,10 +57,11 @@ public final class SituationLifecycle {
     public static boolean shouldSurface(VaultDb vault, PrimeBriefStore.Item item) {
         if (vault == null || item == null) return false;
         long now = System.currentTimeMillis();
-        Row row = new Row(item.id, item.kind, item.title, item.body, item.threadId,
-                item.signalId, item.updatedAt);
-        if (staleByTime(row, now)) return false;
         SQLiteDatabase db = vault.getReadableDatabase();
+        long createdAt = createdAt(db, item.id, item.updatedAt);
+        Row row = new Row(item.id, item.kind, item.title, item.body, item.threadId,
+                item.signalId, createdAt, item.updatedAt);
+        if (staleByTime(row, now)) return false;
         if (resolvedByNewerEvidence(db, row)) return false;
         return !ungroundedLegacyRelayPromotion(db, row, now);
     }
@@ -68,24 +69,33 @@ public final class SituationLifecycle {
     private static ArrayList<Row> load(SQLiteDatabase db) {
         ArrayList<Row> out = new ArrayList<>();
         Cursor c = db.rawQuery(
-                "SELECT id,kind,title,body,thread_id,anchor_signal_id,updated_at " +
+                "SELECT id,kind,title,body,thread_id,anchor_signal_id,created_at,updated_at " +
                 "FROM derived_items WHERE state IN ('open','pending') " +
                 "AND kind IN ('ACTION','WAITING','DECISION','REMINDER','ALERT','CHANGE') " +
                 "ORDER BY updated_at DESC,id DESC LIMIT 1200", null);
         try {
             while (c.moveToNext()) out.add(new Row(c.getLong(0), c.getString(1), c.getString(2),
-                    c.getString(3), c.getLong(4), c.getLong(5), c.getLong(6)));
+                    c.getString(3), c.getLong(4), c.getLong(5), c.getLong(6), c.getLong(7)));
         } finally { c.close(); }
         return out;
     }
 
+    private static long createdAt(SQLiteDatabase db, long id, long fallback) {
+        Cursor c = db.query("derived_items", new String[]{"created_at"}, "id=?",
+                new String[]{String.valueOf(id)}, null, null, null, "1");
+        try { return c.moveToFirst() && c.getLong(0) > 0 ? c.getLong(0) : fallback; }
+        finally { c.close(); }
+    }
+
     private static boolean staleByTime(Row row, long now) {
         String text = n(row.title) + " " + n(row.body);
-        long anchor = row.updatedAt > 0 ? row.updatedAt : now;
-        long target = TemporalResolver.resolveForAttention(text, anchor);
+        // Relative language belongs to the moment the situation was created. Later ranking or
+        // feedback updates must never move "tomorrow" or "Saturday" into the future again.
+        long temporalAnchor = row.createdAt > 0 ? row.createdAt : (row.updatedAt > 0 ? row.updatedAt : now);
+        long target = TemporalResolver.resolveForAttention(text, temporalAnchor);
         if (target > 0 && now - target > EXPIRED_GRACE) return true;
         // Relay-derived work must be refreshed by newer evidence. It cannot haunt Now forever.
-        return row.signalId > 0 && actionable(row.kind) && now - anchor > RELAY_MAX_AGE;
+        return row.signalId > 0 && actionable(row.kind) && now - temporalAnchor > RELAY_MAX_AGE;
     }
 
     private static boolean resolvedByNewerEvidence(SQLiteDatabase db, Row row) {
@@ -195,12 +205,13 @@ public final class SituationLifecycle {
     private static String n(String s) { return s == null ? "" : s.trim(); }
 
     private static final class Row {
-        final long id, threadId, signalId, updatedAt;
+        final long id, threadId, signalId, createdAt, updatedAt;
         final String kind, title, body;
         boolean retired;
-        Row(long id, String kind, String title, String body, long threadId, long signalId, long updatedAt) {
+        Row(long id, String kind, String title, String body, long threadId, long signalId,
+            long createdAt, long updatedAt) {
             this.id=id;this.kind=n(kind);this.title=n(title);this.body=n(body);this.threadId=threadId;
-            this.signalId=signalId;this.updatedAt=updatedAt;
+            this.signalId=signalId;this.createdAt=createdAt;this.updatedAt=updatedAt;
         }
     }
 }
