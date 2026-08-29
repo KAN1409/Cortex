@@ -44,17 +44,25 @@ for f in \
   app/src/main/java/com/kareem/cortex/ProactiveEngine.java \
   app/src/main/java/com/kareem/cortex/BrainRouter.java \
   app/src/main/java/com/kareem/cortex/CortexActionDispatcher.java \
+  app/src/main/java/com/kareem/cortex/BackupExporter.java \
   app/src/main/java/com/kareem/cortex/BackupImporter.java \
+  app/src/main/java/com/kareem/cortex/ShareImporter.java \
+  app/src/main/java/com/kareem/cortex/SharedLinkIntelligence.java \
   app/src/main/java/com/kareem/cortex/CompactTodayActivity.java \
   app/src/main/java/com/kareem/cortex/ProposalPeopleProjectsActivity.java \
   app/src/main/java/com/kareem/cortex/ProposalAskCortexActivity.java \
-  app/src/androidTest/java/com/kareem/cortex/CognitiveProductAdjudicationTest.java; do
+  app/src/androidTest/java/com/kareem/cortex/CognitiveProductAdjudicationTest.java \
+  termux-build-cortex.sh \
+  tools/preserve-v2-local-work.sh; do
   require_file "$f"
 done
 
 MAN=app/src/main/AndroidManifest.xml
 BUILD=app/build.gradle
 SCHEMA=app/src/main/java/com/kareem/cortex/CognitiveSchema.java
+LINK=app/src/main/java/com/kareem/cortex/SharedLinkIntelligence.java
+SHARE=app/src/main/java/com/kareem/cortex/ShareImporter.java
+TERMUX_BUILD=termux-build-cortex.sh
 
 launcher_count="$(grep -o 'android.intent.action.MAIN' "$MAN" | wc -l | tr -d ' ')"
 [ "$launcher_count" = "1" ] && ok "exactly one launcher intent" || bad "expected 1 launcher intent, found $launcher_count"
@@ -99,6 +107,22 @@ if git ls-files | grep -Eq '^app/build\.gradle\.kts$'; then
 else
   ok "Groovy app/build.gradle remains the single canonical module build file"
 fi
+
+# Preserve hardening recovered from the pre-canonical UI branch.
+require_text "$LINK" 'MAX_REDIRECTS[[:space:]]*=[[:space:]]*6' 'shared-link enrichment has a bounded redirect policy'
+require_text "$LINK" 'validatedPublicHttps' 'shared-link enrichment revalidates public HTTPS destinations'
+require_text "$LINK" 'isSiteLocalAddress' 'shared-link enrichment blocks private/local network addresses'
+require_text "$LINK" 'setInstanceFollowRedirects\(false\)' 'shared-link redirects cannot bypass URL validation'
+require_text "$SHARE" 'MAX_IMAGE_BYTES' 'Android share imports bound image size'
+require_text "$SHARE" 'MAX_AUDIO_BYTES' 'Android share imports bound audio size'
+require_text "$SHARE" 'MAX_FILE_BYTES' 'Android share imports bound file size'
+require_text "$SHARE" 'total>maxBytes' 'Android share imports enforce streaming byte limits'
+
+# The Termux helper must never silently mutate or hide local V2 work.
+require_text "$TERMUX_BUILD" 'CORTEX_SYNC_SOURCE' 'Termux source sync is explicit opt-in'
+require_text "$TERMUX_BUILD" 'git status --porcelain --untracked-files=all' 'Termux sync checks tracked and untracked dirtiness'
+forbid_text "$TERMUX_BUILD" 'git stash' 'Termux build never auto-stashes local work'
+require_text "$TERMUX_BUILD" 'cat "\$APK_SRC" \| rish' 'Termux install streams APK directly into /data/local/tmp'
 
 # One cognitive truth path: raw evidence -> relevance/adjudication -> derived_items -> attention -> Today/Ask/Brief/proactive.
 PRIME=app/src/main/java/com/kareem/cortex/PrimeBriefStore.java
