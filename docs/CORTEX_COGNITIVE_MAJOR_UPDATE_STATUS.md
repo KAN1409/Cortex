@@ -26,18 +26,19 @@ Canonical cognitive base: `migration/cognitive-brain-v2-step1-2`
 
 ## V54 reconciliation in progress
 
-- Update-in-place release identity is being reconciled at versionCode 54 above the validated v53 device build.
+- Update-in-place release identity is reconciled at versionCode 54 above the validated v53 device build.
 - Automatic Android backup is disabled for private Cortex state while explicit Cortex backup/export remains available.
 - External triggering of the phone-only self review is disabled.
 - Arabic OCR asset download is integrity pinned.
-- Tracked signing material is removed from active build use and tombstoned at branch HEAD; historical repository exposure still needs Git-history remediation.
+- The build no longer reconstructs the installed-app signer from tracked base64 material; the encoded keystore file is deleted from branch HEAD and ignored going forward.
+- Historical repository exposure of that signer still needs repository-history/visibility remediation.
 - Bounded consistent backup export and database-atomic restore improvements are preserved.
 - Approved semantic UI palette is preserved without reverting newer canonical attention/presentation logic.
 - Local-only experimental Compose UI work must be snapshotted and selectively reconciled; it must not overwrite the canonical Groovy build or cognitive V2 files wholesale.
 
 ## Red until new proof
 
-- v54 CI audit + APK/instrumented-source compile after all reconciliation changes.
+- Final v54 CI audit + APK/instrumented-source compile on the latest reconciliation HEAD.
 - v54 install over the current device build with the unchanged installed-app signer.
 - v54 startup/crash-buffer proof.
 - Post-v54 database audit: `user_version=7`, `integrity_check=ok`, `cognitive_schema=cognitive_004`.
