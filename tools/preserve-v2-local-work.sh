@@ -50,6 +50,12 @@ fi
   [ -d gradle ] && find gradle -type f 2>/dev/null | sort || true
 } > "$OUT/v2-candidates.txt"
 
+ARCHIVE="$OUT.tar.gz"
+rm -f "$ARCHIVE"
+tar -czf "$ARCHIVE" -C "$(dirname "$OUT")" "$(basename "$OUT")"
+
 printf '\nCORTEX_V2_LOCAL_PRESERVE_OK\n'
 printf 'Snapshot: %s\n' "$OUT"
+printf 'Archive: %s\n' "$ARCHIVE"
 printf 'No files in the working tree were changed, stashed, reset, or deleted.\n'
+printf 'The archive contains source/config diffs only; signing key bytes and app databases are not copied.\n'
