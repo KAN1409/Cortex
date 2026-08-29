@@ -18,8 +18,8 @@ public final class CognitiveFeatureFlags {
     private static final String V2_VALIDATION_OVERRIDE="cognitive_v2_validation_override";
     private static final String V2_VALIDATION_THREADS="cognitive_v2_validation_threads";
 
-    /** Brain-first is now the product default. Legacy remains an explicit fallback/kill-switch path. */
-    private static final CognitiveAuthorityMode DEFAULT_AUTHORITY_MODE=CognitiveAuthorityMode.V2_PRIMARY;
+    // V2 primary remains an explicit mode until the production performance/correctness gates are proven.
+    private static final CognitiveAuthorityMode DEFAULT_AUTHORITY_MODE=CognitiveAuthorityMode.CANARY;
     private static final boolean DEFAULT_SHADOW=true;
     private static final boolean DEFAULT_AUTHORITY_CANARY=true;
     private static final int DEFAULT_CANARY_PERCENT=5;
