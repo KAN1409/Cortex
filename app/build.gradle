@@ -74,8 +74,8 @@ android {
         applicationId 'com.kareem.cortex'
         minSdk 26
         targetSdk 35
-        versionCode 55
-        versionName '3.0-brain-v55'
+        versionCode 56
+        versionName '3.1-brain-v56'
         testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
         testInstrumentationRunnerArguments clearPackageData: 'false'
     }
