@@ -24,6 +24,7 @@ public final class AdvancedSettingsActivity extends Activity {
 
         body.addView(CortexUi.section(this,"Runtime & capabilities"));
         row(body,"Runtime pipeline","Live ASR, Cortex Relay ACK trail, Cognitive Adjudicator V2, V4 Pulse and autonomous Deep Brain + intensive JSON export",RuntimePipelineDiagnosticsActivity.class);
+        row(body,"Relay V2 bridge","Inspect negotiated protocol, test policy round-trip, and explicitly approve live Android notification actions",CortexRelayV2DiagnosticsActivity.class);
         row(body,"Optional Deep Qwen","Configure a self-hosted Qwen3.5-4B vLLM fallback for mid-confidence local cognition",DeepQwenSettingsActivity.class);
         row(body,"Capabilities","See what is active, ready, blocked or failed",CapabilityMatrixActivity.class);
         row(body,"Environment & diagnostics","Provider health, runtime state, phone context, OCR and recovery",EnvironmentActivity.class);
