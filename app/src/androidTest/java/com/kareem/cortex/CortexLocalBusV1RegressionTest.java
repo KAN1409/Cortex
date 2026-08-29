@@ -16,11 +16,14 @@ public final class CortexLocalBusV1RegressionTest {
         o.put("source_package", "com.whatsapp");
         o.put("occurred_at", System.currentTimeMillis());
         o.put("notification_key", "0|com.whatsapp|42|null|123");
+        o.put("metadata", new JSONObject().put("conversation_identity", "conversation_1"));
         CortexLocalBusProtocolV1.Event e = CortexLocalBusProtocolV1.parseEvent(o.toString());
         assertEquals("sb_evt_1", e.eventId);
         assertEquals("second_brain", e.connectorId);
         assertEquals("NOTIFICATION", e.sourceType);
         assertEquals("com.whatsapp", e.sourcePackage);
+        assertEquals("0|com.whatsapp|42|null|123", e.json.getString("notification_key"));
+        assertEquals("conversation_1", e.json.getJSONObject("metadata").getString("conversation_identity"));
     }
 
     @Test public void rejectsUnsupportedProtocol() throws Exception {
@@ -35,10 +38,5 @@ public final class CortexLocalBusV1RegressionTest {
         try { CortexLocalBusProtocolV1.parseEvent(o.toString()); }
         catch (IllegalArgumentException expected) { failed = true; }
         assertTrue(failed);
-    }
-
-    @Test public void extractsCanonicalNotificationKeyForCrossSensorDedupe() throws Exception {
-        JSONObject meta = new JSONObject().put("notification_key", "same-key");
-        assertEquals("same-key", NotificationSignalIngressV1.notificationKey(meta.toString()));
     }
 }
