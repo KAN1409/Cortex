@@ -2,9 +2,13 @@ name: Cortex CI
 
 on:
   push:
-    branches: [ main ]
+    branches:
+      - main
+      - migration/cognitive-brain-v2-step1-2
   pull_request:
-    branches: [ main ]
+    branches:
+      - main
+      - cleanup/repo-consolidation
   workflow_dispatch:
 
 permissions:
