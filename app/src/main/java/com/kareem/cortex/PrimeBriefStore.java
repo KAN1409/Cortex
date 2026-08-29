@@ -18,7 +18,7 @@ public final class PrimeBriefStore {
     public static final class Item {
         /** current derived id; retained so existing feedback/actions remain grounded. */
         public final long id;
-        public final long situationId,threadId,signalId,updatedAt,lastChangedAt;
+        public final long situationId,threadId,signalId,dueAt,updatedAt,lastChangedAt;
         public final int evidenceCount;
         public final String kind,attentionKind,title,body,source,state;
         public final double confidence;
@@ -28,20 +28,20 @@ public final class PrimeBriefStore {
 
         Item(long id,String kind,String title,String body,String source,String state,double confidence,
              int importance,long threadId,long signalId,long updatedAt){
-            this(id,0,kind,title,body,source,state,confidence,importance,threadId,signalId,updatedAt,updatedAt,1,null);
+            this(id,0,kind,title,body,source,state,confidence,importance,threadId,signalId,0,updatedAt,updatedAt,1,null);
         }
 
         Item(long id,String kind,String title,String body,String source,String state,double confidence,
              int importance,long threadId,long signalId,long updatedAt,AttentionEngine.Decision a){
-            this(id,0,kind,title,body,source,state,confidence,importance,threadId,signalId,updatedAt,updatedAt,1,a);
+            this(id,0,kind,title,body,source,state,confidence,importance,threadId,signalId,0,updatedAt,updatedAt,1,a);
         }
 
         Item(long id,long situationId,String kind,String title,String body,String source,String state,double confidence,
-             int importance,long threadId,long signalId,long updatedAt,long lastChangedAt,int evidenceCount,
+             int importance,long threadId,long signalId,long dueAt,long updatedAt,long lastChangedAt,int evidenceCount,
              AttentionEngine.Decision a){
             this.id=id;this.situationId=situationId;this.kind=n(kind);this.title=n(title);this.body=n(body);
             this.source=n(source);this.state=n(state);this.confidence=confidence;this.importance=importance;
-            this.threadId=threadId;this.signalId=signalId;this.updatedAt=updatedAt;this.lastChangedAt=lastChangedAt;
+            this.threadId=threadId;this.signalId=signalId;this.dueAt=Math.max(0,dueAt);this.updatedAt=updatedAt;this.lastChangedAt=lastChangedAt;
             this.evidenceCount=Math.max(1,evidenceCount);this.attentionKind=CandidateConsolidator.effectiveKind(this);
             AttentionEngine.Decision d=a==null?AttentionEngine.evaluate(this,System.currentTimeMillis()):a;
             this.attentionScore=d.score;this.attentionBand=d.band;this.whyNow=d.whyNow;
@@ -79,9 +79,9 @@ public final class PrimeBriefStore {
             }catch(Throwable e){DiagnosticsLog.error(db,"PrimeBriefStore","projection_row",e,"PRIME_ROW",0,s.threadId,s.signalId,0,s.modelRunId,null);}
         }
 
-        ArrayList<Item> actions=pickAttention(all,12,"ACTION","REMINDER");
-        ArrayList<Item> waiting=pickAttention(all,12,"WAITING");
-        ArrayList<Item> decisions=pickAttention(all,8,"DECISION");
+        ArrayList<Item> actions=pickNow(all,12,"ACTION","REMINDER");
+        ArrayList<Item> waiting=pickWaiting(all,12);
+        ArrayList<Item> decisions=pickNow(all,8,"DECISION");
         ArrayList<Item> changes=pickRecent(all,10,"ALERT","CHANGE","EVENT");
         ArrayList<Item> worth=pickWorth(all,10);
 
@@ -93,32 +93,46 @@ public final class PrimeBriefStore {
         ArrayList<KnowledgeItem> recent=safeRecent(db);
         ArrayList<ReviewQueueStore.Item> reviews=safeReviews(db);
         return new Snapshot(recent,actions,waiting,decisions,changes,worth,reviews,
-                projected.size(),BrainSituationStore.lastChangedAt(db));
+                all.size(),BrainSituationStore.lastChangedAt(db));
     }
 
     private static Item fromSituation(VaultDb db,BrainSituationStore.Item s){
         if(s==null||s.currentDerivedId<=0)return null;
         long freshness=s.lastChangedAt>0?s.lastChangedAt:s.updatedAt;
         Item raw=new Item(s.currentDerivedId,s.id,s.kind,s.title,s.body,s.sourceKey,"open",s.confidence,
-                s.importance,s.threadId,s.signalId,freshness,freshness,s.evidenceCount,null);
+                s.importance,s.threadId,s.signalId,s.dueAt,freshness,freshness,s.evidenceCount,null);
         String k=n(s.kind).toUpperCase();
         if(!("ACTION".equals(k)||"WAITING".equals(k)||"DECISION".equals(k)||"REMINDER".equals(k)))return raw;
         AttentionEngine.Decision baseline=AttentionEngine.evaluate(raw,System.currentTimeMillis());
         AttentionEngine.Decision merged=AttentionAdjudicationStore.applyFresh(db,raw,baseline);
         AttentionEngine.Decision learned=AttentionLearning.apply(db,raw,merged);
         return new Item(s.currentDerivedId,s.id,s.kind,s.title,s.body,s.sourceKey,"open",s.confidence,
-                s.importance,s.threadId,s.signalId,freshness,freshness,s.evidenceCount,learned);
+                s.importance,s.threadId,s.signalId,s.dueAt,freshness,freshness,s.evidenceCount,learned);
     }
 
-    private static ArrayList<Item> pickAttention(ArrayList<Item> all,int limit,String... kinds){
+    private static ArrayList<Item> pickNow(ArrayList<Item> all,int limit,String... kinds){
         Set<String>want=new HashSet<>(Arrays.asList(kinds));ArrayList<Item> out=new ArrayList<>();
-        for(Item x:all)if(want.contains(x.attentionKind)&&x.attentionBand!=AttentionEngine.Band.QUIET)out.add(x);
+        for(Item x:all)if(want.contains(x.attentionKind)&&x.attentionBand==AttentionEngine.Band.NOW)out.add(x);
+        out.sort(PrimeBriefStore::compareAttention);return bounded(out,limit);
+    }
+
+    private static ArrayList<Item> pickWaiting(ArrayList<Item> all,int limit){
+        ArrayList<Item> out=new ArrayList<>();long cutoff=System.currentTimeMillis()-72L*60L*60L*1000L;
+        for(Item x:all){
+            if(!"WAITING".equals(x.attentionKind))continue;
+            boolean band=x.attentionBand==AttentionEngine.Band.NOW||x.attentionBand==AttentionEngine.Band.WATCHING;
+            if(band&&x.lastChangedAt>=cutoff)out.add(x);
+        }
         out.sort(PrimeBriefStore::compareAttention);return bounded(out,limit);
     }
 
     private static ArrayList<Item> pickRecent(ArrayList<Item> all,int limit,String... kinds){
-        Set<String>want=new HashSet<>(Arrays.asList(kinds));ArrayList<Item> out=new ArrayList<>();long cutoff=System.currentTimeMillis()-48L*60L*60L*1000L;
-        for(Item x:all)if(want.contains(x.attentionKind)&&x.lastChangedAt>=cutoff)out.add(x);
+        Set<String>want=new HashSet<>(Arrays.asList(kinds));ArrayList<Item> out=new ArrayList<>();long cutoff=System.currentTimeMillis()-36L*60L*60L*1000L;
+        for(Item x:all){
+            if(!want.contains(x.attentionKind)||x.lastChangedAt<cutoff)continue;
+            if(!CortexSurfacePolicy.meaningfulChange(x.attentionKind,x.title,x.body,x.source,x.importance,x.confidence))continue;
+            out.add(x);
+        }
         out.sort((a,b)->Long.compare(b.lastChangedAt,a.lastChangedAt));return bounded(out,limit);
     }
 
@@ -135,18 +149,20 @@ public final class PrimeBriefStore {
     }
 
     private static ArrayList<KnowledgeItem> recentCaptures(VaultDb db,int limit){
-        ArrayList<KnowledgeItem> out=new ArrayList<>();for(KnowledgeItem k:db.lexicalSearch("",100)){if(!intentionalCapture(k))continue;out.add(k);if(out.size()>=limit)break;}return out;
+        ArrayList<KnowledgeItem> out=new ArrayList<>();long cutoff=System.currentTimeMillis()-8L*60L*60L*1000L;
+        for(KnowledgeItem k:db.lexicalSearch("",100)){if(!intentionalCapture(k)||k.createdAt<cutoff)continue;out.add(k);if(out.size()>=limit)break;}return out;
     }
     private static boolean intentionalCapture(KnowledgeItem k){if(k==null)return false;String s=n(k.source);if("CONTACT".equals(k.type)||"NOTIFICATION".equals(k.type))return false;return"manual".equals(s)||"manual_recording".equals(s)||"android_share".equals(s)||"audio_import".equals(s)||"quick_capture".equals(s)||"screen_understanding".equals(s)||"screen_understand".equals(s);}
 
     static boolean hardSurfaceNoise(Item x){
-        if(x==null)return true;String t=plain(x.title+" "+x.body);if(mechanicalProgress(t))return true;
+        if(x==null)return true;
+        if(CortexSurfacePolicy.isSurfaceNoise(x.kind,x.title,x.body,x.source))return true;
+        String t=plain(x.title+" "+x.body);
         if(!"ACTION".equalsIgnoreCase(n(x.kind)))return false;
         boolean info=t.contains("important info about")||t.contains("important information about")||t.contains("google account")||t.contains("account notice")||t.contains("account update")||t.contains("weekly digest")||t.contains("newsletter")||t.contains("privacy policy")||t.contains("terms of service");
         boolean obligation=t.contains("action required")||t.contains("please confirm")||t.contains("please review")||t.contains("please send")||t.contains("can you confirm")||t.contains("can you review")||t.contains("can you send")||t.contains("verify your")||t.contains("complete your")||t.contains("submit your")||t.contains("required to")||t.contains("you must")||t.contains("مطلوب منك")||t.contains("محتاج منك")||t.contains("لازم تعمل")||t.contains("ممكن تبعت")||t.contains("ابعتلي");
         return info&&!obligation;
     }
-    private static boolean mechanicalProgress(String t){return(t.contains("deleting item")||t.contains("deleting ")||t.contains("uploading ")||t.contains("downloading ")||t.contains("syncing ")||t.contains("processing "))&&(t.matches(".*\\b\\d+\\s+of\\s+\\d+\\b.*")||t.contains("%")||t.contains("progress"));}
 
     static boolean sameSurfaceEvent(Item a,Item b){
         if(a==null||b==null)return false;if(a.situationId>0&&a.situationId==b.situationId)return true;
