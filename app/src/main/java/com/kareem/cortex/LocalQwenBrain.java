@@ -6,7 +6,9 @@ import java.util.function.BooleanSupplier;
 
 public final class LocalQwenBrain implements CortexBrain {
 
-    private static final int MAX_TOKENS = 96;
+    // The fast wire is a single tiny JSON object such as {"t":"ACTION"}. Keep a small hard
+    // generation ceiling so a malformed completion cannot turn into a long authority tail.
+    private static final int MAX_TOKENS = 24;
 
     private final Context app;
 
