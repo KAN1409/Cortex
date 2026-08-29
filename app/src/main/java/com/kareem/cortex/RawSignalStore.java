@@ -61,7 +61,8 @@ public final class RawSignalStore {
     }
 
     private static void handleCanaryFallback(Context app,long signalId,long threadId,MasterRelevanceFilter.Signal signal,MasterRelevanceFilter.Decision fast,String reason){
-        if(app==null)return;VaultDb db=new VaultDb(app);try{
+        if(app==null)return;VaultDb db=new VaultDb(app);
+        try{
             if("SUPERSEDED".equals(reason)){
                 CognitiveStore.updateRawCognitiveState(db,signalId,"SUPERSEDED",CognitiveAdjudicatorV2.CANARY_POLICY,"Newer signal superseded V2 canary");
                 DiagnosticsLog.info(db,"RawSignalStore","V2_CANARY_SUPERSEDED","safe",0,threadId,signalId,0,0,0,new JSONObject().put("policy",CognitiveAdjudicatorV2.CANARY_POLICY));return;
@@ -70,7 +71,11 @@ public final class RawSignalStore {
             runLegacyPipeline(db,signalId,threadId,signal,fast);syncLegacyCognitiveState(db,signalId,reason);
             DiagnosticsLog.info(db,"RawSignalStore","V2_CANARY_FALLBACK",n(reason),0,threadId,signalId,0,0,0,new JSONObject().put("policy",CognitiveAdjudicatorV2.CANARY_POLICY).put("reason",n(reason)));
             if(threadId>0&&shouldEnqueueLegacyModel(db,signalId))ThreadModelAdjudicator.enqueue(app,threadId,signalId);
-        }catch(Throwable e){try{CognitiveStore.updateRawCognitiveState(db,signalId,"LEGACY_UNRESOLVED",LEGACY_COGNITIVE_VERSION,"V2 fallback failed to finish legacy authority: "+e.getClass().getSimpleName());DiagnosticsLog.error(db,"RawSignalStore","V2_CANARY_FALLBACK",e,"V2_CANARY_FALLBACK_FAILED",0,threadId,signalId,0,0,null);}catch(Throwable ignored){}finally{try{db.close();}catch(Throwable ignored){}}
+        }catch(Throwable e){
+            try{CognitiveStore.updateRawCognitiveState(db,signalId,"LEGACY_UNRESOLVED",LEGACY_COGNITIVE_VERSION,"V2 fallback failed to finish legacy authority: "+e.getClass().getSimpleName());DiagnosticsLog.error(db,"RawSignalStore","V2_CANARY_FALLBACK",e,"V2_CANARY_FALLBACK_FAILED",0,threadId,signalId,0,0,null);}catch(Throwable ignored){}
+        }finally{
+            try{db.close();}catch(Throwable ignored){}
+        }
     }
 
     /** Existing production authority pipeline, kept byte-for-byte equivalent in decision order. */
