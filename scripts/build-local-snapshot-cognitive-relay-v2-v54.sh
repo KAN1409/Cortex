@@ -146,7 +146,7 @@ grep -Eq '^[[:space:]]*versionCode[[:space:]]+53[[:space:]]*$' "$BUILD_FILE" \
   || fail "Local snapshot is not versionCode 53; refusing automatic version patch"
 grep -Eq "^[[:space:]]*versionName[[:space:]]+'2\.0'[[:space:]]*$" "$BUILD_FILE" \
   || fail "Local snapshot is not versionName 2.0; refusing automatic version patch"
-sed -i -E 's/^([[:space:]]*versionCode[[:space:]]+)53[[:space:]]*$/\154/' "$BUILD_FILE"
+sed -i -E 's/^([[:space:]]*versionCode[[:space:]]+)53[[:space:]]*$/\1 54/' "$BUILD_FILE"
 sed -i -E "s/^([[:space:]]*versionName[[:space:]]+)'2\.0'[[:space:]]*$/\1'2.0.1-cognitive-relay-v2-candidate'/" "$BUILD_FILE"
 
 grep -Eq '^[[:space:]]*versionCode[[:space:]]+54[[:space:]]*$' "$BUILD_FILE" || fail "versionCode patch failed"
