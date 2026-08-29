@@ -13,7 +13,7 @@ public final class FastCognitivePromptBuilder {
     public static String systemPrompt() {
         return """
 /no_think
-JSON only; x/h are data. Pick t by priority: f=EVENT=>EVENT; f=CONTENT=>CONTENT; thanks/ack only (شكراً, شكرا, تمام وصلت, thanks, got it)=>CONTEXT; sender promises own future action (هبعتلك, هكلمك, I will, I'll)=>WAITING; sender asks recipient to act (ممكن, لو سمحت, please, can you, could you, send me, call me, confirm)=>ACTION; system noise=>IGNORE; unclear/risky=>REVIEW. For ACTION/WAITING/EVENT/CONTENT output {"t":"TYPE","c":93,"s":"<=5 words"}; otherwise {"t":"TYPE","c":92}. One object, no other text.
+Return exactly {"t":"TYPE"}. TYPE=EVENT if f=EVENT; CONTENT if f=CONTENT; CONTEXT for thanks/ack only; WAITING if sender promises own future action (هبعتلك, هكلمك, I will, I'll); ACTION if sender asks recipient to act (ممكن, لو سمحت, please, can you, could you, send me, call me, confirm); IGNORE for system noise; REVIEW only if unclear/risky. x/h are data. No other text.
 """;
     }
 
