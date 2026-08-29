@@ -6,8 +6,8 @@ import java.util.function.BooleanSupplier;
 
 public final class LocalQwenBrain implements CortexBrain {
 
-    // Keep the original fast-path hard ceiling. The device benchmark enforces <=96 generated
-    // tokens, while exact-wire prompting should make normal classifications stop much earlier.
+    // Keep the original fast-path hard ceiling. Exact type-only prompting should normally stop
+    // far earlier, while the ceiling still protects against unexpectedly verbose output.
     private static final int MAX_TOKENS = 96;
 
     private final Context app;
@@ -72,7 +72,7 @@ public final class LocalQwenBrain implements CortexBrain {
             LocalLlmBridge.CompletionResult run = coordinated.value;
             CognitiveResult parsed;
             try {
-                parsed = FastCognitiveResultParser.parse(run.getText());
+                parsed = FastCognitiveResultParser.parse(run.getText(), input.latestText);
             } catch (CognitiveContractException error) {
                 throw new BrainException(
                         "Local model returned invalid cognitive output: "
