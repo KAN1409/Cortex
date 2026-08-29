@@ -3,35 +3,96 @@ package com.kareem.cortex;
 import android.content.ContentValues;
 import android.content.Context;
 import android.database.Cursor;
+
 import org.json.JSONObject;
 
-/** Temporary/raw signal layer. Only an applied authoritative decision may enter durable Cortex memory. */
+/** Temporary/raw signal layer. One route owns production authority for each captured signal. */
 public final class RawSignalStore {
     private static final String FAST_POLICY="relevance_fast_004";
+    private static final String LEGACY_COGNITIVE_VERSION="legacy-cognitive-003";
     private RawSignalStore(){}
 
     public static void ensure(VaultDb db){CognitiveStore.ensure(db);}
 
-    /** Compatibility path: identical legacy behavior, no Cognitive V2 shadow sidecar without an Android Context. */
+    /** Compatibility path: no Android Context means 100% legacy authority. */
     public static long capture(VaultDb db,MasterRelevanceFilter.Signal signal){return captureInternal(null,db,signal);}
 
-    /** Notification/runtime path that preserves legacy authority and adds telemetry-only V2 shadow evaluation. */
+    /** Runtime path: hard gate -> stable authority router -> exactly one production authority. */
     public static long capture(Context context,VaultDb db,MasterRelevanceFilter.Signal signal){return captureInternal(context,db,signal);}
 
     private static long captureInternal(Context context,VaultDb db,MasterRelevanceFilter.Signal signal){
         ensure(db);cleanup(db);String contentHash=Fingerprint.text(signal.text());String fp=Fingerprint.text(signal.kind+"|"+signal.source+"|"+signal.title+"|"+signal.body+"|"+(signal.occurredAt/60000));long existing=find(db,fp);if(existing>0)return existing;MasterRelevanceFilter.Decision fast=fastDecision(signal);long now=System.currentTimeMillis(),retention=retentionUntil(now,fast.disposition);
-        ContentValues v=new ContentValues();v.put("kind",signal.kind);v.put("source",signal.source);v.put("title",signal.title);v.put("body",signal.body);v.put("metadata_json",signal.metadataJson);v.put("fingerprint",fp);v.put("content_hash",contentHash);v.put("state","filtered");v.put("disposition",fast.disposition.name());v.put("importance",fast.importance);v.put("confidence",fast.confidence);v.put("policy_version",FAST_POLICY);v.put("filter_engine","deterministic_fast_gate");v.put("reason",fast.reason);v.put("occurred_at",signal.occurredAt>0?signal.occurredAt:now);v.put("retention_until",retention);v.put("created_at",now);v.put("updated_at",now);
+        ContentValues v=new ContentValues();v.put("kind",signal.kind);v.put("source",signal.source);v.put("title",signal.title);v.put("body",signal.body);v.put("metadata_json",signal.metadataJson);v.put("fingerprint",fp);v.put("content_hash",contentHash);v.put("state","filtered");v.put("disposition",fast.disposition.name());v.put("importance",fast.importance);v.put("confidence",fast.confidence);v.put("policy_version",FAST_POLICY);v.put("filter_engine","deterministic_fast_gate");v.put("reason",fast.reason);v.put("occurred_at",signal.occurredAt>0?signal.occurredAt:now);v.put("retention_until",retention);v.put("created_at",now);v.put("updated_at",now);v.put("cognitive_state","LEGACY_UNRESOLVED");v.put("cognitive_version",LEGACY_COGNITIVE_VERSION);v.put("final_reason","Awaiting cognitive authority route");v.put("cognitive_updated_at",now);
         long signalId=db.getWritableDatabase().insert("raw_signals",null,v);if(signalId<=0){DiagnosticsLog.warn(db,"RawSignalStore","capture_insert","failed","RAW_SIGNAL_INSERT",0,0,0,0,0,null);return signalId;}
 
-        long threadId=SignalThreadStore.attach(db,signalId,signal);MasterRelevanceFilter.Decision authority=fast;boolean threadAuthority=false;
-        if(threadId>0){MasterRelevanceFilter.Decision threaded=ThreadRelevanceEngine.onSignal(db,threadId,signalId);if(threaded!=null){authority=threaded;threadAuthority=true;}}
+        long threadId=SignalThreadStore.attach(db,signalId,signal);boolean hardNoise=fast.disposition==MasterRelevanceFilter.Disposition.IGNORE;
+        CognitiveAuthorityRouter.Route route=CognitiveAuthorityRouter.route(context,threadId,signal.source,senderHint(signal),hardNoise);
+        if(route==CognitiveAuthorityRouter.Route.HARD_GATE){
+            markHardGate(db,signalId,fast);return signalId;
+        }
+        if(route==CognitiveAuthorityRouter.Route.LEGACY){
+            runLegacyPipeline(db,signalId,threadId,signal,fast);syncLegacyCognitiveState(db,signalId,"");
+            if(context!=null)try{CognitiveAdjudicatorV2.enqueueShadow(context,signalId,threadId);}catch(Throwable ignored){}
+            return signalId;
+        }
 
-        // The fast gate is only authoritative when there is no thread-aware policy. Never promote from a stale fast decision.
-        if(authority.durable()&&(!threadAuthority||RelevanceDecisionStatusStore.isApplied(db,signalId)))promote(db,signalId,threadId,signal,authority,!threadAuthority);
-
-        // Sidecar only. Any failure here must be invisible to legacy capture, promotion and Pulse behavior.
-        if(context!=null)try{CognitiveAdjudicatorV2.enqueueShadow(context,signalId,threadId);}catch(Throwable ignored){}
+        if(!CognitiveStore.updateRawCognitiveState(db,signalId,"LOCAL_QUEUED",CognitiveAdjudicatorV2.CANARY_POLICY,"V2 canary queued for local authority")){
+            runLegacyPipeline(db,signalId,threadId,signal,fast);syncLegacyCognitiveState(db,signalId,"STATE_TRANSITION_FAILED");return signalId;
+        }
+        final Context app=context==null?null:context.getApplicationContext();
+        CognitiveAdjudicatorV2.enqueueAuthoritative(app,signalId,threadId,new CognitiveAdjudicatorV2.AuthorityCallback(){
+            @Override public void accepted(CognitiveResult result,long modelRunId){
+                // Atomic persistence already happened inside CognitiveStore. No legacy authority is started.
+            }
+            @Override public void fallback(String reason){handleCanaryFallback(app,signalId,threadId,signal,fast,reason);}
+        });
         return signalId;
+    }
+
+    /** Caller guard: legacy local-model adjudication must never run beside live/accepted V2 canary authority. */
+    public static boolean shouldEnqueueLegacyModel(VaultDb db,long signalId){
+        if(db==null||signalId<=0)return false;ensure(db);Cursor c=db.getReadableDatabase().query("raw_signals",new String[]{"cognitive_state","cognitive_version","disposition","filter_engine"},"id=?",new String[]{String.valueOf(signalId)},null,null,null,"1");
+        if(!c.moveToFirst()){c.close();return false;}String state=n(c.getString(0)),version=n(c.getString(1)),disposition=n(c.getString(2)),engine=n(c.getString(3));c.close();
+        if("IGNORE".equalsIgnoreCase(disposition)&&"deterministic_fast_gate".equalsIgnoreCase(engine))return false;
+        if(CognitiveAdjudicatorV2.CANARY_POLICY.equals(version)){
+            return "LEGACY_UNRESOLVED".equals(state);
+        }
+        return true;
+    }
+
+    private static void handleCanaryFallback(Context app,long signalId,long threadId,MasterRelevanceFilter.Signal signal,MasterRelevanceFilter.Decision fast,String reason){
+        if(app==null)return;VaultDb db=new VaultDb(app);try{
+            if("SUPERSEDED".equals(reason)){
+                CognitiveStore.updateRawCognitiveState(db,signalId,"SUPERSEDED",CognitiveAdjudicatorV2.CANARY_POLICY,"Newer signal superseded V2 canary");
+                DiagnosticsLog.info(db,"RawSignalStore","V2_CANARY_SUPERSEDED","safe",0,threadId,signalId,0,0,0,new JSONObject().put("policy",CognitiveAdjudicatorV2.CANARY_POLICY));return;
+            }
+            CognitiveStore.updateRawCognitiveState(db,signalId,"LEGACY_UNRESOLVED",CognitiveAdjudicatorV2.CANARY_POLICY,"V2 canary fallback: "+n(reason));
+            runLegacyPipeline(db,signalId,threadId,signal,fast);syncLegacyCognitiveState(db,signalId,reason);
+            DiagnosticsLog.info(db,"RawSignalStore","V2_CANARY_FALLBACK",n(reason),0,threadId,signalId,0,0,0,new JSONObject().put("policy",CognitiveAdjudicatorV2.CANARY_POLICY).put("reason",n(reason)));
+            if(threadId>0&&shouldEnqueueLegacyModel(db,signalId))ThreadModelAdjudicator.enqueue(app,threadId,signalId);
+        }catch(Throwable e){try{CognitiveStore.updateRawCognitiveState(db,signalId,"LEGACY_UNRESOLVED",LEGACY_COGNITIVE_VERSION,"V2 fallback failed to finish legacy authority: "+e.getClass().getSimpleName());DiagnosticsLog.error(db,"RawSignalStore","V2_CANARY_FALLBACK",e,"V2_CANARY_FALLBACK_FAILED",0,threadId,signalId,0,0,null);}catch(Throwable ignored){}finally{try{db.close();}catch(Throwable ignored){}}
+    }
+
+    /** Existing production authority pipeline, kept byte-for-byte equivalent in decision order. */
+    private static MasterRelevanceFilter.Decision runLegacyPipeline(VaultDb db,long signalId,long threadId,MasterRelevanceFilter.Signal signal,MasterRelevanceFilter.Decision fast){
+        MasterRelevanceFilter.Decision authority=fast;boolean threadAuthority=false;
+        if(threadId>0){MasterRelevanceFilter.Decision threaded=ThreadRelevanceEngine.onSignal(db,threadId,signalId);if(threaded!=null){authority=threaded;threadAuthority=true;}}
+        if(authority.durable()&&(!threadAuthority||RelevanceDecisionStatusStore.isApplied(db,signalId)))promote(db,signalId,threadId,signal,authority,!threadAuthority);
+        return authority;
+    }
+
+    static void syncLegacyCognitiveState(VaultDb db,long signalId,String fallbackReason){
+        Cursor c=db.getReadableDatabase().query("raw_signals",new String[]{"disposition","state","promoted_item_id"},"id=?",new String[]{String.valueOf(signalId)},null,null,null,"1");if(!c.moveToFirst()){c.close();return;}String disposition=n(c.getString(0)),state=n(c.getString(1));long promoted=c.getLong(2);c.close();String cognitive="LEGACY_UNRESOLVED";
+        if(promoted>0||state.startsWith("derived")||"ACTION".equalsIgnoreCase(disposition)||"WAITING".equalsIgnoreCase(disposition)||"DECISION".equalsIgnoreCase(disposition))cognitive="DERIVED";
+        else if("IGNORE".equalsIgnoreCase(disposition))cognitive="IGNORED_NOISE";
+        else if("REVIEW".equalsIgnoreCase(disposition))cognitive="REVIEW_REQUIRED";
+        else if("CONTEXT".equalsIgnoreCase(disposition))cognitive="CONTEXT_ONLY";
+        String reason=empty(fallbackReason)?"Legacy authority: "+(disposition.isEmpty()?"unresolved":disposition):"V2 canary fallback ("+fallbackReason+") -> Legacy authority: "+(disposition.isEmpty()?"unresolved":disposition);
+        CognitiveStore.updateRawCognitiveState(db,signalId,cognitive,LEGACY_COGNITIVE_VERSION,reason);
+    }
+
+    private static void markHardGate(VaultDb db,long signalId,MasterRelevanceFilter.Decision fast){
+        CognitiveStore.updateRawCognitiveState(db,signalId,"IGNORED_NOISE",LEGACY_COGNITIVE_VERSION,"Hard deterministic noise gate: "+n(fast.reason));
     }
 
     /** Explicit screen understanding is evidence/context only; UI text can never auto-create durable intelligence. */
@@ -56,8 +117,11 @@ public final class RawSignalStore {
     public static long threadId(VaultDb db,long signalId){ensure(db);Cursor c=db.getReadableDatabase().query("raw_signals",new String[]{"thread_id"},"id=?",new String[]{String.valueOf(signalId)},null,null,null,"1");long id=c.moveToFirst()?c.getLong(0):0;c.close();return id;}
     public static void cleanup(VaultDb db){ensure(db);long now=System.currentTimeMillis();String where="promoted_item_id=0 AND retention_until>0 AND retention_until<? AND NOT EXISTS (SELECT 1 FROM source_links l JOIN derived_items d ON d.id=l.to_id WHERE l.from_type='raw_signal' AND l.from_id=raw_signals.id AND l.to_type='derived' AND d.state IN ('pending','open'))";db.getWritableDatabase().delete("raw_signals",where,new String[]{String.valueOf(now)});}
     private static long find(VaultDb db,String fp){Cursor c=db.getReadableDatabase().query("raw_signals",new String[]{"id"},"fingerprint=?",new String[]{fp},null,null,null,"1");long id=c.moveToFirst()?c.getLong(0):0;c.close();return id;}
+    private static String senderHint(MasterRelevanceFilter.Signal signal){try{JSONObject o=new JSONObject(n(signal.metadataJson));String sender=n(o.optString("sender",""));if(sender.isEmpty())sender=n(o.optString("person_hint",""));if(!sender.isEmpty())return sender;}catch(Throwable ignored){}return n(signal.title);}
     private static long retentionUntil(long now,MasterRelevanceFilter.Disposition d){if(d==MasterRelevanceFilter.Disposition.IGNORE)return now+6L*60*60*1000;if(d==MasterRelevanceFilter.Disposition.CONTEXT||d==MasterRelevanceFilter.Disposition.REVIEW)return now+7L*24*60*60*1000;return 0;}
     private static String typeFor(MasterRelevanceFilter.Signal s){return "notification".equalsIgnoreCase(s.kind)?"NOTIFICATION":"SIGNAL";}
     private static String categoryFor(MasterRelevanceFilter.Signal s,MasterRelevanceFilter.Decision d){if(d.disposition==MasterRelevanceFilter.Disposition.ACTION)return"Actions";if(d.disposition==MasterRelevanceFilter.Disposition.WAITING)return"Waiting";if(d.disposition==MasterRelevanceFilter.Disposition.DECISION)return"Decisions";return"Memory";}
     private static String friendlyTitle(MasterRelevanceFilter.Signal s){return "notification".equalsIgnoreCase(s.kind)?"Notification":"Signal";}
+    private static boolean empty(String s){return s==null||s.trim().isEmpty();}
+    private static String n(String s){return s==null?"":s.trim();}
 }
