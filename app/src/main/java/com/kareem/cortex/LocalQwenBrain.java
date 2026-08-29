@@ -85,8 +85,14 @@ public final class LocalQwenBrain implements CortexBrain {
                         error
                 );
             }
-            CognitiveResult validated = CognitiveResultValidator.validate(parsed);
+
+            FastCognitiveSemanticGuard.Outcome guarded =
+                    FastCognitiveSemanticGuard.reconcile(input, parsed);
+            CognitiveResult validated = CognitiveResultValidator.validate(guarded.result);
             long totalMs = Math.max(0L, System.currentTimeMillis() - coordinated.enqueuedAt);
+            String confidenceSource = guarded.overridden
+                    ? "POLICY_GUARD:" + guarded.rule
+                    : FastCognitiveResultParser.confidenceSource(run.getText());
 
             return new LocalBrainRun(
                     validated,
@@ -105,7 +111,7 @@ public final class LocalQwenBrain implements CortexBrain {
                     totalMs,
                     promptChars,
                     FastCognitivePromptBuilder.WIRE_SCHEMA,
-                    FastCognitiveResultParser.confidenceSource(run.getText())
+                    confidenceSource
             );
         } catch (BrainException error) {
             throw error;
