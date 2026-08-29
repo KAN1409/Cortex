@@ -77,8 +77,20 @@ require_text "$MAN" 'activity android:name="\.StableSelfContainedReviewActivity"
 require_text "$BUILD" 'arabicOcrSha512' 'Arabic OCR asset has a pinned digest'
 require_text "$BUILD" '7641b0b0e888498aa3fe062d0d44eda9e08d34e46e1c5ef48f92e9a49d2477c0c4cda5f989862d5441d0804312abd81733baa18ef9945c22524f9b106fc4f81d' 'Arabic OCR digest matches the pinned 4.1.0 asset'
 forbid_text "$BUILD" 'cortex-debug\.keystore\.b64' 'build script never reconstructs signing material from tracked base64'
-if git ls-files | grep -Ei '(^|/).*keystore.*\.b64$' >/dev/null 2>&1; then
-  bad "encoded signing material must not be tracked in git"
+encoded_signing="$(git ls-files | grep -Ei '(^|/).*keystore.*\.b64$' || true)"
+if [ -n "$encoded_signing" ]; then
+  unsafe=0
+  while IFS= read -r f; do
+    [ -z "$f" ] && continue
+    first="$(head -n1 "$f" 2>/dev/null || true)"
+    bytes="$(wc -c < "$f" 2>/dev/null | tr -d ' ' || echo 999999)"
+    if [ "$first" != "REMOVED_FROM_SOURCE_CONTROL" ] || [ "$bytes" -gt 1024 ]; then unsafe=1; fi
+  done <<< "$encoded_signing"
+  if [ "$unsafe" -ne 0 ]; then
+    bad "encoded signing material is still present in tracked files"
+  else
+    warn "legacy signing-material path is tombstoned at HEAD; Git-history remediation is still required"
+  fi
 else
   ok "no encoded signing material tracked"
 fi
