@@ -19,7 +19,7 @@ tasks.register('prepareArabicOcrModel') {
             def tmp = file(arabicOcrModel.absolutePath + '.part')
             if (tmp.exists()) tmp.delete()
             new URL('https://raw.githubusercontent.com/tesseract-ocr/tessdata_fast/4.1.0/ara.traineddata').withInputStream { input -> tmp.withOutputStream { output -> output << input } }
-            if (tmp.length() < 500000) throw new GradleException('Arabic OCR model download was incomplete')
+            if (arabicOcrModel.length() < 500000 && tmp.length() < 500000) throw new GradleException('Arabic OCR model download was incomplete')
             if (arabicOcrModel.exists()) arabicOcrModel.delete()
             if (!tmp.renameTo(arabicOcrModel)) { arabicOcrModel.bytes = tmp.bytes; tmp.delete() }
         }
@@ -36,8 +36,8 @@ android {
         applicationId 'com.kareem.cortex'
         minSdk 26
         targetSdk 35
-        versionCode 50
-        versionName '1.0.0-v50'
+        versionCode 51
+        versionName '1.0.0-v51-relay-v2-candidate'
         testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
         testInstrumentationRunnerArguments clearPackageData: 'false'
     }
