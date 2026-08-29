@@ -33,6 +33,8 @@ for f in \
   app/src/main/java/com/kareem/cortex/VaultDb.java \
   app/src/main/java/com/kareem/cortex/CognitiveSchema.java \
   app/src/main/java/com/kareem/cortex/CognitiveStore.java \
+  app/src/main/java/com/kareem/cortex/CognitiveFeatureFlags.java \
+  app/src/main/java/com/kareem/cortex/CognitiveAuthorityRouter.java \
   app/src/main/java/com/kareem/cortex/RawSignalStore.java \
   app/src/main/java/com/kareem/cortex/MasterRelevanceFilter.java \
   app/src/main/java/com/kareem/cortex/AttentionEngine.java \
@@ -44,15 +46,30 @@ for f in \
   app/src/main/java/com/kareem/cortex/ProactiveEngine.java \
   app/src/main/java/com/kareem/cortex/BrainRouter.java \
   app/src/main/java/com/kareem/cortex/CortexActionDispatcher.java \
+  app/src/main/java/com/kareem/cortex/BackupExporter.java \
   app/src/main/java/com/kareem/cortex/BackupImporter.java \
+  app/src/main/java/com/kareem/cortex/ShareImporter.java \
+  app/src/main/java/com/kareem/cortex/SharedLinkIntelligence.java \
   app/src/main/java/com/kareem/cortex/CompactTodayActivity.java \
   app/src/main/java/com/kareem/cortex/ProposalPeopleProjectsActivity.java \
   app/src/main/java/com/kareem/cortex/ProposalAskCortexActivity.java \
-  app/src/androidTest/java/com/kareem/cortex/CognitiveProductAdjudicationTest.java; do
+  app/src/androidTest/java/com/kareem/cortex/CognitiveProductAdjudicationTest.java \
+  app/src/androidTest/java/com/kareem/cortex/CognitivePrimaryAuthorityTest.java \
+  app/src/androidTest/java/com/kareem/cortex/FullApplicationSelfUserTest.java \
+  termux-build-cortex.sh \
+  tools/preserve-v2-local-work.sh; do
   require_file "$f"
 done
 
 MAN=app/src/main/AndroidManifest.xml
+BUILD=app/build.gradle
+SCHEMA=app/src/main/java/com/kareem/cortex/CognitiveSchema.java
+FLAGS=app/src/main/java/com/kareem/cortex/CognitiveFeatureFlags.java
+LINK=app/src/main/java/com/kareem/cortex/SharedLinkIntelligence.java
+SHARE=app/src/main/java/com/kareem/cortex/ShareImporter.java
+SELF_TEST=app/src/androidTest/java/com/kareem/cortex/FullApplicationSelfUserTest.java
+TERMUX_BUILD=termux-build-cortex.sh
+
 launcher_count="$(grep -o 'android.intent.action.MAIN' "$MAN" | wc -l | tr -d ' ')"
 [ "$launcher_count" = "1" ] && ok "exactly one launcher intent" || bad "expected 1 launcher intent, found $launcher_count"
 send_count="$(grep -o 'android.intent.action.SEND"' "$MAN" | wc -l | tr -d ' ')"
@@ -60,6 +77,66 @@ send_multi_count="$(grep -o 'android.intent.action.SEND_MULTIPLE' "$MAN" | wc -l
 [ "$send_count" = "1" ] && ok "exactly one ACTION_SEND owner" || bad "expected 1 ACTION_SEND owner, found $send_count"
 [ "$send_multi_count" = "1" ] && ok "exactly one ACTION_SEND_MULTIPLE owner" || bad "expected 1 ACTION_SEND_MULTIPLE owner, found $send_multi_count"
 require_text "$MAN" 'activity android:name="\.CompactTodayActivity"[^>]*exported="true"' 'CompactTodayActivity is the current launcher surface'
+
+# V2 reconciliation invariants: update-in-place release, canonical schema, guarded authority, private backup surface.
+version_code="$(grep -Eo 'versionCode[[:space:]]+[0-9]+' "$BUILD" | head -n1 | grep -Eo '[0-9]+' || true)"
+if [ -n "$version_code" ] && [ "$version_code" -ge 54 ]; then ok "V2 reconciliation versionCode is >=54"; else bad "V2 reconciliation requires versionCode >=54, found ${version_code:-missing}"; fi
+require_text "$BUILD" "versionName[[:space:]]+'2\\.0" 'V2 reconciliation keeps Version 2 identity'
+require_text "$SCHEMA" 'DB_VERSION[[:space:]]*=[[:space:]]*7' 'Cognitive schema stays at DB version 7'
+require_text "$SCHEMA" 'REVISION[[:space:]]*=[[:space:]]*"cognitive_004"' 'Cognitive schema revision is canonical cognitive_004'
+require_text "$FLAGS" 'DEFAULT_AUTHORITY_MODE[[:space:]]*=[[:space:]]*CognitiveAuthorityMode\.V2_PRIMARY' 'brain-primary build defaults meaningful signals to V2 primary authority'
+require_text "$FLAGS" 'DEFAULT_CANARY_PERCENT[[:space:]]*=[[:space:]]*5' 'V2 canary rollback configuration remains 5 percent'
+require_text "$MAN" 'android:allowBackup="false"' 'automatic Android backup is disabled for private Cortex state'
+require_text "$MAN" 'activity android:name="\.StableSelfContainedReviewActivity"[^>]*exported="false"' 'phone-only self review is not externally triggerable'
+
+# Supply-chain/signing invariants.
+require_text "$BUILD" 'arabicOcrSha512' 'Arabic OCR asset has a pinned digest'
+require_text "$BUILD" '7641b0b0e888498aa3fe062d0d44eda9e08d34e46e1c5ef48f92e9a49d2477c0c4cda5f989862d5441d0804312abd81733baa18ef9945c22524f9b106fc4f81d' 'Arabic OCR digest matches the pinned 4.1.0 asset'
+forbid_text "$BUILD" 'cortex-debug\.keystore\.b64' 'build script never reconstructs signing material from tracked base64'
+encoded_signing="$(git ls-files | grep -Ei '(^|/).*keystore.*\.b64$' || true)"
+if [ -n "$encoded_signing" ]; then
+  unsafe=0
+  while IFS= read -r f; do
+    [ -z "$f" ] && continue
+    first="$(head -n1 "$f" 2>/dev/null || true)"
+    bytes="$(wc -c < "$f" 2>/dev/null | tr -d ' ' || echo 999999)"
+    if [ "$first" != "REMOVED_FROM_SOURCE_CONTROL" ] || [ "$bytes" -gt 1024 ]; then unsafe=1; fi
+  done <<< "$encoded_signing"
+  if [ "$unsafe" -ne 0 ]; then
+    bad "encoded signing material is still present in tracked files"
+  else
+    warn "legacy signing-material path is tombstoned at HEAD; Git-history remediation is still required"
+  fi
+else
+  ok "no encoded signing material tracked"
+fi
+if git ls-files | grep -Eq '^app/build\.gradle\.kts$'; then
+  bad "non-canonical app/build.gradle.kts must not be tracked"
+else
+  ok "Groovy app/build.gradle remains the single canonical module build file"
+fi
+
+# Preserve hardening recovered from the pre-canonical UI branch.
+require_text "$LINK" 'MAX_REDIRECTS[[:space:]]*=[[:space:]]*6' 'shared-link enrichment has a bounded redirect policy'
+require_text "$LINK" 'validatedPublicHttps' 'shared-link enrichment revalidates public HTTPS destinations'
+require_text "$LINK" 'isSiteLocalAddress' 'shared-link enrichment blocks private/local network addresses'
+require_text "$LINK" 'setInstanceFollowRedirects\(false\)' 'shared-link redirects cannot bypass URL validation'
+require_text "$SHARE" 'MAX_IMAGE_BYTES' 'Android share imports bound image size'
+require_text "$SHARE" 'MAX_AUDIO_BYTES' 'Android share imports bound audio size'
+require_text "$SHARE" 'MAX_FILE_BYTES' 'Android share imports bound file size'
+require_text "$SHARE" 'total>maxBytes' 'Android share imports enforce streaming byte limits'
+
+# Current V2 shell/test contract must stay aligned with the shipped navigation and attention behavior.
+require_text "$SELF_TEST" 'CORTEX_INSTRUMENTED_SELF_USER_TEST_V4' 'self-user test uses the reconciled V4 contract'
+require_text "$SELF_TEST" '"Now","Inbox","Atlas","Ask"' 'self-user test covers current V2 bottom navigation'
+require_text "$SELF_TEST" 'attentionLifecycleRoundTrip' 'self-user test guards attention reopen semantics'
+require_text "$SELF_TEST" 'cortexAskSmoke' 'self-user test keeps grounded Ask smoke coverage'
+
+# The Termux helper must never silently mutate or hide local V2 work.
+require_text "$TERMUX_BUILD" 'CORTEX_SYNC_SOURCE' 'Termux source sync is explicit opt-in'
+require_text "$TERMUX_BUILD" 'git status --porcelain --untracked-files=all' 'Termux sync checks tracked and untracked dirtiness'
+forbid_text "$TERMUX_BUILD" 'git stash' 'Termux build never auto-stashes local work'
+require_text "$TERMUX_BUILD" 'cat "\$APK_SRC" \| rish' 'Termux install streams APK directly into /data/local/tmp'
 
 # One cognitive truth path: raw evidence -> relevance/adjudication -> derived_items -> attention -> Today/Ask/Brief/proactive.
 PRIME=app/src/main/java/com/kareem/cortex/PrimeBriefStore.java

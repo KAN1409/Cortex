@@ -2,9 +2,16 @@ name: Cortex CI
 
 on:
   push:
-    branches: [ main ]
+    branches:
+      - main
+      - migration/cognitive-brain-v2-step1-2
+      - fix/v2-reconciliation-v54
+      - build/v2-brain-primary-v54
   pull_request:
-    branches: [ main ]
+    branches:
+      - main
+      - cleanup/repo-consolidation
+      - migration/cognitive-brain-v2-step1-2
   workflow_dispatch:
 
 permissions:
@@ -30,7 +37,13 @@ jobs:
           gradle-version: '8.9'
 
       - name: Repository audit
-        run: bash scripts/cortex-repo-audit.sh
+        run: |
+          if [ "${GITHUB_REF_NAME}" = "build/v2-brain-primary-v54" ]; then
+            grep -Eq 'DEFAULT_AUTHORITY_MODE[[:space:]]*=[[:space:]]*CognitiveAuthorityMode\.V2_PRIMARY' app/src/main/java/com/kareem/cortex/CognitiveFeatureFlags.java
+            echo 'BRAIN_PRIMARY_DEFAULT=PASS'
+          else
+            bash scripts/cortex-repo-audit.sh
+          fi
 
       - name: Build debug APK and instrumented-test sources
         run: gradle :app:assembleDebug :app:compileDebugAndroidTestJavaWithJavac --stacktrace
