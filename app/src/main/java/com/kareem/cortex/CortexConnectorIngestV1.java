@@ -1,18 +1,29 @@
 package com.kareem.cortex;
 
+import android.content.ContentValues;
 import android.content.Context;
 import android.database.Cursor;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
-/** Maps trusted Relay payloads into Cortex Evidence, then Cortex alone decides cognition. */
+/**
+ * Maps trusted Relay payloads into the cognitive branch's existing notification evidence path.
+ * Relay contributes evidence only; RawSignalStore remains the single cognitive authority router.
+ */
 public final class CortexConnectorIngestV1 {
     private CortexConnectorIngestV1() {}
 
-    public static Result ingest(Context context, VaultDb db, CortexConnectorRegistryV1.Identity identity, CortexLocalBusProtocolV1.Event event) {
-        if (context == null || db == null || identity == null || event == null) throw new IllegalArgumentException("ingest args required");
-        if (!identity.connectorId.equals(event.connectorId)) throw new IllegalArgumentException("connector_id does not match caller identity");
-        if (!"NOTIFICATION".equals(event.sourceType)) throw new IllegalArgumentException("source_type not supported in Local Bus V1");
+    public static Result ingest(Context context, VaultDb db, CortexConnectorRegistryV1.Identity identity,
+                                CortexLocalBusProtocolV1.Event event) {
+        if (context == null || db == null || identity == null || event == null) {
+            throw new IllegalArgumentException("ingest args required");
+        }
+        if (!identity.connectorId.equals(event.connectorId)) {
+            throw new IllegalArgumentException("connector_id does not match caller identity");
+        }
+        if (!"NOTIFICATION".equals(event.sourceType)) {
+            throw new IllegalArgumentException("source_type not supported in Local Bus V1");
+        }
         if (!PrivacyPolicy.canCollect(context, "notifications")) return new Result(0, "POLICY_BLOCKED");
 
         JSONObject o = event.json;
@@ -43,55 +54,71 @@ public final class CortexConnectorIngestV1 {
             if (!notificationKey.isEmpty()) meta.put("notification_key", notificationKey);
             if (!conversationTitle.isEmpty()) meta.put("conversation_title", conversationTitle);
             JSONArray messages = o.optJSONArray("messages");
-            if (messages != null) meta.put("messages", messages);
+            if (messages != null) meta.put("messages", new JSONArray(messages.toString()));
         } catch (Throwable ignored) {}
 
         PhoneContextStore.ensure(db);
         try {
             PhoneContextStore.record(db, "notification_context", "connector:" + identity.connectorId,
-                    event.sourcePackage, event.sourcePackage, "", "notification_connector", body, event.occurredAt, meta);
+                    event.sourcePackage, event.sourcePackage, "", "notification_connector", body,
+                    event.occurredAt, meta);
         } catch (Throwable ignored) {}
 
         MasterRelevanceFilter.Signal signal = new MasterRelevanceFilter.Signal(
                 "notification", event.sourcePackage, title, body, meta.toString(), event.occurredAt, ongoing);
-        long signalId = NotificationSignalIngressV1.capture(db, signal);
+
+        // Use the exact same authority router as native NotificationCaptureService. The connector
+        // never invokes a parallel cognitive path and never decides user relevance itself.
+        long signalId = RawSignalStore.capture(context, db, signal);
         if (signalId <= 0) return new Result(signalId, "RAW_CAPTURE_FAILED");
 
-        // Relay is evidence only. Preserve richer payload additively, then explicitly re-adjudicate
-        // the same physical notification if native capture had already produced a shorter revision.
-        appendConnectorEnrichment(db, signalId, identity, event, body);
-        RawSignalStore.markTrustedEnrichmentPending(db, signalId, signal);
+        // If native notification capture already created this physical signal, preserve Relay's
+        // richer grounded evidence additively on that same raw row instead of creating a second one.
+        mergeConnectorMetadata(db, signalId, meta);
 
         long itemId = RawSignalStore.promotedItemId(db, signalId);
         long threadId = RawSignalStore.threadId(db, signalId);
         try { NotificationEnrichmentEngine.enrich(db, signalId, itemId, threadId, signal); } catch (Throwable ignored) {}
 
-        String cognitiveState=RawSignalStore.cognitiveState(db, signalId);
-        if (CognitiveFeatureFlags.enabled(context) && CognitiveSignalV2.awaitingAdjudication(cognitiveState)) {
-            try { CognitiveAdjudicatorV2.enqueue(context, threadId, signalId); } catch (Throwable ignored) {}
+        // Mirror the current native notification post-capture scheduling contract. RawSignalStore
+        // itself owns canary/legacy authority; this guard prevents double local-model authority.
+        if (threadId > 0 && RawSignalStore.shouldEnqueueLegacyModel(db, signalId)) {
+            try { ThreadModelAdjudicator.enqueue(context, threadId, signalId); } catch (Throwable ignored) {}
         }
-
-        // Existing legacy memory may remain as historical evidence, but a queued/running richer
-        // Relay revision is not projected again until V2 validates the new semantic result.
-        if (itemId > 0 && !CognitiveSignalV2.awaitingAdjudication(RawSignalStore.cognitiveState(db, signalId))) {
+        if (itemId > 0) {
             try { AnalysisQueue.kick(context, null, null); } catch (Throwable ignored) {}
-            try { CognitiveRealtimeProjectionV4.schedule(context, signalId); } catch (Throwable ignored) {}
         }
         return new Result(signalId, "ACCEPTED");
     }
 
-    private static void appendConnectorEnrichment(VaultDb db, long signalId, CortexConnectorRegistryV1.Identity identity, CortexLocalBusProtocolV1.Event event, String body) {
+    private static void mergeConnectorMetadata(VaultDb db, long signalId, JSONObject relayMeta) {
+        if (db == null || signalId <= 0 || relayMeta == null) return;
+        Cursor c = db.getReadableDatabase().query("raw_signals", new String[]{"metadata_json"},
+                "id=?", new String[]{String.valueOf(signalId)}, null, null, null, "1");
         try {
-            Cursor c = db.getReadableDatabase().rawQuery(
-                    "SELECT object_id FROM v4_legacy_map WHERE legacy_table='raw_signals' AND legacy_id=? AND object_type='EVIDENCE' LIMIT 1",
-                    new String[]{String.valueOf(signalId)});
-            String evidenceId;
-            try { evidenceId = c.moveToFirst() ? clean(c.getString(0)) : ""; }
-            finally { c.close(); }
-            if (evidenceId.isEmpty()) return;
-            CognitiveStoreV4.appendEvidenceAnalysis(db, evidenceId, "CONNECTOR_ENRICHMENT",
-                    "local_bus:" + identity.connectorId, "1", body, event.json.toString());
-        } catch (Throwable ignored) {}
+            JSONObject merged = new JSONObject();
+            if (c.moveToFirst()) {
+                String raw = c.isNull(0) ? "" : c.getString(0);
+                if (raw != null && !raw.trim().isEmpty()) {
+                    try { copy(new JSONObject(raw), merged); } catch (Throwable ignored) {}
+                }
+            }
+            try {
+                merged.put("relay_connector_enrichment", new JSONObject(relayMeta.toString()));
+                merged.put("source_connector", relayMeta.optString("source_connector", "second_brain"));
+                merged.put("connector_event_id", relayMeta.optString("connector_event_id", ""));
+                JSONObject semantic = relayMeta.optJSONObject("relay_semantic_v2");
+                if (semantic != null) merged.put("relay_semantic_v2", new JSONObject(semantic.toString()));
+                JSONArray actions = relayMeta.optJSONArray("relay_action_capabilities_v1");
+                if (actions != null) merged.put("relay_action_capabilities_v1", new JSONArray(actions.toString()));
+            } catch (Throwable ignored) {}
+            ContentValues v = new ContentValues();
+            v.put("metadata_json", merged.toString());
+            v.put("updated_at", System.currentTimeMillis());
+            db.getWritableDatabase().update("raw_signals", v, "id=?", new String[]{String.valueOf(signalId)});
+        } finally {
+            c.close();
+        }
     }
 
     private static void copy(JSONObject from, JSONObject to) {
@@ -104,12 +131,17 @@ public final class CortexConnectorIngestV1 {
         }
     }
 
-    private static String clean(String s) { return s == null ? "" : s.replace('\u0000', ' ').trim(); }
+    private static String clean(String s) {
+        return s == null ? "" : s.replace('\u0000', ' ').trim();
+    }
 
     public static final class Result {
         public final long signalId;
         public final String status;
-        Result(long signalId, String status) { this.signalId = signalId; this.status = status == null ? "" : status; }
+        Result(long signalId, String status) {
+            this.signalId = signalId;
+            this.status = status == null ? "" : status;
+        }
         public boolean accepted() { return signalId > 0 && "ACCEPTED".equals(status); }
     }
 }
