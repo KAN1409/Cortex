@@ -25,30 +25,33 @@ public final class FastCognitiveResultParser {
             JSONObject root = new JSONObject(json);
 
             // Transition safety: accept the old verbose contract if a model unexpectedly emits it.
-            if (!root.has("d") && root.has("disposition")) {
+            if (!root.has("t") && !root.has("d") && root.has("disposition")) {
                 return CognitiveResultParser.parse(raw);
             }
 
-            CognitiveDisposition disposition = disposition(root.getString("d"));
+            String label = root.has("t")
+                    ? requiredString(root, "t")
+                    : requiredString(root, "d");
+            Classification classification = classification(label);
             double confidence = confidence(root.get("c"));
             List<CognitiveItem> items = new ArrayList<>();
 
-            if (disposition == CognitiveDisposition.DERIVE) {
+            if (classification.disposition == CognitiveDisposition.DERIVE) {
                 JSONArray array = root.optJSONArray("it");
                 if (array != null) {
                     if (array.length() < 1 || array.length() > 2) {
                         throw new CognitiveContractException("Fast DERIVE supports one or two items");
                     }
                     for (int i = 0; i < array.length(); i++) {
-                        items.add(item(array.getJSONObject(i)));
+                        items.add(item(array.getJSONObject(i), classification.kindCode));
                     }
                 } else {
-                    items.add(item(root));
+                    items.add(item(root, classification.kindCode));
                 }
             }
 
             return new CognitiveResult(
-                    disposition,
+                    classification.disposition,
                     confidence,
                     root.optString("r", ""),
                     items
@@ -81,8 +84,15 @@ public final class FastCognitiveResultParser {
         return !remainder.trim().isEmpty();
     }
 
-    private static CognitiveItem item(JSONObject object) throws CognitiveContractException {
-        CognitiveKind kind = kind(requiredString(object, "k"));
+    private static CognitiveItem item(JSONObject object, String fallbackKind) throws CognitiveContractException {
+        String kindValue = object.has("k") && !object.isNull("k")
+                ? requiredString(object, "k")
+                : fallbackKind;
+        if (kindValue == null || kindValue.trim().isEmpty()) {
+            throw new CognitiveContractException("Fast derived item has no kind");
+        }
+
+        CognitiveKind kind = kind(kindValue);
         String summary = requiredString(object, "s").trim();
         if (summary.isEmpty()) {
             throw new CognitiveContractException("Fast derived item has no summary");
@@ -101,27 +111,73 @@ public final class FastCognitiveResultParser {
         );
     }
 
-    private static CognitiveDisposition disposition(String code) throws CognitiveContractException {
-        switch (clean(code).toUpperCase(Locale.ROOT)) {
-            case "I": return CognitiveDisposition.IGNORE;
-            case "C": return CognitiveDisposition.CONTEXT;
-            case "D": return CognitiveDisposition.DERIVE;
-            case "R": return CognitiveDisposition.REVIEW;
-            default: throw new CognitiveContractException("Unknown fast disposition: " + code);
+    private static Classification classification(String code) throws CognitiveContractException {
+        String normalized = clean(code).toUpperCase(Locale.ROOT);
+        switch (normalized) {
+            case "I":
+            case "IGNORE":
+                return new Classification(CognitiveDisposition.IGNORE, null);
+            case "C":
+            case "CONTEXT":
+                return new Classification(CognitiveDisposition.CONTEXT, null);
+            case "R":
+            case "REVIEW":
+                return new Classification(CognitiveDisposition.REVIEW, null);
+            case "D":
+            case "DERIVE":
+                return new Classification(CognitiveDisposition.DERIVE, null);
+            case "AC":
+            case "ACTION":
+                return new Classification(CognitiveDisposition.DERIVE, "AC");
+            case "WA":
+            case "WAITING":
+                return new Classification(CognitiveDisposition.DERIVE, "WA");
+            case "DE":
+            case "DECISION":
+                return new Classification(CognitiveDisposition.DERIVE, "DE");
+            case "EV":
+            case "EVENT":
+                return new Classification(CognitiveDisposition.DERIVE, "EV");
+            case "CO":
+            case "CONTENT":
+                return new Classification(CognitiveDisposition.DERIVE, "CO");
+            case "MS":
+            case "MESSAGE":
+                return new Classification(CognitiveDisposition.DERIVE, "MS");
+            case "RE":
+            case "REMINDER":
+                return new Classification(CognitiveDisposition.DERIVE, "RE");
+            case "IN":
+            case "INSIGHT":
+                return new Classification(CognitiveDisposition.DERIVE, "IN");
+            case "ME":
+            case "MEMORY":
+                return new Classification(CognitiveDisposition.DERIVE, "ME");
+            default:
+                throw new CognitiveContractException("Unknown fast classification: " + code);
         }
     }
 
     private static CognitiveKind kind(String code) throws CognitiveContractException {
         switch (clean(code).toUpperCase(Locale.ROOT)) {
-            case "AC": return CognitiveKind.ACTION;
-            case "WA": return CognitiveKind.WAITING;
-            case "DE": return CognitiveKind.DECISION;
-            case "EV": return CognitiveKind.EVENT;
-            case "CO": return CognitiveKind.CONTENT;
-            case "MS": return CognitiveKind.MESSAGE;
-            case "RE": return CognitiveKind.REMINDER;
-            case "IN": return CognitiveKind.INSIGHT;
-            case "ME": return CognitiveKind.MEMORY;
+            case "AC":
+            case "ACTION": return CognitiveKind.ACTION;
+            case "WA":
+            case "WAITING": return CognitiveKind.WAITING;
+            case "DE":
+            case "DECISION": return CognitiveKind.DECISION;
+            case "EV":
+            case "EVENT": return CognitiveKind.EVENT;
+            case "CO":
+            case "CONTENT": return CognitiveKind.CONTENT;
+            case "MS":
+            case "MESSAGE": return CognitiveKind.MESSAGE;
+            case "RE":
+            case "REMINDER": return CognitiveKind.REMINDER;
+            case "IN":
+            case "INSIGHT": return CognitiveKind.INSIGHT;
+            case "ME":
+            case "MEMORY": return CognitiveKind.MEMORY;
             default: throw new CognitiveContractException("Unknown fast kind: " + code);
         }
     }
@@ -138,7 +194,7 @@ public final class FastCognitiveResultParser {
         if (Double.isNaN(c) || Double.isInfinite(c) || c < 0.0 || c > 100.0) {
             throw new CognitiveContractException("Fast confidence out of range");
         }
-        return c / 100.0;
+        return c <= 1.0 ? c : c / 100.0;
     }
 
     private static String requiredString(JSONObject object, String key) throws CognitiveContractException {
@@ -212,5 +268,15 @@ public final class FastCognitiveResultParser {
 
     private static String clean(String value) {
         return value == null ? "" : value.trim();
+    }
+
+    private static final class Classification {
+        final CognitiveDisposition disposition;
+        final String kindCode;
+
+        Classification(CognitiveDisposition disposition, String kindCode) {
+            this.disposition = disposition;
+            this.kindCode = kindCode;
+        }
     }
 }
