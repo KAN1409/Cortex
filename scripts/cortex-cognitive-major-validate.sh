@@ -18,6 +18,49 @@ fail() {
   exit 1
 }
 
+ensure_adb_device() {
+  adb start-server >/dev/null 2>&1 || true
+  if [ "$(adb get-state 2>/dev/null || true)" = "device" ]; then
+    return 0
+  fi
+
+  echo "↻ ADB disconnected; trying Wireless debugging auto-reconnect..."
+
+  # First retry any endpoint the local adb server still remembers.
+  local remembered
+  remembered="$(adb devices 2>/dev/null | awk 'NR>1 && $1!="" && $2!="device" {print $1}')"
+  if [ -n "$remembered" ]; then
+    while IFS= read -r endpoint; do
+      [ -n "$endpoint" ] || continue
+      adb connect "$endpoint" >/dev/null 2>&1 || true
+      if [ "$(adb get-state 2>/dev/null || true)" = "device" ]; then
+        echo "✅ ADB reconnected ($endpoint)"
+        return 0
+      fi
+    done <<< "$remembered"
+  fi
+
+  # Android Wireless debugging advertises the current connect port over mDNS.
+  local services target
+  if command -v timeout >/dev/null 2>&1; then
+    services="$(timeout 5 adb mdns services 2>/dev/null || true)"
+  else
+    services="$(adb mdns services 2>/dev/null || true)"
+  fi
+  target="$(printf '%s\n' "$services" | awk '/_adb-tls-connect\._tcp/ {print $NF; exit}')"
+  if [ -n "$target" ]; then
+    adb connect "$target" >/dev/null 2>&1 || true
+    sleep 1
+  fi
+
+  if [ "$(adb get-state 2>/dev/null || true)" = "device" ]; then
+    echo "✅ ADB auto-reconnected${target:+ ($target)}"
+    return 0
+  fi
+
+  fail "No connected ADB device. Turn ON Developer options > Wireless debugging, then rerun this same command; the script will reconnect automatically if this phone is already paired."
+}
+
 write_flags() {
   local percent="$1"
   printf '%s\n' \
@@ -45,7 +88,7 @@ cd "$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 command -v adb >/dev/null 2>&1 || fail "adb not found"
 command -v gradle >/dev/null 2>&1 || fail "gradle not found"
 [ -n "$SQLITE" ] || fail "sqlite3 not found"
-adb get-state >/dev/null 2>&1 || fail "No connected ADB device"
+ensure_adb_device
 
 HEAD="$(git rev-parse HEAD)"
 echo "===== CORTEX COGNITIVE MAJOR VALIDATION ====="
