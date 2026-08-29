@@ -8,17 +8,21 @@ import android.view.View;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
+import androidx.swiperefreshlayout.widget.SwipeRefreshLayout;
+import org.json.JSONObject;
 import java.util.List;
 
 /** Attention-first Now surface using the approved Cortex reference hierarchy. */
 public final class CompactTodayActivity extends CortexOrbBriefActivity {
     private View loadingView;
+    private SwipeRefreshLayout swipe;
 
     @Override void build(){
         LinearLayout root=new LinearLayout(this);root.setOrientation(LinearLayout.VERTICAL);root.setBackground(CortexUi.aurora(this));
         ScrollView sv=new ScrollView(this);sv.setFillViewport(true);sv.setClipToPadding(false);
         content=new LinearLayout(this);content.setOrientation(LinearLayout.VERTICAL);content.setPadding(dp(18),dp(8),dp(18),dp(24));sv.addView(content);
-        root.addView(sv,new LinearLayout.LayoutParams(-1,0,1));systemHeader();
+        swipe=new SwipeRefreshLayout(this);swipe.setColorSchemeColors(CortexUi.BRAND,CortexUi.BLUE,CortexUi.ORANGE);swipe.setProgressBackgroundColorSchemeColor(CortexUi.SURFACE);swipe.addView(sv,new android.view.ViewGroup.LayoutParams(-1,-1));swipe.setOnRefreshListener(this::refreshAsync);
+        root.addView(swipe,new LinearLayout.LayoutParams(-1,0,1));systemHeader();
         TextView loading=CortexUi.plain(this,"Building your current picture…",10,CortexUi.FAINT);loading.setPadding(dp(3),dp(13),0,dp(5));loadingView=loading;content.addView(loading);
         CortexUi.addBottomNav(this,root,"today",null);setContentView(root);CortexUi.fitSystemBars(this,root);
     }
@@ -48,12 +52,49 @@ public final class CompactTodayActivity extends CortexOrbBriefActivity {
         if(!s.changes.isEmpty())derivedSection("CHANGED RECENTLY",CortexUi.BLUE,s.changes,"change",3);
         if(!s.worthKnowing.isEmpty())derivedSection("WORTH KNOWING",CortexUi.MUTED,s.worthKnowing,"info",3);
         if(!s.reviews.isEmpty())reviewRow(s.reviews.size());
+        relaySection();
         if(!audioItems.isEmpty()){sectionTitle("RECENT CONTEXT",CortexUi.MUTED);content.addView(audioCard(s),margins(0,0,0,0));}
-        if(s.attentionEmpty()){LinearLayout e=CortexUi.card(this,16);e.setPadding(dp(16),dp(17),dp(16),dp(17));TextView h=CortexUi.plain(this,"Clear horizon",18,CortexUi.TEXT);CortexUi.medium(h);e.addView(h);TextView b=CortexUi.text(this,"Nothing deserves your attention right now. Cortex will interrupt this calm only when the evidence is strong enough.",12,CortexUi.MUTED);b.setPadding(0,dp(5),0,0);e.addView(b);content.addView(e,margins(0,dp(10),0,0));}
+        if(s.attentionEmpty()){LinearLayout e=CortexUi.card(this,16);e.setPadding(dp(16),dp(17),dp(16),dp(17));TextView h=CortexUi.plain(this,"Clear horizon",18,CortexUi.TEXT);CortexUi.medium(h);e.addView(h);TextView b=CortexUi.text(this,"Nothing deserves your attention right now. Relay evidence can still appear below without being promoted to attention.",12,CortexUi.MUTED);b.setPadding(0,dp(5),0,0);e.addView(b);content.addView(e,margins(0,dp(10),0,0));}
         content.addView(promptDock(),margins(0,dp(14),0,dp(6)));
+        finishRefresh();
     }
 
-    @Override View signalCard(PrimeBriefStore.Snapshot s){View v=new View(this);v.setVisibility(View.GONE);return v;}
+    @Override void renderError(){super.renderError();finishRefresh();}
+
+    @Override View signalCard(PrimeBriefStore.Snapshot s){return relayStatusCard();}
+
+    private void relaySection(){
+        List<RelayEvidenceStore.Item> items=RelayEvidenceStore.latest(db,5);
+        sectionTitle("RECENT NOTIFICATIONS · RELAY",CortexUi.BLUE);
+        if(items.isEmpty()){content.addView(relayStatusCard(),margins(0,0,0,0));return;}
+        for(int i=0;i<items.size();i++){LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,-2);if(i>0)p.setMargins(0,dp(7),0,0);content.addView(relayCard(items.get(i)),p);}
+    }
+
+    private View relayStatusCard(){
+        JSONObject d=CortexRelayBridgeV2.diagnosticSnapshot(this);boolean connected=d.optBoolean("connected",false);String protocol=d.optString("selected_protocol",CortexLocalBusProtocolV1.PROTOCOL);
+        LinearLayout card=CortexUi.card(this,16);card.setPadding(dp(13),dp(12),dp(13),dp(12));
+        LinearLayout top=new LinearLayout(this);top.setGravity(Gravity.CENTER_VERTICAL);TextView title=CortexUi.plain(this,connected?"Cortex Relay connected":"Waiting for Cortex Relay",14,CortexUi.TEXT);CortexUi.medium(title);top.addView(title,new LinearLayout.LayoutParams(0,-2,1));top.addView(CortexUi.chip(this,connected?"CONNECTED":"WAITING",connected?CortexUi.BRAND:CortexUi.ORANGE,false),new LinearLayout.LayoutParams(-2,dp(27)));card.addView(top);
+        TextView sub=CortexUi.text(this,connected?("Local Bus · "+protocol+" · new notifications will appear here after Cortex receives them."):"No recent Relay notification is visible yet. Pull down after a real notification arrives.",10,CortexUi.MUTED);sub.setPadding(0,dp(5),0,0);card.addView(sub);return card;
+    }
+
+    private View relayCard(RelayEvidenceStore.Item x){
+        LinearLayout card=CortexUi.card(this,16);card.setPadding(dp(12),dp(11),dp(12),dp(11));
+        LinearLayout top=new LinearLayout(this);top.setGravity(Gravity.CENTER_VERTICAL);View marker=new View(this);int color=x.isPrimaryQwen()?CortexUi.BRAND:CortexUi.BLUE;marker.setBackground(CortexUi.round(this,color,Color.TRANSPARENT,999));LinearLayout.LayoutParams mp=new LinearLayout.LayoutParams(dp(3),dp(48));mp.setMargins(0,0,dp(11),0);top.addView(marker,mp);
+        LinearLayout txt=new LinearLayout(this);txt.setOrientation(LinearLayout.VERTICAL);top.addView(txt,new LinearLayout.LayoutParams(0,-2,1));String app=appLabel(x.source),heading=x.title.isEmpty()?app:(app+" · "+x.title);TextView h=CortexUi.text(this,clipLocal(heading,105),14,CortexUi.TEXT);CortexUi.medium(h);h.setMaxLines(2);txt.addView(h);
+        if(!x.body.isEmpty()){TextView body=CortexUi.text(this,clipLocal(x.body,150),11,CortexUi.MUTED);body.setMaxLines(2);body.setPadding(0,dp(4),0,0);txt.addView(body);}TextView meta=CortexUi.plain(this,x.provenanceLine()+" · "+age(x.occurredAt),9,x.isPrimaryQwen()?CortexUi.BRAND:CortexUi.MUTED);meta.setPadding(0,dp(6),0,0);meta.setMaxLines(2);txt.addView(meta);
+        CortexGlyphView arrow=CortexUi.glyph(this,"arrow",CortexUi.MUTED,false);top.addView(arrow,new LinearLayout.LayoutParams(dp(34),dp(34)));card.addView(top);View.OnClickListener open=v->relayDetail(x);card.setOnClickListener(open);arrow.setOnClickListener(open);return card;
+    }
+
+    private void relayDetail(RelayEvidenceStore.Item x){
+        StringBuilder b=new StringBuilder();if(!x.body.isEmpty())b.append(x.body).append("\n\n");b.append("Source: Cortex Relay → ").append(appLabel(x.source));b.append("\nSignal: #").append(x.signalId);if(x.threadId>0)b.append(" · thread ").append(x.threadId);b.append("\nBrain: ").append(x.brainLabel());if(x.modelRunId>0)b.append(" · run #").append(x.modelRunId);if(!x.model.isEmpty())b.append("\nModel: ").append(x.model);b.append("\nDecision: ").append(x.decisionLabel());if(!x.cognitiveState.isEmpty())b.append("\nCognitive state: ").append(x.cognitiveState);double conf=x.modelConfidence>0?x.modelConfidence:x.confidence;if(conf>0)b.append("\nConfidence: ").append(Math.round(conf*100)).append("%");String event=RelayEvidenceStore.connectorEventId(db,x.signalId);if(!event.isEmpty())b.append("\nRelay event: ").append(event);if(!x.finalReason.isEmpty())b.append("\n\nWhy Cortex decided this:\n").append(x.finalReason);
+        new android.app.AlertDialog.Builder(this).setTitle(x.title.isEmpty()?"Relay notification":x.title).setMessage(b.toString()).setPositiveButton("Close",null).show();
+    }
+
+    private String appLabel(String packageName){
+        if(packageName==null||packageName.trim().isEmpty())return"Notification";try{android.content.pm.ApplicationInfo info=getPackageManager().getApplicationInfo(packageName,0);CharSequence label=getPackageManager().getApplicationLabel(info);if(label!=null&&!label.toString().trim().isEmpty())return label.toString().trim();}catch(Throwable ignored){}return sourceLabel(packageName);
+    }
+
+    private void finishRefresh(){if(swipe!=null)swipe.setRefreshing(false);}
 
     @Override View audioCard(PrimeBriefStore.Snapshot s){
         LinearLayout card=CortexUi.card(this,16);card.setGravity(Gravity.CENTER_VERTICAL);card.setOrientation(LinearLayout.HORIZONTAL);card.setPadding(dp(12),dp(10),dp(12),dp(10));
@@ -70,10 +111,11 @@ public final class CompactTodayActivity extends CortexOrbBriefActivity {
             PrimeBriefStore.Item x=xs.get(i);String semanticTitle=CandidateConsolidator.presentationTitle(x);String tt=semanticTitle==null||semanticTitle.trim().isEmpty()?friendlyFallback(x.attentionKind):semanticTitle.trim(),body=x.body==null?"":x.body.trim();boolean focus=i==0&&"action".equals(glyph);
             LinearLayout card=CortexUi.card(this,16);card.setPadding(0,0,0,0);if(focus)card.setBackground(CortexUi.round(this,CortexUi.SURFACE,Color.argb(82,Color.red(CortexUi.BRAND),Color.green(CortexUi.BRAND),Color.blue(CortexUi.BRAND)),16));
             LinearLayout main=new LinearLayout(this);main.setGravity(Gravity.CENTER_VERTICAL);main.setPadding(dp(12),focus?dp(14):dp(11),dp(10),focus?dp(10):dp(9));
-            View marker=new View(this);marker.setBackground(CortexUi.round(this,color,Color.TRANSPARENT,999));LinearLayout.LayoutParams mp=new LinearLayout.LayoutParams(dp(3),focus?dp(66):dp(46));mp.setMargins(0,0,dp(12),0);main.addView(marker,mp);
+            View marker=new View(this);marker.setBackground(CortexUi.round(this,color,Color.TRANSPARENT,999));LinearLayout.LayoutParams mp=new LinearLayout.LayoutParams(dp(3),focus?dp(72):dp(52));mp.setMargins(0,0,dp(12),0);main.addView(marker,mp);
             LinearLayout txt=new LinearLayout(this);txt.setOrientation(LinearLayout.VERTICAL);main.addView(txt,new LinearLayout.LayoutParams(0,-2,1));
             TextView h=CortexUi.text(this,clipLocal(tt,110),focus?18:15,CortexUi.TEXT);CortexUi.medium(h);h.setMaxLines(focus?3:2);txt.addView(h);
             if(!body.isEmpty()&&!sameMeaning(tt,body)){TextView m=CortexUi.text(this,clipLocal(body,145),11,CortexUi.MUTED);m.setMaxLines(focus?2:1);m.setPadding(0,dp(5),0,0);txt.addView(m);}TextView timing=CortexUi.plain(this,friendlyTiming(x),9,focus?CortexUi.BRAND:CortexUi.MUTED);timing.setMaxLines(1);timing.setPadding(0,dp(6),0,0);txt.addView(timing);
+            RelayEvidenceStore.Item provenance=x.signalId>0?RelayEvidenceStore.bySignalId(db,x.signalId):null;if(provenance!=null){TextView brain=CortexUi.plain(this,provenance.provenanceLine(),9,CortexUi.BLUE);brain.setPadding(0,dp(3),0,0);brain.setMaxLines(1);txt.addView(brain);}
             if(!focus){CortexGlyphView arrow=CortexUi.glyph(this,"arrow",CortexUi.MUTED,false);main.addView(arrow,new LinearLayout.LayoutParams(dp(36),dp(36)));arrow.setOnClickListener(v->{AttentionLearning.record(db,x.id,"opened");derivedDetail(x);});}
             card.addView(main);main.setOnClickListener(v->{AttentionLearning.record(db,x.id,"opened");derivedDetail(x);});
             if(focus)card.addView(compactActions(x),new LinearLayout.LayoutParams(-1,dp(38)));
@@ -86,7 +128,7 @@ public final class CompactTodayActivity extends CortexOrbBriefActivity {
 
     View compactActions(PrimeBriefStore.Item x){
         LinearLayout row=new LinearLayout(this);row.setGravity(Gravity.CENTER_VERTICAL);row.setPadding(dp(8),0,dp(8),dp(5));TextView why=small("Why",CortexUi.MUTED),done=small("Done",CortexUi.BRAND),snooze=small("Later",CortexUi.MUTED),dismiss=small("Hide",CortexUi.FAINT);
-        why.setOnClickListener(v->new android.app.AlertDialog.Builder(this).setTitle("Why now").setMessage(x.attentionBand+" · "+x.attentionScore+"/100\n\n"+x.whyNow).setPositiveButton("OK",null).show());
+        why.setOnClickListener(v->{RelayEvidenceStore.Item p=x.signalId>0?RelayEvidenceStore.bySignalId(db,x.signalId):null;String detail=x.attentionBand+" · "+x.attentionScore+"/100\n\n"+x.whyNow;if(p!=null)detail+="\n\nSource: "+p.provenanceLine()+"\n"+p.finalReason;new android.app.AlertDialog.Builder(this).setTitle("Why now").setMessage(detail).setPositiveButton("OK",null).show();});
         done.setOnClickListener(v->{AttentionLearning.record(db,x.id,"acted");try{CognitiveStore.feedback(db,"derived",x.id,"resolved_by_user","{}",AttentionLearning.VERSION);}catch(Throwable ignored){}resolveDerived(x.id);refreshAsync();});
         snooze.setOnClickListener(v->{AttentionLearning.snooze(db,x.id,System.currentTimeMillis()+3L*60L*60L*1000L);refreshAsync();});dismiss.setOnClickListener(v->{AttentionLearning.record(db,x.id,"dismissed");refreshAsync();});
         row.addView(why,new LinearLayout.LayoutParams(0,dp(30),1));row.addView(done,new LinearLayout.LayoutParams(0,dp(30),1));row.addView(snooze,new LinearLayout.LayoutParams(0,dp(30),1));row.addView(dismiss,new LinearLayout.LayoutParams(0,dp(30),1));return row;
