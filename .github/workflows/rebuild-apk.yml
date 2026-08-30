@@ -19,24 +19,28 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
-      - name: Verify Cortex 0.6 voice brain routing
+      - name: Verify Cortex 0.7 capture cognition policy
         shell: bash
         run: |
           set -euo pipefail
           grep -q "applicationId 'com.kareem.cortex.rebuild'" app/build.gradle
-          grep -q "versionName '0.6-voice-brain-routing'" app/build.gradle
-          grep -q 'android:name=".CortexApp"' app/src/main/AndroidManifest.xml
+          grep -q "versionName '0.7-capture-policy'" app/build.gradle
+          grep -q 'TEST_META' app/src/main/java/com/kareem/cortex/rebuild/BrainIntakeEngine.java
+          grep -q 'PRODUCT_FEEDBACK' app/src/main/java/com/kareem/cortex/rebuild/BrainIntakeEngine.java
+          grep -q 'TRANSIENT' app/src/main/java/com/kareem/cortex/rebuild/BrainIntakeEngine.java
+          grep -q 'CAPTURE_HISTORY_ONLY' app/src/main/java/com/kareem/cortex/rebuild/BrainIntakeEngine.java
+          grep -q 'retention=SHORT' app/src/main/java/com/kareem/cortex/rebuild/BrainIntakeEngine.java
+          grep -q 'CREATE TABLE IF NOT EXISTS brain_evidence_policy' app/src/main/java/com/kareem/cortex/rebuild/BrainStore.java
+          grep -q 'CREATE TABLE IF NOT EXISTS product_feedback' app/src/main/java/com/kareem/cortex/rebuild/BrainStore.java
+          grep -q '72L\*60L\*60L\*1000L' app/src/main/java/com/kareem/cortex/rebuild/BrainStore.java
+          grep -q "COALESCE(b.status,'')!='applied'" app/src/main/java/com/kareem/cortex/rebuild/BrainStore.java
+          grep -q 'purgeExpiredShortEvidence' app/src/main/java/com/kareem/cortex/rebuild/CortexApp.java
           grep -q 'BrainIntakeEngine.understand' app/src/main/java/com/kareem/cortex/rebuild/CaptureAnalysisQueue.java
-          grep -q 'BrainStore.ApplyResult brainResult' app/src/main/java/com/kareem/cortex/rebuild/CaptureAnalysisQueue.java
-          grep -q 'RECENT VOICE CAPTURES' app/src/main/java/com/kareem/cortex/rebuild/MainActivity.java
-          grep -q 'Cortex brain' app/src/main/java/com/kareem/cortex/rebuild/CaptureActivity.java
-          grep -q 'brain_thinking' app/src/main/java/com/kareem/cortex/rebuild/BrainStore.java
-          grep -q 'recoverPending' app/src/main/java/com/kareem/cortex/rebuild/CortexApp.java
-      - name: Build Cortex 0.6 APK
+      - name: Build Cortex 0.7 APK
         run: gradle :app:assembleDebug --stacktrace
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: Cortex-Rebuild-V1-Voice-Brain-Routing-debug
+          name: Cortex-Rebuild-V1-Capture-Policy-debug
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
