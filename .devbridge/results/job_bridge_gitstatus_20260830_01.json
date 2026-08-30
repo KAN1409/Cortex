@@ -1,0 +1,10 @@
+{
+  "protocol": "CORTEX_DEVBRIDGE_V1",
+  "agent_version": "2",
+  "job_id": "job_bridge_gitstatus_20260830_01",
+  "capability": "GIT_STATUS",
+  "status": "SUCCESS",
+  "exit_code": 0,
+  "finished_at": "2026-08-30T09:24:08Z",
+  "log_tail": "started_at=2026-08-30T09:24:04Z\nagent_version=2\nsigner_overlay=present\nhead=32870cd69a0c30ceb0bc134cd91c8eaebd00823f\nfinished_at=2026-08-30T09:24:06Z"
+}
