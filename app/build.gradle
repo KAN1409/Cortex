@@ -157,6 +157,13 @@ tasks.register('prepareDevbridgeSignedCandidate') {
     }
 }
 
+tasks.register('exportDevbridgeSignedApk', Exec) {
+    dependsOn 'assembleDebug'
+    workingDir rootProject.projectDir
+    commandLine 'bash', rootProject.file('scripts/devbridge-export-signed-apk.sh').absolutePath,
+            file("${buildDir}/outputs/apk/debug/app-debug.apk").absolutePath
+}
+
 tasks.register('validateDevbridgeRecoveryState', Exec) {
     workingDir rootProject.projectDir
     commandLine 'bash', rootProject.file('scripts/devbridge-recovery-validate.sh').absolutePath
