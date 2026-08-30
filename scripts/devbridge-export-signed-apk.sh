@@ -13,11 +13,13 @@ trap 'rm -rf "$TMP"' EXIT
 
 for attempt in 1 2 3 4; do
   rm -rf "$TMP/repo"
-  git clone --filter=blob:none --no-tags --branch "$RESULT_BRANCH" "$REMOTE" "$TMP/repo" >/dev/null 2>&1 || { sleep 2; continue; }
+  git clone --filter=blob:none --no-checkout --single-branch --no-tags --branch "$RESULT_BRANCH" \
+    "$REMOTE" "$TMP/repo" >/dev/null 2>&1 || { sleep 2; continue; }
+  git -C "$TMP/repo" read-tree "origin/$RESULT_BRANCH"
   mkdir -p "$TMP/repo/.devbridge/artifacts"
   cp -f "$APK" "$TMP/repo/.devbridge/artifacts/$ARTIFACT_NAME"
   sha256sum "$TMP/repo/.devbridge/artifacts/$ARTIFACT_NAME" > "$TMP/repo/.devbridge/artifacts/$ARTIFACT_NAME.sha256"
-  git -C "$TMP/repo" add ".devbridge/artifacts/$ARTIFACT_NAME" ".devbridge/artifacts/$ARTIFACT_NAME.sha256"
+  git -C "$TMP/repo" add -f ".devbridge/artifacts/$ARTIFACT_NAME" ".devbridge/artifacts/$ARTIFACT_NAME.sha256"
   git -C "$TMP/repo" -c user.name='Cortex Dev Bridge' -c user.email='cortex-devbridge@localhost' \
     commit -m "devbridge(artifact): Cortex 0.7.1 signed APK" >/dev/null 2>&1 || true
   if git -C "$TMP/repo" push origin "HEAD:$RESULT_BRANCH" >/dev/null 2>&1; then
