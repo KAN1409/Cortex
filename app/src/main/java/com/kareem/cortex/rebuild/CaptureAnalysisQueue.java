@@ -13,9 +13,9 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
 /**
- * Single-lane Cortex audio analysis queue. ASR never runs on the UI thread and no provider is
- * allowed to leave the capture sheet waiting indefinitely. The audio is persisted before this
- * queue starts, so a timeout can fail safely without losing the recording.
+ * Single-lane capture analysis. ASR is perception only; after an accepted transcript the same
+ * grounded evidence is synchronously handed to the Cortex brain before the capture sheet reports
+ * completion. The audio and transcript are already durable before cognition starts.
  */
 public final class CaptureAnalysisQueue {
     public interface Callback { void complete(long evidenceId, TranscriptResult result, Exception error); }
@@ -47,6 +47,21 @@ public final class CaptureAnalysisQueue {
                     throw new TimeoutException("ASR did not finish within " + AUDIO_TIMEOUT_SEC + " seconds; recording preserved for retry");
                 }
                 db.saveVoiceTranscript(evidenceId, result);
+
+                // Perception is complete. Now the one Cortex brain decides whether this evidence
+                // changes Memory, a current Situation, the World model, or stays evidence-only.
+                try {
+                    BrainStore.ensure(db);
+                    BrainStore.markRunning(db, evidenceId);
+                    String snapshot = BrainStore.contextSnapshot(db, 12);
+                    CortexDb.AttachmentEvidence grounded = db.attachmentEvidence(evidenceId);
+                    BrainIntakeEngine.Decision decision = BrainIntakeEngine.understand(app, grounded, result.text, snapshot);
+                    BrainStore.apply(db, evidenceId, decision);
+                } catch (Exception brainError) {
+                    // Never discard a successful transcript because cognition is temporarily
+                    // unavailable. Mark it for recovery on the next app start.
+                    try { BrainStore.markFailed(db, evidenceId, brainError); } catch (Throwable ignored) {}
+                }
             } catch (Exception e) {
                 error = e;
                 if (db != null) {
