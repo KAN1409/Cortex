@@ -34,19 +34,21 @@ def sha256Hex = { byte[] bytes ->
 def signerFingerprintForFile = { File keyFile ->
     if (!keyFile.isFile()) return null
     for (String type : ['JKS', 'PKCS12']) {
-        try {
-            def candidate = java.security.KeyStore.getInstance(type)
-            keyFile.withInputStream { input -> candidate.load(input, 'android'.toCharArray()) }
-            for (String alias : ['androiddebugkey', 'cortex']) {
-                def cert = candidate.getCertificate(alias)
-                if (cert != null) return sha256Hex(cert.encoded)
-            }
-            def aliases = candidate.aliases()
-            while (aliases.hasMoreElements()) {
-                def cert = candidate.getCertificate(aliases.nextElement())
-                if (cert != null) return sha256Hex(cert.encoded)
-            }
-        } catch (Exception ignored) {}
+        for (String password : ['android', '']) {
+            try {
+                def candidate = java.security.KeyStore.getInstance(type)
+                keyFile.withInputStream { input -> candidate.load(input, password.toCharArray()) }
+                for (String alias : ['androiddebugkey', 'cortex']) {
+                    def cert = candidate.getCertificate(alias)
+                    if (cert != null) return sha256Hex(cert.encoded)
+                }
+                def aliases = candidate.aliases()
+                while (aliases.hasMoreElements()) {
+                    def cert = candidate.getCertificate(aliases.nextElement())
+                    if (cert != null) return sha256Hex(cert.encoded)
+                }
+            } catch (Exception ignored) {}
+        }
     }
     return null
 }
@@ -108,6 +110,7 @@ tasks.register('printDebugSignerFingerprint') {
 tasks.register('diagnoseCortexSignerCandidates') {
     doLast {
         def home = new File(System.getenv('HOME') ?: System.getProperty('user.home'))
+        def expectedInstalled = 'adcb45bd4c902d38a30ca882ba0694ba6c778a086c6ea4724f3b4f8e3785f906'
         def candidates = [
                 ['overlay', cortexDebugKeystore],
                 ['android_debug', new File(home, '.android/debug.keystore')],
@@ -119,6 +122,22 @@ tasks.register('diagnoseCortexSignerCandidates') {
             def fp = signerFingerprintForFile(f)
             println "signer_candidate_${pair[0]}=${fp ?: 'absent_or_unreadable'}"
         }
+        def roots=[home,new File(home,'.android'),new File(home,'.cortex-rebuild-signing'),new File(home,'.cortex-devbridge'),new File(home,'Cortex')]
+        def visited=new HashSet<String>()
+        def matches=[]
+        roots.findAll{it.exists()}.each { root ->
+            root.eachFileRecurse(groovy.io.FileType.FILES) { File f ->
+                String n=f.name.toLowerCase(Locale.ROOT)
+                if(matches.size()>=8 || f.length()>8_000_000L || !(n.endsWith('.keystore')||n.endsWith('.jks')||n.endsWith('.p12')||n.endsWith('.pfx')))return
+                String canonical
+                try{canonical=f.canonicalPath}catch(Exception ignored){canonical=f.absolutePath}
+                if(!visited.add(canonical))return
+                def fp=signerFingerprintForFile(f)
+                if(expectedInstalled.equals(fp))matches << canonical
+            }
+        }
+        if(matches.isEmpty())println 'installed_signer_private_key_match=not_found'
+        else matches.eachWithIndex{path,i->println "installed_signer_private_key_match_${i+1}=${path}"}
     }
 }
 
