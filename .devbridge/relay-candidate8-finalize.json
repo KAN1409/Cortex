@@ -1,0 +1,11 @@
+{
+  "job_id": "job_relay_candidate8_install_20260830_1918",
+  "authorized_owner": "KAN1409",
+  "package": "com.kareem.secondbrain",
+  "version_code": 27,
+  "version_name": "2.0.0-candidate8",
+  "expected_cert_sha256": "fd402eefcec5b1576d6e7b1e5663a835d4c439d03baaa04506dd662e4b4c7d74",
+  "artifact_url": "https://api.github.com/repos/KAN1409/Second-Brain/actions/artifacts/9735152029/zip",
+  "artifact_zip_sha256": "df50cd525f4ceb61693661c25aeb8e277098090dbf846cbb781f7ee663acfd8c",
+  "unsigned_apk_sha256": "51dc956757b17e930b30bb8f1e008f6b872e3035ffb5f820096f5604ea204379"
+}
