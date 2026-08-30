@@ -154,7 +154,7 @@ publish_custom(){
 
 run_relay_sign_export(){
   local jobfile="$1" job log_file package artifact_url expected_zip expected_unsigned expected_cert expected_version_code expected_version_name
-  local signer ks passfile alias pass_tmp archive unsigned signed out_apk return_zip rc=0 cert verify actual installed_path installed_tmp installed_cert pkg_line
+  local signer ks passfile alias ks_pass_tmp key_pass_tmp archive unsigned signed out_apk return_zip rc=0 cert verify actual installed_path installed_tmp installed_cert pkg_line
 
   job="$(jq -r '.job_id // empty' "$jobfile")"
   package="$(jq -r '.package // empty' "$jobfile")"
@@ -192,16 +192,18 @@ run_relay_sign_export(){
   signed="$WORK/Cortex-Relay-${expected_version_name}-permanent.apk"
   out_apk="/sdcard/Download/Cortex-Relay-${expected_version_name}-permanent.apk"
   return_zip="$WORK/$job-signed.zip"
-  pass_tmp="$WORK/$job.pass"
+  ks_pass_tmp="$WORK/$job.ks.pass"
+  key_pass_tmp="$WORK/$job.key.pass"
 
   [ -n "$signer" ] || { echo APKSIGNER_NOT_FOUND; rc=90; }
   [ $rc -ne 0 ] || [ -f "$ks" ] || { echo PERMANENT_KEYSTORE_NOT_FOUND; rc=91; }
   [ $rc -ne 0 ] || [ -s "$passfile" ] || { echo PASSWORD_FILE_NOT_FOUND; rc=92; }
 
   if [ $rc -eq 0 ]; then
-    tr -d '\r\n' < "$passfile" > "$pass_tmp"
-    chmod 600 "$pass_tmp"
-    cert="$(keytool -list -v -storetype PKCS12 -keystore "$ks" -storepass "$(cat "$pass_tmp")" -alias "$alias" 2>/dev/null \
+    tr -d '\r\n' < "$passfile" > "$ks_pass_tmp"
+    tr -d '\r\n' < "$passfile" > "$key_pass_tmp"
+    chmod 600 "$ks_pass_tmp" "$key_pass_tmp"
+    cert="$(keytool -list -v -storetype PKCS12 -keystore "$ks" -storepass "$(cat "$ks_pass_tmp")" -alias "$alias" 2>/dev/null \
       | sed -n 's/^[[:space:]]*SHA256:[[:space:]]*//p' | head -n1 | tr -d ':[:space:]' | tr '[:upper:]' '[:lower:]')"
     printf 'keystore_signer_sha256=%s\n' "$cert"
     [ "$cert" = "$expected_cert" ] || { echo KEYSTORE_SIGNER_MISMATCH; rc=93; }
@@ -225,7 +227,7 @@ run_relay_sign_export(){
   if [ $rc -eq 0 ]; then
     rm -f "$signed" "$signed.idsig"
     "$signer" sign --ks "$ks" --ks-type PKCS12 --ks-key-alias "$alias" \
-      --ks-pass "file:$pass_tmp" --key-pass "file:$pass_tmp" --min-sdk-version 24 \
+      --ks-pass "file:$ks_pass_tmp" --key-pass "file:$key_pass_tmp" --min-sdk-version 24 \
       --v1-signing-enabled false --v2-signing-enabled true --v3-signing-enabled true --v4-signing-enabled false \
       --out "$signed" "$unsigned" || { echo SIGN_FAILED; rc=98; }
   fi
@@ -301,7 +303,7 @@ run_relay_sign_export(){
     [ $rc -ne 0 ] || printf 'return_zip_bytes=%s\n' "$(wc -c < "$return_zip" | tr -d ' ')"
   fi
 
-  rm -f "$pass_tmp" "$archive" "$unsigned"
+  rm -f "$ks_pass_tmp" "$key_pass_tmp" "$archive" "$unsigned"
   printf 'finished_at=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   exec 1>&9 9>&-
 
