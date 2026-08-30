@@ -1,0 +1,13 @@
+{
+  "protocol": "CORTEX_DEVBRIDGE_V1",
+  "agent_version": "3+relay-sign-export",
+  "job_id": "job_relay_c5_sign_export_20260830_0953",
+  "capability": "RELAY_SIGN_EXPORT",
+  "status": "SUCCESS",
+  "exit_code": 0,
+  "finished_at": "2026-08-30T09:57:26Z",
+  "log_tail": "started_at=2026-08-30T09:53:41Z\nagent_version=3+relay-sign-export\nkeystore_signer_sha256=fd402eefcec5b1576d6e7b1e5663a835d4c439d03baaa04506dd662e4b4c7d74\nartifact_zip_sha256=02fe20d9ca6a1bfbf5d940d0e38eabf98b28bfeff71661790aaf43f180d60b82\nunsigned_apk_sha256=0af0a31e2bb8e6f8070875d7dfd73e7e1f9b085cee8446d8656eb3cdc95b1765\nVerified using v2 scheme (APK Signature Scheme v2): true\nVerified using v3 scheme (APK Signature Scheme v3): true\nV3.0 Signer: certificate SHA-256 digest: fd402eefcec5b1576d6e7b1e5663a835d4c439d03baaa04506dd662e4b4c7d74\nsigned_signer_sha256=fd402eefcec5b1576d6e7b1e5663a835d4c439d03baaa04506dd662e4b4c7d74\nsigned_apk_sha256=a1f441127b5c8fecb4f2da21bc3a1ff8992a46fc81ccd2db8f426bcf40806e9e\naapt_badging=package: name='com.kareem.secondbrain' versionCode='24' versionName='2.0.0-candidate5' platformBuildVersionName='17' platformBuildVersionCode='37' compileSdkVersion='37' compileSdkVersionCodename='17'\ndevice_output=/sdcard/Download/Cortex-Relay-2.0.0-candidate5-permanent.apk\ninstalled_signer_sha256=\nINSTALL_SKIPPED_INSTALLED_SIGNER_MISMATCH\nreturn_zip_sha256=4e767be1c12fb4ec4fde123fd3b764e0bf6b1793ac7159cefae9756d9a29510b\nreturn_zip_bytes=70141828\nfinished_at=2026-08-30T09:57:24Z",
+  "artifact_path": ".devbridge/artifacts/job_relay_c5_sign_export_20260830_0953.zip",
+  "artifact_sha256": "4e767be1c12fb4ec4fde123fd3b764e0bf6b1793ac7159cefae9756d9a29510b",
+  "artifact_size_bytes": 70141828
+}
