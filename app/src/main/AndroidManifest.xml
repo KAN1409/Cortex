@@ -1,10 +1,24 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <queries>
+        <package android:name="com.kareem.secondbrain" />
+    </queries>
+
     <application
         android:allowBackup="false"
         android:label="Cortex"
         android:theme="@style/Theme.CortexRebuild"
         android:icon="@drawable/ic_cortex"
         android:roundIcon="@drawable/ic_cortex">
+
+        <service
+            android:name=".CortexLocalBusService"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.kareem.cortex.LOCAL_BUS_V1" />
+                <action android:name="com.kareem.cortex.rebuild.LOCAL_BUS_V1" />
+            </intent-filter>
+        </service>
+
         <activity
             android:name=".MainActivity"
             android:exported="true"
