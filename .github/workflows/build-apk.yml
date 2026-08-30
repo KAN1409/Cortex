@@ -65,6 +65,9 @@ jobs:
           if [ -f scripts/devbridge-agent-v2.sh ]; then
             bash -n scripts/devbridge-agent-v2.sh
           fi
+          if [ -f scripts/devbridge-agent-v3.sh ]; then
+            bash -n scripts/devbridge-agent-v3.sh
+          fi
 
       - name: Build debug APK and instrumented-test sources
         run: gradle :app:assembleDebug :app:compileDebugAndroidTestJavaWithJavac --stacktrace
