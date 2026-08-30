@@ -87,7 +87,8 @@ public final class CortexLocalBusService extends Service {
             }
 
             authenticate(uid, false);
-            String raw = message.data == null ? "" : clean(message.data.getString(KEY_EVENT_JSON));
+            Bundle incoming = message.getData();
+            String raw = incoming == null ? "" : clean(incoming.getString(KEY_EVENT_JSON));
             if (raw.isEmpty()) throw new InvalidEvent("EMPTY_EVENT", "event_json is required");
             if (raw.getBytes(StandardCharsets.UTF_8).length > MAX_EVENT_BYTES) {
                 throw new InvalidEvent("PAYLOAD_TOO_LARGE", "event_json exceeds Cortex intake limit");
@@ -113,14 +114,14 @@ public final class CortexLocalBusService extends Service {
         } catch (InvalidEvent invalid) {
             sendError(message.replyTo, eventId, "INVALID_EVENT", invalid.code + ": " + invalid.getMessage());
         } catch (Throwable failure) {
-            // No payload text is logged or returned. Keep errors structural and bounded.
             sendError(message.replyTo, eventId, "INGEST_FAILED", failure.getClass().getSimpleName());
         }
         return true;
     }
 
     private void handleHello(Message message) throws Exception {
-        Bundle data = message.data == null ? Bundle.EMPTY : message.data;
+        Bundle data = message.getData();
+        if (data == null) data = Bundle.EMPTY;
         String connector = clean(data.getString(KEY_CONNECTOR_ID));
         if (!CONNECTOR_ID.equals(connector)) throw new IdentityFailure("Unexpected connector_id");
 
@@ -136,52 +137,38 @@ public final class CortexLocalBusService extends Service {
         requireEquals(PROTOCOL_V1, json.optString("protocol"), "protocol");
         requireEquals(CONNECTOR_ID, json.optString("connector_id"), "connector_id");
         requireEquals("NOTIFICATION", json.optString("source_type"), "source_type");
-
         String eventId = required(json, KEY_EVENT_ID);
         String sourcePackage = clean(json.optString("source_package"));
         long occurredAt = json.optLong("occurred_at", 0L);
-        String summary = displaySummary(
-                clean(json.optString("title")),
-                clean(json.optString("text")),
-                clean(json.optString("expanded_text")),
-                clean(json.optString("conversation_title"))
-        );
+        String summary = displaySummary(clean(json.optString("title")), clean(json.optString("text")),
+                clean(json.optString("expanded_text")), clean(json.optString("conversation_title")));
         JSONObject metadata = json.optJSONObject("metadata");
-        String quality = qualityFromMetadata(metadata).toString();
         return new CortexDb.RelayEnvelope(eventId, CONNECTOR_ID, PROTOCOL_V1, "NOTIFICATION",
-                sourcePackage, occurredAt, summary, raw, quality);
+                sourcePackage, occurredAt, summary, raw, qualityFromMetadata(metadata).toString());
     }
 
     private CortexDb.RelayEnvelope parseV2(JSONObject json, String raw) throws Exception {
         requireEquals(PROTOCOL_V2, json.optString("protocol"), "protocol");
         requireEquals(SCHEMA_V2, json.optString("schema"), "schema");
         requireEquals(CONNECTOR_ID, json.optString("connector_id"), "connector_id");
-
         String eventId = required(json, KEY_EVENT_ID);
         JSONObject source = json.optJSONObject("source");
         if (source == null) throw new InvalidEvent("MISSING_SOURCE", "source object is required");
         requireEquals("NOTIFICATION", source.optString("type"), "source.type");
         String sourcePackage = clean(source.optString("package"));
         long occurredAt = json.optLong("occurred_at", 0L);
-
         JSONObject semantic = json.optJSONObject("semantic");
-        String summary = summaryFromSemantic(semantic);
-        JSONObject quality = qualityFromSemantic(semantic);
         return new CortexDb.RelayEnvelope(eventId, CONNECTOR_ID, PROTOCOL_V2, "NOTIFICATION",
-                sourcePackage, occurredAt, summary, raw, quality.toString());
+                sourcePackage, occurredAt, summaryFromSemantic(semantic), raw,
+                qualityFromSemantic(semantic).toString());
     }
 
-    /** Mechanical display summary only; no personal importance or task inference. */
     private static String summaryFromSemantic(JSONObject semantic) {
         if (semantic == null) return "Relay notification evidence";
         JSONObject content = semantic.optJSONObject("content");
         if (content != null) {
-            String summary = displaySummary(
-                    nullableString(content, "title"),
-                    nullableString(content, "text"),
-                    nullableString(content, "expanded_text"),
-                    nullableString(content, "conversation_title")
-            );
+            String summary = displaySummary(nullableString(content, "title"), nullableString(content, "text"),
+                    nullableString(content, "expanded_text"), nullableString(content, "conversation_title"));
             if (!summary.isEmpty()) return summary;
         }
         JSONObject typed = semantic.optJSONObject("semantic");
@@ -194,7 +181,6 @@ public final class CortexLocalBusService extends Service {
         return "Relay notification evidence";
     }
 
-    /** Preserve Relay-supplied provenance/quality only. Cortex does not manufacture a quality score here. */
     private static JSONObject qualityFromSemantic(JSONObject semantic) {
         JSONObject out = new JSONObject();
         if (semantic == null) return out;
@@ -229,16 +215,13 @@ public final class CortexLocalBusService extends Service {
             for (String item : packages) if (RELAY_PACKAGE.equals(item)) { packageMatches = true; break; }
         }
         if (!packageMatches) throw new IdentityFailure("Sender UID is not Cortex Relay");
-
         String current = currentSignerSha256(pm, RELAY_PACKAGE);
         if (current.isEmpty()) throw new IdentityFailure("Relay signer unavailable");
         SharedPreferences prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
         String pinned = clean(prefs.getString(PREF_RELAY_CERT, ""));
         if (pinned.isEmpty()) {
             if (!allowPin) throw new IdentityFailure("Relay identity has not completed authenticated HELLO");
-            if (!prefs.edit().putString(PREF_RELAY_CERT, current).commit()) {
-                throw new IdentityFailure("Could not pin Relay signer");
-            }
+            if (!prefs.edit().putString(PREF_RELAY_CERT, current).commit()) throw new IdentityFailure("Could not pin Relay signer");
             return;
         }
         if (!constantTimeEquals(pinned, current)) throw new IdentityFailure("Relay signer changed");
@@ -262,7 +245,6 @@ public final class CortexLocalBusService extends Service {
             byte[] hash = MessageDigest.getInstance("SHA-256").digest(signature.toByteArray());
             digests.add(hex(hash));
         }
-        // Multiple current signers are represented deterministically; changing any signer changes the pin.
         return String.join("+", digests);
     }
 
@@ -274,7 +256,7 @@ public final class CortexLocalBusService extends Service {
             data.putString(KEY_EVENT_ID, clean(eventId));
             data.putString(KEY_STATUS, clean(status));
             if (evidenceId > 0) data.putLong(KEY_SIGNAL_ID, evidenceId);
-            reply.data = data;
+            reply.setData(data);
             target.send(reply);
         } catch (Throwable ignored) {}
     }
@@ -287,7 +269,7 @@ public final class CortexLocalBusService extends Service {
             data.putString(KEY_EVENT_ID, clean(eventId));
             data.putString(KEY_STATUS, clean(status));
             data.putString(KEY_DETAIL, clip(clean(detail), 300));
-            reply.data = data;
+            reply.setData(data);
             target.send(reply);
         } catch (Throwable ignored) {}
     }
