@@ -75,7 +75,7 @@ public final class CaptureAnalysisQueue {
                     BrainStore.markRunning(db, evidenceId);
                     String snapshot = BrainStore.contextSnapshot(db, 12);
                     CortexDb.AttachmentEvidence grounded = db.attachmentEvidence(evidenceId);
-                    BrainIntakeEngine.Decision decision = BrainIntakeEngine.understand(app, grounded, transcript.text, snapshot);
+                    BrainIntakeEngine.Decision decision = CortexBrainRouter.understand(app, grounded, transcript.text, snapshot);
                     brain = BrainStore.apply(db, evidenceId, decision);
                 } catch (Exception e) {
                     brainError = e;
