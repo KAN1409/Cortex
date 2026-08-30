@@ -18,7 +18,6 @@ import android.provider.OpenableColumns;
 import android.text.InputType;
 import android.view.Gravity;
 import android.view.View;
-import android.view.ViewGroup;
 import android.view.Window;
 import android.view.WindowManager;
 import android.widget.EditText;
@@ -95,7 +94,6 @@ public final class CaptureActivity extends Activity {
     private void addTile(LinearLayout row,String label,Runnable action,int left){TextView tile=text(label,16,TEXT,true);tile.setGravity(Gravity.CENTER);tile.setBackground(round(SURFACE2,Color.TRANSPARENT,20,0));tile.setOnClickListener(v->action.run());LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,-1,1);p.setMargins(dp(left),0,0,0);row.addView(tile,p);}
 
     private void handleMode(Intent i){if(i==null)return;String mode=i.getStringExtra("mode");if(mode==null)return;i.removeExtra("mode");if("voice".equals(mode))startVoice();else if("text".equals(mode))quickNote();else if("photo".equals(mode))pickPhoto();else if("file".equals(mode))pickFile();}
-
     private void handleIncoming(Intent i){if(i==null)return;String a=i.getAction();if(Intent.ACTION_SEND.equals(a))importSend(i);else if(Intent.ACTION_SEND_MULTIPLE.equals(a))importMultiple(i);}
 
     private void quickNote(){
@@ -103,7 +101,7 @@ public final class CaptureActivity extends Activity {
         EditText e=new EditText(this);e.setHint("Thought, note, reminder, idea…");e.setHintTextColor(MUTED);e.setTextColor(TEXT);e.setTextSize(15);e.setGravity(Gravity.TOP);e.setMinLines(4);e.setMaxLines(8);e.setInputType(InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_FLAG_MULTI_LINE|InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);e.setPadding(dp(14),dp(12),dp(14),dp(12));e.setBackground(round(SURFACE2,BORDER,18,1));sheet.addView(e,new LinearLayout.LayoutParams(-1,-2));
         LinearLayout actions=new LinearLayout(this);actions.setPadding(0,dp(12),0,0);TextView cancel=action("Cancel",false),save=action("Save to Memory",true);actions.addView(cancel,new LinearLayout.LayoutParams(0,dp(48),1));LinearLayout.LayoutParams sp=new LinearLayout.LayoutParams(0,dp(48),1);sp.setMargins(dp(8),0,0,0);actions.addView(save,sp);sheet.addView(actions);
         cancel.setOnClickListener(v->{sheet.removeView(e);sheet.removeView(actions);choices.setVisibility(View.VISIBLE);});
-        save.setOnClickListener(v->{String s=e.getText().toString().trim();if(s.isEmpty()){e.setError("Write something first");return;}if(db.capture(s)>0){Toast.makeText(this,"Saved to Memory",Toast.LENGTH_SHORT).show();finish();}});
+        save.setOnClickListener(v->{String s=e.getText().toString().trim();if(s.isEmpty()){e.setError("Write something first");return;}if(db.capture(s)>0){Toast.makeText(this,"Saved to Memory",Toast.LENGTH_SHORT).show();route("memory");}});
         e.requestFocus();
     }
 
@@ -112,14 +110,14 @@ public final class CaptureActivity extends Activity {
 
     @Override protected void onActivityResult(int req,int result,Intent data){super.onActivityResult(req,result,data);if(result!=RESULT_OK||data==null||data.getData()==null)return;Uri uri=data.getData();String mime="";try{mime=getContentResolver().getType(uri);}catch(Throwable ignored){}importUri(uri,mime,req==REQ_PHOTO);}
 
-    private void importUri(Uri uri,String mime,boolean forceImage){setBusy("Importing safely…");io.execute(()->{long id=0;Exception error=null;try{id=copyAndStore(uri,mime,forceImage);}catch(Exception e){error=e;}final long evidenceId=id;final Exception failure=error;runOnUiThread(()->{if(destroyed)return;if(evidenceId>0){CortexDb.AttachmentEvidence ev=db.attachmentEvidence(evidenceId);if(ev!=null&&ev.kind.startsWith("AUDIO")){setBusy("Transcribing Egyptian Arabic + English…");CaptureAnalysisQueue.analyzeVoice(this,evidenceId,this::voiceDone);}else{Toast.makeText(this,"Captured as evidence",Toast.LENGTH_SHORT).show();finish();}}else{setReady();Toast.makeText(this,failure==null?"Could not import":"Import failed: "+failure.getMessage(),Toast.LENGTH_LONG).show();}});});}
+    private void importUri(Uri uri,String mime,boolean forceImage){setBusy("Importing safely…");io.execute(()->{long id=0;Exception error=null;try{id=copyAndStore(uri,mime,forceImage);}catch(Exception e){error=e;}final long evidenceId=id;final Exception failure=error;runOnUiThread(()->{if(destroyed)return;if(evidenceId>0){CortexDb.AttachmentEvidence ev=db.attachmentEvidence(evidenceId);if(ev!=null&&ev.kind.startsWith("AUDIO")){setBusy("Transcribing Egyptian Arabic + English…");CaptureAnalysisQueue.analyzeVoice(this,evidenceId,this::voiceDone);}else{Toast.makeText(this,"Captured as evidence",Toast.LENGTH_SHORT).show();route("memory");}}else{setReady();Toast.makeText(this,failure==null?"Could not import":"Import failed: "+failure.getMessage(),Toast.LENGTH_LONG).show();}});});}
 
     private long copyAndStore(Uri uri,String mime,boolean forceImage)throws Exception{
         String name=displayName(uri,forceImage?"image":"file");String effective=mime==null?"":mime;boolean audio=effective.startsWith("audio/");boolean image=forceImage||effective.startsWith("image/");String folder=audio?"audio":"imports";File dir=new File(getFilesDir(),folder);if(!dir.exists()&&!dir.mkdirs())throw new Exception("Could not create capture directory");String safe=name.replaceAll("[^A-Za-z0-9._-]","_");if(safe.length()>80)safe=safe.substring(safe.length()-80);File out=new File(dir,UUID.randomUUID()+"_"+safe);try(InputStream in=getContentResolver().openInputStream(uri);FileOutputStream os=new FileOutputStream(out)){if(in==null)throw new Exception("Could not open selected item");byte[] b=new byte[8192];for(int n;(n=in.read(b))!=-1;)os.write(b,0,n);}JSONObject meta=new JSONObject();meta.put("mime",effective);meta.put("name",name);meta.put("bytes",out.length());meta.put("imported_at",System.currentTimeMillis());if(image){BitmapFactory.Options o=new BitmapFactory.Options();o.inJustDecodeBounds=true;BitmapFactory.decodeFile(out.getAbsolutePath(),o);meta.put("width",o.outWidth);meta.put("height",o.outHeight);}String kind=audio?"AUDIO_IMPORT":image?"IMAGE":"FILE";String body=audio?"Voice/audio file pending transcription":name;String state=audio?"pending_transcription":"observed";return db.captureAttachment(kind,name,effective,out.getAbsolutePath(),body,meta.toString(),state);
     }
 
-    private void importSend(Intent i){Uri uri=i.getParcelableExtra(Intent.EXTRA_STREAM);if(uri!=null){importUri(uri,i.getType(),i.getType()!=null&&i.getType().startsWith("image/"));return;}String text=i.getStringExtra(Intent.EXTRA_TEXT);if(text!=null&&!text.trim().isEmpty()){db.capture(text);Toast.makeText(this,"Shared text saved to Memory",Toast.LENGTH_SHORT).show();finish();}}
-    private void importMultiple(Intent i){ArrayList<Uri> uris=i.getParcelableArrayListExtra(Intent.EXTRA_STREAM);if(uris==null||uris.isEmpty())return;setBusy("Importing shared files…");io.execute(()->{int count=0;for(Uri u:uris)try{if(copyAndStore(u,i.getType(),i.getType()!=null&&i.getType().startsWith("image/"))>0)count++;}catch(Exception ignored){}final int n=count;runOnUiThread(()->{Toast.makeText(this,n+" items captured",Toast.LENGTH_SHORT).show();finish();});});}
+    private void importSend(Intent i){Uri uri=i.getParcelableExtra(Intent.EXTRA_STREAM);if(uri!=null){importUri(uri,i.getType(),i.getType()!=null&&i.getType().startsWith("image/"));return;}String text=i.getStringExtra(Intent.EXTRA_TEXT);if(text!=null&&!text.trim().isEmpty()){db.capture(text);Toast.makeText(this,"Shared text saved to Memory",Toast.LENGTH_SHORT).show();route("memory");}}
+    private void importMultiple(Intent i){ArrayList<Uri> uris=i.getParcelableArrayListExtra(Intent.EXTRA_STREAM);if(uris==null||uris.isEmpty())return;setBusy("Importing shared files…");io.execute(()->{int count=0;for(Uri u:uris)try{if(copyAndStore(u,i.getType(),i.getType()!=null&&i.getType().startsWith("image/"))>0)count++;}catch(Exception ignored){}final int n=count;runOnUiThread(()->{Toast.makeText(this,n+" items captured",Toast.LENGTH_SHORT).show();route("memory");});});}
 
     private void startVoice(){
         if(!GeminiKeyStore.has(this)&&!GroqKeyStore.has(this)){new AlertDialog.Builder(this).setTitle("Voice transcription setup").setMessage("This rebuild uses the same Cortex ASR architecture: Gemini 3.6 Flash primary and Groq Whisper Large v3 fallback. Configure at least one provider once for this fresh app.").setNegativeButton("Cancel",null).setPositiveButton("Set up",(d,w)->startActivity(new Intent(this,AsrSettingsActivity.class))).show();return;}
@@ -132,7 +130,28 @@ public final class CaptureActivity extends Activity {
 
     private void finishVoice(boolean save){try{File f=recorder.stop();if(tick!=null)handler.removeCallbacks(tick);if(f==null)return;if(!save){f.delete();finish();return;}if(recordPanel!=null)recordPanel.setVisibility(View.GONE);JSONObject meta=new JSONObject();meta.put("mime","audio/wav");meta.put("bytes",f.length());meta.put("recorded_at",System.currentTimeMillis());long id=db.captureAttachment("AUDIO","Voice recording","audio/wav",f.getAbsolutePath(),"Voice recording · transcription queued",meta.toString(),"pending_transcription");setBusy("Transcribing Egyptian Arabic + English…");CaptureAnalysisQueue.analyzeVoice(this,id,this::voiceDone);}catch(Throwable e){Toast.makeText(this,"Could not save recording",Toast.LENGTH_LONG).show();}}
 
-    private void voiceDone(long evidenceId,TranscriptResult result,Exception error){if(destroyed)return;if(error==null&&result!=null){state.setVisibility(View.VISIBLE);state.setText("Transcript saved as grounded evidence\n\n"+clip(result.text,900));state.setTextColor(TEXT);Toast.makeText(this,"Voice transcription complete",Toast.LENGTH_SHORT).show();handler.postDelayed(this::finish,1800);}else{setReady();state.setVisibility(View.VISIBLE);state.setTextColor(AMBER);String m=error==null?"unknown error":error.getMessage();state.setText("Recording is safe, but transcription failed.\n"+clip(m,260));}}
+    private void voiceDone(long evidenceId,CaptureAnalysisQueue.Outcome outcome){
+        if(destroyed)return;
+        if(outcome==null||!outcome.transcriptionSucceeded()){
+            setReady();state.setVisibility(View.VISIBLE);state.setTextColor(AMBER);Exception e=outcome==null?null:outcome.transcriptionError;String m=e==null?"unknown error":e.getMessage();state.setText("Recording is safe, but transcription failed.\n"+clip(m,260));return;
+        }
+        state.setVisibility(View.VISIBLE);state.setTextColor(TEXT);
+        if(outcome.brainSucceeded()){
+            String destination=outcome.brainResult.destination();
+            state.setText("Cortex brain → "+destination+"\n\n"+clip(outcome.transcript.text,760)+(outcome.brainResult.reason.isEmpty()?"":"\n\n"+clip(outcome.brainResult.reason,260)));
+            Toast.makeText(this,"Cortex → "+destination,Toast.LENGTH_SHORT).show();
+            handler.postDelayed(()->route(tabFor(outcome.brainResult)),2200);
+        }else{
+            Exception e=outcome.brainError;
+            String m=e==null?"Brain decision unavailable":e.getMessage();
+            state.setTextColor(AMBER);
+            state.setText("Transcript saved. Cortex brain retry pending.\n\n"+clip(outcome.transcript.text,650)+"\n\n"+clip(m,260));
+            Toast.makeText(this,"Transcript safe · brain retry pending",Toast.LENGTH_LONG).show();
+        }
+    }
+
+    private String tabFor(BrainStore.ApplyResult result){if(result==null)return"memory";if(result.situationId>0)return"now";if(result.memoryId>0)return"memory";if(result.entityIds!=null&&!result.entityIds.isEmpty())return"world";return"memory";}
+    private void route(String tab){Intent i=new Intent(this,MainActivity.class);i.putExtra("tab",tab);i.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP|Intent.FLAG_ACTIVITY_SINGLE_TOP);startActivity(i);finish();}
 
     private void setBusy(String message){choices.setVisibility(View.GONE);state.setVisibility(View.VISIBLE);state.setTextColor(BRAND);state.setText(message);}
     private void setReady(){choices.setVisibility(View.VISIBLE);state.setVisibility(View.GONE);}
