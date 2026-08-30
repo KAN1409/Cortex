@@ -1,0 +1,10 @@
+{
+  "protocol": "CORTEX_DEVBRIDGE_V1",
+  "agent_version": "3",
+  "job_id": "job_relay_stop_autolaunch_20260830_1827",
+  "capability": "STOP",
+  "status": "SUCCESS",
+  "exit_code": 0,
+  "finished_at": "2026-08-30T15:52:01Z",
+  "log_tail": "started_at=2026-08-30T15:51:58Z\nagent_version=3\nfinished_at=2026-08-30T15:51:59Z"
+}
