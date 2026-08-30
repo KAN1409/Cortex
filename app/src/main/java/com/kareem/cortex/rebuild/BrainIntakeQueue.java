@@ -32,7 +32,7 @@ public final class BrainIntakeQueue {
             String transcript=BrainStore.transcript(db,evidenceId);if(transcript==null||transcript.trim().isEmpty())throw new IllegalArgumentException("Transcript not found");
             BrainStore.markRunning(db,evidenceId);
             String context=BrainStore.contextSnapshot(db,12);
-            BrainIntakeEngine.Decision decision=BrainIntakeEngine.understand(app,evidence,transcript,context);
+            BrainIntakeEngine.Decision decision=CortexBrainRouter.understand(app,evidence,transcript,context);
             applied=BrainStore.apply(db,evidenceId,decision);
         }catch(Exception e){error=e;if(db!=null)try{BrainStore.markFailed(db,evidenceId,e);}catch(Throwable ignored){}
         }finally{if(db!=null)try{db.close();}catch(Throwable ignored){}}
