@@ -5,8 +5,20 @@ CONTROL_BRANCH="${CORTEX_DEVBRIDGE_CONTROL_BRANCH:-infra/termux-dev-bridge-v1}"
 ROOT="${CORTEX_DEVBRIDGE_HOME:-$HOME/.cortex-devbridge}"
 CONTROL="$ROOT/control"
 TARGET="$ROOT/agent-v3.runtime.sh"
+FINALIZER="$ROOT/relay-c6-finalizer.runtime.sh"
 
 [ -d "$CONTROL/.git" ] || { echo DEVBRIDGE_CONTROL_CLONE_MISSING >&2; exit 70; }
+git -C "$CONTROL" fetch origin "$CONTROL_BRANCH" >/dev/null 2>&1 || true
+
+# Bounded one-shot Candidate6 finalization. Failure never blocks normal Agent V3 processing.
+if git -C "$CONTROL" show "origin/$CONTROL_BRANCH:scripts/devbridge-relay-c6-finalizer.sh" > "$FINALIZER" 2>/dev/null \
+   && bash -n "$FINALIZER" >/dev/null 2>&1; then
+  chmod 700 "$FINALIZER"
+  "$FINALIZER" || true
+else
+  rm -f "$FINALIZER"
+fi
+
 git -C "$CONTROL" fetch origin "$CONTROL_BRANCH" >/dev/null 2>&1 || true
 git -C "$CONTROL" show "origin/$CONTROL_BRANCH:scripts/devbridge-agent-v3.sh" > "$TARGET" 2>/dev/null || { echo DEVBRIDGE_V3_FETCH_FAILED >&2; exit 71; }
 bash -n "$TARGET" >/dev/null 2>&1 || { rm -f "$TARGET"; echo DEVBRIDGE_V3_SYNTAX_FAILED >&2; exit 72; }
