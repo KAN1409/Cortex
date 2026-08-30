@@ -20,29 +20,29 @@ jobs:
         with:
           gradle-version: '8.9'
 
-      - name: Verify Cortex 0.7.1 capture cognition policy
+      - name: Verify Cortex 0.7.2 GPT-OSS brain policy
         shell: bash
         run: |
           set -euo pipefail
           grep -q "applicationId 'com.kareem.cortex.rebuild'" app/build.gradle
-          grep -q "versionCode 8" app/build.gradle
-          grep -q "versionName '0.7.1-capture-policy'" app/build.gradle
-          grep -q 'TEST_META' app/src/main/java/com/kareem/cortex/rebuild/BrainIntakeEngine.java
-          grep -q 'PRODUCT_FEEDBACK' app/src/main/java/com/kareem/cortex/rebuild/BrainIntakeEngine.java
-          grep -q 'TRANSIENT' app/src/main/java/com/kareem/cortex/rebuild/BrainIntakeEngine.java
-          grep -q 'CAPTURE_HISTORY_ONLY' app/src/main/java/com/kareem/cortex/rebuild/BrainIntakeEngine.java
-          grep -q 'obviousCapturePolicy' app/src/main/java/com/kareem/cortex/rebuild/BrainIntakeEngine.java
-          grep -q 'capture-policy-v1' app/src/main/java/com/kareem/cortex/rebuild/BrainIntakeEngine.java
+          grep -q "versionCode 9" app/build.gradle
+          grep -q "versionName '0.7.2-gptoss-brain'" app/build.gradle
+          grep -q 'openai/gpt-oss-120b' app/src/main/java/com/kareem/cortex/rebuild/CortexBrainRouter.java
+          grep -q 'reasoning_effort' app/src/main/java/com/kareem/cortex/rebuild/CortexBrainRouter.java
+          grep -q 'json_schema' app/src/main/java/com/kareem/cortex/rebuild/CortexBrainRouter.java
+          grep -q 'strict.*true' app/src/main/java/com/kareem/cortex/rebuild/CortexBrainRouter.java
+          grep -q 'Gemini fallback' app/src/main/java/com/kareem/cortex/rebuild/CortexBrainRouter.java
+          grep -q 'CortexBrainRouter.understand' app/src/main/java/com/kareem/cortex/rebuild/CaptureAnalysisQueue.java
+          grep -q 'CortexBrainRouter.understand' app/src/main/java/com/kareem/cortex/rebuild/BrainIntakeQueue.java
+          grep -q 'TEST_META' app/src/main/java/com/kareem/cortex/rebuild/CortexBrainRouter.java
+          grep -q 'PRODUCT_FEEDBACK' app/src/main/java/com/kareem/cortex/rebuild/CortexBrainRouter.java
+          grep -q 'TRANSIENT' app/src/main/java/com/kareem/cortex/rebuild/CortexBrainRouter.java
           grep -q 'CREATE TABLE IF NOT EXISTS brain_evidence_policy' app/src/main/java/com/kareem/cortex/rebuild/BrainStore.java
           grep -q 'CREATE TABLE IF NOT EXISTS product_feedback' app/src/main/java/com/kareem/cortex/rebuild/BrainStore.java
           grep -q '72L\*60L\*60L\*1000L' app/src/main/java/com/kareem/cortex/rebuild/BrainStore.java
           grep -q 'purgeExpiredShortEvidence' app/src/main/java/com/kareem/cortex/rebuild/CortexApp.java
-          grep -q 'BrainIntakeEngine.understand' app/src/main/java/com/kareem/cortex/rebuild/CaptureAnalysisQueue.java
           ! grep -q 'RECENT VOICE CAPTURES' app/src/main/java/com/kareem/cortex/rebuild/MainActivity.java
           ! grep -q 'recentVoiceOutcomes' app/src/main/java/com/kareem/cortex/rebuild/MainActivity.java
-          grep -q 'CORTEX_SIGNER_BLOCKED_RUN53' scripts/finalize-cortex-0.7.1.sh
-          grep -q 'pm install -r' scripts/finalize-cortex-0.7.1.sh
-          grep -q '44b0180ba743460788171687f2dbcfb137c5e5a151f2783306747f84fbee39f4' scripts/prepare-cortex-rebuild-signer-recovery.sh
           grep -q 'signer_generated=0' scripts/prepare-cortex-rebuild-signer-recovery.sh
           grep -q 'signer_replaced=0' scripts/prepare-cortex-rebuild-signer-recovery.sh
           ! grep -q 'openssl genpkey' scripts/prepare-cortex-rebuild-signer-recovery.sh
@@ -64,31 +64,7 @@ jobs:
             exit 1
           fi
 
-      - name: Package safe 0.7.1 finalizer
-        shell: bash
-        run: |
-          set -euo pipefail
-          OUT="dist/Cortex-0.7.1-Capture-Policy-finalizer"
-          mkdir -p "$OUT"
-          cp app/build/outputs/apk/release/app-release-unsigned.apk "$OUT/app-release-unsigned.apk"
-          cp scripts/finalize-cortex-0.7.1.sh "$OUT/finalize-cortex-0.7.1.sh"
-          chmod +x "$OUT/finalize-cortex-0.7.1.sh"
-          cat > "$OUT/README.txt" <<'EOF'
-          Cortex 0.7.1 capture-policy validation fix
-
-          Package: com.kareem.cortex.rebuild
-          versionCode: 8
-          versionName: 0.7.1-capture-policy
-
-          This package deliberately contains an unsigned APK.
-          The finalizer reads the signer of the currently installed Cortex and permits update-in-place
-          only when an existing local private key matches that exact installed signer. It never creates,
-          rotates, replaces, or reconstructs a signing identity. If no matching key exists, it exits
-          without uninstalling, clearing, replacing, or mutating Cortex data.
-          EOF
-          (cd "$OUT" && sha256sum app-release-unsigned.apk finalize-cortex-0.7.1.sh > SHA256SUMS.txt)
-
-      - name: Package non-destructive signer recovery snapshot tool
+      - name: Package non-destructive signer diagnostic
         shell: bash
         run: |
           set -euo pipefail
@@ -109,18 +85,11 @@ jobs:
           EOF
           (cd "$OUT" && sha256sum prepare-cortex-rebuild-signer-recovery.sh > SHA256SUMS.txt)
 
-      - name: Upload diagnostic debug APK
+      - name: Upload Cortex 0.7.2 diagnostic debug APK
         uses: actions/upload-artifact@v4
         with:
-          name: Cortex-Rebuild-V1-Capture-Policy-debug
+          name: Cortex-0.7.2-GPTOSS-Brain-debug
           path: app/build/outputs/apk/debug/app-debug.apk
-          if-no-files-found: error
-
-      - name: Upload safe finalizer
-        uses: actions/upload-artifact@v4
-        with:
-          name: Cortex-0.7.1-Capture-Policy-finalizer
-          path: dist/Cortex-0.7.1-Capture-Policy-finalizer/
           if-no-files-found: error
 
       - name: Upload signer recovery diagnostic
