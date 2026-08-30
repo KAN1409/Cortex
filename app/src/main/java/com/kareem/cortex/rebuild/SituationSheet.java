@@ -11,6 +11,8 @@ import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.media.MediaPlayer;
 import android.net.Uri;
+import android.os.Handler;
+import android.os.Looper;
 import android.text.InputType;
 import android.text.method.LinkMovementMethod;
 import android.text.util.Linkify;
@@ -21,6 +23,7 @@ import android.view.WindowManager;
 import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
+import android.widget.SeekBar;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -136,7 +139,78 @@ public final class SituationSheet {
     private static void deleteSituation(Activity a,CortexDb db,long id,Dialog d,Runnable refresh){new AlertDialog.Builder(a).setTitle("Delete Situation?").setMessage("This removes the Situation from Cortex Now but keeps its underlying evidence unless you separately delete the source capture.").setNegativeButton("Cancel",null).setPositiveButton("Delete",(x,w)->{SituationActions.deleteSituation(db,id);d.dismiss();run(refresh);}).show();}
     private static void deleteCapture(Activity a,CortexDb db,long evidenceId,Dialog d,Runnable refresh){new AlertDialog.Builder(a).setTitle("Delete source capture?").setMessage("This permanently removes the source evidence and its transcript/attachment from Cortex. Derived state supported only by this capture is retired.").setNegativeButton("Cancel",null).setPositiveButton("Delete capture",(x,w)->{boolean ok=SituationActions.deleteEvidence(db,evidenceId);d.dismiss();run(refresh);Toast.makeText(a,ok?"Capture deleted":"Capture could not be deleted",Toast.LENGTH_SHORT).show();}).show();}
 
-    private static void playVoice(Activity a,String path){try{File f=new File(path);if(!f.isFile()){Toast.makeText(a,"Original voice file is unavailable",Toast.LENGTH_LONG).show();return;}MediaPlayer p=new MediaPlayer();p.setDataSource(path);p.setOnCompletionListener(MediaPlayer::release);p.setOnErrorListener((mp,what,extra)->{mp.release();Toast.makeText(a,"Could not play original voice",Toast.LENGTH_LONG).show();return true;});p.prepare();p.start();Toast.makeText(a,"Playing original voice",Toast.LENGTH_SHORT).show();}catch(Exception e){Toast.makeText(a,"Could not play original voice",Toast.LENGTH_LONG).show();}}
+    private static void playVoice(Activity a,String path){
+        File f=new File(path);
+        if(!f.isFile()){Toast.makeText(a,"Original voice file is unavailable",Toast.LENGTH_LONG).show();return;}
+        MediaPlayer player=new MediaPlayer();
+        Handler handler=new Handler(Looper.getMainLooper());
+        Dialog dialog=new Dialog(a);
+        try{
+            player.setDataSource(path);
+            player.prepare();
+
+            LinearLayout root=new LinearLayout(a);root.setOrientation(LinearLayout.VERTICAL);root.setPadding(dp(a,20),dp(a,18),dp(a,20),dp(a,18));root.setBackground(round(a,SURFACE,BORDER,24,1));
+            LinearLayout header=new LinearLayout(a);header.setGravity(Gravity.CENTER_VERTICAL);
+            TextView title=text(a,"Original voice",20,TEXT,true);header.addView(title,new LinearLayout.LayoutParams(0,-2,1));
+            TextView close=text(a,"×",28,MUTED,false);close.setGravity(Gravity.CENTER);header.addView(close,new LinearLayout.LayoutParams(dp(a,44),dp(a,44)));root.addView(header);
+
+            TextView status=text(a,"Ready",12,MUTED,false);status.setPadding(0,dp(a,4),0,dp(a,10));root.addView(status);
+            SeekBar seek=new SeekBar(a);seek.setMax(Math.max(1,player.getDuration()));seek.setProgress(0);root.addView(seek,new LinearLayout.LayoutParams(-1,-2));
+            TextView time=text(a,"0:00 / "+formatDuration(player.getDuration()),12,MUTED,false);time.setGravity(Gravity.END);time.setPadding(0,dp(a,2),0,dp(a,12));root.addView(time);
+
+            LinearLayout controls=new LinearLayout(a);controls.setOrientation(LinearLayout.HORIZONTAL);
+            TextView play=text(a,"Play",14,BG,true);play.setGravity(Gravity.CENTER);play.setBackground(round(a,BRAND,Color.TRANSPARENT,14,0));
+            TextView stop=text(a,"Stop",14,TEXT,true);stop.setGravity(Gravity.CENTER);stop.setBackground(round(a,SURFACE2,RED,14,1));
+            LinearLayout.LayoutParams cp=new LinearLayout.LayoutParams(0,dp(a,50),1);cp.setMargins(dp(a,3),0,dp(a,3),0);controls.addView(play,cp);controls.addView(stop,new LinearLayout.LayoutParams(cp));root.addView(controls);
+
+            final boolean[] touching={false};
+            final boolean[] released={false};
+            final Runnable[] ticker=new Runnable[1];
+            ticker[0]=()->{
+                if(released[0])return;
+                try{
+                    int pos=player.getCurrentPosition();
+                    if(!touching[0])seek.setProgress(pos);
+                    time.setText(formatDuration(pos)+" / "+formatDuration(player.getDuration()));
+                    if(player.isPlaying())handler.postDelayed(ticker[0],250);
+                }catch(IllegalStateException ignored){}
+            };
+
+            seek.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener(){
+                @Override public void onProgressChanged(SeekBar s,int progress,boolean fromUser){if(fromUser)time.setText(formatDuration(progress)+" / "+formatDuration(player.getDuration()));}
+                @Override public void onStartTrackingTouch(SeekBar s){touching[0]=true;}
+                @Override public void onStopTrackingTouch(SeekBar s){touching[0]=false;try{player.seekTo(s.getProgress());}catch(IllegalStateException ignored){}}
+            });
+
+            play.setOnClickListener(v->{
+                try{
+                    if(player.isPlaying()){
+                        player.pause();play.setText("Play");status.setText("Paused");handler.removeCallbacks(ticker[0]);
+                    }else{
+                        if(player.getCurrentPosition()>=player.getDuration()-100)player.seekTo(0);
+                        player.start();play.setText("Pause");status.setText("Playing");handler.removeCallbacks(ticker[0]);handler.post(ticker[0]);
+                    }
+                }catch(IllegalStateException e){Toast.makeText(a,"Could not control original voice",Toast.LENGTH_LONG).show();}
+            });
+
+            stop.setOnClickListener(v->{
+                try{
+                    if(player.isPlaying())player.pause();
+                    player.seekTo(0);seek.setProgress(0);time.setText("0:00 / "+formatDuration(player.getDuration()));play.setText("Play");status.setText("Stopped");handler.removeCallbacks(ticker[0]);
+                }catch(IllegalStateException ignored){}
+            });
+
+            player.setOnCompletionListener(mp->{seek.setProgress(0);time.setText("0:00 / "+formatDuration(mp.getDuration()));play.setText("Play");status.setText("Finished");handler.removeCallbacks(ticker[0]);try{mp.seekTo(0);}catch(IllegalStateException ignored){}});
+            player.setOnErrorListener((mp,what,extra)->{status.setText("Playback error");play.setText("Play");handler.removeCallbacks(ticker[0]);Toast.makeText(a,"Could not play original voice",Toast.LENGTH_LONG).show();return true;});
+            close.setOnClickListener(v->dialog.dismiss());
+            dialog.setOnDismissListener(x->{handler.removeCallbacksAndMessages(null);released[0]=true;try{if(player.isPlaying())player.stop();}catch(IllegalStateException ignored){}try{player.release();}catch(Exception ignored){}});
+            dialog.setContentView(root);
+            Window w=dialog.getWindow();if(w!=null){w.setBackgroundDrawableResource(android.R.color.transparent);w.addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND);WindowManager.LayoutParams lp=w.getAttributes();lp.dimAmount=.68f;w.setAttributes(lp);w.setGravity(Gravity.BOTTOM);}
+            dialog.show();if(w!=null)w.setLayout(ViewGroup.LayoutParams.MATCH_PARENT,ViewGroup.LayoutParams.WRAP_CONTENT);
+        }catch(Exception e){try{player.release();}catch(Exception ignored){}Toast.makeText(a,"Could not play original voice",Toast.LENGTH_LONG).show();}
+    }
+
+    private static String formatDuration(int ms){int total=Math.max(0,ms)/1000;return String.format(Locale.ROOT,"%d:%02d",total/60,total%60);}
     private static void openUrl(Activity a,String url){try{a.startActivity(new Intent(Intent.ACTION_VIEW,Uri.parse(url)));}catch(Exception e){Toast.makeText(a,"No app can open this URL",Toast.LENGTH_LONG).show();}}
     private static void summarize(Activity a,String url,LinearLayout sheet){TextView status=text(a,"Reading source and summarizing with GPT-OSS 120B…",13,AMBER,false);sheet.addView(status,top(a,8));WebSummaryEngine.summarize(a,url,(summary,error)->{if(error!=null){status.setTextColor(RED);status.setText("Summary failed: "+clip(error.getMessage(),220));}else{status.setTextColor(TEXT);status.setText(summary);linkify(status);}});}
 
