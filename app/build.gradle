@@ -65,8 +65,8 @@ android {
         applicationId 'com.kareem.cortex.rebuild'
         minSdk 26
         targetSdk 35
-        versionCode 13
-        versionName '0.10.0-photo-cognition'
+        versionCode 14
+        versionName '0.10.1-groq-vision-router'
     }
 
     buildTypes {
@@ -132,25 +132,25 @@ tasks.register('prepareDevbridgeSignedCandidate') {
         signerBackup.setReadable(true, true); signerBackup.setWritable(true, true)
         def builtApk = file("${buildDir}/outputs/apk/debug/app-debug.apk")
         if (!builtApk.isFile()) throw new GradleException("Signed debug APK missing: ${builtApk}")
-        def stableApk = new File(stableDir, 'Cortex-0.10.0-photo-cognition-debug-diagnostic.apk')
+        def stableApk = new File(stableDir, 'Cortex-0.10.1-groq-vision-router-debug-diagnostic.apk')
         stableApk.bytes = builtApk.bytes
         println "diagnostic_signer_source_sha256=${signerFp}"
         println "diagnostic_debug_apk=${stableApk.absolutePath}"
     }
 }
 
-tasks.register('prepareCortex0100PermanentApk', Exec) {
+tasks.register('prepareCortex0101PermanentApk', Exec) {
     dependsOn 'assembleRelease'
     workingDir rootProject.projectDir
-    commandLine 'bash', rootProject.file('scripts/devbridge-sign-stable-cortex-0100.sh').absolutePath
+    commandLine 'bash', rootProject.file('scripts/devbridge-sign-stable-cortex-0101.sh').absolutePath
 }
 
-tasks.register('exportCortex0100PermanentApk', Exec) {
-    dependsOn 'prepareCortex0100PermanentApk'
+tasks.register('exportCortex0101PermanentApk', Exec) {
+    dependsOn 'prepareCortex0101PermanentApk'
     workingDir rootProject.projectDir
     def home = System.getenv('HOME') ?: System.getProperty('user.home')
     commandLine 'bash', rootProject.file('scripts/devbridge-export-signed-apk.sh').absolutePath,
-            new File(home, '.cortex-rebuild-signing/Cortex-0.10.0-photo-cognition-permanent.apk').absolutePath
+            new File(home, '.cortex-rebuild-signing/Cortex-0.10.1-groq-vision-router-permanent.apk').absolutePath
 }
 
 tasks.register('exportDevbridgeSignedApk', Exec) {
