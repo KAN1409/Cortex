@@ -31,6 +31,26 @@ def sha256Hex = { byte[] bytes ->
     digest.collect { String.format('%02x', ((byte) it) & 0xff) }.join('')
 }
 
+def signerFingerprintForFile = { File keyFile ->
+    if (!keyFile.isFile()) return null
+    for (String type : ['JKS', 'PKCS12']) {
+        try {
+            def candidate = java.security.KeyStore.getInstance(type)
+            keyFile.withInputStream { input -> candidate.load(input, 'android'.toCharArray()) }
+            for (String alias : ['androiddebugkey', 'cortex']) {
+                def cert = candidate.getCertificate(alias)
+                if (cert != null) return sha256Hex(cert.encoded)
+            }
+            def aliases = candidate.aliases()
+            while (aliases.hasMoreElements()) {
+                def cert = candidate.getCertificate(aliases.nextElement())
+                if (cert != null) return sha256Hex(cert.encoded)
+            }
+        } catch (Exception ignored) {}
+    }
+    return null
+}
+
 android {
     namespace 'com.kareem.cortex.rebuild'
     compileSdk 35
@@ -80,6 +100,25 @@ tasks.register('printDebugSignerFingerprint') {
         def cert = ks.getCertificate('androiddebugkey')
         if (cert == null) throw new GradleException('androiddebugkey certificate missing')
         println "debug_signer_sha256=${sha256Hex(cert.encoded)}"
+    }
+}
+
+// Device-only public-certificate diagnostic. It never prints private key material and never changes
+// any signer. It exists to recover update continuity if the installed APK and build overlay diverge.
+tasks.register('diagnoseCortexSignerCandidates') {
+    doLast {
+        def home = new File(System.getenv('HOME') ?: System.getProperty('user.home'))
+        def candidates = [
+                ['overlay', cortexDebugKeystore],
+                ['android_debug', new File(home, '.android/debug.keystore')],
+                ['rebuild_backup', new File(home, '.cortex-rebuild-signing/cortex-rebuild-permanent.keystore')],
+                ['repo_source', new File(home, 'Cortex/app/cortex-debug.keystore')]
+        ]
+        candidates.each { pair ->
+            File f = pair[1] as File
+            def fp = signerFingerprintForFile(f)
+            println "signer_candidate_${pair[0]}=${fp ?: 'absent_or_unreadable'}"
+        }
     }
 }
 
