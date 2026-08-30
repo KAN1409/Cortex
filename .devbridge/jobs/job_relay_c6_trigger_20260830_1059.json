@@ -1,0 +1,10 @@
+{
+  "protocol": "CORTEX_DEVBRIDGE_V1",
+  "repo": "KAN1409/Cortex",
+  "authorized_owner": "KAN1409",
+  "job_id": "job_relay_c6_trigger_20260830_1059",
+  "capability": "PING",
+  "ref": "infra/termux-dev-bridge-v1",
+  "package": "com.kareem.secondbrain",
+  "params": {}
+}
