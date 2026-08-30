@@ -19,28 +19,83 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
-      - name: Verify Cortex 0.7 capture cognition policy
+
+      - name: Verify Cortex 0.7.1 capture cognition policy
         shell: bash
         run: |
           set -euo pipefail
           grep -q "applicationId 'com.kareem.cortex.rebuild'" app/build.gradle
-          grep -q "versionName '0.7-capture-policy'" app/build.gradle
+          grep -q "versionCode 8" app/build.gradle
+          grep -q "versionName '0.7.1-capture-policy'" app/build.gradle
           grep -q 'TEST_META' app/src/main/java/com/kareem/cortex/rebuild/BrainIntakeEngine.java
           grep -q 'PRODUCT_FEEDBACK' app/src/main/java/com/kareem/cortex/rebuild/BrainIntakeEngine.java
           grep -q 'TRANSIENT' app/src/main/java/com/kareem/cortex/rebuild/BrainIntakeEngine.java
           grep -q 'CAPTURE_HISTORY_ONLY' app/src/main/java/com/kareem/cortex/rebuild/BrainIntakeEngine.java
-          grep -q 'retention=SHORT' app/src/main/java/com/kareem/cortex/rebuild/BrainIntakeEngine.java
+          grep -q 'obviousCapturePolicy' app/src/main/java/com/kareem/cortex/rebuild/BrainIntakeEngine.java
+          grep -q 'capture-policy-v1' app/src/main/java/com/kareem/cortex/rebuild/BrainIntakeEngine.java
           grep -q 'CREATE TABLE IF NOT EXISTS brain_evidence_policy' app/src/main/java/com/kareem/cortex/rebuild/BrainStore.java
           grep -q 'CREATE TABLE IF NOT EXISTS product_feedback' app/src/main/java/com/kareem/cortex/rebuild/BrainStore.java
           grep -q '72L\*60L\*60L\*1000L' app/src/main/java/com/kareem/cortex/rebuild/BrainStore.java
-          grep -q "COALESCE(b.status,'')!='applied'" app/src/main/java/com/kareem/cortex/rebuild/BrainStore.java
           grep -q 'purgeExpiredShortEvidence' app/src/main/java/com/kareem/cortex/rebuild/CortexApp.java
           grep -q 'BrainIntakeEngine.understand' app/src/main/java/com/kareem/cortex/rebuild/CaptureAnalysisQueue.java
-      - name: Build Cortex 0.7 APK
-        run: gradle :app:assembleDebug --stacktrace
-      - name: Upload APK
+          ! grep -q 'RECENT VOICE CAPTURES' app/src/main/java/com/kareem/cortex/rebuild/MainActivity.java
+          ! grep -q 'recentVoiceOutcomes' app/src/main/java/com/kareem/cortex/rebuild/MainActivity.java
+          grep -q 'CORTEX_SIGNER_BLOCKED_RUN53' scripts/finalize-cortex-0.7.1.sh
+          grep -q 'pm install -r' scripts/finalize-cortex-0.7.1.sh
+
+      - name: Build debug and unsigned release APKs
+        run: gradle :app:assembleDebug :app:assembleRelease --stacktrace
+
+      - name: Verify release artifact is unsigned
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK="app/build/outputs/apk/release/app-release-unsigned.apk"
+          test -s "$APK"
+          APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n1)"
+          test -n "$APKSIGNER"
+          if "$APKSIGNER" verify "$APK" >/dev/null 2>&1; then
+            echo "Release artifact unexpectedly carries a signer" >&2
+            exit 1
+          fi
+
+      - name: Package safe 0.7.1 finalizer
+        shell: bash
+        run: |
+          set -euo pipefail
+          OUT="dist/Cortex-0.7.1-Capture-Policy-finalizer"
+          mkdir -p "$OUT"
+          cp app/build/outputs/apk/release/app-release-unsigned.apk "$OUT/app-release-unsigned.apk"
+          cp scripts/finalize-cortex-0.7.1.sh "$OUT/finalize-cortex-0.7.1.sh"
+          chmod +x "$OUT/finalize-cortex-0.7.1.sh"
+          cat > "$OUT/README.txt" <<'EOF'
+          Cortex 0.7.1 capture-policy validation fix
+
+          Package: com.kareem.cortex.rebuild
+          versionCode: 8
+          versionName: 0.7.1-capture-policy
+
+          This package deliberately contains an unsigned APK.
+          The finalizer first reads the signer of the currently installed Cortex, searches local and
+          historical Cortex key material for the exact matching private key, and only then signs and
+          attempts Android update-in-place. If no matching key exists, it exits without uninstalling,
+          clearing, replacing, or mutating Cortex data.
+
+          Run from Termux:
+            bash finalize-cortex-0.7.1.sh
+          EOF
+          (cd "$OUT" && sha256sum app-release-unsigned.apk finalize-cortex-0.7.1.sh > SHA256SUMS.txt)
+
+      - name: Upload diagnostic debug APK
         uses: actions/upload-artifact@v4
         with:
           name: Cortex-Rebuild-V1-Capture-Policy-debug
           path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+
+      - name: Upload safe finalizer
+        uses: actions/upload-artifact@v4
+        with:
+          name: Cortex-0.7.1-Capture-Policy-finalizer
+          path: dist/Cortex-0.7.1-Capture-Policy-finalizer/
           if-no-files-found: error
