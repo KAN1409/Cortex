@@ -1,0 +1,10 @@
+{
+  "protocol": "CORTEX_DEVBRIDGE_V1",
+  "agent_version": "3",
+  "job_id": "job_20260830_gptoss_postrepair_ping_01",
+  "capability": "PING",
+  "status": "SUCCESS",
+  "exit_code": 0,
+  "finished_at": "2026-08-30T11:20:28Z",
+  "log_tail": "started_at=2026-08-30T11:20:25Z\nagent_version=3\npong=true\nagent_version=3\nsigner_source_present=true\nfinished_at=2026-08-30T11:20:26Z"
+}
