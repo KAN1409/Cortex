@@ -67,7 +67,7 @@ public final class SituationSheet {
         addContextualActions(activity,sheet,row);
 
         section(activity,sheet,"SITUATION OPTIONS",BRAND);
-        addWide(sheet,wide(activity,"Ask Cortex about this",SURFACE2,TEXT),()->{Intent i=new Intent(activity,MainActivity.class);i.putExtra("tab","ask");i.putExtra("ask_query",row.title+"\n"+row.body);i.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP|Intent.FLAG_ACTIVITY_SINGLE_TOP);activity.startActivity(i);dialog.dismiss();});
+        addWide(sheet,wide(activity,"Think with ChatGPT",SURFACE2,TEXT),()->ChatGptHandoff.showForSituation(activity,db,row,source));
         addWide(sheet,wide(activity,"Split / re-run Brain",SURFACE2,TEXT),()->rerun(activity,db,row,source,dialog,refresh));
         addWide(sheet,wide(activity,"Merge with…",SURFACE2,TEXT),()->merge(activity,db,row,dialog,refresh));
         addWide(sheet,wide(activity,"Change priority",SURFACE2,TEXT),()->priority(activity,db,row.id,dialog,refresh));
