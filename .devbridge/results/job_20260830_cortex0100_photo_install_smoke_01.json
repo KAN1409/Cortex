@@ -1,0 +1,10 @@
+{
+  "protocol": "CORTEX_DEVBRIDGE_V1",
+  "agent_version": "3",
+  "job_id": "job_20260830_cortex0100_photo_install_smoke_01",
+  "capability": "BUILD_INSTALL_SMOKE",
+  "status": "FAILED",
+  "exit_code": 27,
+  "finished_at": "2026-08-30T17:27:43Z",
+  "log_tail": "started_at=2026-08-30T17:27:05Z\nagent_version=3\nstable_apk_sha256=f5835ec16bcd8b907e55ba80f68c4265674bc4cb0aa315fdff058ed511d7eebb\nCORTEX_0100_PERMANENT_APK_READY\nBUILD_SUCCESS\nAPKSIGNER_INSTALLED_FAIL\nfinished_at=2026-08-30T17:27:41Z"
+}
