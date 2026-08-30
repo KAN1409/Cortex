@@ -1,0 +1,36 @@
+name: Export Relay Candidate5 APK
+
+on:
+  push:
+    branches:
+      - device/termux-dev-bridge-results
+    paths:
+      - .github/workflows/export-relay-candidate5.yml
+
+permissions:
+  contents: read
+
+jobs:
+  export-apk:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout result branch
+        uses: actions/checkout@v4
+
+      - name: Extract signed APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          unzip -j .devbridge/artifacts/job_relay_c5_sign_export_20260830_0953.zip -d out
+          test -f out/Cortex-Relay-2.0.0-candidate5-permanent.apk
+          echo "a1f441127b5c8fecb4f2da21bc3a1ff8992a46fc81ccd2db8f426bcf40806e9e  out/Cortex-Relay-2.0.0-candidate5-permanent.apk" | sha256sum -c -
+
+      - name: Upload signed APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Cortex-Relay-v2.0.0-candidate5-permanent
+          path: out/Cortex-Relay-2.0.0-candidate5-permanent.apk
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 0
