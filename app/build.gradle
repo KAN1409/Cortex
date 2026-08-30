@@ -35,8 +35,6 @@ android {
     namespace 'com.kareem.cortex.rebuild'
     compileSdk 35
 
-    // The permanent Cortex signer stays local-only. CI intentionally never invents a replacement
-    // signer for device updates; unsigned release artifacts are finalized only with a matching key.
     signingConfigs {
         cortexPersistentDebug {
             if (cortexDebugKeystore.exists()) {
@@ -52,8 +50,8 @@ android {
         applicationId 'com.kareem.cortex.rebuild'
         minSdk 26
         targetSdk 35
-        versionCode 9
-        versionName '0.7.2-gptoss-brain'
+        versionCode 10
+        versionName '0.8.0-situations-sources'
     }
 
     buildTypes {
@@ -72,9 +70,6 @@ android {
     }
 }
 
-// DevBridge-only readout: the bridge overlays the device-local signer into app/cortex-debug.keystore
-// inside an ephemeral worktree. This task prints only the public certificate fingerprint, never key
-// material, so signer lineage can be reconciled without asking for additional Termux commands.
 tasks.register('printDebugSignerFingerprint') {
     doLast {
         def ks = loadCortexSigner()
@@ -88,8 +83,6 @@ tasks.register('printDebugSignerFingerprint') {
     }
 }
 
-// Persist the already-existing device-local signer and the current APK outside the
-// DevBridge ephemeral worktree. This never installs or replaces the currently installed package.
 tasks.register('prepareDevbridgeSignedCandidate') {
     dependsOn 'assembleDebug'
     doLast {
@@ -128,7 +121,7 @@ tasks.register('prepareDevbridgeSignedCandidate') {
 
         def builtApk = file("${buildDir}/outputs/apk/debug/app-debug.apk")
         if (!builtApk.isFile()) throw new GradleException("Signed debug APK missing: ${builtApk}")
-        def stableApk = new File(stableDir, 'Cortex-0.7.2-gptoss-brain-signed.apk')
+        def stableApk = new File(stableDir, 'Cortex-0.8.0-situations-sources-signed.apk')
         stableApk.bytes = builtApk.bytes
         stableApk.setReadable(false, false)
         stableApk.setWritable(false, false)
