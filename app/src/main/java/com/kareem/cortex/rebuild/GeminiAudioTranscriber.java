@@ -15,15 +15,25 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
+import java.net.SocketTimeoutException;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.Locale;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
-/** Port of the final proven Cortex Gemini voice path. */
+/** Port of the proven Cortex Gemini voice path with a hard network deadline. */
 public final class GeminiAudioTranscriber {
     private static final String MODEL = "gemini-3.6-flash";
     public static final long MAX_SAFE_INLINE_BYTES = 8_000_000L;
+    private static final long HARD_TIMEOUT_MS = 45_000L;
     private static final String PROMPT = "Transcribe this audio verbatim. Speech may switch between Egyptian Arabic and English. Preserve Egyptian Arabic as spoken, preserve every spoken English word in Latin letters, and do not translate, summarize, paraphrase, or convert Egyptian Arabic to Modern Standard Arabic. Return only the transcript text.";
+    private static final ScheduledExecutorService TIMEOUTS = Executors.newSingleThreadScheduledExecutor(r -> {
+        Thread t = new Thread(r, "cortex-gemini-timeout"); t.setDaemon(true); return t;
+    });
 
     private GeminiAudioTranscriber() {}
 
@@ -35,6 +45,7 @@ public final class GeminiAudioTranscriber {
 
         byte[] bytes = readBytesBounded(audio, MAX_SAFE_INLINE_BYTES);
         String b64 = Base64.encodeToString(bytes, Base64.NO_WRAP);
+        bytes = null;
         JSONObject inline = new JSONObject().put("mimeType", mime(audio)).put("data", b64);
         JSONArray parts = new JSONArray()
                 .put(new JSONObject().put("text", PROMPT))
@@ -46,38 +57,53 @@ public final class GeminiAudioTranscriber {
         String endpoint = "https://generativelanguage.googleapis.com/v1beta/models/" + MODEL +
                 ":generateContent?key=" + java.net.URLEncoder.encode(key, "UTF-8");
         HttpURLConnection c = (HttpURLConnection) new URL(endpoint).openConnection();
-        c.setRequestMethod("POST");
-        c.setDoOutput(true);
-        c.setConnectTimeout(20_000);
-        c.setReadTimeout(120_000);
-        c.setRequestProperty("Content-Type", "application/json");
-        c.setRequestProperty("Accept", "application/json");
-        try (OutputStream out = c.getOutputStream()) { out.write(req.toString().getBytes(StandardCharsets.UTF_8)); }
-        int code = c.getResponseCode();
-        String body = read(code >= 200 && code < 300 ? c.getInputStream() : c.getErrorStream());
-        c.disconnect();
-        if (code < 200 || code >= 300) throw new IOException("Gemini ASR HTTP " + code + ": " + compact(body));
+        AtomicBoolean forcedTimeout = new AtomicBoolean(false);
+        ScheduledFuture<?> guard = TIMEOUTS.schedule(() -> {
+            forcedTimeout.set(true);
+            try { c.disconnect(); } catch (Throwable ignored) {}
+        }, HARD_TIMEOUT_MS, TimeUnit.MILLISECONDS);
+        try {
+            c.setRequestMethod("POST");
+            c.setDoOutput(true);
+            c.setConnectTimeout(12_000);
+            c.setReadTimeout(40_000);
+            c.setRequestProperty("Content-Type", "application/json");
+            c.setRequestProperty("Accept", "application/json");
+            try (OutputStream out = c.getOutputStream()) {
+                out.write(req.toString().getBytes(StandardCharsets.UTF_8));
+            }
+            int code = c.getResponseCode();
+            String body = read(code >= 200 && code < 300 ? c.getInputStream() : c.getErrorStream());
+            if (forcedTimeout.get()) throw new SocketTimeoutException("Gemini ASR hard timeout");
+            if (code < 200 || code >= 300) throw new IOException("Gemini ASR HTTP " + code + ": " + compact(body));
 
-        JSONObject root = new JSONObject(body);
-        String text = extractText(root).trim()
-                .replaceAll("^```(?:text)?\\s*", "")
-                .replaceAll("```$", "")
-                .replaceAll("\\s+", " ").trim();
-        if (text.isEmpty()) throw new IOException("Gemini returned an empty transcript");
+            JSONObject root = new JSONObject(body);
+            String text = extractText(root).trim()
+                    .replaceAll("^```(?:text)?\\s*", "")
+                    .replaceAll("```$", "")
+                    .replaceAll("\\s+", " ").trim();
+            if (text.isEmpty()) throw new IOException("Gemini returned an empty transcript");
 
-        long duration = duration(audio);
-        TranscriptResult r = new TranscriptResult();
-        r.text = text;
-        r.rawTranscript = text;
-        r.providerMergedTranscript = text;
-        r.engine = MODEL + "+audio";
-        r.version = "gemini-audio-v4-safe-inline";
-        r.durationMs = duration;
-        r.processedDurationMs = duration;
-        r.coverage = duration > 0 ? 1.0 : 0.0;
-        r.language = detectLanguage(text);
-        r.rawProviderResponse = body;
-        return r;
+            long duration = duration(audio);
+            TranscriptResult r = new TranscriptResult();
+            r.text = text;
+            r.rawTranscript = text;
+            r.providerMergedTranscript = text;
+            r.engine = MODEL + "+audio";
+            r.version = "gemini-audio-v4-safe-inline-hard-timeout";
+            r.durationMs = duration;
+            r.processedDurationMs = duration;
+            r.coverage = duration > 0 ? 1.0 : 0.0;
+            r.language = detectLanguage(text);
+            r.rawProviderResponse = body;
+            return r;
+        } catch (IOException e) {
+            if (forcedTimeout.get()) throw new SocketTimeoutException("Gemini ASR hard timeout");
+            throw e;
+        } finally {
+            guard.cancel(false);
+            try { c.disconnect(); } catch (Throwable ignored) {}
+        }
     }
 
     private static String extractText(JSONObject root) {
@@ -114,7 +140,8 @@ public final class GeminiAudioTranscriber {
     private static String read(InputStream in) throws Exception {
         if (in == null) return "";
         try (InputStream x = in; ByteArrayOutputStream b = new ByteArrayOutputStream()) {
-            byte[] buf = new byte[8192]; for (int n; (n = x.read(buf)) != -1;) b.write(buf, 0, n);
+            byte[] buf = new byte[8192];
+            for (int n; (n = x.read(buf)) != -1;) b.write(buf, 0, n);
             return b.toString("UTF-8");
         }
     }
