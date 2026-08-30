@@ -14,22 +14,39 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
+import java.net.SocketTimeoutException;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.List;
 import java.util.Locale;
 import java.util.UUID;
+import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
- * Port of the final Cortex Groq fallback: three candidates, timestamp/coverage checks and
- * Whisper confidence metrics before selecting a transcript.
+ * Cortex Groq fallback with the same three-candidate quality benchmark, but candidates run in
+ * parallel and every HTTP request has a hard disconnect deadline so the UI cannot sit forever.
  */
 public final class GroqAudioTranscriber {
     private static final String ENDPOINT = "https://api.groq.com/openai/v1/audio/transcriptions";
     private static final String V3 = "whisper-large-v3";
     private static final String TURBO = "whisper-large-v3-turbo";
-    private static final String VERSION = "groq-audio-v5-confidence-benchmark";
+    private static final String VERSION = "groq-audio-v6-parallel-benchmark";
     private static final String MIN_PROMPT = "مصري + English code-switching. اكتب الكلام كما قيل exactly; keep English in Latin letters. مثال: هنجرب recording على model جديد.";
+    private static final long CANDIDATE_HARD_TIMEOUT_MS = 50_000L;
+    private static final long BENCHMARK_TIMEOUT_MS = 58_000L;
+    private static final ScheduledExecutorService TIMEOUTS = Executors.newScheduledThreadPool(1, r -> {
+        Thread t = new Thread(r, "cortex-groq-timeout"); t.setDaemon(true); return t;
+    });
 
     private GroqAudioTranscriber() {}
 
@@ -43,13 +60,48 @@ public final class GroqAudioTranscriber {
             this.label=label; this.result=result; this.warning=warning; this.score=score; this.metrics=metrics;
         }
     }
+    private static final class CandidateRun {
+        final Candidate candidate; final String status;
+        CandidateRun(Candidate candidate, String status) { this.candidate=candidate; this.status=status; }
+    }
 
     public static TranscriptResult transcribe(Context context, File audio) throws Exception {
+        if (audio == null || !audio.exists() || audio.length() == 0) throw new IllegalArgumentException("Missing audio file");
+        if (GroqKeyStore.get(context).isEmpty()) throw new IllegalStateException("Groq API key not configured");
+
+        ExecutorService pool = Executors.newFixedThreadPool(3, r -> new Thread(r, "cortex-groq-candidate"));
+        List<Future<CandidateRun>> futures = new ArrayList<>();
+        futures.add(pool.submit(candidateTask(context, audio, V3, MIN_PROMPT, "v3_prompt")));
+        futures.add(pool.submit(candidateTask(context, audio, V3, null, "v3_no_prompt")));
+        futures.add(pool.submit(candidateTask(context, audio, TURBO, MIN_PROMPT, "turbo_prompt")));
+
         ArrayList<Candidate> all = new ArrayList<>();
         ArrayList<String> errors = new ArrayList<>();
-        runCandidate(context, audio, V3, MIN_PROMPT, "v3_prompt", all, errors);
-        runCandidate(context, audio, V3, null, "v3_no_prompt", all, errors);
-        runCandidate(context, audio, TURBO, MIN_PROMPT, "turbo_prompt", all, errors);
+        long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(BENCHMARK_TIMEOUT_MS);
+        try {
+            for (Future<CandidateRun> future : futures) {
+                long remaining = deadline - System.nanoTime();
+                if (remaining <= 0) {
+                    future.cancel(true);
+                    errors.add("benchmark deadline reached");
+                    continue;
+                }
+                try {
+                    CandidateRun run = future.get(remaining, TimeUnit.NANOSECONDS);
+                    if (run.candidate != null) all.add(run.candidate);
+                    errors.add(run.status);
+                } catch (TimeoutException e) {
+                    future.cancel(true);
+                    errors.add("candidate timed out");
+                } catch (ExecutionException e) {
+                    Throwable cause = e.getCause();
+                    errors.add(cause == null ? "candidate failed" : message(cause));
+                }
+            }
+        } finally {
+            for (Future<CandidateRun> future : futures) if (!future.isDone()) future.cancel(true);
+            pool.shutdownNow();
+        }
 
         Candidate best = null;
         for (Candidate c : all) if (c.warning == null && (best == null || c.score > best.score)) best = c;
@@ -80,6 +132,7 @@ public final class GroqAudioTranscriber {
             candidates.put(j);
         }
         diag.put("candidates", candidates);
+        diag.put("benchmark_status", new JSONArray(errors));
         try { diag.put("selected_raw_provider", new JSONObject(best.result.rawProviderResponse)); }
         catch (Exception e) { diag.put("selected_raw_provider_text", best.result.rawProviderResponse); }
         best.result.rawProviderResponse = diag.toString();
@@ -89,59 +142,78 @@ public final class GroqAudioTranscriber {
         return best.result;
     }
 
-    private static void runCandidate(Context ctx, File audio, String model, String prompt, String label,
-                                     ArrayList<Candidate> out, ArrayList<String> errors) {
-        try {
-            TranscriptResult r = call(ctx, audio, model, prompt, label);
-            String warning = qualityWarning(r, audio);
-            Metrics m = metrics(r.rawProviderResponse);
-            double score = score(r, warning, m);
-            out.add(new Candidate(label, r, warning, score, m));
-            errors.add(label + ": " + (warning == null ? "accepted score=" + Math.round(score) : warning));
-        } catch (Exception e) { errors.add(label + ": " + message(e)); }
+    private static Callable<CandidateRun> candidateTask(Context ctx, File audio, String model, String prompt, String label) {
+        Context app = ctx.getApplicationContext();
+        return () -> {
+            try {
+                TranscriptResult r = call(app, audio, model, prompt, label);
+                String warning = qualityWarning(r, audio);
+                Metrics m = metrics(r.rawProviderResponse);
+                double score = score(r, warning, m);
+                Candidate candidate = new Candidate(label, r, warning, score, m);
+                return new CandidateRun(candidate, label + ": " + (warning == null ? "accepted score=" + Math.round(score) : warning));
+            } catch (Exception e) {
+                return new CandidateRun(null, label + ": " + message(e));
+            }
+        };
     }
 
     private static TranscriptResult call(Context context, File audio, String model, String prompt, String label) throws Exception {
-        if (audio == null || !audio.exists() || audio.length() == 0) throw new IllegalArgumentException("Missing audio file");
         String key = GroqKeyStore.get(context);
         if (key.isEmpty()) throw new IllegalStateException("Groq API key not configured");
         String boundary = "----CortexGroq" + UUID.randomUUID().toString().replace("-", "");
         HttpURLConnection c = (HttpURLConnection) new URL(ENDPOINT).openConnection();
-        c.setRequestMethod("POST"); c.setDoOutput(true); c.setConnectTimeout(20_000); c.setReadTimeout(120_000);
-        c.setRequestProperty("Authorization", "Bearer " + key);
-        c.setRequestProperty("Accept", "application/json");
-        c.setRequestProperty("Content-Type", "multipart/form-data; boundary=" + boundary);
-        c.setChunkedStreamingMode(64 * 1024);
-        try (OutputStream out = c.getOutputStream()) {
-            field(out,boundary,"model",model);
-            field(out,boundary,"response_format","verbose_json");
-            field(out,boundary,"temperature","0");
-            field(out,boundary,"timestamp_granularities[]","segment");
-            if (prompt != null && !prompt.isEmpty()) field(out,boundary,"prompt",prompt);
-            file(out,boundary,"file",audio,mime(audio));
-            write(out,"--"+boundary+"--\r\n");
-        }
-        int code = c.getResponseCode();
-        String body = read(code >= 200 && code < 300 ? c.getInputStream() : c.getErrorStream());
-        c.disconnect();
-        if (code < 200 || code >= 300) throw new IOException("Groq ASR HTTP " + code + ": " + compact(body));
+        AtomicBoolean forcedTimeout = new AtomicBoolean(false);
+        ScheduledFuture<?> guard = TIMEOUTS.schedule(() -> {
+            forcedTimeout.set(true);
+            try { c.disconnect(); } catch (Throwable ignored) {}
+        }, CANDIDATE_HARD_TIMEOUT_MS, TimeUnit.MILLISECONDS);
+        try {
+            c.setRequestMethod("POST");
+            c.setDoOutput(true);
+            c.setConnectTimeout(12_000);
+            c.setReadTimeout(45_000);
+            c.setRequestProperty("Authorization", "Bearer " + key);
+            c.setRequestProperty("Accept", "application/json");
+            c.setRequestProperty("Content-Type", "multipart/form-data; boundary=" + boundary);
+            c.setChunkedStreamingMode(64 * 1024);
+            try (OutputStream out = c.getOutputStream()) {
+                field(out,boundary,"model",model);
+                field(out,boundary,"response_format","verbose_json");
+                field(out,boundary,"temperature","0");
+                field(out,boundary,"timestamp_granularities[]","segment");
+                if (prompt != null && !prompt.isEmpty()) field(out,boundary,"prompt",prompt);
+                file(out,boundary,"file",audio,mime(audio));
+                write(out,"--"+boundary+"--\r\n");
+            }
+            int code = c.getResponseCode();
+            String body = read(code >= 200 && code < 300 ? c.getInputStream() : c.getErrorStream());
+            if (forcedTimeout.get()) throw new SocketTimeoutException("Groq ASR hard timeout");
+            if (code < 200 || code >= 300) throw new IOException("Groq ASR HTTP " + code + ": " + compact(body));
 
-        JSONObject json = new JSONObject(body);
-        TranscriptResult r = new TranscriptResult();
-        r.rawProviderResponse = body;
-        r.language = json.optString("language", "auto");
-        r.engine = model + "+" + label;
-        r.version = VERSION;
-        r.durationMs = duration(audio);
-        if (r.durationMs <= 0) { double d = json.optDouble("duration", 0); if (d > 0) r.durationMs = toMs(d); }
-        String top = json.optString("text", "").trim();
-        r.rawTranscript = top;
-        String merged = parseSegments(json, r);
-        r.providerMergedTranscript = merged;
-        r.text = !merged.isEmpty() ? merged : dedupeRepeatedText(top);
-        if (r.text.isEmpty()) throw new IOException("Groq returned an empty transcript");
-        if (r.processedDurationMs > 0 && r.durationMs > 0) r.coverage = Math.min(1.0, (double)r.processedDurationMs / r.durationMs);
-        return r;
+            JSONObject json = new JSONObject(body);
+            TranscriptResult r = new TranscriptResult();
+            r.rawProviderResponse = body;
+            r.language = json.optString("language", "auto");
+            r.engine = model + "+" + label;
+            r.version = VERSION;
+            r.durationMs = duration(audio);
+            if (r.durationMs <= 0) { double d = json.optDouble("duration", 0); if (d > 0) r.durationMs = toMs(d); }
+            String top = json.optString("text", "").trim();
+            r.rawTranscript = top;
+            String merged = parseSegments(json, r);
+            r.providerMergedTranscript = merged;
+            r.text = !merged.isEmpty() ? merged : dedupeRepeatedText(top);
+            if (r.text.isEmpty()) throw new IOException("Groq returned an empty transcript");
+            if (r.processedDurationMs > 0 && r.durationMs > 0) r.coverage = Math.min(1.0, (double)r.processedDurationMs / r.durationMs);
+            return r;
+        } catch (IOException e) {
+            if (forcedTimeout.get()) throw new SocketTimeoutException("Groq ASR hard timeout");
+            throw e;
+        } finally {
+            guard.cancel(false);
+            try { c.disconnect(); } catch (Throwable ignored) {}
+        }
     }
 
     private static Metrics metrics(String raw) {
@@ -210,7 +282,7 @@ public final class GroqAudioTranscriber {
     private static long toMs(double sec){return sec<=0?0:Math.round(sec*1000);}
     private static double round3(double x){if(Double.isNaN(x)||Double.isInfinite(x))return 0;return Math.round(x*1000.0)/1000.0;}
     private static String join(ArrayList<String> xs){StringBuilder b=new StringBuilder();for(String x:xs){if(b.length()>0)b.append(" | ");b.append(x);}return b.toString();}
-    private static String message(Exception e){if(e==null)return "Unknown error";String m=e.getMessage();return m==null||m.trim().isEmpty()?e.getClass().getSimpleName():m.trim();}
+    private static String message(Throwable e){if(e==null)return "Unknown error";String m=e.getMessage();return m==null||m.trim().isEmpty()?e.getClass().getSimpleName():m.trim();}
     private static String compact(String s){if(s==null)return "";String x=s.replaceAll("\\s+"," ").trim();return x.length()>500?x.substring(0,500)+"…":x;}
     private static String mime(File f){String n=f.getName().toLowerCase(Locale.ROOT);if(n.endsWith(".wav"))return "audio/wav";if(n.endsWith(".m4a")||n.endsWith(".mp4"))return "audio/mp4";if(n.endsWith(".mp3"))return "audio/mpeg";if(n.endsWith(".ogg"))return "audio/ogg";return "application/octet-stream";}
     private static long duration(File f){MediaMetadataRetriever m=null;try{m=new MediaMetadataRetriever();m.setDataSource(f.getAbsolutePath());String d=m.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION);return d==null?0:Long.parseLong(d);}catch(Throwable e){return 0;}finally{if(m!=null)try{m.release();}catch(Throwable ignored){}}}
