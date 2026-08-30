@@ -141,6 +141,9 @@ tasks.register('diagnoseCortexSignerCandidates') {
     }
 }
 
+// Legacy diagnostic task retained for compatibility. The distributable APK below is never copied
+// from AGP's debug artifact; it is explicitly signed from the unsigned release with the established
+// local Cortex keystore and then cryptographically verified by the shell finalizer.
 tasks.register('prepareDevbridgeSignedCandidate') {
     dependsOn 'assembleDebug'
     doLast {
@@ -179,33 +182,25 @@ tasks.register('prepareDevbridgeSignedCandidate') {
 
         def builtApk = file("${buildDir}/outputs/apk/debug/app-debug.apk")
         if (!builtApk.isFile()) throw new GradleException("Signed debug APK missing: ${builtApk}")
-        def stableApk = new File(stableDir, 'Cortex-0.8.0-situations-sources-signed.apk')
+        def stableApk = new File(stableDir, 'Cortex-0.8.0-situations-sources-debug-diagnostic.apk')
         stableApk.bytes = builtApk.bytes
-        stableApk.setReadable(false, false)
-        stableApk.setWritable(false, false)
-        stableApk.setExecutable(false, false)
-        stableApk.setReadable(true, true)
-        stableApk.setWritable(true, true)
-
-        def manifest = new File(stableDir, 'SIGNER_MANIFEST.txt')
-        manifest.text = "CORTEX_REBUILD_PERMANENT_SIGNER_V1\n" +
-                "signer_sha256=${signerFp}\n" +
-                "keystore_sha256=${sha256Hex(sourceSigner)}\n" +
-                "apk_sha256=${sha256Hex(stableApk.bytes)}\n" +
-                "apk_path=${stableApk.absolutePath}\n" +
-                "keystore_path=${signerBackup.absolutePath}\n"
-        manifest.setReadable(false, false)
-        manifest.setWritable(false, false)
-        manifest.setExecutable(false, false)
-        manifest.setReadable(true, true)
-        manifest.setWritable(true, true)
-
-        println "permanent_signer_sha256=${signerFp}"
-        println "permanent_signer_keystore=${signerBackup.absolutePath}"
-        println "stable_apk=${stableApk.absolutePath}"
-        println "stable_apk_sha256=${sha256Hex(stableApk.bytes)}"
-        println 'CORTEX_REBUILD_SIGNED_CANDIDATE_READY'
+        println "diagnostic_signer_source_sha256=${signerFp}"
+        println "diagnostic_debug_apk=${stableApk.absolutePath}"
     }
+}
+
+tasks.register('prepareCortex080PermanentApk', Exec) {
+    dependsOn 'assembleRelease'
+    workingDir rootProject.projectDir
+    commandLine 'bash', rootProject.file('scripts/devbridge-sign-stable-cortex-080.sh').absolutePath
+}
+
+tasks.register('exportCortex080PermanentApk', Exec) {
+    dependsOn 'prepareCortex080PermanentApk'
+    workingDir rootProject.projectDir
+    def home = System.getenv('HOME') ?: System.getProperty('user.home')
+    commandLine 'bash', rootProject.file('scripts/devbridge-export-signed-apk.sh').absolutePath,
+            new File(home, '.cortex-rebuild-signing/Cortex-0.8.0-situations-sources-permanent.apk').absolutePath
 }
 
 tasks.register('exportDevbridgeSignedApk', Exec) {
