@@ -4,6 +4,7 @@
 
     <queries>
         <package android:name="com.kareem.secondbrain" />
+        <package android:name="com.openai.chatgpt" />
     </queries>
 
     <application
@@ -22,6 +23,9 @@
                 <action android:name="com.kareem.cortex.rebuild.LOCAL_BUS_V1" />
             </intent-filter>
         </service>
+
+        <activity android:name=".CaptureHistoryActivity" android:exported="false" android:label="Cortex Capture History" />
+        <activity android:name=".CaptureDetailActivity" android:exported="false" android:label="Cortex Capture" />
 
         <activity
             android:name=".AsrSettingsActivity"
