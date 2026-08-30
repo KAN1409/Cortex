@@ -31,9 +31,22 @@ public final class BrainIntakeQueue {
             CortexDb.AttachmentEvidence evidence=db.attachmentEvidence(evidenceId);if(evidence==null)throw new IllegalArgumentException("Evidence not found");
             String transcript=BrainStore.transcript(db,evidenceId);if(transcript==null||transcript.trim().isEmpty())throw new IllegalArgumentException("Transcript not found");
             BrainStore.markRunning(db,evidenceId);
-            String context=BrainStore.contextSnapshot(db,12);
+            String context=BrainStore.contextSnapshot(db,16);
             BrainIntakeEngine.Decision decision=CortexBrainRouter.understand(app,evidence,transcript,context);
             applied=BrainStore.apply(db,evidenceId,decision);
+
+            // Structural second pass: a single voice capture may contain multiple unrelated live
+            // commitments. GPT-OSS decomposes them after semantic routing so Now never needs to
+            // display a catch-all Situation such as "email + errand + dinner".
+            if(decision.situationCreate && "PERSONAL".equals(decision.captureClass)){
+                try{
+                    List<SituationDecomposer.Spec> specs=SituationDecomposer.decompose(app,evidence,transcript,BrainStore.contextSnapshot(db,20));
+                    if(specs!=null&&!specs.isEmpty())SituationActions.replaceEvidenceSituations(db,evidenceId,specs);
+                }catch(Exception ignored){
+                    // The original grounded Brain decision remains valid if decomposition is
+                    // temporarily unavailable; it can be explicitly rerun from Situation details.
+                }
+            }
         }catch(Exception e){error=e;if(db!=null)try{BrainStore.markFailed(db,evidenceId,e);}catch(Throwable ignored){}
         }finally{if(db!=null)try{db.close();}catch(Throwable ignored){}}
         BrainStore.ApplyResult finalApplied=applied;Exception finalError=error;
