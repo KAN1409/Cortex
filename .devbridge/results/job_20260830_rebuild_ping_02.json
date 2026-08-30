@@ -1,0 +1,10 @@
+{
+  "protocol": "CORTEX_DEVBRIDGE_V1",
+  "agent_version": "3",
+  "job_id": "job_20260830_rebuild_ping_02",
+  "capability": "PING",
+  "status": "FAILED",
+  "exit_code": 16,
+  "finished_at": "2026-08-30T09:45:48Z",
+  "log_tail": "started_at=2026-08-30T09:45:46Z\nagent_version=3\nDENY_PACKAGE\nfinished_at=2026-08-30T09:45:46Z"
+}
