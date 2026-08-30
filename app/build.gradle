@@ -8,8 +8,6 @@ android {
     namespace 'com.kareem.cortex.rebuild'
     compileSdk 35
 
-    // The permanent Cortex signer stays local-only. CI intentionally uses its disposable debug
-    // signer; a real device build reuses app/cortex-debug.keystore and must never regenerate it.
     signingConfigs {
         cortexPersistentDebug {
             if (cortexDebugKeystore.exists()) {
@@ -25,8 +23,8 @@ android {
         applicationId 'com.kareem.cortex.rebuild'
         minSdk 26
         targetSdk 35
-        versionCode 6
-        versionName '0.6-voice-brain-routing'
+        versionCode 7
+        versionName '0.7-capture-policy'
     }
 
     buildTypes {
@@ -34,9 +32,7 @@ android {
             minifyEnabled false
             if (cortexDebugKeystore.exists()) signingConfig signingConfigs.cortexPersistentDebug
         }
-        release {
-            minifyEnabled false
-        }
+        release { minifyEnabled false }
     }
 
     compileOptions {
