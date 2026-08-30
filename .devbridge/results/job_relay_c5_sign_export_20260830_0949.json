@@ -1,0 +1,13 @@
+{
+  "protocol": "CORTEX_DEVBRIDGE_V1",
+  "agent_version": "3+relay-sign-export",
+  "job_id": "job_relay_c5_sign_export_20260830_0949",
+  "capability": "RELAY_SIGN_EXPORT",
+  "status": "FAILED",
+  "exit_code": 98,
+  "finished_at": "2026-08-30T09:51:50Z",
+  "log_tail": "started_at=2026-08-30T09:48:09Z\nagent_version=3+relay-sign-export\nkeystore_signer_sha256=fd402eefcec5b1576d6e7b1e5663a835d4c439d03baaa04506dd662e4b4c7d74\nartifact_zip_sha256=02fe20d9ca6a1bfbf5d940d0e38eabf98b28bfeff71661790aaf43f180d60b82\nunsigned_apk_sha256=0af0a31e2bb8e6f8070875d7dfd73e7e1f9b085cee8446d8656eb3cdc95b1765\nFailed to load signer \"signer #1\"\njava.io.IOException: Failed to read Key \"secondbrain\" password for signer #1 : end of file reached in /data/data/com.termux/files/home/.cortex-devbridge/work/relay-sign-export/job_relay_c5_sign_export_20260830_0949.pass\n\tat com.android.apksigner.PasswordRetriever.getPasswords(PasswordRetriever.java:175)\n\tat com.android.apksigner.SignerParams.loadPrivateKeyAndCertsFromKeyStore(SignerParams.java:378)\n\tat com.android.apksigner.SignerParams.loadPrivateKeyAndCerts(SignerParams.java:261)\n\tat com.android.apksigner.ApkSignerTool.getSignerConfig(ApkSignerTool.java:523)\n\tat com.android.apksigner.ApkSignerTool.sign(ApkSignerTool.java:407)\n\tat com.android.apksigner.ApkSignerTool.main(ApkSignerTool.java:94)\nSIGN_FAILED\nfinished_at=2026-08-30T09:51:49Z",
+  "artifact_path": "",
+  "artifact_sha256": "",
+  "artifact_size_bytes": 0
+}
