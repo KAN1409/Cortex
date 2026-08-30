@@ -1,0 +1,10 @@
+{
+  "protocol": "CORTEX_DEVBRIDGE_V1",
+  "agent_version": "2",
+  "job_id": "job_bridge_build_20260830_01",
+  "capability": "BUILD",
+  "status": "FAILED",
+  "exit_code": 127,
+  "finished_at": "2026-08-30T09:24:02Z",
+  "log_tail": "started_at=2026-08-30T09:23:57Z\nagent_version=2\nsigner_overlay=present\nchmod: cannot access '/data/data/com.termux/files/home/.cortex-devbridge/work/job_bridge_build_20260830_01/gradlew': No such file or directory\n/data/data/com.termux/files/home/.cortex-devbridge/agent.current.sh: line 148: ./gradlew: No such file or directory\nfinished_at=2026-08-30T09:24:00Z"
+}
