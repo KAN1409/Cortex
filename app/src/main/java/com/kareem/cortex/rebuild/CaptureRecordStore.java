@@ -36,7 +36,9 @@ public final class CaptureRecordStore {
         ContentValues v=new ContentValues();v.put("payload_json",payload.toString());v.put("quality_json",quality.toString());v.put("body",body);v.put("state","vision_analyzed");vault.getWritableDatabase().update("evidence",v,"id=?",new String[]{String.valueOf(id)});return true;
     }
 
-    public static void retireDerived(CortexDb vault,long evidenceId){SQLiteDatabase db=vault.getWritableDatabase();db.beginTransaction();try{
+    public static void retireDerived(CortexDb vault,long evidenceId){
+        BrainStore.ensure(vault);SituationActions.ensure(vault);
+        SQLiteDatabase db=vault.getWritableDatabase();db.beginTransaction();try{
         ArrayList<Long> situations=new ArrayList<>();Cursor c=db.rawQuery("SELECT situation_id FROM situation_evidence WHERE evidence_id=?",new String[]{String.valueOf(evidenceId)});try{while(c.moveToNext())situations.add(c.getLong(0));}finally{c.close();}
         db.delete("situation_evidence","evidence_id=?",new String[]{String.valueOf(evidenceId)});
         for(Long id:situations){Cursor x=db.rawQuery("SELECT 1 FROM situation_evidence WHERE situation_id=? LIMIT 1",new String[]{String.valueOf(id)});boolean any;try{any=x.moveToFirst();}finally{x.close();}if(!any){ContentValues s=new ContentValues();s.put("state","superseded");s.put("updated_at",System.currentTimeMillis());db.update("situations",s,"id=?",new String[]{String.valueOf(id)});}}
