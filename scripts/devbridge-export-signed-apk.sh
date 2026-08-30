@@ -7,7 +7,8 @@ APK="${1:-}"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 REMOTE="$(git -C "$ROOT" remote get-url origin)"
 RESULT_BRANCH="device/termux-dev-bridge-results"
-ARTIFACT_NAME="Cortex-0.9.0-chatgpt-bridge-permanent.apk"
+ARTIFACT_NAME="$(basename "$APK")"
+[[ "$ARTIFACT_NAME" =~ ^Cortex-[A-Za-z0-9._-]+\.apk$ ]] || { echo "APK_EXPORT_FAIL: unexpected artifact name" >&2; exit 4; }
 TMP="$(mktemp -d "$HOME/.cortex-devbridge/export-apk.XXXXXX")"
 trap 'rm -rf "$TMP"' EXIT
 
@@ -20,8 +21,7 @@ for attempt in 1 2 3 4; do
   cp -f "$APK" "$TMP/repo/.devbridge/artifacts/$ARTIFACT_NAME"
   sha256sum "$TMP/repo/.devbridge/artifacts/$ARTIFACT_NAME" > "$TMP/repo/.devbridge/artifacts/$ARTIFACT_NAME.sha256"
   git -C "$TMP/repo" add -f ".devbridge/artifacts/$ARTIFACT_NAME" ".devbridge/artifacts/$ARTIFACT_NAME.sha256"
-  git -C "$TMP/repo" -c user.name='Cortex Dev Bridge' -c user.email='cortex-devbridge@localhost' \
-    commit -m "devbridge(artifact): Cortex 0.9.0 ChatGPT bridge APK" >/dev/null 2>&1 || true
+  git -C "$TMP/repo" -c user.name='Cortex Dev Bridge' -c user.email='cortex-devbridge@localhost' commit -m "devbridge(artifact): $ARTIFACT_NAME" >/dev/null 2>&1 || true
   if git -C "$TMP/repo" push origin "HEAD:$RESULT_BRANCH" >/dev/null 2>&1; then
     echo "artifact_branch=$RESULT_BRANCH"
     echo "artifact_path=.devbridge/artifacts/$ARTIFACT_NAME"
