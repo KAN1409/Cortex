@@ -1,0 +1,13 @@
+{
+  "protocol": "CORTEX_DEVBRIDGE_V1",
+  "agent_version": "3+relay-c8-no-launch-finalizer",
+  "job_id": "job_relay_candidate8_install_20260830_1918",
+  "capability": "RELAY_CANDIDATE8_SIGN_INSTALL_NO_LAUNCH",
+  "status": "FAILED",
+  "exit_code": 102,
+  "finished_at": "2026-08-30T16:26:17Z",
+  "log_tail": "started_at=2026-08-30T16:20:09Z\nagent_version=3+relay-c8-no-launch-finalizer\nforeground_launch_requested=false\nkeystore_signer_sha256=fd402eefcec5b1576d6e7b1e5663a835d4c439d03baaa04506dd662e4b4c7d74\nartifact_zip_sha256=df50cd525f4ceb61693661c25aeb8e277098090dbf846cbb781f7ee663acfd8c\nunsigned_apk_sha256=51dc956757b17e930b30bb8f1e008f6b872e3035ffb5f820096f5604ea204379\nVerifies\nVerified using v1 scheme (JAR signing): false\nVerified using v2 scheme (APK Signature Scheme v2): true\nVerified using v3 scheme (APK Signature Scheme v3): true\nVerified using v3.1 scheme (APK Signature Scheme v3.1): false\nVerified using v3.2 scheme (APK Signature Scheme v3.2): false\nVerified using v4 scheme (APK Signature Scheme v4): false\nVerified for SourceStamp: false\nNumber of signers: 1\nV3.0 Signer: certificate DN: CN=Second Brain, O=Kareem\nV3.0 Signer: certificate SHA-256 digest: fd402eefcec5b1576d6e7b1e5663a835d4c439d03baaa04506dd662e4b4c7d74\nV3.0 Signer: certificate SHA-1 digest: 8532385613a9bd5a4b2ba61f2b73aaeee39fc997\nV3.0 Signer: certificate MD5 digest: 3aba68bb09664066cfd3fdca0f793ce0\nV3.0 Signer: key algorithm: RSA\nV3.0 Signer: key size (bits): 4096\nV3.0 Signer: public key SHA-256 digest: d5da2ea10eb497ff8b9cadfff427cb1acff55b808a7fc4c3b446ed4562b7683e\nV3.0 Signer: public key SHA-1 digest: 2a155cf222f981f0e50f0e5cd3dfb16b5fbd284c\nV3.0 Signer: public key MD5 digest: 192246ea9da0a4f0d713f79ca0e86822\nsigned_signer_sha256=fd402eefcec5b1576d6e7b1e5663a835d4c439d03baaa04506dd662e4b4c7d74\nsigned_apk_sha256=1b2e91b76242ea1be1443c33d77955750a4906f42bdc2d1a4c6ca2724a0b50dd\nINSTALLED_APK_NOT_FOUND\nfinished_at=2026-08-30T16:26:16Z",
+  "artifact_path": "",
+  "artifact_sha256": "",
+  "artifact_size_bytes": 0
+}
