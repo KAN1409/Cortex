@@ -13,15 +13,16 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
 /**
- * Fresh equivalent of the old single-lane Cortex audio analysis queue.
- * It keeps ASR off the UI thread and enforces the same 240 second voice watchdog.
+ * Single-lane Cortex audio analysis queue. ASR never runs on the UI thread and no provider is
+ * allowed to leave the capture sheet waiting indefinitely. The audio is persisted before this
+ * queue starts, so a timeout can fail safely without losing the recording.
  */
 public final class CaptureAnalysisQueue {
     public interface Callback { void complete(long evidenceId, TranscriptResult result, Exception error); }
     private static final ExecutorService QUEUE = Executors.newSingleThreadExecutor(r -> new Thread(r, "cortex-capture-analysis"));
     private static final ExecutorService ASR = Executors.newCachedThreadPool(r -> new Thread(r, "cortex-asr"));
     private static final Handler MAIN = new Handler(Looper.getMainLooper());
-    private static final long AUDIO_TIMEOUT_SEC = 240;
+    private static final long AUDIO_TIMEOUT_SEC = 75;
 
     private CaptureAnalysisQueue() {}
 
@@ -39,8 +40,12 @@ public final class CaptureAnalysisQueue {
                 if (!audio.exists() || audio.length() == 0) throw new IllegalArgumentException("Voice audio file missing");
                 db.markEvidenceState(evidenceId, "transcribing", "Voice recording · transcription in progress");
                 Future<TranscriptResult> future = ASR.submit((Callable<TranscriptResult>) () -> VoiceTranscriptionEngine.transcribe(app, audio));
-                try { result = future.get(AUDIO_TIMEOUT_SEC, TimeUnit.SECONDS); }
-                catch (TimeoutException timeout) { future.cancel(true); throw new TimeoutException("Audio transcription timed out"); }
+                try {
+                    result = future.get(AUDIO_TIMEOUT_SEC, TimeUnit.SECONDS);
+                } catch (TimeoutException timeout) {
+                    future.cancel(true);
+                    throw new TimeoutException("ASR did not finish within " + AUDIO_TIMEOUT_SEC + " seconds; recording preserved for retry");
+                }
                 db.saveVoiceTranscript(evidenceId, result);
             } catch (Exception e) {
                 error = e;
@@ -48,8 +53,11 @@ public final class CaptureAnalysisQueue {
                     String detail = e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage();
                     db.markEvidenceState(evidenceId, "transcription_failed", "Voice recording · transcription failed: " + compact(detail));
                 }
-            } finally { if (db != null) try { db.close(); } catch (Throwable ignored) {} }
-            TranscriptResult finalResult = result; Exception finalError = error;
+            } finally {
+                if (db != null) try { db.close(); } catch (Throwable ignored) {}
+            }
+            TranscriptResult finalResult = result;
+            Exception finalError = error;
             if (callback != null) MAIN.post(() -> callback.complete(evidenceId, finalResult, finalError));
         });
     }
