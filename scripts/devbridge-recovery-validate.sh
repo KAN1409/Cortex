@@ -2,13 +2,14 @@
 set -euo pipefail
 
 OLD_FP="44b0180ba743460788171687f2dbcfb137c5e5a151f2783306747f84fbee39f4"
-NEW_FP="5c6550a070abe477dcad5f23f3f437e183bff8aeaeb6ac52e1beaa8243ee69a7"
 BACKUP_ROOT="${CORTEX_BACKUP_ROOT:-$HOME/.cortex-rebuild-migration}"
 SIGN_ROOT="${CORTEX_SIGN_ROOT:-$HOME/.cortex-rebuild-signing}"
+LOCAL_SIGNER="${CORTEX_SIGNER_SOURCE:-$HOME/Cortex/app/cortex-debug.keystore}"
 
 die(){ echo "RECOVERY_VALIDATE_FAIL: $*" >&2; exit 1; }
+normalize_fp(){ printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | tr -d ':\r\n '; }
 
-BACKUP="$(find "$BACKUP_ROOT" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort | tail -n1)"
+BACKUP="$(find "$BACKUP_ROOT" -mindepth 1 -maxdepth 1 -type d ! -name 'precutover-*' 2>/dev/null | sort | tail -n1)"
 [ -n "$BACKUP" ] || die "no backup directory"
 for f in installed-base.apk app-data.tar app-data-files.txt package-dumpsys.txt SHA256SUMS.txt credentials.properties; do
   [ -s "$BACKUP/$f" ] || die "missing $BACKUP/$f"
@@ -24,13 +25,25 @@ grep -q '^shared_prefs/' "$BACKUP/app-data-files.txt" || die "shared preferences
 KS="$SIGN_ROOT/cortex-rebuild-permanent.keystore"
 APK="$SIGN_ROOT/Cortex-0.7.1-stable-signed.apk"
 MANIFEST="$SIGN_ROOT/SIGNER_MANIFEST.txt"
-[ -s "$KS" ] || die "permanent keystore backup missing"
+[ -s "$LOCAL_SIGNER" ] || die "authoritative local signer missing: $LOCAL_SIGNER"
+[ -s "$KS" ] || die "authoritative signer backup missing"
 [ -s "$APK" ] || die "stable signed APK missing"
 [ -s "$MANIFEST" ] || die "signer manifest missing"
-grep -q "^signer_sha256=$NEW_FP$" "$MANIFEST" || die "signer manifest fingerprint mismatch"
+
+LOCAL_FP="$(keytool -list -v -keystore "$LOCAL_SIGNER" -storepass android -alias androiddebugkey 2>/dev/null | sed -n 's/^[[:space:]]*SHA256: //p' | head -n1)"
+LOCAL_FP="$(normalize_fp "$LOCAL_FP")"
+[ -n "$LOCAL_FP" ] || die "could not read authoritative local signer fingerprint"
+MANIFEST_FP="$(normalize_fp "$(sed -n 's/^signer_sha256=//p' "$MANIFEST" | head -n1)")"
+[ "$MANIFEST_FP" = "$LOCAL_FP" ] || die "signer manifest does not match authoritative local signer"
 
 apk_fp(){
-  python - "$1" <<'PY'
+  local apk="$1" digest=''
+  if command -v apksigner >/dev/null 2>&1; then
+    digest="$(apksigner verify --print-certs "$apk" 2>/dev/null | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -n1)"
+    digest="$(normalize_fp "$digest")"
+    if [ -n "$digest" ]; then printf '%s' "$digest"; return 0; fi
+  fi
+  python - "$apk" <<'PY'
 import hashlib, struct, sys
 p=sys.argv[1]
 d=open(p,'rb').read()
@@ -56,17 +69,26 @@ for i in (0x1b93ad61,0xf05368c0,0x7109871a):
     b=pairs.get(i)
     if not b: continue
     try:
-        signer,_=lp(b,0); signed,_=lp(signer,0); _,q=lp(signed,0); certs,_=lp(signed,q); cert,_=lp(certs,0)
-        print(hashlib.sha256(cert).hexdigest()); raise SystemExit(0)
+        signer,_=lp(b,0)
+        signed,_=lp(signer,0)
+        _,q=lp(signed,0)
+        certs,_=lp(signed,q)
+        cert,_=lp(certs,0)
+        print(hashlib.sha256(cert).hexdigest(), end='')
+        raise SystemExit(0)
     except (ValueError, struct.error): pass
 raise SystemExit(5)
 PY
 }
 
-OLD_ACTUAL="$(apk_fp "$BACKUP/installed-base.apk")" || die "cannot read old signer"
-NEW_ACTUAL="$(apk_fp "$APK")" || die "cannot read candidate signer"
-[ "$OLD_ACTUAL" = "$OLD_FP" ] || die "backup old signer mismatch"
-[ "$NEW_ACTUAL" = "$NEW_FP" ] || die "candidate signer mismatch"
+OLD_ACTUAL="$(apk_fp "$BACKUP/installed-base.apk")" || die "cannot read installed-backup signer"
+CANDIDATE_ACTUAL="$(apk_fp "$APK")" || die "cannot read candidate signer"
+[ "$OLD_ACTUAL" = "$OLD_FP" ] || die "backup installed signer mismatch"
+[ "$CANDIDATE_ACTUAL" = "$LOCAL_FP" ] || die "candidate signer does not match authoritative local signer"
+
+KS_SHA="$(sha256sum "$KS" | awk '{print $1}')"
+LOCAL_KS_SHA="$(sha256sum "$LOCAL_SIGNER" | awk '{print $1}')"
+[ "$KS_SHA" = "$LOCAL_KS_SHA" ] || die "signer backup differs from authoritative local signer file"
 
 APK_SHA="$(sha256sum "$APK" | awk '{print $1}')"
 MANIFEST_APK_SHA="$(sed -n 's/^apk_sha256=//p' "$MANIFEST" | head -n1)"
@@ -76,9 +98,11 @@ CRED_FORMAT="$(sed -n 's/^format=//p' "$BACKUP/credentials.properties" | head -n
 
 echo "backup_path=$BACKUP"
 echo "backup_app_data_bytes=$(wc -c < "$BACKUP/app-data.tar")"
-echo "backup_old_signer_sha256=$OLD_ACTUAL"
+echo "installed_backup_signer_sha256=$OLD_ACTUAL"
 echo "credential_backup_format=${CRED_FORMAT:-unknown}"
-echo "permanent_signer_sha256=$NEW_ACTUAL"
+echo "authoritative_local_signer_sha256=$LOCAL_FP"
+echo "candidate_signer_sha256=$CANDIDATE_ACTUAL"
 echo "stable_apk=$APK"
 echo "stable_apk_sha256=$APK_SHA"
+echo "signer_match_installed=$([ "$OLD_ACTUAL" = "$LOCAL_FP" ] && echo 1 || echo 0)"
 echo "CORTEX_RECOVERY_STATE_VALIDATED"
