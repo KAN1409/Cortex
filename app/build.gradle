@@ -8,6 +8,8 @@ android {
     namespace 'com.kareem.cortex.rebuild'
     compileSdk 35
 
+    // The permanent Cortex signer stays local-only. CI intentionally never invents a replacement
+    // signer for device updates; unsigned release artifacts are finalized only with a matching key.
     signingConfigs {
         cortexPersistentDebug {
             if (cortexDebugKeystore.exists()) {
@@ -23,8 +25,8 @@ android {
         applicationId 'com.kareem.cortex.rebuild'
         minSdk 26
         targetSdk 35
-        versionCode 7
-        versionName '0.7-capture-policy'
+        versionCode 8
+        versionName '0.7.1-capture-policy'
     }
 
     buildTypes {
@@ -32,7 +34,9 @@ android {
             minifyEnabled false
             if (cortexDebugKeystore.exists()) signingConfig signingConfigs.cortexPersistentDebug
         }
-        release { minifyEnabled false }
+        release {
+            minifyEnabled false
+        }
     }
 
     compileOptions {
