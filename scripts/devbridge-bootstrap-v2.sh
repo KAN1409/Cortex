@@ -17,8 +17,21 @@ fi
 
 fail(){ printf 'CORTEX_DEVBRIDGE_V2_BOOTSTRAP_FAIL: %s\n' "$*" >&2; exit 1; }
 command -v pkg >/dev/null 2>&1 || fail "Termux pkg not found"
-# Keep bootstrap stdin untouched: this script is intentionally safe to execute via `git show ... | bash`.
-pkg install -y git jq coreutils </dev/null >/dev/null
+
+# Avoid touching apt/pkg on already provisioned developer devices. Besides being faster,
+# this makes bootstrap independent from package-manager stdin/TTY behavior.
+missing=()
+command -v git >/dev/null 2>&1 || missing+=(git)
+command -v jq >/dev/null 2>&1 || missing+=(jq)
+command -v sha256sum >/dev/null 2>&1 || missing+=(coreutils)
+if [ ${#missing[@]} -gt 0 ]; then
+  printf 'CORTEX_DEVBRIDGE_INSTALLING_DEPS: %s\n' "${missing[*]}"
+  pkg install -y "${missing[@]}" || fail "dependency installation failed: ${missing[*]}"
+fi
+
+command -v git >/dev/null 2>&1 || fail "git unavailable"
+command -v jq >/dev/null 2>&1 || fail "jq unavailable"
+command -v sha256sum >/dev/null 2>&1 || fail "sha256sum unavailable"
 command -v rish >/dev/null 2>&1 || fail "rish not found"
 rish -c 'id' >/dev/null 2>&1 || fail "Shizuku/rish unavailable"
 mkdir -p "$ROOT" "$ROOT/logs" "$ROOT/work" "$HOME/.termux/boot"
