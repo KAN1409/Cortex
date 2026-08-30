@@ -119,9 +119,10 @@ run_install(){
   fi
 
   if [ $rc -eq 0 ]; then
-    installed_tmp="$ROOT/work/$job-installed-base.apk"
-    rish -c "cat '$installed_path'" > "$installed_tmp" 2>/dev/null || { echo INSTALLED_APK_COPY_FAILED; rc=95; }
+    installed_tmp="/sdcard/Download/.cortex-relay-$job-installed-base.apk"
+    rish -c "rm -f '$installed_tmp'; cp '$installed_path' '$installed_tmp'; chmod 644 '$installed_tmp'" >/dev/null 2>&1 || { echo INSTALLED_APK_COPY_FAILED; rc=95; }
     [ $rc -ne 0 ] || [ -s "$installed_tmp" ] || { echo INSTALLED_APK_EMPTY; rc=96; }
+    [ $rc -ne 0 ] || printf 'installed_copy_sha256=%s\n' "$(sha256sum "$installed_tmp" | awk '{print $1}')"
   fi
 
   if [ $rc -eq 0 ]; then
@@ -180,7 +181,9 @@ run_install(){
     fi
   fi
 
-  rm -f "${installed_tmp:-}"
+  if [ -n "${installed_tmp:-}" ]; then
+    rish -c "rm -f '$installed_tmp'" >/dev/null 2>&1 || true
+  fi
   printf 'finished_at=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   exec 1>&9 9>&-
 
