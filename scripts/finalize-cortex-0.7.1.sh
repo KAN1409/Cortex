@@ -31,10 +31,33 @@ apk_fp() {
 
 normalize_fp() { printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | tr -d ':\r\n '; }
 
-BASE="$(rish -c "pm path $PKG" 2>/dev/null | tr -d '\r' | sed -n 's/^package://p' | head -n1)"
-[ -n "$BASE" ] || fail "$PKG is not installed"
+# Resolve the installed base APK without assuming the Termux/rish shell exposes the `pm`
+# wrapper. Some Android/Shizuku combinations allow dumpsys but return nothing for `pm path`.
+installed_base_apk() {
+  local out base code
 
-rish -c "cat '$BASE'" > "$TMP/installed.apk"
+  out="$(rish -c "/system/bin/pm path $PKG" 2>/dev/null || true)"
+  base="$(printf '%s\n' "$out" | tr -d '\r' | sed -n 's/^package://p' | head -n1)"
+  if [ -n "$base" ]; then printf '%s\n' "$base"; return 0; fi
+
+  out="$(rish -c "cmd package path $PKG" 2>/dev/null || true)"
+  base="$(printf '%s\n' "$out" | tr -d '\r' | sed -n 's/^package://p' | head -n1)"
+  if [ -n "$base" ]; then printf '%s\n' "$base"; return 0; fi
+
+  code="$(rish -c "dumpsys package $PKG" 2>/dev/null \
+    | tr -d '\r' \
+    | sed -n 's/^[[:space:]]*codePath=//p' \
+    | head -n1)"
+  if [ -n "$code" ]; then printf '%s/base.apk\n' "${code%/}"; return 0; fi
+
+  return 1
+}
+
+BASE="$(installed_base_apk || true)"
+[ -n "$BASE" ] || fail "Could not resolve installed $PKG base APK (dumpsys/pm/cmd all returned no path)"
+
+echo "Resolved installed base APK: $BASE"
+rish -c "/system/bin/cat '$BASE'" > "$TMP/installed.apk"
 [ -s "$TMP/installed.apk" ] || fail "Could not read installed base APK"
 
 INST_FP="$(normalize_fp "$(apk_fp "$TMP/installed.apk")")"
@@ -153,8 +176,9 @@ INSTALL_OUT="$(rish -c "pm install -r '$FINAL'" 2>&1 | tr -d '\r')"
 printf '%s\n' "$INSTALL_OUT"
 printf '%s\n' "$INSTALL_OUT" | grep -q '^Success$' || fail "Android rejected update-in-place"
 
-BASE2="$(rish -c "pm path $PKG" | tr -d '\r' | sed -n 's/^package://p' | head -n1)"
-rish -c "cat '$BASE2'" > "$TMP/installed-after.apk"
+BASE2="$(installed_base_apk || true)"
+[ -n "$BASE2" ] || fail "Could not resolve installed base APK after update"
+rish -c "/system/bin/cat '$BASE2'" > "$TMP/installed-after.apk"
 AFTER_FP="$(normalize_fp "$(apk_fp "$TMP/installed-after.apk")")"
 [ "$AFTER_FP" = "$INST_FP" ] || fail "Installed signer changed unexpectedly"
 
