@@ -21,7 +21,7 @@ RESULTS="$ROOT/results"
 STATE="$ROOT/processed.txt"
 LOGS="$ROOT/logs"
 WORK="$ROOT/work"
-PKG_ALLOW='^(com\.kareem\.cortex|com\.kareem\.secondbrain)$'
+PKG_ALLOW='^(com\.kareem\.cortex|com\.kareem\.cortex\.rebuild|com\.kareem\.secondbrain)$'
 REF_ALLOW='^[A-Za-z0-9_./-]+$'
 TASK_ALLOW='^[A-Za-z0-9_.:-]+$'
 CAP_ALLOW='^(PING|GIT_STATUS|BUILD|BUILD_INSTALL_SMOKE|INSTALL_UPDATE|LAUNCH|STOP|LOGCAT|DUMPSYS_PACKAGE)$'
@@ -121,19 +121,65 @@ apksigner_bin(){
 
 signer_sha(){
   local signer apk digest
-  signer="$(apksigner_bin)"; [ -n "$signer" ] || return 1
   apk="$1"
-  digest="$("$signer" verify --print-certs "$apk" 2>/dev/null | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -n1 | tr -d ':[:space:]' | tr 'A-F' 'a-f')"
-  [ -n "$digest" ] || return 1
-  printf '%s' "$digest"
+  signer="$(apksigner_bin)"
+  if [ -n "$signer" ]; then
+    digest="$("$signer" verify --print-certs "$apk" 2>/dev/null | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -n1 | tr -d ':[:space:]' | tr 'A-F' 'a-f')"
+    if [ -n "$digest" ]; then printf '%s' "$digest"; return 0; fi
+  fi
+  command -v python >/dev/null 2>&1 || return 1
+  python - "$apk" <<'PYAPK'
+import hashlib, struct, sys
+p=sys.argv[1]
+d=open(p,'rb').read()
+e=d.rfind(b'PK\x05\x06', max(0, len(d)-65557))
+if e < 0: raise SystemExit(2)
+c=struct.unpack_from('<I', d, e+16)[0]
+f=c-24
+if f < 0 or d[f+8:f+24] != b'APK Sig Block 42': raise SystemExit(3)
+sz=struct.unpack_from('<Q', d, f)[0]
+s=c-(sz+8)
+if s < 0 or struct.unpack_from('<Q', d, s)[0] != sz: raise SystemExit(4)
+pairs={}; o=s+8
+while o < f:
+    n=struct.unpack_from('<Q', d, o)[0]; o += 8
+    if n < 4 or o+n > f: break
+    i=struct.unpack_from('<I', d, o)[0]
+    pairs[i]=d[o+4:o+n]; o += n
+def lp(b,p):
+    n=struct.unpack_from('<I', b, p)[0]; p += 4
+    if p+n > len(b): raise ValueError()
+    return b[p:p+n], p+n
+for i in (0x1b93ad61,0xf05368c0,0x7109871a):
+    b=pairs.get(i)
+    if not b: continue
+    try:
+        signer,_=lp(b,0)
+        signed,_=lp(signer,0)
+        _,q=lp(signed,0)
+        certs,_=lp(signed,q)
+        cert,_=lp(certs,0)
+        print(hashlib.sha256(cert).hexdigest(), end='')
+        raise SystemExit(0)
+    except (ValueError, struct.error):
+        pass
+raise SystemExit(5)
+PYAPK
 }
 
 install_update(){
-  local pkg="$1" apk="$2" installed_path installed_tmp candidate_sha installed_sha staged out rc
+  local pkg="$1" apk="$2" installed_path installed_tmp candidate_sha installed_sha staged out rc code_path
   safe_pkg "$pkg" || { echo DENY_PACKAGE; return 22; }
   [ -f "$apk" ] || { echo APK_NOT_FOUND; return 23; }
   candidate_sha="$(signer_sha "$apk")" || { echo APKSIGNER_CANDIDATE_FAIL; return 24; }
-  installed_path="$(rish -c "pm path '$pkg'" 2>/dev/null | sed -n 's/^package://p' | grep 'base.apk$' | head -n1)"
+  installed_path="$(rish -c "/system/bin/pm path '$pkg'" 2>/dev/null | tr -d '\r' | sed -n 's/^package://p' | grep 'base.apk$' | head -n1)"
+  if [ -z "$installed_path" ]; then
+    installed_path="$(rish -c "cmd package path '$pkg'" 2>/dev/null | tr -d '\r' | sed -n 's/^package://p' | grep 'base.apk$' | head -n1)"
+  fi
+  if [ -z "$installed_path" ]; then
+    code_path="$(rish -c "dumpsys package '$pkg'" 2>/dev/null | tr -d '\r' | sed -n 's/^[[:space:]]*codePath=//p' | head -n1)"
+    [ -n "$code_path" ] && installed_path="${code_path%/}/base.apk"
+  fi
   [ -n "$installed_path" ] || { echo INSTALLED_APK_NOT_FOUND; return 25; }
   installed_tmp="$ROOT/installed-$pkg.apk"
   rish -c "cat '$installed_path'" > "$installed_tmp" 2>/dev/null || { rm -f "$installed_tmp"; echo INSTALLED_APK_COPY_FAIL; return 26; }
