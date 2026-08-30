@@ -1,0 +1,26 @@
+name: Export GPT-OSS Signed APK
+
+on:
+  push:
+    branches:
+      - device/termux-dev-bridge-results
+  workflow_dispatch:
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify committed signed APK exists
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK=".devbridge/artifacts/Cortex-0.7.2-gptoss-brain-signed.apk"
+          test -s "$APK"
+          echo "sha256=$(sha256sum "$APK" | awk '{print $1}')"
+      - name: Upload signed APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Cortex-0.7.2-gptoss-brain-signed
+          path: .devbridge/artifacts/Cortex-0.7.2-gptoss-brain-signed.apk
+          if-no-files-found: error
