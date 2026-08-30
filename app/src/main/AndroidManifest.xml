@@ -7,6 +7,7 @@
     </queries>
 
     <application
+        android:name=".CortexApp"
         android:allowBackup="false"
         android:label="Cortex"
         android:theme="@style/Theme.CortexRebuild"
