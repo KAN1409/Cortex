@@ -44,7 +44,7 @@ public final class CaptureDetailActivity extends Activity {
         String summary=CaptureRecordStore.visionSummary(r),ocr=CaptureRecordStore.extractedText(r);
         section("VISION DESCRIPTION",BLUE);cardText(summary.isEmpty()?visionPlaceholder(r):summary);
         section("EXTRACTED TEXT",BRAND);cardText(ocr.isEmpty()?"No readable text extracted yet.":ocr);
-        BrainStore.BrainOutcome outcome=BrainStore.outcome(db,evidenceId);if(outcome!=null){section("CORTEX BRAIN",AMBER);String s=outcome.status.isEmpty()?r.state:outcome.status;String body="Status: "+s+(outcome.reason.isEmpty()?"":"\n"+outcome.reason)+(outcome.error.isEmpty()?"":"\n"+outcome.error);cardText(body);}
+        BrainStore.BrainOutcome outcome=BrainStore.outcome(db,evidenceId);if(outcome!=null){section("CORTEX BRAIN",AMBER);String s=outcome.brainStatus.isEmpty()?r.state:outcome.brainStatus;String body="Status: "+s+(outcome.reason.isEmpty()?"":"\n"+outcome.reason)+(outcome.error.isEmpty()?"":"\n"+outcome.error);cardText(body);}
         section("ACTIONS",BRAND);
         addAction("View original photo",TEXT,()->showOriginal(r.path));
         addAction("Edit extracted text",TEXT,()->editText(r));
