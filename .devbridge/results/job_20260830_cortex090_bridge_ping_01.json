@@ -1,0 +1,10 @@
+{
+  "protocol": "CORTEX_DEVBRIDGE_V1",
+  "agent_version": "3",
+  "job_id": "job_20260830_cortex090_bridge_ping_01",
+  "capability": "PING",
+  "status": "SUCCESS",
+  "exit_code": 0,
+  "finished_at": "2026-08-30T16:04:47Z",
+  "log_tail": "started_at=2026-08-30T16:04:43Z\nagent_version=3\npong=true\nagent_version=3\nsigner_source_present=true\nuid=2000(shell) gid=2000(shell) groups=2000(shell),1004(input),1007(log),1011(adb),1015(sdcard_rw),1028(sdcard_r),1078(ext_data_rw),1079(ext_obb_rw),3001(net_bt_admin),3002(net_bt),3003(inet),3006(net_bw_stats),3009(readproc),3011(uhid),3012(readtracefs) context=u:r:shell:s0\nfinished_at=2026-08-30T16:04:45Z"
+}
