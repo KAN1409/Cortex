@@ -72,8 +72,8 @@ android {
         applicationId 'com.kareem.cortex.rebuild'
         minSdk 26
         targetSdk 35
-        versionCode 10
-        versionName '0.8.0-situations-sources'
+        versionCode 11
+        versionName '0.8.1-voice-player'
     }
 
     buildTypes {
@@ -182,25 +182,25 @@ tasks.register('prepareDevbridgeSignedCandidate') {
 
         def builtApk = file("${buildDir}/outputs/apk/debug/app-debug.apk")
         if (!builtApk.isFile()) throw new GradleException("Signed debug APK missing: ${builtApk}")
-        def stableApk = new File(stableDir, 'Cortex-0.8.0-situations-sources-debug-diagnostic.apk')
+        def stableApk = new File(stableDir, 'Cortex-0.8.1-voice-player-debug-diagnostic.apk')
         stableApk.bytes = builtApk.bytes
         println "diagnostic_signer_source_sha256=${signerFp}"
         println "diagnostic_debug_apk=${stableApk.absolutePath}"
     }
 }
 
-tasks.register('prepareCortex080PermanentApk', Exec) {
+tasks.register('prepareCortex081PermanentApk', Exec) {
     dependsOn 'assembleRelease'
     workingDir rootProject.projectDir
-    commandLine 'bash', rootProject.file('scripts/devbridge-sign-stable-cortex-080.sh').absolutePath
+    commandLine 'bash', rootProject.file('scripts/devbridge-sign-stable-cortex-081.sh').absolutePath
 }
 
-tasks.register('exportCortex080PermanentApk', Exec) {
-    dependsOn 'prepareCortex080PermanentApk'
+tasks.register('exportCortex081PermanentApk', Exec) {
+    dependsOn 'prepareCortex081PermanentApk'
     workingDir rootProject.projectDir
     def home = System.getenv('HOME') ?: System.getProperty('user.home')
     commandLine 'bash', rootProject.file('scripts/devbridge-export-signed-apk.sh').absolutePath,
-            new File(home, '.cortex-rebuild-signing/Cortex-0.8.0-situations-sources-permanent.apk').absolutePath
+            new File(home, '.cortex-rebuild-signing/Cortex-0.8.1-voice-player-permanent.apk').absolutePath
 }
 
 tasks.register('exportDevbridgeSignedApk', Exec) {
