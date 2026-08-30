@@ -45,6 +45,42 @@ android {
     }
 }
 
+// DevBridge-only readout: the bridge overlays the device-local signer into app/cortex-debug.keystore
+// inside an ephemeral worktree. This task prints only the public certificate fingerprint, never key
+// material, so signer lineage can be reconciled without asking for additional Termux commands.
+tasks.register('printDebugSignerFingerprint') {
+    doLast {
+        if (!cortexDebugKeystore.exists()) {
+            println 'debug_signer_source=absent'
+            return
+        }
+        java.security.KeyStore ks = null
+        Exception last = null
+        for (String type : ['JKS', 'PKCS12']) {
+            try {
+                def candidate = java.security.KeyStore.getInstance(type)
+                cortexDebugKeystore.withInputStream { input ->
+                    candidate.load(input, 'android'.toCharArray())
+                }
+                if (candidate.containsAlias('androiddebugkey')) {
+                    ks = candidate
+                    break
+                }
+            } catch (Exception e) {
+                last = e
+            }
+        }
+        if (ks == null) {
+            throw new GradleException('Could not open cortex-debug.keystore', last)
+        }
+        def cert = ks.getCertificate('androiddebugkey')
+        if (cert == null) throw new GradleException('androiddebugkey certificate missing')
+        byte[] digest = java.security.MessageDigest.getInstance('SHA-256').digest(cert.encoded)
+        def hex = digest.collect { String.format('%02x', ((byte) it) & 0xff) }.join('')
+        println "debug_signer_sha256=${hex}"
+    }
+}
+
 dependencies {
     implementation 'androidx.swiperefreshlayout:swiperefreshlayout:1.1.0'
 }
