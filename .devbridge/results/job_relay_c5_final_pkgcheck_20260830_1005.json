@@ -1,0 +1,10 @@
+{
+  "protocol": "CORTEX_DEVBRIDGE_V1",
+  "agent_version": "3",
+  "job_id": "job_relay_c5_final_pkgcheck_20260830_1005",
+  "capability": "DUMPSYS_PACKAGE",
+  "status": "SUCCESS",
+  "exit_code": 0,
+  "finished_at": "2026-08-30T10:05:55Z",
+  "log_tail": "started_at=2026-08-30T10:05:44Z\nagent_version=3\n    versionCode=24 minSdk=30 targetSdk=37\n    versionName=2.0.0-candidate5\n    lastUpdateTime=2026-08-30 13:02:16\nfinished_at=2026-08-30T10:05:46Z"
+}
