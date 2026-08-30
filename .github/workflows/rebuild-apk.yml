@@ -19,21 +19,28 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
-      - name: Verify fresh application identity
+      - name: Verify fresh application identity and perception boundary
         shell: bash
         run: |
           set -euo pipefail
           grep -q "applicationId 'com.kareem.cortex.rebuild'" app/build.gradle
           grep -q 'android:label="Cortex"' app/src/main/AndroidManifest.xml
+          grep -q 'android:name=".CortexLocalBusService"' app/src/main/AndroidManifest.xml
+          grep -q 'com.kareem.secondbrain' app/src/main/AndroidManifest.xml
+          grep -q 'com.kareem.cortex.LOCAL_BUS_V1' app/src/main/AndroidManifest.xml
+          if grep -Rq 'android.service.notification.NotificationListenerService' app/src/main; then
+            echo 'Fresh Cortex must not observe Android notifications directly'
+            exit 1
+          fi
           if find app/src/main/java/com/kareem/cortex -mindepth 1 -maxdepth 1 ! -name rebuild -print -quit | grep -q .; then
             echo 'Old Cortex source detected in fresh tree'
             exit 1
           fi
-      - name: Build first installable APK
+      - name: Build installable Relay-intake APK
         run: gradle :app:assembleDebug --stacktrace
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: Cortex-Rebuild-V1-debug
+          name: Cortex-Rebuild-V1-Relay-Intake-debug
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
