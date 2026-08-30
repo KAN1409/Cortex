@@ -1,0 +1,10 @@
+{
+  "protocol": "CORTEX_DEVBRIDGE_V1",
+  "agent_version": "3",
+  "job_id": "job_relay_c5_probe2_20260830_0932",
+  "capability": "PING",
+  "status": "SUCCESS",
+  "exit_code": 0,
+  "finished_at": "2026-08-30T09:37:40Z",
+  "log_tail": "started_at=2026-08-30T09:37:37Z\nagent_version=3\npong=true\nagent_version=3\nsigner_source_present=true\nfinished_at=2026-08-30T09:37:38Z"
+}
