@@ -12,7 +12,6 @@ import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
-import java.time.Instant;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.util.ArrayList;
@@ -20,9 +19,11 @@ import java.util.List;
 import java.util.Locale;
 
 /**
- * The fresh Cortex cognitive boundary for deliberate captures.
- * Evidence enters here only after perception (for voice: after ASR). The model may create current
- * situations, durable memory and grounded world entities; it can also choose evidence-only.
+ * Single cognition boundary for deliberate captures.
+ *
+ * Perception (ASR/OCR/file parsing) produces evidence. This layer decides whether that evidence
+ * changes the user's durable Memory, current Situations, World model, product feedback, or remains
+ * evidence-only. Test/meta chatter is explicitly prevented from becoming personal memory/state.
  */
 public final class BrainIntakeEngine {
     private static final String MODEL = "gemini-3.6-flash";
@@ -41,34 +42,44 @@ public final class BrainIntakeEngine {
         if (clean.isEmpty()) throw new IllegalArgumentException("Transcript required for brain intake");
 
         ZonedDateTime now = ZonedDateTime.now();
-        String prompt = "You are the single cognition layer inside Cortex. You receive grounded phone evidence and decide what it MEANS for the user's current state. " +
-                "You do not invent facts. You do not create UI cards from raw evidence. Return ONLY one JSON object matching the schema below.\n\n" +
+        String prompt =
+                "You are the single cognition layer inside Cortex. You receive grounded deliberate capture evidence and decide what it MEANS for the user's current state. " +
+                "You must separate personal cognition from test/meta chatter and product feedback. Do not invent facts. Return ONLY one JSON object.\n\n" +
                 "CURRENT_LOCAL_TIME: " + now + "\nTIME_ZONE: " + ZoneId.systemDefault().getId() + "\n" +
                 "EVIDENCE_ID: " + evidence.id + "\nEVIDENCE_KIND: " + evidence.kind + "\n" +
-                "VOICE_TRANSCRIPT:\n" + clean + "\n\n" +
+                "CAPTURE_TEXT:\n" + clean + "\n\n" +
                 "CURRENT_CORTEX_STATE_JSON:\n" + (contextJson == null ? "{}" : contextJson) + "\n\n" +
-                "RULES:\n" +
-                "1. The transcript is deliberate user-captured evidence, not automatically a memory or task.\n" +
-                "2. Create a situation only for an unresolved current state: a request, commitment, reminder, decision needed, waiting state, deadline, ongoing issue, or meaningful change that still matters.\n" +
-                "3. Create durable memory only for information worth recalling later: a durable fact, preference, decision, note, instruction, plan, or meaningful personal/work context. Do not save filler or transcription chatter as memory.\n" +
-                "4. Create world entities only when an explicit named person, project, organization or durable topic is present in the transcript. Never turn numbers, generic nouns or UI fragments into entities.\n" +
-                "5. A single capture may create both a memory and a situation when both are justified.\n" +
-                "6. Reuse/update an existing situation when CURRENT_CORTEX_STATE_JSON clearly describes the same live issue. Use its canonical_key exactly. Otherwise create a new stable lowercase canonical_key.\n" +
-                "7. attention may be needs_attention only when the evidence itself supports action now/soon. Future/nonurgent states are quiet.\n" +
-                "8. If no cognitive product is justified, set evidence_only=true. The evidence remains searchable and preserved.\n" +
-                "9. Keep titles short, natural and user-facing. Summary/body may paraphrase only what the transcript supports.\n\n" +
+                "CAPTURE CLASS PARAMETERS:\n" +
+                "- PERSONAL: content about the user's real life/work, plans, preferences, commitments, facts, people, projects or current state.\n" +
+                "- TEST_META: the user is testing transcription, capture, Cortex, the app, the model, or merely saying test/filler to verify the system.\n" +
+                "- PRODUCT_FEEDBACK: the user reports that Cortex/Relay/ASR/app behavior is wrong, broken, slow, inaccurate, missing, or requests a product change.\n" +
+                "- TRANSIENT: conversational filler with no durable or current-state meaning.\n\n" +
+                "ROUTING PARAMETERS:\n" +
+                "1. TEST_META must NEVER create Memory, Situation, or World entities. Set evidence_only=true, surface=CAPTURE_HISTORY_ONLY, retention=SHORT.\n" +
+                "2. TRANSIENT must NEVER create Memory, Situation, or World entities. Set evidence_only=true, surface=HIDDEN, retention=SHORT.\n" +
+                "3. PRODUCT_FEEDBACK must NEVER become personal Memory/Situation/World merely because it mentions Cortex. It may create product_feedback. Use surface=CAPTURE_HISTORY_ONLY, retention=STANDARD.\n" +
+                "4. PERSONAL may create durable Memory only for information worth recalling later: durable fact, preference, decision, note, instruction, plan, or meaningful personal/work context.\n" +
+                "5. PERSONAL may create a Situation only for an unresolved current state: request, commitment, reminder, decision needed, waiting state, deadline, ongoing issue, or meaningful change that still matters.\n" +
+                "6. World entities require an explicit named PERSON, PROJECT, ORGANIZATION, or durable TOPIC. Never promote numbers, generic nouns, UI fragments, filenames, or transcription artifacts.\n" +
+                "7. A PERSONAL capture can create both Memory and Situation when both are justified.\n" +
+                "8. Reuse/update an existing Situation when CURRENT_CORTEX_STATE_JSON clearly describes the same live issue. Use its canonical_key exactly; otherwise create a stable lowercase key.\n" +
+                "9. attention=needs_attention only when evidence supports action now/soon. Future/nonurgent state is quiet or watching.\n" +
+                "10. If PERSONAL evidence has no justified product state, evidence_only=true and surface=CAPTURE_HISTORY_ONLY.\n" +
+                "11. Keep titles short, natural and user-facing. Summary/body may paraphrase only what the evidence supports.\n\n" +
                 "SCHEMA:\n" +
                 "{\n" +
+                "  \"capture_policy\": {\"class\": \"PERSONAL|TEST_META|PRODUCT_FEEDBACK|TRANSIENT\", \"surface\": \"NORMAL|CAPTURE_HISTORY_ONLY|HIDDEN\", \"retention\": \"DURABLE|STANDARD|SHORT\"},\n" +
                 "  \"memory\": {\"create\": false, \"title\": \"\", \"body\": \"\"},\n" +
-                "  \"situation\": {\"create\": false, \"canonical_key\": \"\", \"title\": \"\", \"summary\": \"\", \"attention\": \"quiet\"},\n" +
+                "  \"situation\": {\"create\": false, \"canonical_key\": \"\", \"title\": \"\", \"summary\": \"\", \"attention\": \"quiet|watching|needs_attention\"},\n" +
                 "  \"world_entities\": [{\"type\": \"PERSON|PROJECT|ORGANIZATION|TOPIC\", \"canonical_key\": \"\", \"name\": \"\", \"summary\": \"\"}],\n" +
+                "  \"product_feedback\": {\"create\": false, \"category\": \"ASR|CAPTURE|RELAY|BRAIN|UI|OTHER\", \"summary\": \"\"},\n" +
                 "  \"evidence_only\": false,\n" +
                 "  \"reason\": \"brief grounded explanation\"\n" +
                 "}";
 
         JSONObject cfg = new JSONObject();
         cfg.put("temperature", 0);
-        cfg.put("maxOutputTokens", 900);
+        cfg.put("maxOutputTokens", 1000);
         cfg.put("responseMimeType", "application/json");
         JSONArray parts = new JSONArray().put(new JSONObject().put("text", prompt));
         JSONArray contents = new JSONArray().put(new JSONObject().put("role", "user").put("parts", parts));
@@ -98,10 +109,33 @@ public final class BrainIntakeEngine {
         JSONObject decisionJson = parseObject(modelText);
         Decision d = Decision.from(decisionJson, MODEL);
         d.rawProviderResponse = response;
-        d.rawDecisionJson = decisionJson.toString();
         enforceGrounding(d, clean);
-        if (!d.memoryCreate && !d.situationCreate && d.entities.isEmpty()) d.evidenceOnly = true;
+        enforceCapturePolicy(d, clean);
+        d.rawDecisionJson = d.toPolicyJson(decisionJson).toString();
+        if (!d.memoryCreate && !d.situationCreate && d.entities.isEmpty() && !d.feedbackCreate) d.evidenceOnly = true;
         return d;
+    }
+
+    /** Hard safety rail: obvious test/meta or product-feedback captures cannot accidentally become
+     * personal state even if the model over-promotes them. */
+    private static void enforceCapturePolicy(Decision d, String transcript) {
+        String t = norm(transcript);
+        boolean feedback = containsAny(t,
+                "transcription wrong","transcription is wrong","transcript wrong","asr wrong","didn't work","doesn't work",
+                "not working","stuck","bug","cortex should","relay should","app should",
+                "الترانسكريبت غلط","الترانسكريبت مش","الترانسكريبشن غلط","مش شغال","ما اشتغلش","معلق","علّق","صلح الكورتكس","صلح الابلكيشن");
+        boolean test = containsAny(t,
+                "test transcription","test the transcription","transcription test","test uh transcription",
+                "we're gonna test","we are going to test","just testing","this is a test","test cortex","test capture","test asr",
+                "نجرب الترانسكريبت","نجرب الترانسكريبشن","تجربة الترانسكريبت","اختبار الترانسكريبت","بنجرب الترانسكريبت","نجرب الكورتكس","تست للترانسكريبت","تست للترانسكريبشن");
+        if (feedback) {
+            d.captureClass="PRODUCT_FEEDBACK"; d.surface="CAPTURE_HISTORY_ONLY"; d.retention="STANDARD";
+            d.memoryCreate=false; d.situationCreate=false; d.entities.clear(); d.evidenceOnly=true;
+            if(!d.feedbackCreate){d.feedbackCreate=true;d.feedbackCategory="OTHER";d.feedbackSummary=compact(transcript,240);}
+        } else if (test) {
+            d.captureClass="TEST_META"; d.surface="CAPTURE_HISTORY_ONLY"; d.retention="SHORT";
+            d.memoryCreate=false; d.situationCreate=false; d.entities.clear(); d.feedbackCreate=false; d.evidenceOnly=true;
+        }
     }
 
     private static void enforceGrounding(Decision d, String transcript) {
@@ -147,10 +181,8 @@ public final class BrainIntakeEngine {
         }
     }
 
-    private static String compact(String value, int max) {
-        String x = clean(value).replaceAll("\\s+", " ");
-        return x.length() <= max ? x : x.substring(0, max) + "…";
-    }
+    private static boolean containsAny(String s,String... xs){for(String x:xs)if(s.contains(norm(x)))return true;return false;}
+    private static String compact(String value, int max) {String x=clean(value).replaceAll("\\s+"," ");return x.length()<=max?x:x.substring(0,max)+"…";}
     private static String clean(String s) { return s == null ? "" : s.trim(); }
     private static String norm(String s) { return clean(s).toLowerCase(Locale.ROOT).replaceAll("\\s+", " "); }
 
@@ -168,13 +200,16 @@ public final class BrainIntakeEngine {
     }
 
     public static final class Decision {
-        public boolean memoryCreate, situationCreate, evidenceOnly;
+        public boolean memoryCreate, situationCreate, evidenceOnly, feedbackCreate;
         public String memoryTitle="", memoryBody="", situationKey="", situationTitle="", situationSummary="", attention="quiet", reason="", provider="gemini", model="";
+        public String captureClass="PERSONAL", surface="NORMAL", retention="STANDARD", feedbackCategory="", feedbackSummary="";
         public String rawProviderResponse="", rawDecisionJson="{}";
         public final List<Entity> entities = new ArrayList<>();
 
         static Decision from(JSONObject j, String model) {
             Decision d = new Decision(); d.model = model;
+            JSONObject p=j.optJSONObject("capture_policy");
+            if(p!=null){d.captureClass=policyClass(p.optString("class"));d.surface=surface(p.optString("surface"));d.retention=retention(p.optString("retention"));}
             JSONObject m = j.optJSONObject("memory");
             if (m != null) { d.memoryCreate=m.optBoolean("create",false); d.memoryTitle=clean(m.optString("title")); d.memoryBody=clean(m.optString("body")); }
             JSONObject s = j.optJSONObject("situation");
@@ -183,13 +218,32 @@ public final class BrainIntakeEngine {
                 d.situationKey=key(s.optString("canonical_key"),d.situationTitle); String a=clean(s.optString("attention","quiet")).toLowerCase(Locale.ROOT);
                 d.attention=a.equals("needs_attention")?"needs_attention":a.equals("watching")?"watching":"quiet";
             }
-            JSONArray entities=j.optJSONArray("world_entities");
-            if(entities!=null)for(int i=0;i<entities.length();i++){JSONObject e=entities.optJSONObject(i);if(e==null)continue;String name=clean(e.optString("name"));if(name.isEmpty())continue;d.entities.add(new Entity(e.optString("type"),e.optString("canonical_key"),name,e.optString("summary")));}
+            JSONArray es=j.optJSONArray("world_entities");
+            if(es!=null)for(int i=0;i<es.length();i++){JSONObject e=es.optJSONObject(i);if(e==null)continue;String name=clean(e.optString("name"));if(!name.isEmpty())d.entities.add(new Entity(e.optString("type"),e.optString("canonical_key"),name,e.optString("summary")));}
+            JSONObject f=j.optJSONObject("product_feedback");
+            if(f!=null){d.feedbackCreate=f.optBoolean("create",false);d.feedbackCategory=feedbackCategory(f.optString("category"));d.feedbackSummary=clean(f.optString("summary"));}
             d.evidenceOnly=j.optBoolean("evidence_only",false); d.reason=clean(j.optString("reason"));
             if(d.memoryCreate&&(d.memoryTitle.isEmpty()||d.memoryBody.isEmpty()))d.memoryCreate=false;
             if(d.situationCreate&&(d.situationTitle.isEmpty()||d.situationSummary.isEmpty()))d.situationCreate=false;
+            if(d.feedbackCreate&&d.feedbackSummary.isEmpty())d.feedbackCreate=false;
+            if(!d.captureClass.equals("PERSONAL")){d.memoryCreate=false;d.situationCreate=false;d.entities.clear();d.evidenceOnly=true;}
             return d;
         }
+
+        JSONObject toPolicyJson(JSONObject original)throws Exception{
+            JSONObject out=new JSONObject(original.toString());
+            out.put("capture_policy",new JSONObject().put("class",captureClass).put("surface",surface).put("retention",retention));
+            out.put("memory",new JSONObject().put("create",memoryCreate).put("title",memoryTitle).put("body",memoryBody));
+            out.put("situation",new JSONObject().put("create",situationCreate).put("canonical_key",situationKey).put("title",situationTitle).put("summary",situationSummary).put("attention",attention));
+            out.put("product_feedback",new JSONObject().put("create",feedbackCreate).put("category",feedbackCategory).put("summary",feedbackSummary));
+            out.put("evidence_only",evidenceOnly);
+            return out;
+        }
+
+        private static String policyClass(String x){String v=clean(x).toUpperCase(Locale.ROOT);return v.equals("TEST_META")||v.equals("PRODUCT_FEEDBACK")||v.equals("TRANSIENT")?v:"PERSONAL";}
+        private static String surface(String x){String v=clean(x).toUpperCase(Locale.ROOT);return v.equals("CAPTURE_HISTORY_ONLY")||v.equals("HIDDEN")?v:"NORMAL";}
+        private static String retention(String x){String v=clean(x).toUpperCase(Locale.ROOT);return v.equals("SHORT")||v.equals("DURABLE")?v:"STANDARD";}
+        private static String feedbackCategory(String x){String v=clean(x).toUpperCase(Locale.ROOT);return v.equals("ASR")||v.equals("CAPTURE")||v.equals("RELAY")||v.equals("BRAIN")||v.equals("UI")?v:"OTHER";}
     }
 
     static String key(String proposed, String fallback) {
