@@ -43,7 +43,10 @@ jobs:
           grep -q 'CORTEX_SIGNER_BLOCKED_RUN53' scripts/finalize-cortex-0.7.1.sh
           grep -q 'pm install -r' scripts/finalize-cortex-0.7.1.sh
           grep -q '44b0180ba743460788171687f2dbcfb137c5e5a151f2783306747f84fbee39f4' scripts/prepare-cortex-rebuild-signer-recovery.sh
-          grep -q 'CORTEX_REBUILD_CREDENTIALS_V1' tools/recovery/CortexCredentialBridge.java
+          grep -q 'signer_generated=0' scripts/prepare-cortex-rebuild-signer-recovery.sh
+          grep -q 'signer_replaced=0' scripts/prepare-cortex-rebuild-signer-recovery.sh
+          ! grep -q 'openssl genpkey' scripts/prepare-cortex-rebuild-signer-recovery.sh
+          ! grep -q 'keytool -genkey' scripts/prepare-cortex-rebuild-signer-recovery.sh
 
       - name: Build debug and unsigned release APKs
         run: gradle :app:assembleDebug :app:assembleRelease --stacktrace
@@ -60,24 +63,6 @@ jobs:
             echo "Release artifact unexpectedly carries a signer" >&2
             exit 1
           fi
-
-      - name: Build UID-scoped credential recovery bridge
-        shell: bash
-        run: |
-          set -euo pipefail
-          ANDROID_JAR="$ANDROID_HOME/platforms/android-35/android.jar"
-          test -s "$ANDROID_JAR"
-          rm -rf build/recovery-classes build/cortex-credential-bridge.jar dist/recovery-dex
-          mkdir -p build/recovery-classes dist/recovery-dex
-          javac -source 8 -target 8 -cp "$ANDROID_JAR" \
-            -d build/recovery-classes tools/recovery/CortexCredentialBridge.java
-          jar --create --file build/cortex-credential-bridge.jar -C build/recovery-classes .
-          test -s build/cortex-credential-bridge.jar
-          D8="$(find "$ANDROID_HOME/build-tools" -type f -name d8 | sort -V | tail -n1)"
-          test -n "$D8"
-          "$D8" --min-api 26 --lib "$ANDROID_JAR" --output dist/recovery-dex build/cortex-credential-bridge.jar
-          test -s dist/recovery-dex/classes.dex
-          cp dist/recovery-dex/classes.dex dist/cortex-credential-bridge.dex
 
       - name: Package safe 0.7.1 finalizer
         shell: bash
@@ -96,40 +81,33 @@ jobs:
           versionName: 0.7.1-capture-policy
 
           This package deliberately contains an unsigned APK.
-          The finalizer first reads the signer of the currently installed Cortex, searches local and
-          historical Cortex key material for the exact matching private key, and only then signs and
-          attempts Android update-in-place. If no matching key exists, it exits without uninstalling,
-          clearing, replacing, or mutating Cortex data.
+          The finalizer reads the signer of the currently installed Cortex and permits update-in-place
+          only when an existing local private key matches that exact installed signer. It never creates,
+          rotates, replaces, or reconstructs a signing identity. If no matching key exists, it exits
+          without uninstalling, clearing, replacing, or mutating Cortex data.
           EOF
           (cd "$OUT" && sha256sum app-release-unsigned.apk finalize-cortex-0.7.1.sh > SHA256SUMS.txt)
 
-      - name: Package signer recovery preparation
+      - name: Package non-destructive signer recovery snapshot tool
         shell: bash
         run: |
           set -euo pipefail
           OUT="dist/Cortex-Rebuild-Signer-Recovery"
           mkdir -p "$OUT"
-          cp app/build/outputs/apk/release/app-release-unsigned.apk "$OUT/app-release-unsigned.apk"
-          cp dist/cortex-credential-bridge.dex "$OUT/cortex-credential-bridge.dex"
           cp scripts/prepare-cortex-rebuild-signer-recovery.sh "$OUT/prepare-cortex-rebuild-signer-recovery.sh"
           chmod +x "$OUT/prepare-cortex-rebuild-signer-recovery.sh"
           cat > "$OUT/README.txt" <<'EOF'
-          Cortex Rebuild signer recovery preparation
+          Cortex Rebuild signer continuity diagnostic
 
-          This bundle is intentionally NON-DESTRUCTIVE.
-          It is for the installed com.kareem.cortex.rebuild build whose CI run #53 signing key is
-          unrecoverable. The script:
-            - force-stops Cortex only long enough to create a consistent snapshot;
-            - exports Gemini/Groq secrets through Android Keystore while the old UID still exists;
-            - snapshots databases/shared_prefs/files and the installed APK into Termux private storage;
-            - creates one new device-local permanent signer only if none exists;
-            - signs Cortex 0.7.1 with that candidate permanent signer for a later cutover;
-            - DOES NOT uninstall, clear, install, replace the package, or mutate the database.
+          This bundle is intentionally NON-DESTRUCTIVE. It snapshots the installed
+          com.kareem.cortex.rebuild app data and compares the installed APK signer against the
+          authoritative existing local Cortex signer at ~/Cortex/app/cortex-debug.keystore.
 
-          Run from Termux:
-            bash prepare-cortex-rebuild-signer-recovery.sh
+          It NEVER generates, replaces, reconstructs or rotates a signing key.
+          It NEVER uninstalls, clears, installs or replaces Cortex.
+          A signer mismatch is reported as a hard update-in-place block.
           EOF
-          (cd "$OUT" && sha256sum app-release-unsigned.apk cortex-credential-bridge.dex prepare-cortex-rebuild-signer-recovery.sh > SHA256SUMS.txt)
+          (cd "$OUT" && sha256sum prepare-cortex-rebuild-signer-recovery.sh > SHA256SUMS.txt)
 
       - name: Upload diagnostic debug APK
         uses: actions/upload-artifact@v4
@@ -145,7 +123,7 @@ jobs:
           path: dist/Cortex-0.7.1-Capture-Policy-finalizer/
           if-no-files-found: error
 
-      - name: Upload signer recovery preparation
+      - name: Upload signer recovery diagnostic
         uses: actions/upload-artifact@v4
         with:
           name: Cortex-Rebuild-Signer-Recovery
