@@ -1,0 +1,10 @@
+{
+  "protocol": "CORTEX_DEVBRIDGE_V1",
+  "agent_version": "3",
+  "job_id": "job_20260830_rebuild_install_smoke_01",
+  "capability": "BUILD_INSTALL_SMOKE",
+  "status": "FAILED",
+  "exit_code": 27,
+  "finished_at": "2026-08-30T09:58:44Z",
+  "log_tail": "started_at=2026-08-30T09:58:09Z\nagent_version=3\nBUILD_SUCCESS\nAPKSIGNER_INSTALLED_FAIL\nfinished_at=2026-08-30T09:58:42Z"
+}
