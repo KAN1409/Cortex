@@ -52,8 +52,8 @@ android {
         applicationId 'com.kareem.cortex.rebuild'
         minSdk 26
         targetSdk 35
-        versionCode 8
-        versionName '0.7.1-capture-policy'
+        versionCode 9
+        versionName '0.7.2-gptoss-brain'
     }
 
     buildTypes {
@@ -88,7 +88,7 @@ tasks.register('printDebugSignerFingerprint') {
     }
 }
 
-// Persist the already-existing device-local signer and a 0.7.1 APK signed by it outside the
+// Persist the already-existing device-local signer and the current APK outside the
 // DevBridge ephemeral worktree. This never installs or replaces the currently installed package.
 tasks.register('prepareDevbridgeSignedCandidate') {
     dependsOn 'assembleDebug'
@@ -128,7 +128,7 @@ tasks.register('prepareDevbridgeSignedCandidate') {
 
         def builtApk = file("${buildDir}/outputs/apk/debug/app-debug.apk")
         if (!builtApk.isFile()) throw new GradleException("Signed debug APK missing: ${builtApk}")
-        def stableApk = new File(stableDir, 'Cortex-0.7.1-stable-signed.apk')
+        def stableApk = new File(stableDir, 'Cortex-0.7.2-gptoss-brain-signed.apk')
         stableApk.bytes = builtApk.bytes
         stableApk.setReadable(false, false)
         stableApk.setWritable(false, false)
