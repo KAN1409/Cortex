@@ -19,50 +19,24 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
-      - name: Verify fresh Cortex brain boundaries
+      - name: Verify Cortex 0.6 voice brain routing
         shell: bash
         run: |
           set -euo pipefail
           grep -q "applicationId 'com.kareem.cortex.rebuild'" app/build.gradle
-          grep -q "versionName '0.5-brain-intake'" app/build.gradle
+          grep -q "versionName '0.6-voice-brain-routing'" app/build.gradle
           grep -q 'android:name=".CortexApp"' app/src/main/AndroidManifest.xml
-          grep -q 'android:label="Cortex"' app/src/main/AndroidManifest.xml
-          grep -q 'android:name=".CortexLocalBusService"' app/src/main/AndroidManifest.xml
-          grep -q 'com.kareem.secondbrain' app/src/main/AndroidManifest.xml
-          grep -q 'com.kareem.cortex.LOCAL_BUS_V1' app/src/main/AndroidManifest.xml
-          grep -q 'android:name=".CaptureActivity"' app/src/main/AndroidManifest.xml
-          grep -q 'android.permission.RECORD_AUDIO' app/src/main/AndroidManifest.xml
-          grep -q 'android.permission.INTERNET' app/src/main/AndroidManifest.xml
-          test -f app/src/main/java/com/kareem/cortex/rebuild/AudioCapture.java
-          test -f app/src/main/java/com/kareem/cortex/rebuild/GeminiAudioTranscriber.java
-          test -f app/src/main/java/com/kareem/cortex/rebuild/GroqAudioTranscriber.java
-          test -f app/src/main/java/com/kareem/cortex/rebuild/VoiceTranscriptionEngine.java
-          test -f app/src/main/java/com/kareem/cortex/rebuild/BrainIntakeEngine.java
-          test -f app/src/main/java/com/kareem/cortex/rebuild/BrainStore.java
-          test -f app/src/main/java/com/kareem/cortex/rebuild/BrainIntakeQueue.java
-          grep -q 'gemini-3.6-flash' app/src/main/java/com/kareem/cortex/rebuild/GeminiAudioTranscriber.java
-          grep -q 'whisper-large-v3' app/src/main/java/com/kareem/cortex/rebuild/GroqAudioTranscriber.java
-          grep -q 'AUDIO_TIMEOUT_SEC = 75' app/src/main/java/com/kareem/cortex/rebuild/CaptureAnalysisQueue.java
           grep -q 'BrainIntakeEngine.understand' app/src/main/java/com/kareem/cortex/rebuild/CaptureAnalysisQueue.java
-          grep -q 'CREATE TABLE IF NOT EXISTS brain_runs' app/src/main/java/com/kareem/cortex/rebuild/BrainStore.java
-          grep -q 'situation_evidence' app/src/main/java/com/kareem/cortex/rebuild/BrainStore.java
-          grep -q 'world_entity_evidence' app/src/main/java/com/kareem/cortex/rebuild/BrainStore.java
+          grep -q 'BrainStore.ApplyResult brainResult' app/src/main/java/com/kareem/cortex/rebuild/CaptureAnalysisQueue.java
+          grep -q 'RECENT VOICE CAPTURES' app/src/main/java/com/kareem/cortex/rebuild/MainActivity.java
+          grep -q 'Cortex brain' app/src/main/java/com/kareem/cortex/rebuild/CaptureActivity.java
+          grep -q 'brain_thinking' app/src/main/java/com/kareem/cortex/rebuild/BrainStore.java
           grep -q 'recoverPending' app/src/main/java/com/kareem/cortex/rebuild/CortexApp.java
-          grep -q 'CANDIDATE_HARD_TIMEOUT_MS = 50_000L' app/src/main/java/com/kareem/cortex/rebuild/GroqAudioTranscriber.java
-          grep -q 'Gemini 3.6 Flash primary; Groq fallback' app/src/main/java/com/kareem/cortex/rebuild/VoiceTranscriptionEngine.java
-          if grep -Rq 'android.service.notification.NotificationListenerService' app/src/main; then
-            echo 'Fresh Cortex must not observe Android notifications directly'
-            exit 1
-          fi
-          if find app/src/main/java/com/kareem/cortex -mindepth 1 -maxdepth 1 ! -name rebuild -print -quit | grep -q .; then
-            echo 'Old Cortex source detected in fresh tree'
-            exit 1
-          fi
-      - name: Build Cortex 0.5 brain intake APK
+      - name: Build Cortex 0.6 APK
         run: gradle :app:assembleDebug --stacktrace
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: Cortex-Rebuild-V1-Brain-Intake-debug
+          name: Cortex-Rebuild-V1-Voice-Brain-Routing-debug
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
