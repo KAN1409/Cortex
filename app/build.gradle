@@ -11,16 +11,9 @@ def loadCortexSigner = {
     for (String type : ['JKS', 'PKCS12']) {
         try {
             def candidate = java.security.KeyStore.getInstance(type)
-            cortexDebugKeystore.withInputStream { input ->
-                candidate.load(input, 'android'.toCharArray())
-            }
-            if (candidate.containsAlias('androiddebugkey')) {
-                ks = candidate
-                break
-            }
-        } catch (Exception e) {
-            last = e
-        }
+            cortexDebugKeystore.withInputStream { input -> candidate.load(input, 'android'.toCharArray()) }
+            if (candidate.containsAlias('androiddebugkey')) { ks = candidate; break }
+        } catch (Exception e) { last = e }
     }
     if (ks == null) throw new GradleException('Could not open cortex-debug.keystore', last)
     return ks
@@ -72,8 +65,8 @@ android {
         applicationId 'com.kareem.cortex.rebuild'
         minSdk 26
         targetSdk 35
-        versionCode 12
-        versionName '0.9.0-chatgpt-bridge'
+        versionCode 13
+        versionName '0.10.0-photo-cognition'
     }
 
     buildTypes {
@@ -81,9 +74,7 @@ android {
             minifyEnabled false
             if (cortexDebugKeystore.exists()) signingConfig signingConfigs.cortexPersistentDebug
         }
-        release {
-            minifyEnabled false
-        }
+        release { minifyEnabled false }
     }
 
     compileOptions {
@@ -95,22 +86,16 @@ android {
 tasks.register('printDebugSignerFingerprint') {
     doLast {
         def ks = loadCortexSigner()
-        if (ks == null) {
-            println 'debug_signer_source=absent'
-            return
-        }
+        if (ks == null) { println 'debug_signer_source=absent'; return }
         def cert = ks.getCertificate('androiddebugkey')
         if (cert == null) throw new GradleException('androiddebugkey certificate missing')
         println "debug_signer_sha256=${sha256Hex(cert.encoded)}"
     }
 }
 
-// Device-only public-certificate diagnostic. It never prints private key material and never changes
-// any signer. It exists to recover update continuity if the installed APK and build overlay diverge.
 tasks.register('diagnoseCortexSignerCandidates') {
     doLast {
         def home = new File(System.getenv('HOME') ?: System.getProperty('user.home'))
-        def expectedInstalled = 'adcb45bd4c902d38a30ca882ba0694ba6c778a086c6ea4724f3b4f8e3785f906'
         def candidates = [
                 ['overlay', cortexDebugKeystore],
                 ['android_debug', new File(home, '.android/debug.keystore')],
@@ -122,28 +107,9 @@ tasks.register('diagnoseCortexSignerCandidates') {
             def fp = signerFingerprintForFile(f)
             println "signer_candidate_${pair[0]}=${fp ?: 'absent_or_unreadable'}"
         }
-        def roots=[home,new File(home,'.android'),new File(home,'.cortex-rebuild-signing'),new File(home,'.cortex-devbridge'),new File(home,'Cortex')]
-        def visited=new HashSet<String>()
-        def matches=[]
-        roots.findAll{it.exists()}.each { root ->
-            root.eachFileRecurse(groovy.io.FileType.FILES) { File f ->
-                String n=f.name.toLowerCase(Locale.ROOT)
-                if(matches.size()>=8 || f.length()>8_000_000L || !(n.endsWith('.keystore')||n.endsWith('.jks')||n.endsWith('.p12')||n.endsWith('.pfx')))return
-                String canonical
-                try{canonical=f.canonicalPath}catch(Exception ignored){canonical=f.absolutePath}
-                if(!visited.add(canonical))return
-                def fp=signerFingerprintForFile(f)
-                if(expectedInstalled.equals(fp))matches << canonical
-            }
-        }
-        if(matches.isEmpty())println 'installed_signer_private_key_match=not_found'
-        else matches.eachWithIndex{path,i->println "installed_signer_private_key_match_${i+1}=${path}"}
     }
 }
 
-// Legacy diagnostic task retained for compatibility. The distributable APK below is never copied
-// from AGP's debug artifact; it is explicitly signed from the unsigned release with the established
-// local Cortex keystore and then cryptographically verified by the shell finalizer.
 tasks.register('prepareDevbridgeSignedCandidate') {
     dependsOn 'assembleDebug'
     doLast {
@@ -152,55 +118,39 @@ tasks.register('prepareDevbridgeSignedCandidate') {
         def cert = ks.getCertificate('androiddebugkey')
         if (cert == null) throw new GradleException('androiddebugkey certificate missing')
         def signerFp = sha256Hex(cert.encoded)
-
         def home = System.getenv('HOME') ?: System.getProperty('user.home')
         def stableDir = new File(home, '.cortex-rebuild-signing')
-        if (!stableDir.exists() && !stableDir.mkdirs()) {
-            throw new GradleException("Could not create ${stableDir}")
-        }
-        stableDir.setReadable(false, false)
-        stableDir.setWritable(false, false)
-        stableDir.setExecutable(false, false)
-        stableDir.setReadable(true, true)
-        stableDir.setWritable(true, true)
-        stableDir.setExecutable(true, true)
-
+        if (!stableDir.exists() && !stableDir.mkdirs()) throw new GradleException("Could not create ${stableDir}")
+        stableDir.setReadable(false, false); stableDir.setWritable(false, false); stableDir.setExecutable(false, false)
+        stableDir.setReadable(true, true); stableDir.setWritable(true, true); stableDir.setExecutable(true, true)
         def signerBackup = new File(stableDir, 'cortex-rebuild-permanent.keystore')
         byte[] sourceSigner = cortexDebugKeystore.bytes
         if (signerBackup.exists()) {
-            if (sha256Hex(signerBackup.bytes) != sha256Hex(sourceSigner)) {
-                throw new GradleException('Existing permanent signer backup differs; refusing replacement')
-            }
-        } else {
-            signerBackup.bytes = sourceSigner
-        }
-        signerBackup.setReadable(false, false)
-        signerBackup.setWritable(false, false)
-        signerBackup.setExecutable(false, false)
-        signerBackup.setReadable(true, true)
-        signerBackup.setWritable(true, true)
-
+            if (sha256Hex(signerBackup.bytes) != sha256Hex(sourceSigner)) throw new GradleException('Existing permanent signer backup differs; refusing replacement')
+        } else signerBackup.bytes = sourceSigner
+        signerBackup.setReadable(false, false); signerBackup.setWritable(false, false); signerBackup.setExecutable(false, false)
+        signerBackup.setReadable(true, true); signerBackup.setWritable(true, true)
         def builtApk = file("${buildDir}/outputs/apk/debug/app-debug.apk")
         if (!builtApk.isFile()) throw new GradleException("Signed debug APK missing: ${builtApk}")
-        def stableApk = new File(stableDir, 'Cortex-0.9.0-chatgpt-bridge-debug-diagnostic.apk')
+        def stableApk = new File(stableDir, 'Cortex-0.10.0-photo-cognition-debug-diagnostic.apk')
         stableApk.bytes = builtApk.bytes
         println "diagnostic_signer_source_sha256=${signerFp}"
         println "diagnostic_debug_apk=${stableApk.absolutePath}"
     }
 }
 
-tasks.register('prepareCortex090PermanentApk', Exec) {
+tasks.register('prepareCortex0100PermanentApk', Exec) {
     dependsOn 'assembleRelease'
     workingDir rootProject.projectDir
-    commandLine 'bash', rootProject.file('scripts/devbridge-sign-stable-cortex-090.sh').absolutePath
+    commandLine 'bash', rootProject.file('scripts/devbridge-sign-stable-cortex-0100.sh').absolutePath
 }
 
-tasks.register('exportCortex090PermanentApk', Exec) {
-    dependsOn 'prepareCortex090PermanentApk'
+tasks.register('exportCortex0100PermanentApk', Exec) {
+    dependsOn 'prepareCortex0100PermanentApk'
     workingDir rootProject.projectDir
     def home = System.getenv('HOME') ?: System.getProperty('user.home')
     commandLine 'bash', rootProject.file('scripts/devbridge-export-signed-apk.sh').absolutePath,
-            new File(home, '.cortex-rebuild-signing/Cortex-0.9.0-chatgpt-bridge-permanent.apk').absolutePath
+            new File(home, '.cortex-rebuild-signing/Cortex-0.10.0-photo-cognition-permanent.apk').absolutePath
 }
 
 tasks.register('exportDevbridgeSignedApk', Exec) {
