@@ -1,0 +1,63 @@
+name: Export Relay Candidate6 APK
+
+on:
+  push:
+    branches:
+      - infra/termux-dev-bridge-v1
+    paths:
+      - '.github/workflows/export-relay-c6.yml'
+  workflow_dispatch:
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout result branch
+        uses: actions/checkout@v4
+        with:
+          ref: device/termux-dev-bridge-results
+          fetch-depth: 1
+
+      - name: Extract signed Candidate6 APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          ZIP='.devbridge/artifacts/job_relay_c6_finalize_stress_20260830_1054.zip'
+          EXPECTED='a3cba89d677d4fa84bf6e6e2aaa00d357b80ebe623333aaa2158ccc704afbb37'
+          test -s "$ZIP"
+          rm -rf relay-c6-extract out
+          mkdir -p relay-c6-extract out
+          python - <<'PY'
+          import os, zipfile
+          src='.devbridge/artifacts/job_relay_c6_finalize_stress_20260830_1054.zip'
+          out='relay-c6-extract'
+          with zipfile.ZipFile(src) as z:
+              for n in z.namelist():
+                  if n.lower().endswith('.apk') and not n.endswith('/'):
+                      target=os.path.join(out, os.path.basename(n))
+                      with z.open(n) as r, open(target,'wb') as w:
+                          while True:
+                              b=r.read(1024*1024)
+                              if not b: break
+                              w.write(b)
+          PY
+          MATCH=''
+          while IFS= read -r apk; do
+            sha="$(sha256sum "$apk" | awk '{print $1}')"
+            echo "$sha  $apk"
+            if [ "$sha" = "$EXPECTED" ]; then MATCH="$apk"; break; fi
+          done < <(find relay-c6-extract -type f -name '*.apk' | sort)
+          test -n "$MATCH"
+          cp "$MATCH" out/Cortex-Relay-v2.0.0-candidate6-permanent.apk
+          echo "$EXPECTED  Cortex-Relay-v2.0.0-candidate6-permanent.apk" > out/Cortex-Relay-v2.0.0-candidate6-permanent.apk.sha256
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Cortex-Relay-v2.0.0-candidate6-permanent
+          path: |
+            out/Cortex-Relay-v2.0.0-candidate6-permanent.apk
+            out/Cortex-Relay-v2.0.0-candidate6-permanent.apk.sha256
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 30
