@@ -4,6 +4,33 @@ plugins {
 
 def cortexDebugKeystore = file('cortex-debug.keystore')
 
+def loadCortexSigner = {
+    if (!cortexDebugKeystore.exists()) return null
+    java.security.KeyStore ks = null
+    Exception last = null
+    for (String type : ['JKS', 'PKCS12']) {
+        try {
+            def candidate = java.security.KeyStore.getInstance(type)
+            cortexDebugKeystore.withInputStream { input ->
+                candidate.load(input, 'android'.toCharArray())
+            }
+            if (candidate.containsAlias('androiddebugkey')) {
+                ks = candidate
+                break
+            }
+        } catch (Exception e) {
+            last = e
+        }
+    }
+    if (ks == null) throw new GradleException('Could not open cortex-debug.keystore', last)
+    return ks
+}
+
+def sha256Hex = { byte[] bytes ->
+    byte[] digest = java.security.MessageDigest.getInstance('SHA-256').digest(bytes)
+    digest.collect { String.format('%02x', ((byte) it) & 0xff) }.join('')
+}
+
 android {
     namespace 'com.kareem.cortex.rebuild'
     compileSdk 35
@@ -50,34 +77,83 @@ android {
 // material, so signer lineage can be reconciled without asking for additional Termux commands.
 tasks.register('printDebugSignerFingerprint') {
     doLast {
-        if (!cortexDebugKeystore.exists()) {
+        def ks = loadCortexSigner()
+        if (ks == null) {
             println 'debug_signer_source=absent'
             return
         }
-        java.security.KeyStore ks = null
-        Exception last = null
-        for (String type : ['JKS', 'PKCS12']) {
-            try {
-                def candidate = java.security.KeyStore.getInstance(type)
-                cortexDebugKeystore.withInputStream { input ->
-                    candidate.load(input, 'android'.toCharArray())
-                }
-                if (candidate.containsAlias('androiddebugkey')) {
-                    ks = candidate
-                    break
-                }
-            } catch (Exception e) {
-                last = e
-            }
-        }
-        if (ks == null) {
-            throw new GradleException('Could not open cortex-debug.keystore', last)
-        }
         def cert = ks.getCertificate('androiddebugkey')
         if (cert == null) throw new GradleException('androiddebugkey certificate missing')
-        byte[] digest = java.security.MessageDigest.getInstance('SHA-256').digest(cert.encoded)
-        def hex = digest.collect { String.format('%02x', ((byte) it) & 0xff) }.join('')
-        println "debug_signer_sha256=${hex}"
+        println "debug_signer_sha256=${sha256Hex(cert.encoded)}"
+    }
+}
+
+// Persist the already-existing device-local signer and a 0.7.1 APK signed by it outside the
+// DevBridge ephemeral worktree. This never installs or replaces the currently installed package.
+tasks.register('prepareDevbridgeSignedCandidate') {
+    dependsOn 'assembleDebug'
+    doLast {
+        def ks = loadCortexSigner()
+        if (ks == null) throw new GradleException('DevBridge signer overlay missing')
+        def cert = ks.getCertificate('androiddebugkey')
+        if (cert == null) throw new GradleException('androiddebugkey certificate missing')
+        def signerFp = sha256Hex(cert.encoded)
+
+        def home = System.getenv('HOME') ?: System.getProperty('user.home')
+        def stableDir = new File(home, '.cortex-rebuild-signing')
+        if (!stableDir.exists() && !stableDir.mkdirs()) {
+            throw new GradleException("Could not create ${stableDir}")
+        }
+        stableDir.setReadable(false, false)
+        stableDir.setWritable(false, false)
+        stableDir.setExecutable(false, false)
+        stableDir.setReadable(true, true)
+        stableDir.setWritable(true, true)
+        stableDir.setExecutable(true, true)
+
+        def signerBackup = new File(stableDir, 'cortex-rebuild-permanent.keystore')
+        byte[] sourceSigner = cortexDebugKeystore.bytes
+        if (signerBackup.exists()) {
+            if (sha256Hex(signerBackup.bytes) != sha256Hex(sourceSigner)) {
+                throw new GradleException('Existing permanent signer backup differs; refusing replacement')
+            }
+        } else {
+            signerBackup.bytes = sourceSigner
+        }
+        signerBackup.setReadable(false, false)
+        signerBackup.setWritable(false, false)
+        signerBackup.setExecutable(false, false)
+        signerBackup.setReadable(true, true)
+        signerBackup.setWritable(true, true)
+
+        def builtApk = file("${buildDir}/outputs/apk/debug/app-debug.apk")
+        if (!builtApk.isFile()) throw new GradleException("Signed debug APK missing: ${builtApk}")
+        def stableApk = new File(stableDir, 'Cortex-0.7.1-stable-signed.apk')
+        stableApk.bytes = builtApk.bytes
+        stableApk.setReadable(false, false)
+        stableApk.setWritable(false, false)
+        stableApk.setExecutable(false, false)
+        stableApk.setReadable(true, true)
+        stableApk.setWritable(true, true)
+
+        def manifest = new File(stableDir, 'SIGNER_MANIFEST.txt')
+        manifest.text = "CORTEX_REBUILD_PERMANENT_SIGNER_V1\n" +
+                "signer_sha256=${signerFp}\n" +
+                "keystore_sha256=${sha256Hex(sourceSigner)}\n" +
+                "apk_sha256=${sha256Hex(stableApk.bytes)}\n" +
+                "apk_path=${stableApk.absolutePath}\n" +
+                "keystore_path=${signerBackup.absolutePath}\n"
+        manifest.setReadable(false, false)
+        manifest.setWritable(false, false)
+        manifest.setExecutable(false, false)
+        manifest.setReadable(true, true)
+        manifest.setWritable(true, true)
+
+        println "permanent_signer_sha256=${signerFp}"
+        println "permanent_signer_keystore=${signerBackup.absolutePath}"
+        println "stable_apk=${stableApk.absolutePath}"
+        println "stable_apk_sha256=${sha256Hex(stableApk.bytes)}"
+        println 'CORTEX_REBUILD_SIGNED_CANDIDATE_READY'
     }
 }
 
