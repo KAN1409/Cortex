@@ -19,12 +19,13 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
-      - name: Verify fresh boundaries and restored capture architecture
+      - name: Verify fresh Cortex brain boundaries
         shell: bash
         run: |
           set -euo pipefail
           grep -q "applicationId 'com.kareem.cortex.rebuild'" app/build.gradle
-          grep -q "versionName '0.4-asr-watchdog'" app/build.gradle
+          grep -q "versionName '0.5-brain-intake'" app/build.gradle
+          grep -q 'android:name=".CortexApp"' app/src/main/AndroidManifest.xml
           grep -q 'android:label="Cortex"' app/src/main/AndroidManifest.xml
           grep -q 'android:name=".CortexLocalBusService"' app/src/main/AndroidManifest.xml
           grep -q 'com.kareem.secondbrain' app/src/main/AndroidManifest.xml
@@ -36,14 +37,19 @@ jobs:
           test -f app/src/main/java/com/kareem/cortex/rebuild/GeminiAudioTranscriber.java
           test -f app/src/main/java/com/kareem/cortex/rebuild/GroqAudioTranscriber.java
           test -f app/src/main/java/com/kareem/cortex/rebuild/VoiceTranscriptionEngine.java
+          test -f app/src/main/java/com/kareem/cortex/rebuild/BrainIntakeEngine.java
+          test -f app/src/main/java/com/kareem/cortex/rebuild/BrainStore.java
+          test -f app/src/main/java/com/kareem/cortex/rebuild/BrainIntakeQueue.java
           grep -q 'gemini-3.6-flash' app/src/main/java/com/kareem/cortex/rebuild/GeminiAudioTranscriber.java
           grep -q 'whisper-large-v3' app/src/main/java/com/kareem/cortex/rebuild/GroqAudioTranscriber.java
           grep -q 'AUDIO_TIMEOUT_SEC = 75' app/src/main/java/com/kareem/cortex/rebuild/CaptureAnalysisQueue.java
+          grep -q 'BrainIntakeEngine.understand' app/src/main/java/com/kareem/cortex/rebuild/CaptureAnalysisQueue.java
+          grep -q 'CREATE TABLE IF NOT EXISTS brain_runs' app/src/main/java/com/kareem/cortex/rebuild/BrainStore.java
+          grep -q 'situation_evidence' app/src/main/java/com/kareem/cortex/rebuild/BrainStore.java
+          grep -q 'world_entity_evidence' app/src/main/java/com/kareem/cortex/rebuild/BrainStore.java
+          grep -q 'recoverPending' app/src/main/java/com/kareem/cortex/rebuild/CortexApp.java
           grep -q 'CANDIDATE_HARD_TIMEOUT_MS = 50_000L' app/src/main/java/com/kareem/cortex/rebuild/GroqAudioTranscriber.java
           grep -q 'Gemini 3.6 Flash primary; Groq fallback' app/src/main/java/com/kareem/cortex/rebuild/VoiceTranscriptionEngine.java
-          grep -q 'Voice' app/src/main/java/com/kareem/cortex/rebuild/CaptureActivity.java
-          grep -q 'Photo' app/src/main/java/com/kareem/cortex/rebuild/CaptureActivity.java
-          grep -q 'File' app/src/main/java/com/kareem/cortex/rebuild/CaptureActivity.java
           if grep -Rq 'android.service.notification.NotificationListenerService' app/src/main; then
             echo 'Fresh Cortex must not observe Android notifications directly'
             exit 1
@@ -52,11 +58,11 @@ jobs:
             echo 'Old Cortex source detected in fresh tree'
             exit 1
           fi
-      - name: Build installable capture ASR APK
+      - name: Build Cortex 0.5 brain intake APK
         run: gradle :app:assembleDebug --stacktrace
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: Cortex-Rebuild-V1-ASR-Watchdog-debug
+          name: Cortex-Rebuild-V1-Brain-Intake-debug
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
