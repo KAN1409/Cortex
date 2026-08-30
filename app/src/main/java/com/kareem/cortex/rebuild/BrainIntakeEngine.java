@@ -34,12 +34,16 @@ public final class BrainIntakeEngine {
 
     public static Decision understand(Context context, CortexDb.AttachmentEvidence evidence,
                                       String transcript, String contextJson) throws Exception {
+        String clean = clean(transcript);
+        if (clean.isEmpty()) throw new IllegalArgumentException("Transcript required for brain intake");
+
+        Decision hard = obviousCapturePolicy(clean);
+        if (hard != null) return hard;
+
         String key = GeminiKeyStore.get(context);
         if (key == null || key.trim().isEmpty()) {
             throw new IllegalStateException("Cortex brain requires the configured Gemini key");
         }
-        String clean = clean(transcript);
-        if (clean.isEmpty()) throw new IllegalArgumentException("Transcript required for brain intake");
 
         ZonedDateTime now = ZonedDateTime.now();
         String prompt =
@@ -116,6 +120,44 @@ public final class BrainIntakeEngine {
         return d;
     }
 
+    private static Decision obviousCapturePolicy(String transcript) throws Exception {
+        String t = norm(transcript);
+        boolean feedback = containsAny(t,
+                "transcription wrong","transcription is wrong","transcript wrong","asr wrong","didn't work","doesn't work",
+                "not working","stuck","bug","cortex should","relay should","app should",
+                "الترانسكريبت غلط","الترانسكريبت مش","الترانسكريبشن غلط","مش شغال","ما اشتغلش","معلق","علّق","صلح الكورتكس","صلح الابلكيشن");
+        boolean test = containsAny(t,
+                "test transcription","test the transcription","transcription test","test uh transcription",
+                "we're gonna test","we are going to test","just testing","this is a test","test cortex","test capture","test asr",
+                "testing cortex capture","testing the transcription",
+                "نجرب الترانسكريبت","نجرب الترانسكريبشن","تجربة الترانسكريبت","اختبار الترانسكريبت","بنجرب الترانسكريبت","نجرب الكورتكس","تست للترانسكريبت","تست للترانسكريبشن");
+        if (!feedback && !test) return null;
+
+        Decision d = new Decision();
+        d.provider = "policy";
+        d.model = "capture-policy-v1";
+        d.evidenceOnly = true;
+        d.surface = "CAPTURE_HISTORY_ONLY";
+        d.memoryCreate = false;
+        d.situationCreate = false;
+        d.entities.clear();
+        if (feedback) {
+            d.captureClass = "PRODUCT_FEEDBACK";
+            d.retention = "STANDARD";
+            d.feedbackCreate = true;
+            d.feedbackCategory = "OTHER";
+            d.feedbackSummary = compact(transcript, 240);
+            d.reason = "Explicit product-feedback wording matched Cortex capture policy.";
+        } else {
+            d.captureClass = "TEST_META";
+            d.retention = "SHORT";
+            d.feedbackCreate = false;
+            d.reason = "Explicit test/meta wording matched Cortex capture policy.";
+        }
+        d.rawDecisionJson = d.toPolicyJson(new JSONObject()).toString();
+        return d;
+    }
+
     /** Hard safety rail: obvious test/meta or product-feedback captures cannot accidentally become
      * personal state even if the model over-promotes them. */
     private static void enforceCapturePolicy(Decision d, String transcript) {
@@ -127,6 +169,7 @@ public final class BrainIntakeEngine {
         boolean test = containsAny(t,
                 "test transcription","test the transcription","transcription test","test uh transcription",
                 "we're gonna test","we are going to test","just testing","this is a test","test cortex","test capture","test asr",
+                "testing cortex capture","testing the transcription",
                 "نجرب الترانسكريبت","نجرب الترانسكريبشن","تجربة الترانسكريبت","اختبار الترانسكريبت","بنجرب الترانسكريبت","نجرب الكورتكس","تست للترانسكريبت","تست للترانسكريبشن");
         if (feedback) {
             d.captureClass="PRODUCT_FEEDBACK"; d.surface="CAPTURE_HISTORY_ONLY"; d.retention="STANDARD";
@@ -225,31 +268,25 @@ public final class BrainIntakeEngine {
             d.evidenceOnly=j.optBoolean("evidence_only",false); d.reason=clean(j.optString("reason"));
             if(d.memoryCreate&&(d.memoryTitle.isEmpty()||d.memoryBody.isEmpty()))d.memoryCreate=false;
             if(d.situationCreate&&(d.situationTitle.isEmpty()||d.situationSummary.isEmpty()))d.situationCreate=false;
-            if(d.feedbackCreate&&d.feedbackSummary.isEmpty())d.feedbackCreate=false;
-            if(!d.captureClass.equals("PERSONAL")){d.memoryCreate=false;d.situationCreate=false;d.entities.clear();d.evidenceOnly=true;}
+            if(!d.memoryCreate&&!d.situationCreate&&d.entities.isEmpty()&&!d.feedbackCreate)d.evidenceOnly=true;
             return d;
         }
 
-        JSONObject toPolicyJson(JSONObject original)throws Exception{
+        JSONObject toPolicyJson(JSONObject original) throws Exception {
             JSONObject out=new JSONObject(original.toString());
-            out.put("capture_policy",new JSONObject().put("class",captureClass).put("surface",surface).put("retention",retention));
-            out.put("memory",new JSONObject().put("create",memoryCreate).put("title",memoryTitle).put("body",memoryBody));
-            out.put("situation",new JSONObject().put("create",situationCreate).put("canonical_key",situationKey).put("title",situationTitle).put("summary",situationSummary).put("attention",attention));
-            out.put("product_feedback",new JSONObject().put("create",feedbackCreate).put("category",feedbackCategory).put("summary",feedbackSummary));
-            out.put("evidence_only",evidenceOnly);
-            return out;
+            JSONObject p=new JSONObject();p.put("class",captureClass);p.put("surface",surface);p.put("retention",retention);out.put("capture_policy",p);
+            JSONObject m=new JSONObject();m.put("create",memoryCreate);m.put("title",memoryTitle);m.put("body",memoryBody);out.put("memory",m);
+            JSONObject s=new JSONObject();s.put("create",situationCreate);s.put("canonical_key",situationKey);s.put("title",situationTitle);s.put("summary",situationSummary);s.put("attention",attention);out.put("situation",s);
+            JSONArray es=new JSONArray();for(Entity e:entities){JSONObject j=new JSONObject();j.put("type",e.type);j.put("canonical_key",e.canonicalKey);j.put("name",e.name);j.put("summary",e.summary);es.put(j);}out.put("world_entities",es);
+            JSONObject f=new JSONObject();f.put("create",feedbackCreate);f.put("category",feedbackCategory);f.put("summary",feedbackSummary);out.put("product_feedback",f);
+            out.put("evidence_only",evidenceOnly);out.put("reason",reason);return out;
         }
 
         private static String policyClass(String x){String v=clean(x).toUpperCase(Locale.ROOT);return v.equals("TEST_META")||v.equals("PRODUCT_FEEDBACK")||v.equals("TRANSIENT")?v:"PERSONAL";}
         private static String surface(String x){String v=clean(x).toUpperCase(Locale.ROOT);return v.equals("CAPTURE_HISTORY_ONLY")||v.equals("HIDDEN")?v:"NORMAL";}
-        private static String retention(String x){String v=clean(x).toUpperCase(Locale.ROOT);return v.equals("SHORT")||v.equals("DURABLE")?v:"STANDARD";}
+        private static String retention(String x){String v=clean(x).toUpperCase(Locale.ROOT);return v.equals("DURABLE")||v.equals("SHORT")?v:"STANDARD";}
         private static String feedbackCategory(String x){String v=clean(x).toUpperCase(Locale.ROOT);return v.equals("ASR")||v.equals("CAPTURE")||v.equals("RELAY")||v.equals("BRAIN")||v.equals("UI")?v:"OTHER";}
     }
 
-    static String key(String proposed, String fallback) {
-        String x = clean(proposed).toLowerCase(Locale.ROOT).replaceAll("[^\\p{L}\\p{N}]+", "_").replaceAll("^_+|_+$", "");
-        if (x.isEmpty()) x = clean(fallback).toLowerCase(Locale.ROOT).replaceAll("[^\\p{L}\\p{N}]+", "_").replaceAll("^_+|_+$", "");
-        if (x.length() > 96) x = x.substring(0,96);
-        return x.isEmpty()?"evidence":x;
-    }
+    private static String key(String preferred,String fallback){String x=clean(preferred);if(x.isEmpty())x=clean(fallback);x=x.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9\\p{L}]+","_").replaceAll("^_+|_+$","");return x.isEmpty()?"item":x;}
 }
