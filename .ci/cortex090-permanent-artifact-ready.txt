@@ -1,0 +1,6 @@
+CORTEX_090_PERMANENT_ARTIFACT_V1
+version_code=12
+version_name=0.9.0-chatgpt-bridge
+signer_sha256=5c6550a070abe477dcad5f23f3f437e183bff8aeaeb6ac52e1beaa8243ee69a7
+apk_sha256=429798ee2c37ae0b9fbe2679dc64992ac5a885c5b433002044598e916234517d
+artifact=.devbridge/artifacts/Cortex-0.9.0-chatgpt-bridge-permanent.apk
