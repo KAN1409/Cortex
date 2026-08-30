@@ -42,6 +42,8 @@ jobs:
           ! grep -q 'recentVoiceOutcomes' app/src/main/java/com/kareem/cortex/rebuild/MainActivity.java
           grep -q 'CORTEX_SIGNER_BLOCKED_RUN53' scripts/finalize-cortex-0.7.1.sh
           grep -q 'pm install -r' scripts/finalize-cortex-0.7.1.sh
+          grep -q '44b0180ba743460788171687f2dbcfb137c5e5a151f2783306747f84fbee39f4' scripts/prepare-cortex-rebuild-signer-recovery.sh
+          grep -q 'CORTEX_REBUILD_CREDENTIALS_V1' tools/recovery/CortexCredentialBridge.java
 
       - name: Build debug and unsigned release APKs
         run: gradle :app:assembleDebug :app:assembleRelease --stacktrace
@@ -58,6 +60,22 @@ jobs:
             echo "Release artifact unexpectedly carries a signer" >&2
             exit 1
           fi
+
+      - name: Build UID-scoped credential recovery bridge
+        shell: bash
+        run: |
+          set -euo pipefail
+          ANDROID_JAR="$ANDROID_HOME/platforms/android-35/android.jar"
+          test -s "$ANDROID_JAR"
+          rm -rf build/recovery-classes dist/recovery-dex
+          mkdir -p build/recovery-classes dist/recovery-dex
+          javac -source 8 -target 8 -cp "$ANDROID_JAR" \
+            -d build/recovery-classes tools/recovery/CortexCredentialBridge.java
+          D8="$(find "$ANDROID_HOME/build-tools" -type f -name d8 | sort -V | tail -n1)"
+          test -n "$D8"
+          "$D8" --min-api 26 --lib "$ANDROID_JAR" --output dist/recovery-dex build/recovery-classes
+          test -s dist/recovery-dex/classes.dex
+          cp dist/recovery-dex/classes.dex dist/cortex-credential-bridge.dex
 
       - name: Package safe 0.7.1 finalizer
         shell: bash
@@ -80,11 +98,36 @@ jobs:
           historical Cortex key material for the exact matching private key, and only then signs and
           attempts Android update-in-place. If no matching key exists, it exits without uninstalling,
           clearing, replacing, or mutating Cortex data.
-
-          Run from Termux:
-            bash finalize-cortex-0.7.1.sh
           EOF
           (cd "$OUT" && sha256sum app-release-unsigned.apk finalize-cortex-0.7.1.sh > SHA256SUMS.txt)
+
+      - name: Package signer recovery preparation
+        shell: bash
+        run: |
+          set -euo pipefail
+          OUT="dist/Cortex-Rebuild-Signer-Recovery"
+          mkdir -p "$OUT"
+          cp app/build/outputs/apk/release/app-release-unsigned.apk "$OUT/app-release-unsigned.apk"
+          cp dist/cortex-credential-bridge.dex "$OUT/cortex-credential-bridge.dex"
+          cp scripts/prepare-cortex-rebuild-signer-recovery.sh "$OUT/prepare-cortex-rebuild-signer-recovery.sh"
+          chmod +x "$OUT/prepare-cortex-rebuild-signer-recovery.sh"
+          cat > "$OUT/README.txt" <<'EOF'
+          Cortex Rebuild signer recovery preparation
+
+          This bundle is intentionally NON-DESTRUCTIVE.
+          It is for the installed com.kareem.cortex.rebuild build whose CI run #53 signing key is
+          unrecoverable. The script:
+            - force-stops Cortex only long enough to create a consistent snapshot;
+            - exports Gemini/Groq secrets through Android Keystore while the old UID still exists;
+            - snapshots databases/shared_prefs/files and the installed APK into Termux private storage;
+            - creates one new device-local permanent signer only if none exists;
+            - signs Cortex 0.7.1 with that candidate permanent signer for a later cutover;
+            - DOES NOT uninstall, clear, install, replace the package, or mutate the database.
+
+          Run from Termux:
+            bash prepare-cortex-rebuild-signer-recovery.sh
+          EOF
+          (cd "$OUT" && sha256sum app-release-unsigned.apk cortex-credential-bridge.dex prepare-cortex-rebuild-signer-recovery.sh > SHA256SUMS.txt)
 
       - name: Upload diagnostic debug APK
         uses: actions/upload-artifact@v4
@@ -98,4 +141,11 @@ jobs:
         with:
           name: Cortex-0.7.1-Capture-Policy-finalizer
           path: dist/Cortex-0.7.1-Capture-Policy-finalizer/
+          if-no-files-found: error
+
+      - name: Upload signer recovery preparation
+        uses: actions/upload-artifact@v4
+        with:
+          name: Cortex-Rebuild-Signer-Recovery
+          path: dist/Cortex-Rebuild-Signer-Recovery/
           if-no-files-found: error
