@@ -46,27 +46,14 @@ public final class MainActivity extends Activity {
 
     private void renderMemory(){
         title("Memory");
-        paragraph("Durable things Cortex chose to keep, plus a visible trail of deliberate captures and the brain decision made for each one.");
+        paragraph("Durable things Cortex explicitly chose to keep. Capture processing, retry state and evidence-only items stay outside Memory.");
         List<CortexDb.Row> memories=db.recentMemories(50);
         if(!memories.isEmpty()){
             section("DURABLE MEMORY",BRAND);
             for(CortexDb.Row row:memories){LinearLayout c=card();c.addView(text(row.title,16,TEXT,true));if(!row.body.equals(row.title)){TextView body=paragraphView(row.body);body.setPadding(0,dp(6),0,0);c.addView(body);}TextView meta=text(format(row.updatedAt),10,FAINT,false);meta.setPadding(0,dp(10),0,0);c.addView(meta);page.addView(c,margins(0,dp(10),0,0));}
+        } else {
+            emptyCard("No durable memories yet","Deliberate captures remain evidence until Cortex explicitly decides they are worth keeping as durable memory.");
         }
-        List<BrainStore.BrainOutcome> voice=BrainStore.recentVoiceOutcomes(db,20);
-        if(!voice.isEmpty()){
-            section("RECENT VOICE CAPTURES",BLUE);
-            for(BrainStore.BrainOutcome o:voice){
-                LinearLayout c=card();
-                String destination=o.destination();
-                int color=destination.contains("retry")?AMBER:destination.contains("Evidence only")?BLUE:BRAND;
-                c.addView(text(destination,11,color,true));
-                TextView transcript=paragraphView(o.transcript.isEmpty()?"Voice capture":o.transcript);transcript.setTextColor(TEXT);transcript.setTextSize(16);transcript.setPadding(0,dp(7),0,0);c.addView(transcript);
-                if(!o.reason.isEmpty()){TextView why=paragraphView(o.reason);why.setPadding(0,dp(8),0,0);c.addView(why);}else if(!o.error.isEmpty()){TextView why=text(o.error,11,AMBER,false);why.setPadding(0,dp(8),0,0);c.addView(why);}
-                TextView meta=text(format(o.occurredAt)+" · evidence #"+o.evidenceId,9,FAINT,false);meta.setPadding(0,dp(9),0,0);c.addView(meta);
-                page.addView(c,margins(0,dp(10),0,0));
-            }
-        }
-        if(memories.isEmpty()&&voice.isEmpty())emptyCard("Nothing captured yet","Use + to capture Text, Voice, Photo or File. Voice is transcribed first, then Cortex decides whether it belongs in Now, Memory, World or evidence only.");
     }
 
     private void renderWorld(){title("World");paragraph("People, projects and other entities appear only after Cortex has enough grounded evidence to maintain a real model of them.");List<CortexDb.Row> entities=db.worldEntities(50);if(entities.isEmpty()){emptyCard("No world model yet","No phone numbers, contact dumps or accidental notification fragments are promoted into people or projects.");return;}section("KNOWN ENTITIES",BLUE);for(CortexDb.Row row:entities){LinearLayout c=card();c.addView(text(row.title,17,TEXT,true));TextView kind=text(row.type,10,BLUE,true);kind.setPadding(0,dp(5),0,0);c.addView(kind);if(!row.body.isEmpty()){TextView body=paragraphView(row.body);body.setPadding(0,dp(8),0,0);c.addView(body);}page.addView(c,margins(0,dp(10),0,0));}}
