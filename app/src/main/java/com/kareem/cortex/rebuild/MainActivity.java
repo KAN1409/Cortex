@@ -37,6 +37,7 @@ public final class MainActivity extends Activity {
     private static final int FAINT = Color.rgb(112,120,112);
     private static final int BRAND = Color.rgb(143,226,67);
     private static final int BLUE = Color.rgb(75,158,255);
+    private static final int AMBER = Color.rgb(238,174,60);
 
     private CortexDb db;
     private LinearLayout page;
@@ -115,20 +116,21 @@ public final class MainActivity extends Activity {
 
     private void renderNow() {
         title("What matters now");
-        paragraph("A current-state view. Evidence stays underneath; only unresolved situations belong here.");
+        paragraph("A current-state view. Relay evidence stays underneath; only situations the Cortex brain creates can surface here.");
+        relaySensorCard();
 
         List<CortexDb.Row> situations = db.activeSituations(12);
         if (situations.isEmpty()) {
             LinearLayout clear = card();
             clear.addView(text("Clear horizon",20,TEXT,true));
-            TextView b = paragraphView("Nothing currently requires your attention. This rebuild starts empty instead of inheriting old cards, contacts or priorities.");
+            TextView b = paragraphView("Nothing currently requires your attention. Incoming phone evidence can accumulate safely without turning itself into tasks or priorities.");
             b.setPadding(0,dp(8),0,0);
             clear.addView(b);
             TextView rule = text("0 CURRENT SITUATIONS",10,BRAND,true);
             rule.setLetterSpacing(.12f);
             rule.setPadding(0,dp(14),0,0);
             clear.addView(rule);
-            page.addView(clear, margins(0,dp(18),0,0));
+            page.addView(clear, margins(0,dp(12),0,0));
             return;
         }
 
@@ -148,9 +150,43 @@ public final class MainActivity extends Activity {
         }
     }
 
+    private void relaySensorCard() {
+        CortexDb.RelayStats stats = db.relayStats();
+        LinearLayout c = card();
+        LinearLayout line = new LinearLayout(this);
+        line.setGravity(Gravity.CENTER_VERTICAL);
+        TextView dot = text("●", 14, stats.total > 0 ? BRAND : AMBER, true);
+        line.addView(dot);
+        TextView heading = text(stats.total > 0 ? "Relay sensor connected" : "Relay sensor waiting", 15, TEXT, true);
+        LinearLayout.LayoutParams hp = new LinearLayout.LayoutParams(0,-2,1);
+        hp.setMargins(dp(10),0,0,0);
+        line.addView(heading,hp);
+        c.addView(line);
+
+        String body;
+        if (stats.total <= 0) {
+            body = "No authenticated Relay evidence has reached this fresh Cortex yet. Evidence will stay below the product surface until the brain gives it meaning.";
+        } else {
+            body = stats.today + " evidence event" + (stats.today == 1 ? "" : "s") + " received today" +
+                    (stats.lastReceivedAt > 0 ? " · last " + format(stats.lastReceivedAt) : "") + ". Raw notifications are not Now cards.";
+        }
+        TextView b = paragraphView(body);
+        b.setPadding(0,dp(7),0,0);
+        c.addView(b);
+
+        if (stats.total > 0) {
+            String detail = (stats.lastProtocol.isEmpty() ? "RELAY" : stats.lastProtocol) +
+                    (stats.lastSourcePackage.isEmpty() ? "" : " · " + stats.lastSourcePackage);
+            TextView meta = text(detail,9,FAINT,true);
+            meta.setPadding(0,dp(10),0,0);
+            c.addView(meta);
+        }
+        page.addView(c,margins(0,dp(16),0,0));
+    }
+
     private void renderMemory() {
         title("Memory");
-        paragraph("Durable things you chose to keep. Raw phone evidence will never appear here just because it was captured.");
+        paragraph("Durable things you chose to keep. Raw phone evidence never becomes memory merely because Relay captured it.");
         List<CortexDb.Row> memories = db.recentMemories(50);
         if (memories.isEmpty()) {
             emptyCard("Nothing saved yet", "Use + to capture the first thing Cortex should remember.");
@@ -177,7 +213,7 @@ public final class MainActivity extends Activity {
         paragraph("People, projects and other entities appear only after Cortex has enough grounded evidence to maintain a real model of them.");
         List<CortexDb.Row> entities = db.worldEntities(50);
         if (entities.isEmpty()) {
-            emptyCard("No world model yet", "No phone numbers, contact dumps or accidental OCR fragments are promoted into people or projects.");
+            emptyCard("No world model yet", "No phone numbers, contact dumps or accidental notification fragments are promoted into people or projects.");
             return;
         }
         section("KNOWN ENTITIES", BLUE);
@@ -198,11 +234,11 @@ public final class MainActivity extends Activity {
 
     private void renderAsk() {
         title("Ask Cortex");
-        paragraph("Grounded recall first. This build refuses to invent an answer when the stored evidence does not support one.");
+        paragraph("Grounded recall across deliberate memory and underlying Relay evidence. Cortex refuses to invent an answer when neither supports it.");
 
         LinearLayout box = card();
         EditText input = new EditText(this);
-        input.setHint("Ask about something you saved…");
+        input.setHint("Ask about something Cortex has evidence for…");
         input.setHintTextColor(FAINT);
         input.setTextColor(TEXT);
         input.setTextSize(16);
@@ -212,7 +248,7 @@ public final class MainActivity extends Activity {
         input.setBackground(round(SURFACE_2,BORDER,14,1));
         box.addView(input,new LinearLayout.LayoutParams(-1,-2));
 
-        TextView ask = action("Search grounded memory");
+        TextView ask = action("Search grounded context");
         LinearLayout.LayoutParams ap = new LinearLayout.LayoutParams(-1,dp(48));
         ap.setMargins(0,dp(10),0,0);
         box.addView(ask,ap);
@@ -229,18 +265,21 @@ public final class MainActivity extends Activity {
                 results.addView(messageCard("Ask a specific question", "Cortex needs a query before it can look for grounded context."));
                 return;
             }
-            List<CortexDb.Row> matches = db.searchMemories(q,5);
+            List<CortexDb.Row> matches = db.searchGrounded(q,5);
             if (matches.isEmpty()) {
-                results.addView(messageCard("I don't have grounded evidence for that yet", "Nothing in the fresh Cortex memory matches this query, so no answer was fabricated."));
+                results.addView(messageCard("I don't have grounded evidence for that yet", "Nothing in fresh Cortex memory or Relay evidence matches this query, so no answer was fabricated."));
                 return;
             }
-            results.addView(messageCard("Grounded memory found", matches.size()+" matching saved item"+(matches.size()==1?"":"s")+"."));
+            results.addView(messageCard("Grounded context found", matches.size()+" supporting item"+(matches.size()==1?"":"s")+"."));
             for (CortexDb.Row row : matches) {
                 LinearLayout c = card();
                 c.addView(text(row.title,15,TEXT,true));
                 TextView b = paragraphView(row.body);
                 b.setPadding(0,dp(5),0,0);
                 c.addView(b);
+                TextView source = text(row.type,9,row.type.equals("EVIDENCE")?BLUE:BRAND,true);
+                source.setPadding(0,dp(8),0,0);
+                c.addView(source);
                 results.addView(c,margins(0,dp(8),0,0));
             }
         });
