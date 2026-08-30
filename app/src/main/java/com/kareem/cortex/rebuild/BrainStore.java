@@ -10,8 +10,8 @@ import org.json.JSONObject;
 import java.util.ArrayList;
 import java.util.List;
 
-/** Durable application of model decisions. Evidence remains the source of truth and every derived
- * cognitive product keeps an explicit evidence link. */
+/** Durable application of model decisions. Evidence remains source of truth; derived cognition is
+ * explicitly linked to evidence. Capture policy is persisted separately from personal memory. */
 public final class BrainStore {
     private BrainStore() {}
 
@@ -21,6 +21,9 @@ public final class BrainStore {
         db.execSQL("CREATE INDEX IF NOT EXISTS idx_brain_runs_status ON brain_runs(status,updated_at DESC)");
         db.execSQL("CREATE TABLE IF NOT EXISTS brain_situation_keys(canonical_key TEXT PRIMARY KEY,situation_id INTEGER NOT NULL)");
         db.execSQL("CREATE TABLE IF NOT EXISTS brain_entity_keys(canonical_key TEXT PRIMARY KEY,entity_id INTEGER NOT NULL)");
+        db.execSQL("CREATE TABLE IF NOT EXISTS brain_evidence_policy(evidence_id INTEGER PRIMARY KEY,capture_class TEXT NOT NULL,surface TEXT NOT NULL,retention TEXT NOT NULL,expires_at INTEGER NOT NULL DEFAULT 0,updated_at INTEGER NOT NULL)");
+        db.execSQL("CREATE INDEX IF NOT EXISTS idx_brain_evidence_policy_surface ON brain_evidence_policy(surface,capture_class,updated_at DESC)");
+        db.execSQL("CREATE TABLE IF NOT EXISTS product_feedback(id INTEGER PRIMARY KEY AUTOINCREMENT,evidence_id INTEGER NOT NULL UNIQUE,category TEXT NOT NULL,summary TEXT NOT NULL,created_at INTEGER NOT NULL)");
     }
 
     public static boolean applied(CortexDb vault,long evidenceId){ensure(vault);Cursor c=vault.getReadableDatabase().rawQuery("SELECT 1 FROM brain_runs WHERE evidence_id=? AND status='applied' LIMIT 1",new String[]{String.valueOf(evidenceId)});try{return c.moveToFirst();}finally{c.close();}}
@@ -33,11 +36,25 @@ public final class BrainStore {
         ensure(vault);SQLiteDatabase db=vault.getWritableDatabase();db.beginTransaction();long memoryId=0,situationId=0;ArrayList<Long> entityIds=new ArrayList<>();
         try{
             if(d.memoryCreate){Cursor c=db.rawQuery("SELECT id FROM memories WHERE evidence_id=? ORDER BY id DESC LIMIT 1",new String[]{String.valueOf(evidenceId)});try{if(c.moveToFirst())memoryId=c.getLong(0);}finally{c.close();}if(memoryId==0){ContentValues m=new ContentValues();m.put("evidence_id",evidenceId);m.put("title",d.memoryTitle);m.put("body",d.memoryBody);m.put("created_at",System.currentTimeMillis());memoryId=db.insertOrThrow("memories",null,m);}}
-            if(d.situationCreate){situationId=upsertSituation(db,evidenceId,d);}
+            if(d.situationCreate)situationId=upsertSituation(db,evidenceId,d);
             for(BrainIntakeEngine.Entity e:d.entities){long id=upsertEntity(db,evidenceId,e);if(id>0)entityIds.add(id);}
-            ContentValues run=new ContentValues();run.put("evidence_id",evidenceId);run.put("status","applied");run.put("provider",d.provider);run.put("model",d.model);run.put("decision_json",d.rawDecisionJson);run.put("reason",d.reason);run.put("error","");long now=System.currentTimeMillis();run.put("created_at",now);run.put("updated_at",now);db.insertWithOnConflict("brain_runs",null,run,SQLiteDatabase.CONFLICT_REPLACE);
-            ContentValues ev=new ContentValues();ev.put("state",d.evidenceOnly&&!d.memoryCreate&&!d.situationCreate&&entityIds.isEmpty()?"brain_evidence_only":"brain_applied");db.update("evidence",ev,"id=?",new String[]{String.valueOf(evidenceId)});
-            db.setTransactionSuccessful();return new ApplyResult(memoryId,situationId,entityIds,d.evidenceOnly,d.reason);
+            if(d.feedbackCreate){ContentValues f=new ContentValues();f.put("evidence_id",evidenceId);f.put("category",d.feedbackCategory);f.put("summary",d.feedbackSummary);f.put("created_at",System.currentTimeMillis());db.insertWithOnConflict("product_feedback",null,f,SQLiteDatabase.CONFLICT_REPLACE);}
+
+            long now=System.currentTimeMillis();
+            long expiresAt="SHORT".equals(d.retention)?now+72L*60L*60L*1000L:0L;
+            ContentValues policy=new ContentValues();policy.put("evidence_id",evidenceId);policy.put("capture_class",d.captureClass);policy.put("surface",d.surface);policy.put("retention",d.retention);policy.put("expires_at",expiresAt);policy.put("updated_at",now);db.insertWithOnConflict("brain_evidence_policy",null,policy,SQLiteDatabase.CONFLICT_REPLACE);
+
+            ContentValues run=new ContentValues();run.put("evidence_id",evidenceId);run.put("status","applied");run.put("provider",d.provider);run.put("model",d.model);run.put("decision_json",d.rawDecisionJson);run.put("reason",d.reason);run.put("error","");run.put("created_at",now);run.put("updated_at",now);db.insertWithOnConflict("brain_runs",null,run,SQLiteDatabase.CONFLICT_REPLACE);
+
+            String state;
+            if("TEST_META".equals(d.captureClass))state="brain_test_meta";
+            else if("PRODUCT_FEEDBACK".equals(d.captureClass))state="brain_product_feedback";
+            else if("TRANSIENT".equals(d.captureClass))state="brain_transient";
+            else if(d.evidenceOnly&&!d.memoryCreate&&!d.situationCreate&&entityIds.isEmpty())state="brain_evidence_only";
+            else state="brain_applied";
+            ContentValues ev=new ContentValues();ev.put("state",state);db.update("evidence",ev,"id=?",new String[]{String.valueOf(evidenceId)});
+            db.setTransactionSuccessful();
+            return new ApplyResult(memoryId,situationId,entityIds,d.evidenceOnly,d.reason,d.captureClass,d.surface,d.retention,d.feedbackCreate);
         }finally{db.endTransaction();}
     }
 
@@ -48,53 +65,48 @@ public final class BrainStore {
     public static String contextSnapshot(CortexDb vault,int limit){ensure(vault);try{JSONObject root=new JSONObject();root.put("situations",rows(vault.activeSituations(limit)));root.put("memories",rows(vault.recentMemories(limit)));root.put("world",rows(vault.worldEntities(limit)));return root.toString();}catch(Exception e){return "{}";}}
     private static JSONArray rows(List<CortexDb.Row> rows)throws Exception{JSONArray a=new JSONArray();for(CortexDb.Row r:rows){JSONObject j=new JSONObject();j.put("id",r.id);j.put("title",r.title);j.put("body",r.body);j.put("type",r.type);a.put(j);}return a;}
 
-    /** Recover every successfully transcribed voice that does not yet have an applied brain decision.
-     * brain_thinking is included so process death cannot strand a capture forever. */
     public static List<Long> pendingVoiceEvidence(CortexDb vault,int limit){ensure(vault);ArrayList<Long> out=new ArrayList<>();Cursor c=vault.getReadableDatabase().rawQuery("SELECT e.id FROM evidence e LEFT JOIN brain_runs b ON b.evidence_id=e.id WHERE e.kind LIKE 'AUDIO%' AND e.state IN ('transcribed','brain_failed','brain_thinking') AND (b.status IS NULL OR b.status!='applied') ORDER BY e.id ASC LIMIT ?",new String[]{String.valueOf(Math.max(1,limit))});try{while(c.moveToNext())out.add(c.getLong(0));}finally{c.close();}return out;}
 
     public static String transcript(CortexDb vault,long evidenceId){Cursor c=vault.getReadableDatabase().rawQuery("SELECT transcript FROM voice_transcripts WHERE evidence_id=? LIMIT 1",new String[]{String.valueOf(evidenceId)});try{return c.moveToFirst()?c.getString(0):"";}finally{c.close();}}
 
-    /** Product-facing audit of deliberate voice captures. Evidence-only is a legitimate brain
-     * destination and must remain visible instead of appearing to vanish. */
+    /** Only outcomes that are allowed on a normal product surface. TEST_META / feedback / hidden
+     * evidence never appear inside Memory. */
     public static List<BrainOutcome> recentVoiceOutcomes(CortexDb vault,int limit){
         ensure(vault);ArrayList<BrainOutcome> out=new ArrayList<>();
         Cursor c=vault.getReadableDatabase().rawQuery(
-                "SELECT e.id,e.occurred_at,COALESCE(v.transcript,e.body),e.state,"+
-                "COALESCE(b.status,''),COALESCE(b.reason,''),COALESCE(b.error,''),"+
-                "EXISTS(SELECT 1 FROM memories m WHERE m.evidence_id=e.id),"+
-                "EXISTS(SELECT 1 FROM situation_evidence se WHERE se.evidence_id=e.id),"+
-                "EXISTS(SELECT 1 FROM world_entity_evidence we WHERE we.evidence_id=e.id) " +
-                "FROM evidence e LEFT JOIN voice_transcripts v ON v.evidence_id=e.id " +
-                "LEFT JOIN brain_runs b ON b.evidence_id=e.id " +
-                "WHERE e.kind LIKE 'AUDIO%' ORDER BY e.id DESC LIMIT ?",
+                "SELECT e.id,e.occurred_at,COALESCE(v.transcript,e.body),e.state,COALESCE(b.status,''),COALESCE(b.reason,''),COALESCE(b.error,''),"+
+                "EXISTS(SELECT 1 FROM memories m WHERE m.evidence_id=e.id),EXISTS(SELECT 1 FROM situation_evidence se WHERE se.evidence_id=e.id),EXISTS(SELECT 1 FROM world_entity_evidence we WHERE we.evidence_id=e.id),"+
+                "COALESCE(p.capture_class,'PERSONAL'),COALESCE(p.surface,'NORMAL'),COALESCE(p.retention,'STANDARD') " +
+                "FROM evidence e LEFT JOIN voice_transcripts v ON v.evidence_id=e.id LEFT JOIN brain_runs b ON b.evidence_id=e.id LEFT JOIN brain_evidence_policy p ON p.evidence_id=e.id " +
+                "WHERE e.kind LIKE 'AUDIO%' AND (b.status!='applied' OR COALESCE(p.surface,'NORMAL')='NORMAL') ORDER BY e.id DESC LIMIT ?",
                 new String[]{String.valueOf(Math.max(1,limit))});
-        try{while(c.moveToNext())out.add(new BrainOutcome(c.getLong(0),c.getLong(1),c.getString(2),c.getString(3),c.getString(4),c.getString(5),c.getString(6),c.getInt(7)!=0,c.getInt(8)!=0,c.getInt(9)!=0));}finally{c.close();}
+        try{while(c.moveToNext())out.add(new BrainOutcome(c.getLong(0),c.getLong(1),c.getString(2),c.getString(3),c.getString(4),c.getString(5),c.getString(6),c.getInt(7)!=0,c.getInt(8)!=0,c.getInt(9)!=0,c.getString(10),c.getString(11),c.getString(12)));}finally{c.close();}
         return out;
     }
 
     public static BrainOutcome outcome(CortexDb vault,long evidenceId){
         ensure(vault);Cursor c=vault.getReadableDatabase().rawQuery(
-                "SELECT e.id,e.occurred_at,COALESCE(v.transcript,e.body),e.state,"+
-                "COALESCE(b.status,''),COALESCE(b.reason,''),COALESCE(b.error,''),"+
-                "EXISTS(SELECT 1 FROM memories m WHERE m.evidence_id=e.id),"+
-                "EXISTS(SELECT 1 FROM situation_evidence se WHERE se.evidence_id=e.id),"+
-                "EXISTS(SELECT 1 FROM world_entity_evidence we WHERE we.evidence_id=e.id) " +
-                "FROM evidence e LEFT JOIN voice_transcripts v ON v.evidence_id=e.id LEFT JOIN brain_runs b ON b.evidence_id=e.id WHERE e.id=? LIMIT 1",
+                "SELECT e.id,e.occurred_at,COALESCE(v.transcript,e.body),e.state,COALESCE(b.status,''),COALESCE(b.reason,''),COALESCE(b.error,''),"+
+                "EXISTS(SELECT 1 FROM memories m WHERE m.evidence_id=e.id),EXISTS(SELECT 1 FROM situation_evidence se WHERE se.evidence_id=e.id),EXISTS(SELECT 1 FROM world_entity_evidence we WHERE we.evidence_id=e.id),"+
+                "COALESCE(p.capture_class,'PERSONAL'),COALESCE(p.surface,'NORMAL'),COALESCE(p.retention,'STANDARD') " +
+                "FROM evidence e LEFT JOIN voice_transcripts v ON v.evidence_id=e.id LEFT JOIN brain_runs b ON b.evidence_id=e.id LEFT JOIN brain_evidence_policy p ON p.evidence_id=e.id WHERE e.id=? LIMIT 1",
                 new String[]{String.valueOf(evidenceId)});
-        try{return c.moveToFirst()?new BrainOutcome(c.getLong(0),c.getLong(1),c.getString(2),c.getString(3),c.getString(4),c.getString(5),c.getString(6),c.getInt(7)!=0,c.getInt(8)!=0,c.getInt(9)!=0):null;}finally{c.close();}
+        try{return c.moveToFirst()?new BrainOutcome(c.getLong(0),c.getLong(1),c.getString(2),c.getString(3),c.getString(4),c.getString(5),c.getString(6),c.getInt(7)!=0,c.getInt(8)!=0,c.getInt(9)!=0,c.getString(10),c.getString(11),c.getString(12)):null;}finally{c.close();}
     }
+
+    public static int purgeExpiredShortEvidence(CortexDb vault){ensure(vault);long now=System.currentTimeMillis();SQLiteDatabase db=vault.getWritableDatabase();Cursor c=db.rawQuery("SELECT evidence_id FROM brain_evidence_policy WHERE retention='SHORT' AND expires_at>0 AND expires_at<?",new String[]{String.valueOf(now)});ArrayList<Long> ids=new ArrayList<>();try{while(c.moveToNext())ids.add(c.getLong(0));}finally{c.close();}int n=0;for(Long id:ids){ContentValues v=new ContentValues();v.put("state","expired_short_evidence");n+=db.update("evidence",v,"id=?",new String[]{String.valueOf(id)});}return n;}
 
     private static String compact(String s,int n){String x=s==null?"":s.replaceAll("\\s+"," ").trim();return x.length()<=n?x:x.substring(0,n)+"…";}
 
     public static final class ApplyResult{
-        public final long memoryId,situationId;public final List<Long> entityIds;public final boolean evidenceOnly;public final String reason;
-        ApplyResult(long memoryId,long situationId,List<Long> entityIds,boolean evidenceOnly,String reason){this.memoryId=memoryId;this.situationId=situationId;this.entityIds=entityIds;this.evidenceOnly=evidenceOnly;this.reason=reason==null?"":reason;}
-        public String destination(){ArrayList<String> x=new ArrayList<>();if(situationId>0)x.add("Now");if(memoryId>0)x.add("Memory");if(entityIds!=null&&!entityIds.isEmpty())x.add("World");if(x.isEmpty())x.add("Evidence");return android.text.TextUtils.join(" + ",x);}
+        public final long memoryId,situationId;public final List<Long> entityIds;public final boolean evidenceOnly,feedback;public final String reason,captureClass,surface,retention;
+        ApplyResult(long memoryId,long situationId,List<Long> entityIds,boolean evidenceOnly,String reason,String captureClass,String surface,String retention,boolean feedback){this.memoryId=memoryId;this.situationId=situationId;this.entityIds=entityIds;this.evidenceOnly=evidenceOnly;this.reason=reason==null?"":reason;this.captureClass=captureClass;this.surface=surface;this.retention=retention;this.feedback=feedback;}
+        public String destination(){ArrayList<String>x=new ArrayList<>();if(situationId>0)x.add("Now");if(memoryId>0)x.add("Memory");if(entityIds!=null&&!entityIds.isEmpty())x.add("World");if(feedback)x.add("Product feedback");if(x.isEmpty()&&"TEST_META".equals(captureClass))x.add("Test evidence");if(x.isEmpty())x.add("Evidence");return android.text.TextUtils.join(" + ",x);}
     }
 
     public static final class BrainOutcome{
-        public final long evidenceId,occurredAt;public final String transcript,evidenceState,brainStatus,reason,error;public final boolean memory,situation,world;
-        BrainOutcome(long evidenceId,long occurredAt,String transcript,String evidenceState,String brainStatus,String reason,String error,boolean memory,boolean situation,boolean world){this.evidenceId=evidenceId;this.occurredAt=occurredAt;this.transcript=transcript==null?"":transcript;this.evidenceState=evidenceState==null?"":evidenceState;this.brainStatus=brainStatus==null?"":brainStatus;this.reason=reason==null?"":reason;this.error=error==null?"":error;this.memory=memory;this.situation=situation;this.world=world;}
-        public String destination(){ArrayList<String>x=new ArrayList<>();if(situation)x.add("Now");if(memory)x.add("Memory");if(world)x.add("World");if(x.isEmpty()&&"applied".equals(brainStatus))x.add("Evidence only");if(x.isEmpty()&&"failed".equals(brainStatus))x.add("Brain retry pending");if(x.isEmpty()&&"running".equals(brainStatus))x.add("Brain thinking");if(x.isEmpty())x.add("Awaiting brain");return android.text.TextUtils.join(" + ",x);}
+        public final long evidenceId,occurredAt;public final String transcript,evidenceState,brainStatus,reason,error,captureClass,surface,retention;public final boolean memory,situation,world;
+        BrainOutcome(long evidenceId,long occurredAt,String transcript,String evidenceState,String brainStatus,String reason,String error,boolean memory,boolean situation,boolean world,String captureClass,String surface,String retention){this.evidenceId=evidenceId;this.occurredAt=occurredAt;this.transcript=transcript==null?"":transcript;this.evidenceState=evidenceState==null?"":evidenceState;this.brainStatus=brainStatus==null?"":brainStatus;this.reason=reason==null?"":reason;this.error=error==null?"":error;this.memory=memory;this.situation=situation;this.world=world;this.captureClass=captureClass==null?"PERSONAL":captureClass;this.surface=surface==null?"NORMAL":surface;this.retention=retention==null?"STANDARD":retention;}
+        public String destination(){ArrayList<String>x=new ArrayList<>();if(situation)x.add("Now");if(memory)x.add("Memory");if(world)x.add("World");if(x.isEmpty()&&"TEST_META".equals(captureClass))x.add("Test evidence");if(x.isEmpty()&&"PRODUCT_FEEDBACK".equals(captureClass))x.add("Product feedback");if(x.isEmpty()&&"applied".equals(brainStatus))x.add("Evidence only");if(x.isEmpty()&&"failed".equals(brainStatus))x.add("Brain retry pending");if(x.isEmpty()&&"running".equals(brainStatus))x.add("Brain thinking");if(x.isEmpty())x.add("Awaiting brain");return android.text.TextUtils.join(" + ",x);}
     }
 }
