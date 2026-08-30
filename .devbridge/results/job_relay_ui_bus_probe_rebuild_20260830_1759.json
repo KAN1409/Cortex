@@ -1,0 +1,10 @@
+{
+  "protocol": "CORTEX_DEVBRIDGE_V1",
+  "agent_version": "3",
+  "job_id": "job_relay_ui_bus_probe_rebuild_20260830_1759",
+  "capability": "DUMPSYS_PACKAGE",
+  "status": "SUCCESS",
+  "exit_code": 0,
+  "finished_at": "2026-08-30T15:04:34Z",
+  "log_tail": "started_at=2026-08-30T15:04:30Z\nagent_version=3\n    versionCode=10 minSdk=26 targetSdk=35\n    versionName=0.8.0-situations-sources\n    lastUpdateTime=2026-08-30 17:46:41\n      firstInstallTime=2026-08-30 17:46:41\n      firstInstallTime=1970-01-01 02:00:00\n      firstInstallTime=1970-01-01 02:00:00\nfinished_at=2026-08-30T15:04:32Z"
+}
