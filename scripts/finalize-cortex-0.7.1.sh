@@ -23,13 +23,88 @@ command -v apksigner >/dev/null 2>&1 || fail "apksigner is unavailable"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
-apk_fp() {
-  apksigner verify --print-certs "$1" 2>/dev/null \
-    | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' \
-    | head -n1 | tr '[:upper:]' '[:lower:]' | tr -d ':\r\n '
+normalize_fp() { printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | tr -d ':\r\n '; }
+
+apk_fp_python() {
+  local apk="$1"
+  if ! command -v python >/dev/null 2>&1; then
+    echo "Installing Python fallback for APK signer inspection..." >&2
+    pkg install -y python >/dev/null
+  fi
+  python - "$apk" <<'PY'
+import hashlib, struct, sys
+
+path = sys.argv[1]
+with open(path, 'rb') as f:
+    data = f.read()
+
+# Find the ZIP End Of Central Directory and therefore the APK Signing Block footer.
+eocd = data.rfind(b'PK\x05\x06', max(0, len(data) - 65557))
+if eocd < 0 or eocd + 20 > len(data):
+    raise SystemExit(2)
+cd_offset = struct.unpack_from('<I', data, eocd + 16)[0]
+if cd_offset < 24:
+    raise SystemExit(3)
+footer = cd_offset - 24
+size = struct.unpack_from('<Q', data, footer)[0]
+if data[footer + 8:footer + 24] != b'APK Sig Block 42':
+    raise SystemExit(4)
+start = cd_offset - (size + 8)
+if start < 0 or struct.unpack_from('<Q', data, start)[0] != size:
+    raise SystemExit(5)
+
+pairs = {}
+off = start + 8
+while off < footer:
+    if off + 8 > footer:
+        break
+    pair_len = struct.unpack_from('<Q', data, off)[0]
+    off += 8
+    if pair_len < 4 or off + pair_len > footer:
+        break
+    block_id = struct.unpack_from('<I', data, off)[0]
+    pairs[block_id] = data[off + 4:off + pair_len]
+    off += pair_len
+
+def lp(buf, pos):
+    if pos + 4 > len(buf):
+        raise ValueError('short length prefix')
+    n = struct.unpack_from('<I', buf, pos)[0]
+    pos += 4
+    if pos + n > len(buf):
+        raise ValueError('short value')
+    return buf[pos:pos+n], pos+n
+
+# Prefer v3.1/v3, then v2. The first certificate in the first signer is the signer cert.
+for block_id in (0x1b93ad61, 0xf05368c0, 0x7109871a):
+    block = pairs.get(block_id)
+    if not block:
+        continue
+    try:
+        signer, _ = lp(block, 0)
+        signed_data, _ = lp(signer, 0)
+        _, p = lp(signed_data, 0)          # digests
+        certs, _ = lp(signed_data, p)      # certificates
+        cert, _ = lp(certs, 0)             # first signer certificate DER
+        print(hashlib.sha256(cert).hexdigest())
+        raise SystemExit(0)
+    except (ValueError, struct.error):
+        continue
+raise SystemExit(6)
+PY
 }
 
-normalize_fp() { printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | tr -d ':\r\n '; }
+apk_fp() {
+  local apk="$1" fp
+  fp="$(apksigner verify --print-certs "$apk" 2>/dev/null \
+    | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' \
+    | head -n1 | tr '[:upper:]' '[:lower:]' | tr -d ':\r\n ' || true)"
+  if [ -n "$fp" ]; then
+    printf '%s\n' "$fp"
+    return 0
+  fi
+  apk_fp_python "$apk" 2>/dev/null || true
+}
 
 # Resolve the installed base APK without assuming the Termux/rish shell exposes the `pm`
 # wrapper. Some Android/Shizuku combinations allow dumpsys but return nothing for `pm path`.
@@ -61,7 +136,7 @@ rish -c "/system/bin/cat '$BASE'" > "$TMP/installed.apk"
 [ -s "$TMP/installed.apk" ] || fail "Could not read installed base APK"
 
 INST_FP="$(normalize_fp "$(apk_fp "$TMP/installed.apk")")"
-[ -n "$INST_FP" ] || fail "Could not read installed Cortex signer"
+[ -n "$INST_FP" ] || fail "Could not read installed Cortex signer with apksigner or APK Signing Block parser"
 
 echo "===== INSTALLED CORTEX ====="
 rish -c "dumpsys package $PKG" \
@@ -172,7 +247,7 @@ echo "Final APK SHA-256: $(sha256sum "$FINAL" | awk '{print $1}')"
 echo
 echo "===== UPDATE-IN-PLACE ====="
 BEFORE_FIRST="$(rish -c "dumpsys package $PKG" | sed -n 's/^[[:space:]]*firstInstallTime=//p' | head -n1 | tr -d '\r')"
-INSTALL_OUT="$(rish -c "pm install -r '$FINAL'" 2>&1 | tr -d '\r')"
+INSTALL_OUT="$(rish -c "/system/bin/pm install -r '$FINAL'" 2>&1 | tr -d '\r')"
 printf '%s\n' "$INSTALL_OUT"
 printf '%s\n' "$INSTALL_OUT" | grep -q '^Success$' || fail "Android rejected update-in-place"
 
