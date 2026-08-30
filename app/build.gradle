@@ -157,6 +157,11 @@ tasks.register('prepareDevbridgeSignedCandidate') {
     }
 }
 
+tasks.register('validateDevbridgeRecoveryState', Exec) {
+    workingDir rootProject.projectDir
+    commandLine 'bash', rootProject.file('scripts/devbridge-recovery-validate.sh').absolutePath
+}
+
 dependencies {
     implementation 'androidx.swiperefreshlayout:swiperefreshlayout:1.1.0'
 }
