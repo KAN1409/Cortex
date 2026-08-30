@@ -40,6 +40,17 @@ fi
 
 git -C "$CONTROL" fetch origin "$CONTROL_BRANCH" >/dev/null 2>&1 || true
 git -C "$CONTROL" show "origin/$CONTROL_BRANCH:scripts/devbridge-agent-v3.sh" > "$TARGET" 2>/dev/null || { echo DEVBRIDGE_V3_FETCH_FAILED >&2; exit 71; }
+# Android 16/rish can return an unreadable installed APK stream through the shell's bare `cat`.
+# Patch only that bounded read to the platform binary before signer verification. No capability or
+# package rule is widened, and installation still fails closed on any signer mismatch.
+python - "$TARGET" <<'PY'
+import sys
+p=sys.argv[1]
+s=open(p,encoding='utf-8').read()
+s=s.replace('rish -c "cat \'$installed_path\'" > "$installed_tmp"',
+            'rish -c "/system/bin/cat \'$installed_path\'" > "$installed_tmp"')
+open(p,'w',encoding='utf-8').write(s)
+PY
 bash -n "$TARGET" >/dev/null 2>&1 || { rm -f "$TARGET"; echo DEVBRIDGE_V3_SYNTAX_FAILED >&2; exit 72; }
 chmod 700 "$TARGET"
 exec "$TARGET" "$@"
