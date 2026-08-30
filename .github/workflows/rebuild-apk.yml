@@ -19,15 +19,29 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
-      - name: Verify fresh application identity and perception boundary
+      - name: Verify fresh boundaries and restored capture architecture
         shell: bash
         run: |
           set -euo pipefail
           grep -q "applicationId 'com.kareem.cortex.rebuild'" app/build.gradle
+          grep -q "versionName '0.3-capture-asr'" app/build.gradle
           grep -q 'android:label="Cortex"' app/src/main/AndroidManifest.xml
           grep -q 'android:name=".CortexLocalBusService"' app/src/main/AndroidManifest.xml
           grep -q 'com.kareem.secondbrain' app/src/main/AndroidManifest.xml
           grep -q 'com.kareem.cortex.LOCAL_BUS_V1' app/src/main/AndroidManifest.xml
+          grep -q 'android:name=".CaptureActivity"' app/src/main/AndroidManifest.xml
+          grep -q 'android.permission.RECORD_AUDIO' app/src/main/AndroidManifest.xml
+          grep -q 'android.permission.INTERNET' app/src/main/AndroidManifest.xml
+          test -f app/src/main/java/com/kareem/cortex/rebuild/AudioCapture.java
+          test -f app/src/main/java/com/kareem/cortex/rebuild/GeminiAudioTranscriber.java
+          test -f app/src/main/java/com/kareem/cortex/rebuild/GroqAudioTranscriber.java
+          test -f app/src/main/java/com/kareem/cortex/rebuild/VoiceTranscriptionEngine.java
+          grep -q 'gemini-3.6-flash' app/src/main/java/com/kareem/cortex/rebuild/GeminiAudioTranscriber.java
+          grep -q 'whisper-large-v3' app/src/main/java/com/kareem/cortex/rebuild/GroqAudioTranscriber.java
+          grep -q 'Gemini 3.6 Flash primary; Groq fallback' app/src/main/java/com/kareem/cortex/rebuild/VoiceTranscriptionEngine.java
+          grep -q 'Voice' app/src/main/java/com/kareem/cortex/rebuild/CaptureActivity.java
+          grep -q 'Photo' app/src/main/java/com/kareem/cortex/rebuild/CaptureActivity.java
+          grep -q 'File' app/src/main/java/com/kareem/cortex/rebuild/CaptureActivity.java
           if grep -Rq 'android.service.notification.NotificationListenerService' app/src/main; then
             echo 'Fresh Cortex must not observe Android notifications directly'
             exit 1
@@ -36,11 +50,11 @@ jobs:
             echo 'Old Cortex source detected in fresh tree'
             exit 1
           fi
-      - name: Build installable Relay-intake APK
+      - name: Build installable capture ASR APK
         run: gradle :app:assembleDebug --stacktrace
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: Cortex-Rebuild-V1-Relay-Intake-debug
+          name: Cortex-Rebuild-V1-Capture-ASR-debug
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
