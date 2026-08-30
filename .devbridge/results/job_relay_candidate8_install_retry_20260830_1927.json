@@ -1,0 +1,10 @@
+{
+  "protocol": "CORTEX_DEVBRIDGE_V1",
+  "agent_version": "3+relay-c8-install-retry",
+  "job_id": "job_relay_candidate8_install_retry_20260830_1927",
+  "capability": "RELAY_CANDIDATE8_INSTALL_RETRY_NO_LAUNCH",
+  "status": "FAILED",
+  "exit_code": 101,
+  "finished_at": "2026-08-30T16:28:45Z",
+  "log_tail": "started_at=2026-08-30T16:28:37Z\nagent_version=3+relay-c8-install-retry\nforeground_launch_requested=false\nsigned_apk_sha256=1b2e91b76242ea1be1443c33d77955750a4906f42bdc2d1a4c6ca2724a0b50dd\nsigned_signer_sha256=fd402eefcec5b1576d6e7b1e5663a835d4c439d03baaa04506dd662e4b4c7d74\ninstalled_path=/data/app/~~ks56kYvP5kwm3Crea3a9Fw==/com.kareem.secondbrain-VQwPpW3B8Pxx6_vxOoqQHw==/base.apk\ninstalled_signer_sha256=fd402eefcec5b1576d6e7b1e5663a835d4c439d03baaa04506dd662e4b4c7d74\nSuccess\n    versionCode=27 minSdk=30 targetSdk=37\nINSTALLED_VERSION_NAME_FAIL\nfinished_at=2026-08-30T16:28:43Z"
+}
