@@ -8,6 +8,7 @@ EXPECTED_CERT="5c6550a070abe477dcad5f23f3f437e183bff8aeaeb6ac52e1beaa8243ee69a7"
 OUTDIR="$HOME/.cortex-rebuild-signing"
 OUT="$OUTDIR/Cortex-0.8.1-voice-player-permanent.apk"
 DOWNLOAD="/sdcard/Download/Cortex-0.8.1-voice-player-permanent.apk"
+VERIFY_TMP="$OUTDIR/.cortex081-apksigner.txt"
 
 [ -s "$UNSIGNED" ] || { echo CORTEX_081_UNSIGNED_APK_MISSING >&2; exit 2; }
 [ -s "$KEYSTORE" ] || { echo CORTEX_081_SIGNER_OVERLAY_MISSING >&2; exit 3; }
@@ -24,7 +25,7 @@ KEY_CERT="$(keytool -list -v -keystore "$KEYSTORE" -storepass android -alias and
 
 mkdir -p "$OUTDIR"
 chmod 700 "$OUTDIR" 2>/dev/null || true
-rm -f "$OUT" "$OUT.idsig"
+rm -f "$OUT" "$OUT.idsig" "$VERIFY_TMP"
 "$APKSIGNER" sign \
   --ks "$KEYSTORE" --ks-key-alias androiddebugkey \
   --ks-pass pass:android --key-pass pass:android \
@@ -32,9 +33,9 @@ rm -f "$OUT" "$OUT.idsig"
   --v1-signing-enabled false --v2-signing-enabled true --v3-signing-enabled true --v4-signing-enabled false \
   --out "$OUT" "$UNSIGNED"
 
-"$APKSIGNER" verify --verbose --print-certs --min-sdk-version 26 "$OUT" >/tmp/cortex081-apksigner.txt
-OUT_CERT="$(sed -n -E 's/^.*certificate SHA-256 digest:[[:space:]]*//p' /tmp/cortex081-apksigner.txt | head -n1 | tr -d ':[:space:]' | tr '[:upper:]' '[:lower:]')"
-rm -f /tmp/cortex081-apksigner.txt
+"$APKSIGNER" verify --verbose --print-certs --min-sdk-version 26 "$OUT" >"$VERIFY_TMP"
+OUT_CERT="$(sed -n -E 's/^.*certificate SHA-256 digest:[[:space:]]*//p' "$VERIFY_TMP" | head -n1 | tr -d ':[:space:]' | tr '[:upper:]' '[:lower:]')"
+rm -f "$VERIFY_TMP"
 [ "$OUT_CERT" = "$EXPECTED_CERT" ] || { rm -f "$OUT"; echo "CORTEX_081_OUTPUT_SIGNER_MISMATCH:$OUT_CERT" >&2; exit 6; }
 
 chmod 600 "$OUT" 2>/dev/null || true
