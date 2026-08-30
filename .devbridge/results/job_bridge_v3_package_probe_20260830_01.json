@@ -1,0 +1,10 @@
+{
+  "protocol": "CORTEX_DEVBRIDGE_V1",
+  "agent_version": "3",
+  "job_id": "job_bridge_v3_package_probe_20260830_01",
+  "capability": "DUMPSYS_PACKAGE",
+  "status": "SUCCESS",
+  "exit_code": 0,
+  "finished_at": "2026-08-30T09:29:37Z",
+  "log_tail": "started_at=2026-08-30T09:29:34Z\nagent_version=3\n      firstInstallTime=2026-08-22 23:09:24\n      firstInstallTime=1970-01-01 02:00:00\n      firstInstallTime=1970-01-01 02:00:00\nfinished_at=2026-08-30T09:29:35Z"
+}
