@@ -17,7 +17,8 @@ fi
 
 fail(){ printf 'CORTEX_DEVBRIDGE_V2_BOOTSTRAP_FAIL: %s\n' "$*" >&2; exit 1; }
 command -v pkg >/dev/null 2>&1 || fail "Termux pkg not found"
-pkg install -y git jq coreutils >/dev/null
+# Keep bootstrap stdin untouched: this script is intentionally safe to execute via `git show ... | bash`.
+pkg install -y git jq coreutils </dev/null >/dev/null
 command -v rish >/dev/null 2>&1 || fail "rish not found"
 rish -c 'id' >/dev/null 2>&1 || fail "Shizuku/rish unavailable"
 mkdir -p "$ROOT" "$ROOT/logs" "$ROOT/work" "$HOME/.termux/boot"
