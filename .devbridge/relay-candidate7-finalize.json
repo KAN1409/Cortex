@@ -1,0 +1,11 @@
+{
+  "job_id": "job_relay_candidate7_ui_bus_20260830_1816",
+  "authorized_owner": "KAN1409",
+  "package": "com.kareem.secondbrain",
+  "version_code": 26,
+  "version_name": "2.0.0-candidate7",
+  "expected_cert_sha256": "fd402eefcec5b1576d6e7b1e5663a835d4c439d03baaa04506dd662e4b4c7d74",
+  "artifact_url": "https://api.github.com/repos/KAN1409/Second-Brain/actions/artifacts/9734362806/zip",
+  "artifact_zip_sha256": "6fc1b61b2ba99705779eda1d76d082e4d54361823247c432704075f696f69364",
+  "unsigned_apk_sha256": "cef86b7e65e336f567188cb580236e4a426de17dd0d47d4467ec77f9c19d8dfc"
+}
