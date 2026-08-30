@@ -40,17 +40,29 @@ fi
 
 git -C "$CONTROL" fetch origin "$CONTROL_BRANCH" >/dev/null 2>&1 || true
 git -C "$CONTROL" show "origin/$CONTROL_BRANCH:scripts/devbridge-agent-v3.sh" > "$TARGET" 2>/dev/null || { echo DEVBRIDGE_V3_FETCH_FAILED >&2; exit 71; }
-# Android 16/rish can return an unreadable installed APK stream through the shell's bare `cat`.
-# Patch only that bounded read to the platform binary before signer verification. No capability or
-# package rule is widened, and installation still fails closed on any signer mismatch.
+# Android 16: copy the installed package to a short-lived shared probe through the privileged
+# shell before certificate parsing. This avoids rish stdout transport quirks while preserving the
+# existing fail-closed signer equality gate. The probe is deleted immediately after reading.
 python - "$TARGET" <<'PY'
 import sys
 p=sys.argv[1]
 s=open(p,encoding='utf-8').read()
-s=s.replace('rish -c "cat \'$installed_path\'" > "$installed_tmp"',
-            'rish -c "/system/bin/cat \'$installed_path\'" > "$installed_tmp"')
+old1='  rish -c "cat \'$installed_path\'" > "$installed_tmp" 2>/dev/null || { rm -f "$installed_tmp"; echo INSTALLED_APK_COPY_FAIL; return 26; }'
+old2='  rish -c "/system/bin/cat \'$installed_path\'" > "$installed_tmp" 2>/dev/null || { rm -f "$installed_tmp"; echo INSTALLED_APK_COPY_FAIL; return 26; }'
+new='''  installed_probe="/sdcard/Download/.cortex-devbridge-installed-probe.apk"
+  rish -c "rm -f '$installed_probe'; /system/bin/cp '$installed_path' '$installed_probe'; /system/bin/chmod 644 '$installed_probe'" >/dev/null 2>&1 || { echo INSTALLED_APK_COPY_FAIL; return 26; }
+  cp -f "$installed_probe" "$installed_tmp" 2>/dev/null || { rish -c "rm -f '$installed_probe'" >/dev/null 2>&1 || true; rm -f "$installed_tmp"; echo INSTALLED_APK_COPY_FAIL; return 26; }
+  rish -c "rm -f '$installed_probe'" >/dev/null 2>&1 || true
+  [ -s "$installed_tmp" ] || { rm -f "$installed_tmp"; echo INSTALLED_APK_COPY_FAIL; return 26; }'''
+if old1 in s:
+    s=s.replace(old1,new)
+elif old2 in s:
+    s=s.replace(old2,new)
+else:
+    raise SystemExit('DEVBRIDGE_INSTALLED_COPY_PATCH_TARGET_MISSING')
 open(p,'w',encoding='utf-8').write(s)
 PY
+[ $? -eq 0 ] || { rm -f "$TARGET"; echo DEVBRIDGE_V3_PATCH_FAILED >&2; exit 73; }
 bash -n "$TARGET" >/dev/null 2>&1 || { rm -f "$TARGET"; echo DEVBRIDGE_V3_SYNTAX_FAILED >&2; exit 72; }
 chmod 700 "$TARGET"
 exec "$TARGET" "$@"
