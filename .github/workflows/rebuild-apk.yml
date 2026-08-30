@@ -22,36 +22,34 @@ jobs:
         with:
           gradle-version: '8.9'
 
-      - name: Verify Cortex 0.9.0 ChatGPT context bridge
+      - name: Verify Cortex 0.10.0 photo cognition
         shell: bash
         run: |
           set -euo pipefail
           grep -q "applicationId 'com.kareem.cortex.rebuild'" app/build.gradle
-          grep -q "versionCode 12" app/build.gradle
-          grep -q "versionName '0.9.0-chatgpt-bridge'" app/build.gradle
+          grep -q "versionCode 13" app/build.gradle
+          grep -q "versionName '0.10.0-photo-cognition'" app/build.gradle
           grep -q 'openai/gpt-oss-120b' app/src/main/java/com/kareem/cortex/rebuild/CortexBrainRouter.java
-          grep -q 'SituationDecomposer.decompose' app/src/main/java/com/kareem/cortex/rebuild/BrainIntakeQueue.java
-          grep -q 'replaceEvidenceSituations' app/src/main/java/com/kareem/cortex/rebuild/SituationActions.java
+          grep -q 'Gemini Vision' app/src/main/java/com/kareem/cortex/rebuild/ImageVisionEngine.java
+          grep -q 'extracted_text' app/src/main/java/com/kareem/cortex/rebuild/ImageVisionEngine.java
+          grep -q 'Do not infer medical use' app/src/main/java/com/kareem/cortex/rebuild/ImageVisionEngine.java
+          grep -q 'ImageCapturePipeline.analyze' app/src/main/java/com/kareem/cortex/rebuild/CaptureActivity.java
+          grep -q 'pending_vision' app/src/main/java/com/kareem/cortex/rebuild/CaptureActivity.java
+          grep -q 'Capture history' app/src/main/java/com/kareem/cortex/rebuild/CaptureHistoryActivity.java
+          grep -q 'View original photo' app/src/main/java/com/kareem/cortex/rebuild/CaptureDetailActivity.java
+          grep -q 'Edit extracted text' app/src/main/java/com/kareem/cortex/rebuild/CaptureDetailActivity.java
+          grep -q 'Re-analyze photo' app/src/main/java/com/kareem/cortex/rebuild/CaptureDetailActivity.java
+          grep -q 'Think with ChatGPT' app/src/main/java/com/kareem/cortex/rebuild/CaptureDetailActivity.java
+          grep -q 'Delete capture' app/src/main/java/com/kareem/cortex/rebuild/CaptureDetailActivity.java
+          grep -q 'retireDerived' app/src/main/java/com/kareem/cortex/rebuild/CaptureRecordStore.java
+          grep -q 'manual_vision_text_edit' app/src/main/java/com/kareem/cortex/rebuild/CaptureRecordStore.java
+          grep -q 'SituationDecomposer.decompose' app/src/main/java/com/kareem/cortex/rebuild/ImageCapturePipeline.java
+          grep -q 'ChatGptHandoff.showForObject' app/src/main/java/com/kareem/cortex/rebuild/CaptureDetailActivity.java
           grep -q 'Think with ChatGPT' app/src/main/java/com/kareem/cortex/rebuild/MainActivity.java
-          grep -q 'ChatGptHandoff.showForQuestion' app/src/main/java/com/kareem/cortex/rebuild/MainActivity.java
-          grep -q 'ChatGptHandoff.showForSituation' app/src/main/java/com/kareem/cortex/rebuild/SituationSheet.java
-          grep -q 'Context to share with ChatGPT' app/src/main/java/com/kareem/cortex/rebuild/ChatGptHandoff.java
-          grep -q 'ChatGPT prompt preview' app/src/main/java/com/kareem/cortex/rebuild/ChatGptHandoff.java
-          grep -q 'Open in ChatGPT' app/src/main/java/com/kareem/cortex/rebuild/ChatGptHandoff.java
-          grep -q 'com.openai.chatgpt' app/src/main/java/com/kareem/cortex/rebuild/ChatGptHandoff.java
-          grep -q 'setMultiChoiceItems' app/src/main/java/com/kareem/cortex/rebuild/ChatGptHandoff.java
-          grep -q 'TASK MODE:' app/src/main/java/com/kareem/cortex/rebuild/ChatGptHandoff.java
-          grep -q 'VIDEO ANALYSIS' app/src/main/java/com/kareem/cortex/rebuild/ChatGptHandoff.java
-          grep -q 'COMMUNICATION' app/src/main/java/com/kareem/cortex/rebuild/ChatGptHandoff.java
-          grep -q 'DECIDE / PLAN' app/src/main/java/com/kareem/cortex/rebuild/ChatGptHandoff.java
           ! grep -q 'Ask Cortex about this' app/src/main/java/com/kareem/cortex/rebuild/SituationSheet.java
-          ! grep -q 'title("Ask Cortex")' app/src/main/java/com/kareem/cortex/rebuild/MainActivity.java
-          grep -q 'Edit transcription' app/src/main/java/com/kareem/cortex/rebuild/SituationSheet.java
           grep -q 'Listen original' app/src/main/java/com/kareem/cortex/rebuild/SituationSheet.java
-          grep -q 'SeekBar' app/src/main/java/com/kareem/cortex/rebuild/SituationSheet.java
           grep -q 'status.setText("Stopped")' app/src/main/java/com/kareem/cortex/rebuild/SituationSheet.java
-          grep -q 'Delete Situation' app/src/main/java/com/kareem/cortex/rebuild/SituationSheet.java
-          grep -q 'Cortex-0.9.0-chatgpt-bridge-permanent.apk' scripts/devbridge-sign-stable-cortex-090.sh
+          grep -q 'Cortex-0.10.0-photo-cognition-permanent.apk' scripts/devbridge-sign-stable-cortex-0100.sh
           grep -q 'signer_generated=0' scripts/prepare-cortex-rebuild-signer-recovery.sh
           grep -q 'signer_replaced=0' scripts/prepare-cortex-rebuild-signer-recovery.sh
           ! grep -q 'openssl genpkey' scripts/prepare-cortex-rebuild-signer-recovery.sh
@@ -73,10 +71,10 @@ jobs:
             exit 1
           fi
 
-      - name: Upload Cortex 0.9.0 diagnostic debug APK
+      - name: Upload Cortex 0.10.0 diagnostic debug APK
         uses: actions/upload-artifact@v4
         with:
-          name: Cortex-0.9.0-ChatGPT-Bridge-debug
+          name: Cortex-0.10.0-Photo-Cognition-debug
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
 
@@ -85,30 +83,30 @@ jobs:
         run: |
           set -euo pipefail
           git fetch origin device/termux-dev-bridge-results
-          ART='.devbridge/artifacts/Cortex-0.9.0-chatgpt-bridge-permanent.apk'
+          ART='.devbridge/artifacts/Cortex-0.10.0-photo-cognition-permanent.apk'
           SUM="$ART.sha256"
           if ! git cat-file -e "origin/device/termux-dev-bridge-results:$ART" 2>/dev/null; then
             echo 'HAS_PERMANENT=0' >> "$GITHUB_ENV"
             exit 0
           fi
-          OUT="$RUNNER_TEMP/Cortex-0.9.0-chatgpt-bridge-permanent.apk"
+          OUT="$RUNNER_TEMP/Cortex-0.10.0-photo-cognition-permanent.apk"
           git show "origin/device/termux-dev-bridge-results:$ART" > "$OUT"
-          git show "origin/device/termux-dev-bridge-results:$SUM" > "$RUNNER_TEMP/cortex090.sha256"
+          git show "origin/device/termux-dev-bridge-results:$SUM" > "$RUNNER_TEMP/cortex0100.sha256"
           test -s "$OUT"
-          EXPECTED="$(awk '{print $1}' "$RUNNER_TEMP/cortex090.sha256" | head -n1)"
+          EXPECTED="$(awk '{print $1}' "$RUNNER_TEMP/cortex0100.sha256" | head -n1)"
           ACTUAL="$(sha256sum "$OUT" | awk '{print $1}')"
           test -n "$EXPECTED" && test "$ACTUAL" = "$EXPECTED"
           APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n1)"
-          "$APKSIGNER" verify --print-certs "$OUT" > "$RUNNER_TEMP/cortex090-cert.txt"
-          CERT="$(sed -n -E 's/^.*certificate SHA-256 digest:[[:space:]]*//p' "$RUNNER_TEMP/cortex090-cert.txt" | head -n1 | tr -d ':[:space:]' | tr '[:upper:]' '[:lower:]')"
+          "$APKSIGNER" verify --print-certs "$OUT" > "$RUNNER_TEMP/cortex0100-cert.txt"
+          CERT="$(sed -n -E 's/^.*certificate SHA-256 digest:[[:space:]]*//p' "$RUNNER_TEMP/cortex0100-cert.txt" | head -n1 | tr -d ':[:space:]' | tr '[:upper:]' '[:lower:]')"
           test "$CERT" = '5c6550a070abe477dcad5f23f3f437e183bff8aeaeb6ac52e1beaa8243ee69a7'
           echo "PERMANENT_APK=$OUT" >> "$GITHUB_ENV"
           echo 'HAS_PERMANENT=1' >> "$GITHUB_ENV"
 
-      - name: Upload Cortex 0.9.0 permanent APK
+      - name: Upload Cortex 0.10.0 permanent APK
         if: env.HAS_PERMANENT == '1'
         uses: actions/upload-artifact@v4
         with:
-          name: Cortex-0.9.0-ChatGPT-Bridge-Permanent
+          name: Cortex-0.10.0-Photo-Cognition-Permanent
           path: ${{ env.PERMANENT_APK }}
           if-no-files-found: error
