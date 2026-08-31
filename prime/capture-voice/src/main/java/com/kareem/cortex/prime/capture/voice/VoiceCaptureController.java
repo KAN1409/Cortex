@@ -22,7 +22,10 @@ public final class VoiceCaptureController {
 
     public static void recoverPending(Context context) {
         Context app = context.getApplicationContext();
-        Thread thread = new Thread(() -> VoiceEvidenceCommitter.recoverPending(app), "prime-voice-recovery");
+        Thread thread = new Thread(() -> {
+            VoiceEvidenceCommitter.recoverPending(app);
+            VoiceTranscriptionProcessor.recoverUntranscribed(app);
+        }, "prime-voice-recovery");
         thread.setDaemon(true);
         thread.start();
     }
