@@ -27,7 +27,9 @@ jobs:
         run: |
           APK=prime/app/build/outputs/apk/debug/app-debug.apk
           EXPECTED=5c6550a070abe477dcad5f23f3f437e183bff8aeaeb6ac52e1beaa8243ee69a7
-          ACTUAL=$(apksigner verify --print-certs "$APK" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -n1 | tr -d ':[:space:]' | tr 'A-F' 'a-f')
+          APKSIGNER="$ANDROID_HOME/build-tools/35.0.0/apksigner"
+          test -x "$APKSIGNER"
+          ACTUAL=$("$APKSIGNER" verify --print-certs "$APK" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -n1 | tr -d ':[:space:]' | tr 'A-F' 'a-f')
           echo "signer_sha256=$ACTUAL"
           test "$ACTUAL" = "$EXPECTED"
       - name: Upload APK
