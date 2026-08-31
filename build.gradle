@@ -2,3 +2,21 @@ plugins {
     id 'com.android.application' version '8.7.3' apply false
     id 'org.jetbrains.kotlin.android' version '2.0.21' apply false
 }
+
+tasks.register('primeAssembleDebug', GradleBuild) {
+    dir = file('prime')
+    tasks = [':app:assembleDebug']
+}
+
+tasks.register('primeExportDebugBase64') {
+    dependsOn tasks.named('primeAssembleDebug')
+    doLast {
+        def apk = file('prime/app/build/outputs/apk/debug/app-debug.apk')
+        if (!apk.exists()) throw new GradleException('Prime debug APK not found')
+        def bytes = apk.bytes
+        def sha = java.security.MessageDigest.getInstance('SHA-256').digest(bytes).encodeHex().toString()
+        def b64 = java.util.Base64.getEncoder().encodeToString(bytes)
+        println "PRIME_APK_SHA256=${sha}"
+        println "PRIME_APK_BASE64=${b64}"
+    }
+}
