@@ -17,7 +17,7 @@ import java.util.regex.Pattern;
 /** Proposal-only grounded baseline. Learned models must beat this comparator before replacing it. */
 public final class LocalIntelligenceEngine {
     private static final Pattern TIME = Pattern.compile(
-            "(?iu)(?:\\b(?:mon(?:day)?|tue(?:sday)?|wed(?:nesday)?|thu(?:rsday)?|fri(?:day)?|sat(?:urday)?|sun(?:day)?)\\b|(?:الاثنين|الإثنين|الثلاثاء|الأربعاء|الخميس|الجمعة|السبت|الأحد)|(?:الساعة\\s*)?(?:[01]?\\d|2[0-3])(?:[:٫.]?[0-5]\\d)?\\s*(?:am|pm)?)"
+            "(?iu)(?:\\b(?:mon(?:day)?|tue(?:sday)?|wed(?:nesday)?|thu(?:rsday)?|fri(?:day)?|sat(?:urday)?|sun(?:day)?)\\b|(?:الاثنين|الإثنين|الثلاثاء|الأربعاء|الخميس|الجمعة|السبت|الأحد)|(?:الساعة\\s*)(?:[01]?\\d|2[0-3])(?::[0-5]\\d)?|(?:[01]?\\d|2[0-3]):[0-5]\\d\\s*(?:am|pm)?|(?:[1-9]|1[0-2])\\s*(?:am|pm))"
     );
     private static final Pattern COUNT_SUMMARY = Pattern.compile("(?iu)^\\s*\\d+\\s+(?:new\\s+)?messages?\\s*$");
     private static final String[] TASK_CUES = {
@@ -27,9 +27,6 @@ public final class LocalIntelligenceEngine {
     private static final String[] ATTENTION_CUES = {
             "ممكن", "لو سمحت", "محتاج منك", "عايز منك", "رد علي", "كلمني", "فينك", "؟",
             "can you", "could you", "please", "need you", "call me", "reply", "where are you", "?"
-    };
-    private static final String[] RELATIONAL_CUES = {
-            "وحشتني", "مشتاق", "haven't seen you", "havent seen you", "miss you", "miss u"
     };
 
     private LocalIntelligenceEngine() {}
@@ -49,14 +46,17 @@ public final class LocalIntelligenceEngine {
             List<String> semanticTexts = new ArrayList<>();
 
             if (record.source == EvidenceSource.NOTIFICATION) {
+                if (!notificationCanRepresentConversation(record)) continue;
                 String label = notificationLabel(raw, record.sourceRef);
                 List<String> messages = notificationMessages(raw);
                 if (!label.isEmpty()) {
                     String key = normalizeIdentity(label);
-                    MutableThread thread = threads.computeIfAbsent(key, ignored -> new MutableThread(key, label));
-                    String snippet = messages.isEmpty() ? legacyBody(raw) : messages.get(messages.size() - 1);
-                    thread.add(record.id, record.capturedAtEpochMs, snippet);
-                    if (looksLikePerson(label)) people.add(label);
+                    if (!key.isEmpty()) {
+                        MutableThread thread = threads.computeIfAbsent(key, ignored -> new MutableThread(key, label));
+                        String snippet = messages.isEmpty() ? legacyBody(raw) : messages.get(messages.size() - 1);
+                        thread.add(record.id, record.capturedAtEpochMs, snippet);
+                        if (looksLikePerson(label)) people.add(label);
+                    }
                 }
                 semanticTexts.addAll(messages);
                 if (semanticTexts.isEmpty()) {
@@ -67,9 +67,7 @@ public final class LocalIntelligenceEngine {
                 semanticTexts.add(raw);
             }
 
-            for (String semantic : semanticTexts) {
-                analyzeText(record, semantic, attention, tasks, times);
-            }
+            for (String semantic : semanticTexts) analyzeText(record, semantic, attention, tasks, times);
         }
 
         List<IntelligenceSnapshot.ThreadProposal> threadProposals = new ArrayList<>();
@@ -109,6 +107,47 @@ public final class LocalIntelligenceEngine {
         return payload.contains("\"schema\":\"CORTEX_PRIME_DERIVED_OCR_V1\"");
     }
 
+    private static boolean notificationCanRepresentConversation(EvidenceRecord record) {
+        String payload = safe(record.rawPayloadJson).replaceAll("\\s+", "");
+        if (payload.isEmpty()) return true; // legacy evidence before canonical notification payloads existed.
+
+        String sourceRef = safe(record.sourceRef).toLowerCase(Locale.ROOT);
+        if (sourceRef.contains("notification://com.kareem.cortex.prime/")) return false;
+
+        String category = jsonString(payload, "category").toLowerCase(Locale.ROOT);
+        if (category.equals("msg") || category.equals("message")) return true;
+
+        String conversationTitle = jsonString(payload, "conversationTitle");
+        if (!conversationTitle.isEmpty()) return true;
+
+        // MessagingStyle captures preserve sender/text objects. Progress, download, media and app-status
+        // notifications usually do not, even when their title superficially looks conversational.
+        return payload.contains("\"messages\":[{");
+    }
+
+    private static String jsonString(String compactJson, String key) {
+        String needle = "\"" + key + "\":\"";
+        int start = compactJson.indexOf(needle);
+        if (start < 0) return "";
+        start += needle.length();
+        StringBuilder out = new StringBuilder();
+        boolean escaped = false;
+        for (int i = start; i < compactJson.length(); i++) {
+            char c = compactJson.charAt(i);
+            if (escaped) {
+                out.append(c);
+                escaped = false;
+            } else if (c == '\\') {
+                escaped = true;
+            } else if (c == '"') {
+                break;
+            } else {
+                out.append(c);
+            }
+        }
+        return clean(out.toString());
+    }
+
     private static String jsonLiteral(String value) {
         return safe(value).replace("\\", "\\\\").replace("\"", "\\\"");
     }
@@ -131,14 +170,12 @@ public final class LocalIntelligenceEngine {
             }
         }
 
-        boolean explicitAttention = containsAny(lower, ATTENTION_CUES);
-        boolean relationalAttention = containsAny(lower, RELATIONAL_CUES);
-        if (explicitAttention || relationalAttention) {
+        if (containsAny(lower, ATTENTION_CUES)) {
             attention.add(new IntelligenceSnapshot.SignalProposal(
-                    explicitAttention ? "REPLY_CANDIDATE" : "SOCIAL_FOLLOWUP_CANDIDATE",
+                    "REPLY_CANDIDATE",
                     compact(clean),
                     record.id,
-                    explicitAttention ? 0.78 : 0.62
+                    0.78
             ));
         }
 
