@@ -1,5 +1,9 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <application>
+        <provider
+            android:name=".PrimeVisionInitProvider"
+            android:authorities="${applicationId}.visioninit"
+            android:exported="false" />
         <activity
             android:name=".PrimeImageShareActivity"
             android:exported="true"
