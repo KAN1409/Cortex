@@ -34,12 +34,55 @@ public final class LocalIntelligenceEngineTest {
     }
 
     @Test
-    public void socialMessageCanBecomeAttentionProposalWithoutBecomingTask() {
+    public void relationalMessageAloneDoesNotInventAttention() {
         IntelligenceSnapshot snapshot = LocalIntelligenceEngine.analyze(List.of(
                 new EvidenceRecord("e1", EvidenceSource.NOTIFICATION, 10, "conversation: Kareem\nmessage: Haven't seen you in a while", "notif:a")
         ));
         assertEquals(0, snapshot.taskCandidates.size());
+        assertEquals(0, snapshot.attentionCandidates.size());
+    }
+
+    @Test
+    public void explicitRequestCanBecomeAttention() {
+        IntelligenceSnapshot snapshot = LocalIntelligenceEngine.analyze(List.of(
+                new EvidenceRecord("e1", EvidenceSource.NOTIFICATION, 10, "conversation: Kareem\nmessage: Can you send the files please?", "notif:a")
+        ));
         assertEquals(1, snapshot.attentionCandidates.size());
+    }
+
+    @Test
+    public void canonicalSystemNotificationDoesNotBecomeConversation() {
+        String payload = "{\"packageName\":\"com.openai.chatgpt\",\"category\":\"status\",\"conversationTitle\":\"\",\"messages\":[]}";
+        IntelligenceSnapshot snapshot = LocalIntelligenceEngine.analyze(List.of(
+                new EvidenceRecord("e1", EvidenceSource.NOTIFICATION, 10, "conversation: Response ready\nmessage: Tap to return to ChatGPT", "notification://com.openai.chatgpt/x", payload)
+        ));
+        assertEquals(0, snapshot.threads.size());
+        assertEquals(0, snapshot.attentionCandidates.size());
+    }
+
+    @Test
+    public void canonicalMessageNotificationRemainsConversation() {
+        String payload = "{\"packageName\":\"com.whatsapp\",\"category\":\"msg\",\"conversationTitle\":\"Ahmed\",\"messages\":[{\"sender\":\"Ahmed\",\"text\":\"Hi\"}]}";
+        IntelligenceSnapshot snapshot = LocalIntelligenceEngine.analyze(List.of(
+                new EvidenceRecord("e1", EvidenceSource.NOTIFICATION, 10, "conversation: Ahmed\nmessage: Hi", "notification://com.whatsapp/x", payload)
+        ));
+        assertEquals(1, snapshot.threads.size());
+    }
+
+    @Test
+    public void loneDigitsDoNotBecomeTimes() {
+        IntelligenceSnapshot snapshot = LocalIntelligenceEngine.analyze(List.of(
+                new EvidenceRecord("e1", EvidenceSource.TEXT, 10, "3", "manual:text")
+        ));
+        assertEquals(0, snapshot.temporalHints.size());
+    }
+
+    @Test
+    public void explicitClockTimeStillBecomesTemporalHint() {
+        IntelligenceSnapshot snapshot = LocalIntelligenceEngine.analyze(List.of(
+                new EvidenceRecord("e1", EvidenceSource.TEXT, 10, "send it at 4:14", "manual:text")
+        ));
+        assertEquals(1, snapshot.temporalHints.size());
     }
 
     @Test
