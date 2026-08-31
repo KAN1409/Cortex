@@ -10,6 +10,7 @@ import android.provider.OpenableColumns;
 
 import java.io.File;
 import java.io.FileInputStream;
+import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
 
@@ -23,14 +24,21 @@ public final class PrimeAudioAssetProvider extends ContentProvider {
     }
 
     @Override
-    public ParcelFileDescriptor openFile(Uri uri, String mode) throws IOException {
+    public ParcelFileDescriptor openFile(Uri uri, String mode) throws FileNotFoundException {
         if (!"r".equals(mode)) throw new SecurityException("Voice evidence provider is read-only");
         String sha = last(uri);
-        if (!sha.matches("[0-9a-f]{64}")) throw new IOException("Invalid asset id");
+        if (!sha.matches("[0-9a-f]{64}")) throw new FileNotFoundException("Invalid asset id");
         File file = new File(getContext().getFilesDir(), "evidence-assets/audio/" + sha + ".wav");
-        if (!file.isFile()) throw new IOException("Voice asset not found");
+        if (!file.isFile()) throw new FileNotFoundException("Voice asset not found");
 
-        ParcelFileDescriptor[] pipe = ParcelFileDescriptor.createPipe();
+        final ParcelFileDescriptor[] pipe;
+        try {
+            pipe = ParcelFileDescriptor.createPipe();
+        } catch (IOException failure) {
+            FileNotFoundException wrapped = new FileNotFoundException("Unable to open voice stream");
+            wrapped.initCause(failure);
+            throw wrapped;
+        }
         Thread feeder = new Thread(() -> {
             try (FileInputStream in = new FileInputStream(file);
                  FileOutputStream out = new FileOutputStream(pipe[1].getFileDescriptor())) {
