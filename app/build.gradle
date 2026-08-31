@@ -75,7 +75,7 @@ android {
         minSdk 26
         targetSdk 35
         versionCode 54
-        versionName '2.0-v54'
+        versionName '2.0.1-cognitive-relay-v2-candidate'
         testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
         testInstrumentationRunnerArguments clearPackageData: 'false'
     }

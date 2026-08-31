@@ -7,6 +7,7 @@ on:
       - migration/cognitive-brain-v2-step1-2
       - fix/v2-reconciliation-v54
       - build/v2-brain-primary-v54
+      - 'integration/**'
   pull_request:
     branches:
       - main
@@ -45,13 +46,21 @@ jobs:
             bash scripts/cortex-repo-audit.sh
           fi
 
-      - name: Build debug APK and instrumented-test sources
-        run: gradle :app:assembleDebug :app:compileDebugAndroidTestJavaWithJavac --stacktrace
+      - name: Build debug, release and instrumented-test sources
+        run: gradle :app:assembleDebug :app:assembleRelease :app:compileDebugAndroidTestJavaWithJavac --stacktrace
 
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
         with:
           name: Cortex-debug-${{ github.sha }}
           path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload unsigned release APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Cortex-release-unsigned-${{ github.sha }}
+          path: app/build/outputs/apk/release/app-release-unsigned.apk
           if-no-files-found: error
           retention-days: 14
