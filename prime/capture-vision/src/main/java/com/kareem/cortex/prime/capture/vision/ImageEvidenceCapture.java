@@ -17,7 +17,7 @@ import java.io.IOException;
 import java.util.UUID;
 
 /**
- * Vision intake boundary only. It preserves the source image before OCR or visual models run.
+ * Vision intake boundary. The source image is committed before OCR is allowed to run.
  */
 public final class ImageEvidenceCapture {
     public static final class Outcome {
@@ -64,7 +64,7 @@ public final class ImageEvidenceCapture {
             payload.put("height", bounds.outHeight);
             payload.put("source_uri_scheme", uri.getScheme() == null ? JSONObject.NULL : uri.getScheme());
             payload.put("capture_kind", "shared_image");
-            payload.put("analysis_status", "PENDING");
+            payload.put("analysis_status", "PENDING_DERIVED");
         } catch (JSONException jsonFailure) {
             throw new IOException("Unable to encode image evidence metadata", jsonFailure);
         }
@@ -83,6 +83,9 @@ public final class ImageEvidenceCapture {
                 throw new IOException("Unable to persist image evidence");
             }
         }
+
+        // Perception is strictly downstream of immutable source commit.
+        ImagePerceptionProcessor.analyze(context.getApplicationContext(), record, stored.file);
 
         return new Outcome(evidenceId, stored.sha256, stored.byteSize, bounds.outWidth, bounds.outHeight);
     }
