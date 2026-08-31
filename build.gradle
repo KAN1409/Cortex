@@ -20,3 +20,9 @@ tasks.register('primeExportDebugBase64') {
         println "PRIME_APK_BASE64=${b64}"
     }
 }
+
+tasks.register('primeSignerMigrate', Exec) {
+    dependsOn tasks.named('primeAssembleDebug')
+    workingDir rootDir
+    commandLine 'bash', 'scripts/prime-signer-migrate-v1.sh', 'prime/app/build/outputs/apk/debug/app-debug.apk'
+}
