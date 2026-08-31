@@ -63,7 +63,7 @@ public final class LocalIntelligenceEngine {
                     String legacy = legacyBody(raw);
                     if (!legacy.isEmpty() && !isCountSummary(legacy)) semanticTexts.add(legacy);
                 }
-            } else if (!raw.isEmpty()) {
+            } else if (!raw.isEmpty() && admissibleSemanticEvidence(record)) {
                 semanticTexts.add(raw);
             }
 
@@ -83,6 +83,34 @@ public final class LocalIntelligenceEngine {
                 dedupeSignals(tasks),
                 dedupeSignals(times)
         );
+    }
+
+    /**
+     * Validator boundary for perception-derived semantic evidence. Raw evidence remains stored regardless.
+     * Only COMPLETE transcript/OCR records with an explicit immutable parent contract may feed intelligence.
+     */
+    static boolean admissibleSemanticEvidence(EvidenceRecord record) {
+        if (record == null) return false;
+        String ref = safe(record.sourceRef).trim();
+        if (!ref.startsWith("derived-from:")) return true;
+
+        String parentId = ref.substring("derived-from:".length()).trim();
+        if (parentId.isEmpty()) return false;
+        if (record.source != EvidenceSource.TEXT && record.source != EvidenceSource.OCR) return false;
+
+        String payload = safe(record.rawPayloadJson).replaceAll("\\s+", "");
+        if (!payload.contains("\"derived\":true") || !payload.contains("\"immutable_parent\":true")) return false;
+        if (!payload.contains("\"status\":\"COMPLETE\"")) return false;
+        if (!payload.contains("\"parent_evidence_id\":\"" + jsonLiteral(parentId) + "\"")) return false;
+
+        if (record.source == EvidenceSource.TEXT) {
+            return payload.contains("\"schema\":\"CORTEX_PRIME_DERIVED_TRANSCRIPT_V1\"");
+        }
+        return payload.contains("\"schema\":\"CORTEX_PRIME_DERIVED_OCR_V1\"");
+    }
+
+    private static String jsonLiteral(String value) {
+        return safe(value).replace("\\", "\\\\").replace("\"", "\\\"");
     }
 
     private static void analyzeText(
