@@ -22,8 +22,16 @@ jobs:
         run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
       - name: Test capture and intelligence modules, then build Cortex Prime
         run: gradle -p prime :capture-relay:testDebugUnitTest :capture-voice:testDebugUnitTest :capture-vision:testDebugUnitTest :local-intelligence:testDebugUnitTest :app:assembleDebug --stacktrace
+      - name: Verify stable signer
+        shell: bash
+        run: |
+          APK=prime/app/build/outputs/apk/debug/app-debug.apk
+          EXPECTED=5c6550a070abe477dcad5f23f3f437e183bff8aeaeb6ac52e1beaa8243ee69a7
+          ACTUAL=$(apksigner verify --print-certs "$APK" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -n1 | tr -d ':[:space:]' | tr 'A-F' 'a-f')
+          echo "signer_sha256=$ACTUAL"
+          test "$ACTUAL" = "$EXPECTED"
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: Cortex-Prime-0.3.0-understanding-baseline
+          name: Cortex-Prime-0.4.0-now-normalizer-v2
           path: prime/app/build/outputs/apk/debug/app-debug.apk
