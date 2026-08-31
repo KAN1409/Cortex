@@ -1,10 +1,10 @@
 plugins { id 'com.android.application' }
 
-def primePermanentKeystore = file('../../app/cortex-debug.keystore')
-def primePermanentKeystoreB64 = file('../../app/cortex-debug.keystore.b64')
-if (!primePermanentKeystore.exists() && primePermanentKeystoreB64.exists()) {
-    primePermanentKeystore.bytes = java.util.Base64.getDecoder().decode(primePermanentKeystoreB64.text.trim())
-}
+def primeKeystorePath = System.getenv('CORTEX_PRIME_KEYSTORE')
+def primeStorePassword = System.getenv('CORTEX_PRIME_STORE_PASSWORD')
+def primeKeyAlias = System.getenv('CORTEX_PRIME_KEY_ALIAS')
+def primeKeyPassword = System.getenv('CORTEX_PRIME_KEY_PASSWORD')
+def hasPrimePermanentSigner = primeKeystorePath && primeStorePassword && primeKeyAlias && primeKeyPassword && file(primeKeystorePath).exists()
 
 android {
     namespace 'com.kareem.cortex.prime'
@@ -13,22 +13,22 @@ android {
         applicationId 'com.kareem.cortex.prime'
         minSdk 26
         targetSdk 35
-        versionCode 7
-        versionName '0.4.0-prime-now-normalizer-v2'
+        versionCode 8
+        versionName '0.4.1-prime-secure-signer'
     }
     signingConfigs {
-        if (primePermanentKeystore.exists()) {
+        if (hasPrimePermanentSigner) {
             permanent {
-                storeFile primePermanentKeystore
-                storePassword 'android'
-                keyAlias 'androiddebugkey'
-                keyPassword 'android'
+                storeFile file(primeKeystorePath)
+                storePassword primeStorePassword
+                keyAlias primeKeyAlias
+                keyPassword primeKeyPassword
             }
         }
     }
     buildTypes {
         debug {
-            if (primePermanentKeystore.exists()) signingConfig signingConfigs.permanent
+            if (hasPrimePermanentSigner) signingConfig signingConfigs.permanent
         }
     }
     compileOptions {
@@ -37,8 +37,20 @@ android {
     }
 }
 
+tasks.register('assertPrimePermanentSigner') {
+    doLast {
+        if (!hasPrimePermanentSigner) {
+            throw new GradleException('Cortex Prime permanent signer is not available in the local environment')
+        }
+    }
+}
+
 tasks.register('assemblePrimeBridgeDebug') {
     dependsOn 'assembleDebug'
+}
+
+tasks.register('assemblePrimePermanentDebug') {
+    dependsOn 'assertPrimePermanentSigner', 'assembleDebug'
 }
 
 dependencies {
