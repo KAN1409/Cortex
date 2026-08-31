@@ -9,8 +9,8 @@ android {
         applicationId 'com.kareem.cortex.prime'
         minSdk 26
         targetSdk 35
-        versionCode 3
-        versionName '0.1.2-prime-voice-capture'
+        versionCode 4
+        versionName '0.1.3-prime-vision-capture'
     }
     signingConfigs {
         if (primePermanentKeystore.exists()) {
@@ -39,4 +39,5 @@ dependencies {
     implementation project(':core-evidence')
     implementation project(':capture-relay')
     implementation project(':capture-voice')
+    implementation project(':capture-vision')
 }
