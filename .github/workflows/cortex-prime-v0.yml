@@ -27,6 +27,11 @@ jobs:
             echo "Signing key material must never be committed to the Cortex Prime branch."
             exit 1
           fi
+      - name: Validate signer migration tooling
+        shell: bash
+        run: |
+          bash -n scripts/prime-signer-migrate-v1.sh
+          gradle tasks --quiet >/dev/null
       - name: Test capture and intelligence modules, then compile Cortex Prime
         run: gradle -p prime :capture-relay:testDebugUnitTest :capture-voice:testDebugUnitTest :capture-vision:testDebugUnitTest :local-intelligence:testDebugUnitTest :app:assembleDebug --stacktrace
       - name: CI artifact policy
