@@ -10,6 +10,7 @@ import com.kareem.cortex.prime.evidence.EvidenceRecord;
 import com.kareem.cortex.prime.evidence.EvidenceSource;
 import com.kareem.cortex.prime.evidence.EvidenceSqliteStore;
 
+import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.io.IOException;
@@ -52,17 +53,21 @@ public final class ImageEvidenceCapture {
         String relativeAssetPath = "prime-assets/images/" + stored.sha256 + ".bin";
 
         JSONObject payload = new JSONObject();
-        payload.put("schema", "CORTEX_PRIME_IMAGE_EVIDENCE_V1");
-        payload.put("sha256", stored.sha256);
-        payload.put("asset_path", relativeAssetPath);
-        payload.put("byte_size", stored.byteSize);
-        payload.put("mime_type", mimeType == null ? JSONObject.NULL : mimeType);
-        payload.put("display_name", displayName == null ? JSONObject.NULL : displayName);
-        payload.put("width", bounds.outWidth);
-        payload.put("height", bounds.outHeight);
-        payload.put("source_uri_scheme", uri.getScheme() == null ? JSONObject.NULL : uri.getScheme());
-        payload.put("capture_kind", "shared_image");
-        payload.put("analysis_status", "PENDING");
+        try {
+            payload.put("schema", "CORTEX_PRIME_IMAGE_EVIDENCE_V1");
+            payload.put("sha256", stored.sha256);
+            payload.put("asset_path", relativeAssetPath);
+            payload.put("byte_size", stored.byteSize);
+            payload.put("mime_type", mimeType == null ? JSONObject.NULL : mimeType);
+            payload.put("display_name", displayName == null ? JSONObject.NULL : displayName);
+            payload.put("width", bounds.outWidth);
+            payload.put("height", bounds.outHeight);
+            payload.put("source_uri_scheme", uri.getScheme() == null ? JSONObject.NULL : uri.getScheme());
+            payload.put("capture_kind", "shared_image");
+            payload.put("analysis_status", "PENDING");
+        } catch (JSONException jsonFailure) {
+            throw new IOException("Unable to encode image evidence metadata", jsonFailure);
+        }
 
         EvidenceRecord record = new EvidenceRecord(
                 evidenceId,
