@@ -24,6 +24,8 @@ import com.kareem.cortex.prime.capture.voice.VoiceCaptureController;
 import com.kareem.cortex.prime.evidence.EvidenceRecord;
 import com.kareem.cortex.prime.evidence.EvidenceSource;
 import com.kareem.cortex.prime.evidence.EvidenceSqliteStore;
+import com.kareem.cortex.prime.intelligence.IntelligenceSnapshot;
+import com.kareem.cortex.prime.intelligence.LocalIntelligenceEngine;
 
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
@@ -43,6 +45,7 @@ public final class MainActivity extends Activity {
     private final int muted = Color.rgb(161, 169, 181);
     private final int accent = Color.rgb(124, 241, 191);
     private final int accentDark = Color.rgb(39, 94, 74);
+    private final int amber = Color.rgb(255, 190, 92);
     private LinearLayout content;
 
     @Override
@@ -64,114 +67,82 @@ public final class MainActivity extends Activity {
         ScrollView scroll = new ScrollView(this);
         scroll.setFillViewport(true);
         scroll.setBackgroundColor(bg);
-
         content = new LinearLayout(this);
         content.setOrientation(LinearLayout.VERTICAL);
         content.setPadding(dp(20), dp(28), dp(20), dp(40));
-        scroll.removeAllViews();
-        scroll.addView(content, new ScrollView.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT
-        ));
+        scroll.addView(content, new ScrollView.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
         addHeader();
         addCaptureStatus();
         addQuickCapture();
-        addEvidenceOverview();
-        addRecentEvidence();
+        List<EvidenceRecord> evidence = loadEvidence(500);
+        addEvidenceOverview(evidence);
+        addUnderstanding(evidence);
+        addRecentEvidence(evidence);
         addIntelligencePipeline();
         addFooter();
-
         setContentView(scroll);
     }
 
     private void addHeader() {
-        TextView eyebrow = label("LOCAL CONTEXT ENGINE", 12, accent, true);
-        content.addView(eyebrow);
-
+        content.addView(label("LOCAL CONTEXT ENGINE", 12, accent, true));
         TextView title = label("Cortex Prime", 35, text, true);
         title.setPadding(0, dp(8), 0, 0);
         content.addView(title);
-
-        TextView subtitle = label(
-                "Your phone becomes evidence. Cortex keeps the raw truth, then intelligence works on top of it.",
-                15,
-                muted,
-                false
-        );
+        TextView subtitle = label("Evidence stays raw and immutable. Understanding is built as grounded proposals on top.", 15, muted, false);
         subtitle.setPadding(0, dp(10), 0, dp(22));
         content.addView(subtitle);
     }
 
     private void addCaptureStatus() {
         boolean relayEnabled = isNotificationAccessEnabled();
-        LinearLayout statusCard = cardContainer(card);
-
+        LinearLayout box = cardContainer(card);
         LinearLayout row = horizontal();
-        TextView dot = label("●", 16, relayEnabled ? accent : Color.rgb(255, 190, 92), true);
+        row.addView(label("●", 16, relayEnabled ? accent : amber, true));
         TextView title = label(relayEnabled ? "Capture is live" : "Notification access is off", 17, text, true);
         title.setPadding(dp(10), 0, 0, 0);
-        row.addView(dot);
         row.addView(title);
-        statusCard.addView(row);
-
-        TextView detail = label(
-                relayEnabled
-                        ? "Relay is inside Cortex Prime. No cross-app bridge. Notifications write straight into immutable evidence."
-                        : "Turn on notification access once and Relay can feed Cortex Prime directly.",
-                14,
-                muted,
-                false
-        );
+        box.addView(row);
+        TextView detail = label(relayEnabled ? "Relay writes notifications directly into Cortex Prime evidence." : "Enable notification access once to feed Cortex Prime directly.", 14, muted, false);
         detail.setPadding(0, dp(10), 0, 0);
-        statusCard.addView(detail);
-
+        box.addView(detail);
         if (!relayEnabled) {
             Button enable = actionButton("Enable notification capture", false);
             enable.setOnClickListener(v -> startActivity(new Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)));
-            statusCard.addView(enable, topMargin(dp(14)));
+            box.addView(enable, topMargin(dp(14)));
         }
-
-        content.addView(statusCard, sectionMargin());
+        content.addView(box, sectionMargin());
     }
 
     private void addQuickCapture() {
         sectionTitle("Quick capture");
         LinearLayout box = cardContainer(card);
-
         LinearLayout row = horizontal();
         Button voice = actionButton("●  Voice", true);
         voice.setOnClickListener(v -> requestOrStartVoice());
         row.addView(voice, weighted());
-
         Button image = actionButton("▣  Image", false);
         image.setOnClickListener(v -> pickImage());
         LinearLayout.LayoutParams imageLp = weighted();
         imageLp.setMarginStart(dp(10));
         row.addView(image, imageLp);
         box.addView(row);
-
         Button stop = actionButton("Stop voice recording", false);
         stop.setOnClickListener(v -> {
             VoiceCaptureController.stop(this);
             Toast.makeText(this, "Saving voice evidence…", Toast.LENGTH_SHORT).show();
         });
         box.addView(stop, topMargin(dp(10)));
-
         TextView note = label("Voice and images are preserved before any model touches them.", 13, muted, false);
         note.setPadding(0, dp(12), 0, 0);
         box.addView(note);
         content.addView(box, sectionMargin());
     }
 
-    private void addEvidenceOverview() {
+    private void addEvidenceOverview(List<EvidenceRecord> recent) {
         sectionTitle("Evidence");
-        List<EvidenceRecord> recent = loadEvidence(500);
         EnumMap<EvidenceSource, Integer> counts = new EnumMap<>(EvidenceSource.class);
-        for (EvidenceRecord record : recent) {
-            counts.put(record.source, counts.getOrDefault(record.source, 0) + 1);
-        }
-
+        for (EvidenceRecord record : recent) counts.put(record.source, counts.getOrDefault(record.source, 0) + 1);
         LinearLayout box = cardContainer(card);
         LinearLayout metrics = horizontal();
         metrics.addView(metric("TOTAL", String.valueOf(recent.size())), weighted());
@@ -179,26 +150,65 @@ public final class MainActivity extends Activity {
         metrics.addView(metric("VOICE", String.valueOf(counts.getOrDefault(EvidenceSource.VOICE, 0))), weighted());
         metrics.addView(metric("IMAGES", String.valueOf(counts.getOrDefault(EvidenceSource.IMAGE, 0))), weighted());
         box.addView(metrics);
-
-        TextView hint = label("Counts show the most recent 500 evidence records.", 12, muted, false);
+        TextView hint = label("Raw evidence is append-only. Intelligence never overwrites it.", 12, muted, false);
         hint.setPadding(0, dp(12), 0, 0);
         box.addView(hint);
         content.addView(box, sectionMargin());
     }
 
-    private void addRecentEvidence() {
-        sectionTitle("Recent evidence");
-        List<EvidenceRecord> records = loadEvidence(8);
+    private void addUnderstanding(List<EvidenceRecord> evidence) {
+        sectionTitle("Understood locally");
+        IntelligenceSnapshot snapshot = LocalIntelligenceEngine.analyze(evidence);
         LinearLayout box = cardContainer(card);
 
-        if (records.isEmpty()) {
-            TextView empty = label("Nothing captured yet. Record a voice note, share an image, or enable notification capture.", 14, muted, false);
-            box.addView(empty);
+        LinearLayout metrics = horizontal();
+        metrics.addView(metric("THREADS", String.valueOf(snapshot.threads.size())), weighted());
+        metrics.addView(metric("PEOPLE", String.valueOf(snapshot.people.size())), weighted());
+        metrics.addView(metric("TASKS?", String.valueOf(snapshot.taskCandidates.size())), weighted());
+        metrics.addView(metric("TIME", String.valueOf(snapshot.temporalHints.size())), weighted());
+        box.addView(metrics);
+
+        TextView mode = label("Extractor + Linker baseline is active now. These are grounded proposals, not saved facts.", 12, accent, true);
+        mode.setPadding(0, dp(12), 0, dp(8));
+        box.addView(mode);
+
+        int shown = Math.min(4, snapshot.threads.size());
+        for (int i = 0; i < shown; i++) {
+            if (i > 0) box.addView(divider());
+            IntelligenceSnapshot.ThreadProposal thread = snapshot.threads.get(i);
+            LinearLayout row = new LinearLayout(this);
+            row.setOrientation(LinearLayout.VERTICAL);
+            row.setPadding(0, dp(10), 0, dp(10));
+            LinearLayout top = horizontal();
+            top.addView(label(thread.label, 15, text, true), weighted());
+            TextView count = label(thread.evidenceIds.size() + " evidence", 11, muted, true);
+            count.setGravity(Gravity.END);
+            top.addView(count, weighted());
+            row.addView(top);
+            if (!thread.latestSnippet.isEmpty()) {
+                TextView snippet = label(thread.latestSnippet, 13, muted, false);
+                snippet.setPadding(0, dp(5), 0, 0);
+                row.addView(snippet);
+            }
+            box.addView(row);
+        }
+
+        if (snapshot.threads.isEmpty()) {
+            box.addView(label("No grounded conversation threads yet.", 13, muted, false));
+        }
+        content.addView(box, sectionMargin());
+    }
+
+    private void addRecentEvidence(List<EvidenceRecord> all) {
+        sectionTitle("Recent evidence");
+        LinearLayout box = cardContainer(card);
+        int shown = Math.min(8, all.size());
+        if (shown == 0) {
+            box.addView(label("Nothing captured yet. Record voice, share an image, or enable notification capture.", 14, muted, false));
         } else {
-            for (int i = 0; i < records.size(); i++) {
-                EvidenceRecord record = records.get(i);
+            for (int i = 0; i < shown; i++) {
                 if (i > 0) box.addView(divider());
-                box.addView(evidenceRow(record));
+                box.addView(evidenceRow(all.get(i)));
             }
         }
         content.addView(box, sectionMargin());
@@ -207,25 +217,22 @@ public final class MainActivity extends Activity {
     private void addIntelligencePipeline() {
         sectionTitle("Local intelligence");
         LinearLayout box = cardContainer(card);
-
-        TextView intro = label("Five specialist roles, one grounded pipeline. Capture is ready; model adapters are the next layer.", 14, muted, false);
+        TextView intro = label("Five specialist roles. Capture is grounded; the first understanding baseline is now running.", 14, muted, false);
         intro.setPadding(0, 0, 0, dp(8));
         box.addView(intro);
-
-        box.addView(modelRow("01", "ASR", "Voice → transcript", true));
-        box.addView(modelRow("02", "Vision / OCR", "Image → visible text + facts", true));
-        box.addView(modelRow("03", "Extractor", "People, dates, tasks, events", false));
-        box.addView(modelRow("04", "Linker", "Relate + dedupe evidence", false));
-        box.addView(modelRow("05", "Organizer", "Propose the Cortex view", false));
-
-        TextView guard = label("Models propose. Validator decides what may become Cortex state.", 13, accent, true);
+        box.addView(modelRow("01", "ASR", "Voice → transcript", "INPUT READY", accent, accentDark));
+        box.addView(modelRow("02", "Vision / OCR", "Image → visible text + facts", "INPUT READY", accent, accentDark));
+        box.addView(modelRow("03", "Extractor", "People, dates, tasks, events", "BASELINE LIVE", accent, accentDark));
+        box.addView(modelRow("04", "Linker", "Relate + dedupe evidence", "BASELINE LIVE", accent, accentDark));
+        box.addView(modelRow("05", "Organizer", "Propose the Cortex view", "NEXT", muted, cardSoft));
+        TextView guard = label("Next: replace baselines only when a local model beats them on grounded Cortex test cases.", 13, accent, true);
         guard.setPadding(0, dp(12), 0, 0);
         box.addView(guard);
         content.addView(box, sectionMargin());
     }
 
     private void addFooter() {
-        TextView footer = label("CORTEX PRIME  •  0.2.0 DASHBOARD", 11, muted, true);
+        TextView footer = label("CORTEX PRIME  •  0.3.0 UNDERSTANDING BASELINE", 11, muted, true);
         footer.setGravity(Gravity.CENTER);
         footer.setPadding(0, dp(28), 0, 0);
         content.addView(footer);
@@ -235,7 +242,6 @@ public final class MainActivity extends Activity {
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.VERTICAL);
         row.setPadding(0, dp(12), 0, dp(12));
-
         LinearLayout top = horizontal();
         TextView source = label(sourceLabel(record.source), 12, accent, true);
         TextView time = label(formatTime(record.capturedAtEpochMs), 12, muted, false);
@@ -243,7 +249,6 @@ public final class MainActivity extends Activity {
         top.addView(source, weighted());
         top.addView(time, weighted());
         row.addView(top);
-
         String body = record.rawText == null ? "" : record.rawText.trim();
         if (body.isEmpty()) {
             if (record.source == EvidenceSource.VOICE) body = "Voice evidence preserved";
@@ -251,33 +256,30 @@ public final class MainActivity extends Activity {
             else body = record.sourceRef == null ? "Evidence preserved" : record.sourceRef;
         }
         if (body.length() > 180) body = body.substring(0, 180) + "…";
-        TextView textView = label(body, 15, text, false);
-        textView.setPadding(0, dp(6), 0, 0);
-        row.addView(textView);
+        TextView bodyView = label(body, 15, text, false);
+        bodyView.setPadding(0, dp(6), 0, 0);
+        row.addView(bodyView);
         return row;
     }
 
-    private View modelRow(String index, String name, String job, boolean captureAvailable) {
+    private View modelRow(String index, String name, String job, String statusText, int statusTextColor, int statusBg) {
         LinearLayout row = horizontal();
         row.setGravity(Gravity.CENTER_VERTICAL);
         row.setPadding(0, dp(10), 0, dp(10));
-
         TextView number = label(index, 12, muted, true);
         number.setGravity(Gravity.CENTER);
         number.setBackground(rounded(cardSoft, 10));
         number.setPadding(dp(8), dp(6), dp(8), dp(6));
         row.addView(number);
-
         LinearLayout copy = new LinearLayout(this);
         copy.setOrientation(LinearLayout.VERTICAL);
         copy.setPadding(dp(12), 0, dp(8), 0);
         copy.addView(label(name, 15, text, true));
         copy.addView(label(job, 12, muted, false));
         row.addView(copy, weighted());
-
-        TextView status = label(captureAvailable ? "INPUT READY" : "NEXT", 10, captureAvailable ? accent : muted, true);
+        TextView status = label(statusText, 9, statusTextColor, true);
         status.setPadding(dp(8), dp(5), dp(8), dp(5));
-        status.setBackground(rounded(captureAvailable ? accentDark : cardSoft, 10));
+        status.setBackground(rounded(statusBg, 10));
         row.addView(status);
         return row;
     }
@@ -287,7 +289,7 @@ public final class MainActivity extends Activity {
         metric.setOrientation(LinearLayout.VERTICAL);
         metric.setGravity(Gravity.CENTER);
         metric.addView(label(value, 25, text, true));
-        metric.addView(label(name, 10, muted, true));
+        metric.addView(label(name, 9, muted, true));
         return metric;
     }
 
@@ -341,7 +343,7 @@ public final class MainActivity extends Activity {
         if (uri == null) return;
         new Thread(() -> {
             try {
-                ImageEvidenceCapture.Outcome outcome = ImageEvidenceCapture.captureSharedImage(this, uri);
+                ImageEvidenceCapture.captureSharedImage(this, uri);
                 runOnUiThread(() -> {
                     Toast.makeText(this, "Image preserved as evidence", Toast.LENGTH_SHORT).show();
                     render();
@@ -353,9 +355,9 @@ public final class MainActivity extends Activity {
     }
 
     private void sectionTitle(String title) {
-        TextView label = label(title, 13, muted, true);
-        label.setPadding(0, dp(8), 0, dp(8));
-        content.addView(label);
+        TextView view = label(title, 13, muted, true);
+        view.setPadding(0, dp(8), 0, dp(8));
+        content.addView(view);
     }
 
     private LinearLayout cardContainer(int color) {
@@ -414,19 +416,13 @@ public final class MainActivity extends Activity {
     }
 
     private LinearLayout.LayoutParams sectionMargin() {
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT
-        );
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         lp.setMargins(0, 0, 0, dp(18));
         return lp;
     }
 
     private LinearLayout.LayoutParams topMargin(int margin) {
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT
-        );
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         lp.setMargins(0, margin, 0, 0);
         return lp;
     }

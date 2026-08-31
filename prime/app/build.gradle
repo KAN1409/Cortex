@@ -9,8 +9,8 @@ android {
         applicationId 'com.kareem.cortex.prime'
         minSdk 26
         targetSdk 35
-        versionCode 5
-        versionName '0.2.0-prime-dashboard'
+        versionCode 6
+        versionName '0.3.0-prime-understanding-baseline'
     }
     signingConfigs {
         if (primePermanentKeystore.exists()) {
@@ -35,9 +35,14 @@ android {
     }
 }
 
+tasks.register('assemblePrimeBridgeDebug') {
+    dependsOn 'assembleDebug'
+}
+
 dependencies {
     implementation project(':core-evidence')
     implementation project(':capture-relay')
     implementation project(':capture-voice')
     implementation project(':capture-vision')
+    implementation project(':local-intelligence')
 }

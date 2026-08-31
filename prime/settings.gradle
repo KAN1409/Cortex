@@ -4,4 +4,4 @@ dependencyResolutionManagement {
     repositories { google(); mavenCentral() }
 }
 rootProject.name = 'CortexPrime'
-include ':app', ':core-evidence', ':capture-relay', ':capture-voice', ':capture-vision'
+include ':app', ':core-evidence', ':capture-relay', ':capture-voice', ':capture-vision', ':local-intelligence'
