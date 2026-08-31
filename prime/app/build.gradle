@@ -1,6 +1,10 @@
 plugins { id 'com.android.application' }
 
 def primePermanentKeystore = file('../../app/cortex-debug.keystore')
+def primePermanentKeystoreB64 = file('../../app/cortex-debug.keystore.b64')
+if (!primePermanentKeystore.exists() && primePermanentKeystoreB64.exists()) {
+    primePermanentKeystore.bytes = java.util.Base64.getDecoder().decode(primePermanentKeystoreB64.text.trim())
+}
 
 android {
     namespace 'com.kareem.cortex.prime'
@@ -9,8 +13,8 @@ android {
         applicationId 'com.kareem.cortex.prime'
         minSdk 26
         targetSdk 35
-        versionCode 6
-        versionName '0.3.0-prime-understanding-baseline'
+        versionCode 7
+        versionName '0.4.0-prime-now-normalizer-v2'
     }
     signingConfigs {
         if (primePermanentKeystore.exists()) {
@@ -24,9 +28,7 @@ android {
     }
     buildTypes {
         debug {
-            if (primePermanentKeystore.exists()) {
-                signingConfig signingConfigs.permanent
-            }
+            if (primePermanentKeystore.exists()) signingConfig signingConfigs.permanent
         }
     }
     compileOptions {
