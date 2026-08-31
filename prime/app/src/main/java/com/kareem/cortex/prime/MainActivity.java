@@ -3,6 +3,7 @@ package com.kareem.cortex.prime;
 import android.Manifest;
 import android.app.Activity;
 import android.content.Intent;
+import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.graphics.Typeface;
@@ -20,7 +21,9 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import com.kareem.cortex.prime.capture.vision.ImageEvidenceCapture;
+import com.kareem.cortex.prime.capture.vision.ImagePerceptionProcessor;
 import com.kareem.cortex.prime.capture.voice.VoiceCaptureController;
+import com.kareem.cortex.prime.capture.voice.VoiceTranscriptionProcessor;
 import com.kareem.cortex.prime.evidence.EvidenceRecord;
 import com.kareem.cortex.prime.evidence.EvidenceSource;
 import com.kareem.cortex.prime.evidence.EvidenceSqliteStore;
@@ -54,6 +57,8 @@ public final class MainActivity extends Activity {
         getWindow().setStatusBarColor(bg);
         getWindow().setNavigationBarColor(bg);
         VoiceCaptureController.recoverPending(this);
+        VoiceTranscriptionProcessor.recoverUntranscribed(this);
+        ImagePerceptionProcessor.recoverUnprocessed(this);
         render();
     }
 
@@ -107,7 +112,7 @@ public final class MainActivity extends Activity {
         box.addView(row);
         TextView detail = label(
                 relayEnabled
-                        ? "Normalizer V2 now feeds cleaner conversation evidence into Cortex."
+                        ? "Normalizer V2 feeds cleaner message evidence; voice ASR and image OCR run as derived perception."
                         : "Enable notification access once to feed Cortex Prime directly.",
                 14,
                 muted,
@@ -277,22 +282,31 @@ public final class MainActivity extends Activity {
         intro.setPadding(0, 0, 0, dp(8));
         box.addView(intro);
         box.addView(modelRow("00", "Normalizer V2", "Notification → semantic messages", "LIVE", accent, accentDark));
-        box.addView(modelRow("01", "ASR", "Voice → transcript", "INPUT READY", amber, cardSoft));
-        box.addView(modelRow("02", "Vision / OCR", "Image → visible text + facts", "INPUT READY", amber, cardSoft));
-        box.addView(modelRow("03", "Extractor", "Requests, tasks, people, time", "BASELINE LIVE", accent, accentDark));
-        box.addView(modelRow("04", "Linker", "Conversation continuity", "BASELINE LIVE", accent, accentDark));
+        box.addView(modelRow("01", "ASR", "Voice → derived transcript", "LIVE + RECOVERY", accent, accentDark));
+        box.addView(modelRow("02", "Vision / OCR", "Image → derived visible text", "LIVE + RECOVERY", accent, accentDark));
+        box.addView(modelRow("03", "Extractor", "Requests, tasks, people, time", "VALIDATED", accent, accentDark));
+        box.addView(modelRow("04", "Linker", "Conversation continuity", "NOISE GATED", accent, accentDark));
         box.addView(modelRow("05", "Organizer", "Now view from proposals", "VIEW LIVE", accent, accentDark));
-        TextView guard = label("Next model milestone: real on-device ASR + benchmarked extractor/linker adapters.", 13, accent, true);
+        TextView guard = label("Derived perception only reaches intelligence after COMPLETE status and parent/provenance validation.", 13, accent, true);
         guard.setPadding(0, dp(12), 0, 0);
         box.addView(guard);
         content.addView(box, sectionMargin());
     }
 
     private void addFooter() {
-        TextView footer = label("CORTEX PRIME  •  0.4.0 NOW + NORMALIZER V2", 11, muted, true);
+        TextView footer = label("CORTEX PRIME  •  " + appVersion() + "  •  GROUNDED PERCEPTION", 11, muted, true);
         footer.setGravity(Gravity.CENTER);
         footer.setPadding(0, dp(28), 0, 0);
         content.addView(footer);
+    }
+
+    private String appVersion() {
+        try {
+            PackageInfo info = getPackageManager().getPackageInfo(getPackageName(), 0);
+            return info.versionName == null ? "unknown" : info.versionName;
+        } catch (Exception ignored) {
+            return "unknown";
+        }
     }
 
     private View evidenceRow(EvidenceRecord record) {
@@ -402,7 +416,7 @@ public final class MainActivity extends Activity {
             try {
                 ImageEvidenceCapture.captureSharedImage(this, uri);
                 runOnUiThread(() -> {
-                    Toast.makeText(this, "Image preserved as evidence", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(this, "Image preserved; OCR processing started", Toast.LENGTH_SHORT).show();
                     render();
                 });
             } catch (Exception failure) {
