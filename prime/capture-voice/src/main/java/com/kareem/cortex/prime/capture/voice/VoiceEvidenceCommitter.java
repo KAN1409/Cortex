@@ -38,7 +38,8 @@ public final class VoiceEvidenceCommitter {
                 + "\"durationMs\":" + durationMs + ","
                 + "\"sampleRate\":" + WavPcm16.SAMPLE_RATE + ","
                 + "\"channels\":" + WavPcm16.CHANNELS + ","
-                + "\"bitsPerSample\":" + WavPcm16.BITS_PER_SAMPLE
+                + "\"bitsPerSample\":" + WavPcm16.BITS_PER_SAMPLE + ","
+                + "\"transcription_status\":\"PENDING_DERIVED\""
                 + "}";
         EvidenceRecord record = new EvidenceRecord(
                 evidenceId,
@@ -53,6 +54,9 @@ public final class VoiceEvidenceCommitter {
             store.append(record);
         }
         if (!staging.delete() && staging.exists()) staging.deleteOnExit();
+
+        // Transcription is downstream only. The immutable WAV evidence above is already committed.
+        VoiceTranscriptionProcessor.transcribe(context.getApplicationContext(), record);
         return record;
     }
 
