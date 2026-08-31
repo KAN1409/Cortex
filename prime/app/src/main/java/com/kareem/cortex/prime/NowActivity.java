@@ -2,6 +2,7 @@ package com.kareem.cortex.prime;
 
 import android.app.Activity;
 import android.content.Intent;
+import android.content.pm.PackageInfo;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
@@ -15,7 +16,10 @@ import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
 
+import com.kareem.cortex.prime.capture.vision.ImagePerceptionProcessor;
+import com.kareem.cortex.prime.capture.voice.VoiceTranscriptionProcessor;
 import com.kareem.cortex.prime.evidence.EvidenceRecord;
+import com.kareem.cortex.prime.evidence.EvidenceSource;
 import com.kareem.cortex.prime.evidence.EvidenceSqliteStore;
 import com.kareem.cortex.prime.intelligence.IntelligenceSnapshot;
 import com.kareem.cortex.prime.intelligence.LocalIntelligenceEngine;
@@ -26,10 +30,7 @@ import java.util.Date;
 import java.util.List;
 import java.util.Locale;
 
-/**
- * Cortex Prime home. This screen only renders grounded proposals computed from immutable evidence.
- * Nothing shown here is promoted to canonical state without a validator in a later milestone.
- */
+/** Cortex Prime home. Proposals remain grounded in immutable evidence. */
 public final class NowActivity extends Activity {
     private final int bg = Color.rgb(12, 14, 18);
     private final int card = Color.rgb(24, 27, 33);
@@ -45,6 +46,8 @@ public final class NowActivity extends Activity {
         super.onCreate(savedInstanceState);
         getWindow().setStatusBarColor(bg);
         getWindow().setNavigationBarColor(bg);
+        VoiceTranscriptionProcessor.recoverUntranscribed(this);
+        ImagePerceptionProcessor.recoverUnprocessed(this);
         render();
     }
 
@@ -69,6 +72,7 @@ public final class NowActivity extends Activity {
         addHeader();
         addCaptureStatus();
         addNow(snapshot);
+        addPerception(evidence);
         addConversations(snapshot);
         addGrounding(snapshot, evidence.size());
         addDashboardButton();
@@ -95,6 +99,9 @@ public final class NowActivity extends Activity {
         title.setPadding(dp(10), 0, 0, 0);
         row.addView(title);
         box.addView(row);
+        TextView perception = label("Voice transcription + image OCR recovery are active. Derived results stay linked to their immutable parent evidence.", 12, muted, false);
+        perception.setPadding(0, dp(9), 0, 0);
+        box.addView(perception);
         if (!relayEnabled) {
             Button enable = button("Enable notification capture", true);
             enable.setOnClickListener(v -> startActivity(new Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)));
@@ -108,7 +115,7 @@ public final class NowActivity extends Activity {
         LinearLayout box = cardContainer(card);
         if (snapshot.attentionCandidates.isEmpty() && snapshot.taskCandidates.isEmpty() && snapshot.temporalHints.isEmpty()) {
             box.addView(label("Nothing grounded is asking for attention yet.", 16, text, true));
-            TextView detail = label("Cortex will stay quiet rather than invent urgency.", 13, muted, false);
+            TextView detail = label("Cortex stays quiet rather than promoting weak notification noise.", 13, muted, false);
             detail.setPadding(0, dp(6), 0, 0);
             box.addView(detail);
         } else {
@@ -148,6 +155,56 @@ public final class NowActivity extends Activity {
         TextView source = label("Evidence " + shortId(proposal.evidenceId), 11, muted, false);
         source.setPadding(0, dp(5), 0, 0);
         row.addView(source);
+        return row;
+    }
+
+    private void addPerception(List<EvidenceRecord> evidence) {
+        sectionTitle("Perception");
+        LinearLayout box = cardContainer(card);
+        int shown = 0;
+        for (EvidenceRecord record : evidence) {
+            if (!isDerivedPerception(record)) continue;
+            if (shown > 0) box.addView(divider());
+            box.addView(perceptionRow(record));
+            shown++;
+            if (shown >= 4) break;
+        }
+        if (shown == 0) {
+            box.addView(label("No transcript or OCR result has been committed yet. New and recoverable captures are processed downstream without changing the raw evidence.", 13, muted, false));
+        }
+        content.addView(box, sectionMargin());
+    }
+
+    private boolean isDerivedPerception(EvidenceRecord record) {
+        if (record == null) return false;
+        if (record.source != EvidenceSource.TEXT && record.source != EvidenceSource.OCR) return false;
+        return record.sourceRef != null && record.sourceRef.startsWith("derived-from:");
+    }
+
+    private View perceptionRow(EvidenceRecord record) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.VERTICAL);
+        row.setPadding(0, dp(10), 0, dp(10));
+        String payload = record.rawPayloadJson == null ? "" : record.rawPayloadJson;
+        boolean status = payload.contains("_STATUS_V1");
+        String type = record.source == EvidenceSource.OCR ? "IMAGE OCR" : "VOICE ASR";
+        String state = status ? "STATUS" : "DERIVED";
+        LinearLayout top = horizontal();
+        top.addView(label(type + "  •  " + state, 11, status ? amber : accent, true), weighted());
+        TextView time = label(formatTime(record.capturedAtEpochMs), 10, muted, false);
+        time.setGravity(Gravity.END);
+        top.addView(time, weighted());
+        row.addView(top);
+        String body = record.rawText == null ? "" : record.rawText.trim();
+        if (body.isEmpty()) body = "Derived result stored";
+        if (body.length() > 220) body = body.substring(0, 220) + "…";
+        TextView bodyView = label(body, 14, text, false);
+        bodyView.setPadding(0, dp(5), 0, 0);
+        row.addView(bodyView);
+        String parent = record.sourceRef == null ? "" : record.sourceRef.replace("derived-from:", "");
+        TextView provenance = label("Parent " + shortId(parent) + "  •  immutable provenance", 10, muted, false);
+        provenance.setPadding(0, dp(5), 0, 0);
+        row.addView(provenance);
         return row;
     }
 
@@ -206,10 +263,19 @@ public final class NowActivity extends Activity {
     }
 
     private void addFooter() {
-        TextView footer = label("0.4.0  •  NORMALIZER V2  •  GROUNDED NOW", 11, muted, true);
+        TextView footer = label("CORTEX PRIME  •  " + appVersion() + "  •  GROUNDED PERCEPTION", 11, muted, true);
         footer.setGravity(Gravity.CENTER);
         footer.setPadding(0, dp(18), 0, 0);
         content.addView(footer);
+    }
+
+    private String appVersion() {
+        try {
+            PackageInfo info = getPackageManager().getPackageInfo(getPackageName(), 0);
+            return info.versionName == null ? "unknown" : info.versionName;
+        } catch (Exception ignored) {
+            return "unknown";
+        }
     }
 
     private List<EvidenceRecord> loadEvidence(int limit) {
