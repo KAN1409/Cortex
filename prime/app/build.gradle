@@ -13,8 +13,8 @@ android {
         applicationId 'com.kareem.cortex.prime'
         minSdk 26
         targetSdk 35
-        versionCode 9
-        versionName '0.5.0-perception-v1'
+        versionCode 10
+        versionName '0.5.1-grounded-perception-v1'
     }
     signingConfigs {
         if (hasPrimePermanentSigner) {
