@@ -12,6 +12,11 @@ downloads/
 *.aab
 *.apks
 
+# Dev Bridge operational history.
+# Job/result records are operational data, not source. The source tree is not the job
+# ledger; records live on the data-only job/result branches and in the evidence store.
+.devbridge/
+
 # IDE
 .idea/
 *.iml
