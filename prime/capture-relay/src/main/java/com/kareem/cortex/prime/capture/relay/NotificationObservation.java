@@ -59,22 +59,27 @@ public final class NotificationObservation {
         return "notification://" + packageName + "/" + notificationKey;
     }
 
+    /**
+     * Derived semantic view only. The original title/body/expanded/messages remain preserved in
+     * canonicalPayloadJson(), so cleanup can always be changed and replayed later.
+     */
     public String textForEvidence() {
         StringBuilder out = new StringBuilder();
-        appendLine(out, "conversation", conversationTitle);
-        appendLine(out, "title", title);
-        appendLine(out, "body", body);
-        if (!expandedText.isEmpty() && !expandedText.equals(body)) appendLine(out, "expanded", expandedText);
-        for (NotificationMessage message : messages) {
-            if (message.text.isEmpty()) continue;
-            if (!message.sender.isEmpty()) out.append(message.sender).append(": ");
-            out.append(message.text).append('\n');
-        }
+        String conversation = NotificationTextCleaner.conversationLabel(conversationTitle, title);
+        appendLine(out, "conversation", conversation);
+        List<String> semantic = NotificationTextCleaner.semanticMessages(
+                conversationTitle,
+                title,
+                body,
+                expandedText,
+                messages
+        );
+        for (String message : semantic) appendLine(out, "message", message);
         return out.toString().trim();
     }
 
     public String canonicalPayloadJson() {
-        StringBuilder out = new StringBuilder(512);
+        StringBuilder out = new StringBuilder(640);
         out.append('{');
         field(out, "packageName", packageName).append(',');
         field(out, "notificationKey", notificationKey).append(',');
@@ -98,6 +103,14 @@ public final class NotificationObservation {
             field(out, "text", message.text).append(',');
             out.append("\"timestampEpochMs\":").append(message.timestampEpochMs);
             out.append('}');
+        }
+        out.append("],");
+        field(out, "normalizedConversation", NotificationTextCleaner.conversationLabel(conversationTitle, title)).append(',');
+        out.append("\"normalizedMessages\":[");
+        List<String> semantic = NotificationTextCleaner.semanticMessages(conversationTitle, title, body, expandedText, messages);
+        for (int i = 0; i < semantic.size(); i++) {
+            if (i > 0) out.append(',');
+            out.append('"').append(escape(semantic.get(i))).append('"');
         }
         out.append("],\"occurredAtEpochMs\":").append(occurredAtEpochMs).append('}');
         return out.toString();
