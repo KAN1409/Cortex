@@ -136,6 +136,18 @@ public final class CortexRelayV2DiagnosticsActivity extends Activity {
             body.addView(CortexUi.section(this, "Last action result"));
             jsonCard("Relay execution result", actionResult);
         }
+
+        JSONObject uncorrelatedAction = snapshot.optJSONObject("last_action_uncorrelated_result");
+        JSONObject uncorrelatedPolicy = snapshot.optJSONObject("last_policy_uncorrelated_result");
+        if (uncorrelatedAction != null || uncorrelatedPolicy != null) {
+            body.addView(CortexUi.section(this, "Uncorrelated results (diagnostic only)"));
+            body.addView(CortexUi.text(this,
+                    "These control results did not match an outstanding Cortex request. They are recorded for "
+                            + "diagnosis and have NOT been treated as authoritative.",
+                    11, CortexUi.MUTED));
+            if (uncorrelatedAction != null) jsonCard("Uncorrelated action result", uncorrelatedAction);
+            if (uncorrelatedPolicy != null) jsonCard("Uncorrelated policy result", uncorrelatedPolicy);
+        }
     }
 
     private void addAction(JSONObject action, String logicalSignalId) {

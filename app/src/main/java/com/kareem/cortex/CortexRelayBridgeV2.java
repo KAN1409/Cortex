@@ -42,6 +42,8 @@ public final class CortexRelayBridgeV2 {
     static void clearAuthenticatedSession(Context context, String connectorId) {
         if (connectorId == null) return;
         sessions.remove(connectorId);
+        // Outstanding control requests do not survive the authenticated session that minted them.
+        CortexRelayControlCorrelatorV2.reset();
         if (context != null) {
             context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
                     .putBoolean("connected", false)
@@ -77,6 +79,11 @@ public final class CortexRelayBridgeV2 {
             int retentionHours,
             JSONArray disabledNoiseRules) {
         JSONObject request = CortexLocalBusProtocolV2.mechanicalPolicy(version, retentionHours, disabledNoiseRules);
+        try {
+            request.put("request_id", "cortex_policy_" + java.util.UUID.randomUUID());
+        } catch (Throwable e) {
+            return false;
+        }
         return send(context, SECOND_BRAIN, CortexLocalBusProtocolV2.MSG_POLICY_UPDATE, request,
                 "policy", CortexLocalBusProtocolV2.POLICY_FEEDBACK);
     }
@@ -90,6 +97,13 @@ public final class CortexRelayBridgeV2 {
         }
         if (!supports(session, requiredCapability)) {
             persistSendFailure(context, kind, "CAPABILITY_NOT_ADVERTISED:" + requiredCapability);
+            return false;
+        }
+        // Every outbound control request is registered as outstanding BEFORE it is sent, so a
+        // result cannot be correlated unless Cortex genuinely minted the request id it names.
+        String requestId = request.optString("request_id", "");
+        if (!CortexRelayControlCorrelatorV2.registerOutstanding(requestId, kind, System.currentTimeMillis())) {
+            persistSendFailure(context, kind, "REQUEST_ID_NOT_CORRELATABLE");
             return false;
         }
         try {
@@ -129,11 +143,30 @@ public final class CortexRelayBridgeV2 {
             result = new JSONObject();
             try { result.put("status", "INVALID_RESULT_JSON"); } catch (Throwable ignored) {}
         }
+
+        // CORRELATION GATE. An inbound control result is a claim, not a fact. It may only reach
+        // the authoritative "last_<kind>_result" slot when it names an outstanding request id
+        // Cortex itself minted, of this same kind, within the correlator's TTL, and not already
+        // answered. Everything else is retained under a distinct, explicitly-diagnostic key and
+        // must never influence authoritative state.
+        String requestId = result.optString("request_id", "");
+        CortexRelayControlCorrelatorV2.Verdict verdict =
+                CortexRelayControlCorrelatorV2.correlate(requestId, kind, System.currentTimeMillis());
+        try {
+            result.put("correlation_verdict", verdict.name());
+            result.put("authoritative", verdict.authoritative());
+        } catch (Throwable ignored) {}
+
         SharedPreferences.Editor edit = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit();
-        edit.putString("last_" + kind + "_result", result.toString());
-        edit.putLong("last_" + kind + "_result_at", System.currentTimeMillis());
+        if (verdict.authoritative()) {
+            edit.putString("last_" + kind + "_result", result.toString());
+            edit.putLong("last_" + kind + "_result_at", System.currentTimeMillis());
+        } else {
+            edit.putString("last_" + kind + "_uncorrelated_result", result.toString());
+            edit.putLong("last_" + kind + "_uncorrelated_result_at", System.currentTimeMillis());
+        }
         edit.apply();
-        logControl(context, identity, "result_" + kind, result);
+        logControl(context, identity, "result_" + kind + "_" + verdict.name().toLowerCase(), result);
     }
 
     static void recordSignal(Context context, CortexConnectorRegistryV1.Identity identity,
@@ -171,6 +204,12 @@ public final class CortexRelayBridgeV2 {
             out.put("last_send_failure", p.getString("last_send_failure", ""));
             out.put("last_action_result", parseOrString(p.getString("last_action_result", "")));
             out.put("last_policy_result", parseOrString(p.getString("last_policy_result", "")));
+            out.put("last_action_uncorrelated_result",
+                    parseOrString(p.getString("last_action_uncorrelated_result", "")));
+            out.put("last_policy_uncorrelated_result",
+                    parseOrString(p.getString("last_policy_uncorrelated_result", "")));
+            out.put("outstanding_requests",
+                    CortexRelayControlCorrelatorV2.outstandingCount(System.currentTimeMillis()));
             out.put("last_v2_signal", parseOrString(p.getString("last_v2_signal", "")));
         } catch (Throwable ignored) {}
         return out;
