@@ -64,6 +64,9 @@ public final class MainActivity extends Activity {
     }
 
     private void render() {
+        List<EvidenceRecord> evidence = loadEvidence(500);
+        IntelligenceSnapshot snapshot = LocalIntelligenceEngine.analyze(evidence);
+
         ScrollView scroll = new ScrollView(this);
         scroll.setFillViewport(true);
         scroll.setBackgroundColor(bg);
@@ -74,11 +77,10 @@ public final class MainActivity extends Activity {
 
         addHeader();
         addCaptureStatus();
+        addNow(snapshot);
         addQuickCapture();
-        List<EvidenceRecord> evidence = loadEvidence(500);
         addEvidenceOverview(evidence);
-        addUnderstanding(evidence);
-        addRecentEvidence(evidence);
+        addEvidenceTrail(evidence);
         addIntelligencePipeline();
         addFooter();
         setContentView(scroll);
@@ -89,7 +91,7 @@ public final class MainActivity extends Activity {
         TextView title = label("Cortex Prime", 35, text, true);
         title.setPadding(0, dp(8), 0, 0);
         content.addView(title);
-        TextView subtitle = label("Evidence stays raw and immutable. Understanding is built as grounded proposals on top.", 15, muted, false);
+        TextView subtitle = label("Now first. Raw evidence stays underneath as the audit trail.", 15, muted, false);
         subtitle.setPadding(0, dp(10), 0, dp(22));
         content.addView(subtitle);
     }
@@ -103,7 +105,14 @@ public final class MainActivity extends Activity {
         title.setPadding(dp(10), 0, 0, 0);
         row.addView(title);
         box.addView(row);
-        TextView detail = label(relayEnabled ? "Relay writes notifications directly into Cortex Prime evidence." : "Enable notification access once to feed Cortex Prime directly.", 14, muted, false);
+        TextView detail = label(
+                relayEnabled
+                        ? "Normalizer V2 now feeds cleaner conversation evidence into Cortex."
+                        : "Enable notification access once to feed Cortex Prime directly.",
+                14,
+                muted,
+                false
+        );
         detail.setPadding(0, dp(10), 0, 0);
         box.addView(detail);
         if (!relayEnabled) {
@@ -112,6 +121,93 @@ public final class MainActivity extends Activity {
             box.addView(enable, topMargin(dp(14)));
         }
         content.addView(box, sectionMargin());
+    }
+
+    private void addNow(IntelligenceSnapshot snapshot) {
+        sectionTitle("Now");
+        LinearLayout box = cardContainer(card);
+
+        LinearLayout metrics = horizontal();
+        metrics.addView(metric("ATTENTION", String.valueOf(snapshot.attentionCandidates.size())), weighted());
+        metrics.addView(metric("TASKS", String.valueOf(snapshot.taskCandidates.size())), weighted());
+        metrics.addView(metric("UPCOMING", String.valueOf(snapshot.temporalHints.size())), weighted());
+        metrics.addView(metric("THREADS", String.valueOf(snapshot.threads.size())), weighted());
+        box.addView(metrics);
+
+        TextView guard = label("Grounded proposals only. Nothing here silently becomes a task, fact, or calendar event.", 12, accent, true);
+        guard.setPadding(0, dp(12), 0, dp(14));
+        box.addView(guard);
+
+        box.addView(label("NEEDS ATTENTION", 11, muted, true));
+        if (snapshot.attentionCandidates.isEmpty()) {
+            TextView empty = label("No explicit request or reply signal detected in current evidence.", 14, muted, false);
+            empty.setPadding(0, dp(8), 0, dp(12));
+            box.addView(empty);
+        } else {
+            int shown = Math.min(3, snapshot.attentionCandidates.size());
+            for (int i = 0; i < shown; i++) {
+                box.addView(signalRow(snapshot.attentionCandidates.get(i), amber));
+            }
+        }
+
+        box.addView(divider());
+        TextView conversations = label("CONVERSATIONS", 11, muted, true);
+        conversations.setPadding(0, dp(14), 0, dp(4));
+        box.addView(conversations);
+        if (snapshot.threads.isEmpty()) {
+            box.addView(label("No grounded conversation threads yet.", 14, muted, false));
+        } else {
+            int shown = Math.min(4, snapshot.threads.size());
+            for (int i = 0; i < shown; i++) box.addView(threadRow(snapshot.threads.get(i)));
+        }
+
+        if (!snapshot.taskCandidates.isEmpty() || !snapshot.temporalHints.isEmpty()) {
+            box.addView(divider());
+            TextView actions = label("TASKS & TIME", 11, muted, true);
+            actions.setPadding(0, dp(14), 0, dp(4));
+            box.addView(actions);
+            int tasks = Math.min(2, snapshot.taskCandidates.size());
+            for (int i = 0; i < tasks; i++) box.addView(signalRow(snapshot.taskCandidates.get(i), accent));
+            int times = Math.min(2, snapshot.temporalHints.size());
+            for (int i = 0; i < times; i++) box.addView(signalRow(snapshot.temporalHints.get(i), accent));
+        }
+
+        content.addView(box, sectionMargin());
+    }
+
+    private View threadRow(IntelligenceSnapshot.ThreadProposal thread) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.VERTICAL);
+        row.setPadding(0, dp(10), 0, dp(10));
+        LinearLayout top = horizontal();
+        top.addView(label(thread.label, 15, text, true), weighted());
+        TextView count = label(thread.evidenceIds.size() + " evidence", 10, muted, true);
+        count.setGravity(Gravity.END);
+        top.addView(count, weighted());
+        row.addView(top);
+        if (!thread.latestSnippet.isEmpty()) {
+            TextView snippet = label(thread.latestSnippet, 13, muted, false);
+            snippet.setPadding(0, dp(4), 0, 0);
+            row.addView(snippet);
+        }
+        return row;
+    }
+
+    private View signalRow(IntelligenceSnapshot.SignalProposal signal, int tone) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.VERTICAL);
+        row.setPadding(0, dp(9), 0, dp(9));
+        LinearLayout top = horizontal();
+        String kind = signal.kind.replace("_CANDIDATE", "").replace("_HINT", "").replace('_', ' ');
+        top.addView(label(kind, 10, tone, true), weighted());
+        TextView confidence = label(Math.round(signal.confidence * 100) + "%", 10, muted, true);
+        confidence.setGravity(Gravity.END);
+        top.addView(confidence, weighted());
+        row.addView(top);
+        TextView value = label(signal.label, 14, text, false);
+        value.setPadding(0, dp(4), 0, 0);
+        row.addView(value);
+        return row;
     }
 
     private void addQuickCapture() {
@@ -150,59 +246,16 @@ public final class MainActivity extends Activity {
         metrics.addView(metric("VOICE", String.valueOf(counts.getOrDefault(EvidenceSource.VOICE, 0))), weighted());
         metrics.addView(metric("IMAGES", String.valueOf(counts.getOrDefault(EvidenceSource.IMAGE, 0))), weighted());
         box.addView(metrics);
-        TextView hint = label("Raw evidence is append-only. Intelligence never overwrites it.", 12, muted, false);
+        TextView hint = label("Append-only source truth. New normalization never rewrites older captures.", 12, muted, false);
         hint.setPadding(0, dp(12), 0, 0);
         box.addView(hint);
         content.addView(box, sectionMargin());
     }
 
-    private void addUnderstanding(List<EvidenceRecord> evidence) {
-        sectionTitle("Understood locally");
-        IntelligenceSnapshot snapshot = LocalIntelligenceEngine.analyze(evidence);
+    private void addEvidenceTrail(List<EvidenceRecord> all) {
+        sectionTitle("Evidence trail");
         LinearLayout box = cardContainer(card);
-
-        LinearLayout metrics = horizontal();
-        metrics.addView(metric("THREADS", String.valueOf(snapshot.threads.size())), weighted());
-        metrics.addView(metric("PEOPLE", String.valueOf(snapshot.people.size())), weighted());
-        metrics.addView(metric("TASKS?", String.valueOf(snapshot.taskCandidates.size())), weighted());
-        metrics.addView(metric("TIME", String.valueOf(snapshot.temporalHints.size())), weighted());
-        box.addView(metrics);
-
-        TextView mode = label("Extractor + Linker baseline is active now. These are grounded proposals, not saved facts.", 12, accent, true);
-        mode.setPadding(0, dp(12), 0, dp(8));
-        box.addView(mode);
-
-        int shown = Math.min(4, snapshot.threads.size());
-        for (int i = 0; i < shown; i++) {
-            if (i > 0) box.addView(divider());
-            IntelligenceSnapshot.ThreadProposal thread = snapshot.threads.get(i);
-            LinearLayout row = new LinearLayout(this);
-            row.setOrientation(LinearLayout.VERTICAL);
-            row.setPadding(0, dp(10), 0, dp(10));
-            LinearLayout top = horizontal();
-            top.addView(label(thread.label, 15, text, true), weighted());
-            TextView count = label(thread.evidenceIds.size() + " evidence", 11, muted, true);
-            count.setGravity(Gravity.END);
-            top.addView(count, weighted());
-            row.addView(top);
-            if (!thread.latestSnippet.isEmpty()) {
-                TextView snippet = label(thread.latestSnippet, 13, muted, false);
-                snippet.setPadding(0, dp(5), 0, 0);
-                row.addView(snippet);
-            }
-            box.addView(row);
-        }
-
-        if (snapshot.threads.isEmpty()) {
-            box.addView(label("No grounded conversation threads yet.", 13, muted, false));
-        }
-        content.addView(box, sectionMargin());
-    }
-
-    private void addRecentEvidence(List<EvidenceRecord> all) {
-        sectionTitle("Recent evidence");
-        LinearLayout box = cardContainer(card);
-        int shown = Math.min(8, all.size());
+        int shown = Math.min(4, all.size());
         if (shown == 0) {
             box.addView(label("Nothing captured yet. Record voice, share an image, or enable notification capture.", 14, muted, false));
         } else {
@@ -211,28 +264,32 @@ public final class MainActivity extends Activity {
                 box.addView(evidenceRow(all.get(i)));
             }
         }
+        TextView note = label("Showing only the latest 4 here. Evidence remains stored underneath Cortex.", 11, muted, false);
+        note.setPadding(0, dp(10), 0, 0);
+        box.addView(note);
         content.addView(box, sectionMargin());
     }
 
     private void addIntelligencePipeline() {
         sectionTitle("Local intelligence");
         LinearLayout box = cardContainer(card);
-        TextView intro = label("Five specialist roles. Capture is grounded; the first understanding baseline is now running.", 14, muted, false);
+        TextView intro = label("Cleaner inputs first. Specialized models can replace deterministic baselines only when measured better.", 14, muted, false);
         intro.setPadding(0, 0, 0, dp(8));
         box.addView(intro);
-        box.addView(modelRow("01", "ASR", "Voice → transcript", "INPUT READY", accent, accentDark));
-        box.addView(modelRow("02", "Vision / OCR", "Image → visible text + facts", "INPUT READY", accent, accentDark));
-        box.addView(modelRow("03", "Extractor", "People, dates, tasks, events", "BASELINE LIVE", accent, accentDark));
-        box.addView(modelRow("04", "Linker", "Relate + dedupe evidence", "BASELINE LIVE", accent, accentDark));
-        box.addView(modelRow("05", "Organizer", "Propose the Cortex view", "NEXT", muted, cardSoft));
-        TextView guard = label("Next: replace baselines only when a local model beats them on grounded Cortex test cases.", 13, accent, true);
+        box.addView(modelRow("00", "Normalizer V2", "Notification → semantic messages", "LIVE", accent, accentDark));
+        box.addView(modelRow("01", "ASR", "Voice → transcript", "INPUT READY", amber, cardSoft));
+        box.addView(modelRow("02", "Vision / OCR", "Image → visible text + facts", "INPUT READY", amber, cardSoft));
+        box.addView(modelRow("03", "Extractor", "Requests, tasks, people, time", "BASELINE LIVE", accent, accentDark));
+        box.addView(modelRow("04", "Linker", "Conversation continuity", "BASELINE LIVE", accent, accentDark));
+        box.addView(modelRow("05", "Organizer", "Now view from proposals", "VIEW LIVE", accent, accentDark));
+        TextView guard = label("Next model milestone: real on-device ASR + benchmarked extractor/linker adapters.", 13, accent, true);
         guard.setPadding(0, dp(12), 0, 0);
         box.addView(guard);
         content.addView(box, sectionMargin());
     }
 
     private void addFooter() {
-        TextView footer = label("CORTEX PRIME  •  0.3.0 UNDERSTANDING BASELINE", 11, muted, true);
+        TextView footer = label("CORTEX PRIME  •  0.4.0 NOW + NORMALIZER V2", 11, muted, true);
         footer.setGravity(Gravity.CENTER);
         footer.setPadding(0, dp(28), 0, 0);
         content.addView(footer);
@@ -255,8 +312,8 @@ public final class MainActivity extends Activity {
             else if (record.source == EvidenceSource.IMAGE) body = "Image evidence preserved";
             else body = record.sourceRef == null ? "Evidence preserved" : record.sourceRef;
         }
-        if (body.length() > 180) body = body.substring(0, 180) + "…";
-        TextView bodyView = label(body, 15, text, false);
+        if (body.length() > 150) body = body.substring(0, 150) + "…";
+        TextView bodyView = label(body, 14, text, false);
         bodyView.setPadding(0, dp(6), 0, 0);
         row.addView(bodyView);
         return row;
