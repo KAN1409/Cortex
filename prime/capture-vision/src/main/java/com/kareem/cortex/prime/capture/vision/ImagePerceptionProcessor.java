@@ -17,7 +17,11 @@ import org.json.JSONObject;
 import java.io.File;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 
 /**
  * Derived perception stage for immutable image evidence.
@@ -46,6 +50,34 @@ public final class ImagePerceptionProcessor {
                     bitmap.recycle();
                     appendStatus(app, parent, "RETRYABLE", failure.getClass().getSimpleName());
                 });
+    }
+
+    /** Backfills pre-0.5 IMAGE evidence without mutating the original records. */
+    public static void recoverUnprocessed(Context context) {
+        Context app = context.getApplicationContext();
+        List<EvidenceRecord> recent;
+        try (EvidenceSqliteStore store = new EvidenceSqliteStore(app)) {
+            recent = store.recent(500);
+        } catch (RuntimeException failure) {
+            return;
+        }
+        Set<String> completedParents = new HashSet<>();
+        List<EvidenceRecord> images = new ArrayList<>();
+        for (EvidenceRecord record : recent) {
+            String parentId = parentId(record.rawPayloadJson);
+            if (!parentId.isEmpty() && record.source == EvidenceSource.OCR) completedParents.add(parentId);
+            if (record.source == EvidenceSource.IMAGE) images.add(record);
+        }
+        for (EvidenceRecord image : images) {
+            if (completedParents.contains(image.id)) continue;
+            String sha = imageSha(image);
+            if (sha.isEmpty()) continue;
+            File asset = new File(app.getFilesDir(), "prime-assets/images/" + sha + ".bin");
+            if (asset.isFile()) {
+                analyze(app, image, asset);
+                break; // bounded background work per process start.
+            }
+        }
     }
 
     private static void appendOcr(Context context, EvidenceRecord parent, Text result) {
@@ -102,6 +134,30 @@ public final class ImagePerceptionProcessor {
         } catch (RuntimeException ignored) {
             // Parent evidence remains authoritative even if perception persistence fails.
         }
+    }
+
+    private static String parentId(String payload) {
+        if (payload == null || payload.isEmpty()) return "";
+        try {
+            return new JSONObject(payload).optString("parent_evidence_id", "");
+        } catch (Exception ignored) {
+            return "";
+        }
+    }
+
+    private static String imageSha(EvidenceRecord record) {
+        if (record == null) return "";
+        try {
+            String value = new JSONObject(record.rawPayloadJson).optString("sha256", "").toLowerCase(Locale.ROOT);
+            if (value.matches("[0-9a-f]{64}")) return value;
+        } catch (Exception ignored) {}
+        String ref = record.sourceRef == null ? "" : record.sourceRef;
+        String prefix = "asset:image:";
+        if (ref.startsWith(prefix)) {
+            String value = ref.substring(prefix.length()).toLowerCase(Locale.ROOT);
+            if (value.matches("[0-9a-f]{64}")) return value;
+        }
+        return "";
     }
 
     private static String sha256(String value) {
