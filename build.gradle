@@ -8,6 +8,11 @@ tasks.register('primeAssembleDebug', GradleBuild) {
     tasks = [':app:assembleDebug']
 }
 
+tasks.register('primeAssemblePermanentDebug', GradleBuild) {
+    dir = file('prime')
+    tasks = [':app:assemblePrimePermanentDebug']
+}
+
 tasks.register('primeExportDebugBase64') {
     dependsOn tasks.named('primeAssembleDebug')
     doLast {
@@ -22,7 +27,7 @@ tasks.register('primeExportDebugBase64') {
 }
 
 tasks.register('primeSignerMigrate', Exec) {
-    dependsOn tasks.named('primeAssembleDebug')
+    dependsOn tasks.named('primeAssemblePermanentDebug')
     workingDir rootDir
     commandLine 'bash', 'scripts/prime-signer-migrate-v1.sh', 'prime/app/build/outputs/apk/debug/app-debug.apk'
 }
