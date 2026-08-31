@@ -72,15 +72,19 @@ jobs:
         run: |
           set -euo pipefail
           APK="prime/app/build/outputs/apk/debug/app-debug.apk"
+          AAPT="$ANDROID_HOME/build-tools/35.0.0/aapt"
+          APKSIGNER="$ANDROID_HOME/build-tools/35.0.0/apksigner"
           test -f "$APK"
-          BADGING=$(aapt dump badging "$APK" | head -n1)
+          test -x "$AAPT"
+          test -x "$APKSIGNER"
+          BADGING=$("$AAPT" dump badging "$APK" | head -n1)
           echo "$BADGING"
           echo "$BADGING" | grep -q "name='com.kareem.cortex.prime'"
           VC=$(echo "$BADGING" | sed -n "s/.*versionCode='\([^']*\)'.*/\1/p")
           test -n "$VC"
           test "$VC" -gt 7
           EXPECTED="5c6550a070abe477dcad5f23f3f437e183bff8aeaeb6ac52e1beaa8243ee69a7"
-          ACTUAL=$(apksigner verify --print-certs "$APK" | awk -F': ' '/Signer #1 certificate SHA-256 digest:/{print tolower($2); exit}')
+          ACTUAL=$("$APKSIGNER" verify --print-certs "$APK" | awk -F': ' '/Signer #1 certificate SHA-256 digest:/{print tolower($2); exit}')
           test "$ACTUAL" = "$EXPECTED"
           sha256sum "$APK" > Cortex-Prime-0.5.0.apk.sha256
           cp "$APK" Cortex-Prime-0.5.0.apk
