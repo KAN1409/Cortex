@@ -1,3 +1,4 @@
+# Final continuity build for Cortex Prime 0.5.2 after dashboard/runtime fixes.
 name: Cortex Prime 0.5.2 Update-In-Place APK
 
 on:
@@ -96,7 +97,7 @@ jobs:
       - name: Upload verified APK
         uses: actions/upload-artifact@v4
         with:
-          name: Cortex-Prime-0.5.2-update-in-place
+          name: Cortex-Prime-0.5.2-update-in-place-final
           path: |
             Cortex-Prime-0.5.2.apk
             Cortex-Prime-0.5.2.apk.sha256
