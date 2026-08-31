@@ -14,14 +14,22 @@ import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-/**
- * Proposal-only baseline. It gives Cortex a grounded comparator before learned models are admitted.
- */
+/** Proposal-only grounded baseline. Learned models must beat this comparator before replacing it. */
 public final class LocalIntelligenceEngine {
-    private static final Pattern TIME = Pattern.compile("(?iu)(?:\\b(?:mon(?:day)?|tue(?:sday)?|wed(?:nesday)?|thu(?:rsday)?|fri(?:day)?|sat(?:urday)?|sun(?:day)?)\\b|(?:الاثنين|الإثنين|الثلاثاء|الأربعاء|الخميس|الجمعة|السبت|الأحد)|(?:الساعة\\s*)?(?:[01]?\\d|2[0-3])[:٫.]?[0-5]\\d)");
+    private static final Pattern TIME = Pattern.compile(
+            "(?iu)(?:\\b(?:mon(?:day)?|tue(?:sday)?|wed(?:nesday)?|thu(?:rsday)?|fri(?:day)?|sat(?:urday)?|sun(?:day)?)\\b|(?:الاثنين|الإثنين|الثلاثاء|الأربعاء|الخميس|الجمعة|السبت|الأحد)|(?:الساعة\\s*)?(?:[01]?\\d|2[0-3])(?:[:٫.]?[0-5]\\d)?\\s*(?:am|pm)?)"
+    );
+    private static final Pattern COUNT_SUMMARY = Pattern.compile("(?iu)^\\s*\\d+\\s+(?:new\\s+)?messages?\\s*$");
     private static final String[] TASK_CUES = {
-            "فكرني", "ذكرني", "لازم", "محتاج", "اتصل", "اكلم", "أكلم", "اجتماع", "موعد",
+            "فكرني", "ذكرني", "لازم", "محتاج", "محتاج أ", "اتصل", "اكلم", "أكلم", "اجتماع", "موعد",
             "remind me", "remember to", "need to", "have to", "todo", "to-do", "call ", "meeting", "appointment"
+    };
+    private static final String[] ATTENTION_CUES = {
+            "ممكن", "لو سمحت", "محتاج منك", "عايز منك", "رد علي", "كلمني", "فينك", "؟",
+            "can you", "could you", "please", "need you", "call me", "reply", "where are you", "?"
+    };
+    private static final String[] RELATIONAL_CUES = {
+            "وحشتني", "مشتاق", "haven't seen you", "havent seen you", "miss you", "miss u"
     };
 
     private LocalIntelligenceEngine() {}
@@ -32,44 +40,35 @@ public final class LocalIntelligenceEngine {
 
         Map<String, MutableThread> threads = new LinkedHashMap<>();
         Set<String> people = new LinkedHashSet<>();
+        List<IntelligenceSnapshot.SignalProposal> attention = new ArrayList<>();
         List<IntelligenceSnapshot.SignalProposal> tasks = new ArrayList<>();
         List<IntelligenceSnapshot.SignalProposal> times = new ArrayList<>();
 
         for (EvidenceRecord record : ordered) {
             String raw = safe(record.rawText).trim();
+            List<String> semanticTexts = new ArrayList<>();
+
             if (record.source == EvidenceSource.NOTIFICATION) {
-                String title = lineValue(raw, "title:");
-                String body = lineValue(raw, "body:");
-                String label = usefulTitle(title) ? clean(title) : fallbackLabel(record.sourceRef);
+                String label = notificationLabel(raw, record.sourceRef);
+                List<String> messages = notificationMessages(raw);
                 if (!label.isEmpty()) {
-                    people.add(label);
                     String key = normalizeIdentity(label);
                     MutableThread thread = threads.computeIfAbsent(key, ignored -> new MutableThread(key, label));
-                    thread.add(record.id, record.capturedAtEpochMs, !body.isEmpty() ? body : raw);
+                    String snippet = messages.isEmpty() ? legacyBody(raw) : messages.get(messages.size() - 1);
+                    thread.add(record.id, record.capturedAtEpochMs, snippet);
+                    if (looksLikePerson(label)) people.add(label);
                 }
+                semanticTexts.addAll(messages);
+                if (semanticTexts.isEmpty()) {
+                    String legacy = legacyBody(raw);
+                    if (!legacy.isEmpty() && !isCountSummary(legacy)) semanticTexts.add(legacy);
+                }
+            } else if (!raw.isEmpty()) {
+                semanticTexts.add(raw);
             }
 
-            String lower = raw.toLowerCase(Locale.ROOT);
-            for (String cue : TASK_CUES) {
-                if (lower.contains(cue.toLowerCase(Locale.ROOT))) {
-                    tasks.add(new IntelligenceSnapshot.SignalProposal(
-                            "TASK_CANDIDATE",
-                            compact(raw),
-                            record.id,
-                            0.70
-                    ));
-                    break;
-                }
-            }
-
-            Matcher matcher = TIME.matcher(raw);
-            if (matcher.find()) {
-                times.add(new IntelligenceSnapshot.SignalProposal(
-                        "TEMPORAL_HINT",
-                        matcher.group(),
-                        record.id,
-                        0.82
-                ));
+            for (String semantic : semanticTexts) {
+                analyzeText(record, semantic, attention, tasks, times);
             }
         }
 
@@ -77,7 +76,75 @@ public final class LocalIntelligenceEngine {
         for (MutableThread thread : threads.values()) threadProposals.add(thread.freeze());
         threadProposals.sort(Comparator.comparingLong((IntelligenceSnapshot.ThreadProposal t) -> t.latestEpochMs).reversed());
 
-        return new IntelligenceSnapshot(threadProposals, new ArrayList<>(people), dedupeSignals(tasks), dedupeSignals(times));
+        return new IntelligenceSnapshot(
+                threadProposals,
+                new ArrayList<>(people),
+                dedupeSignals(attention),
+                dedupeSignals(tasks),
+                dedupeSignals(times)
+        );
+    }
+
+    private static void analyzeText(
+            EvidenceRecord record,
+            String text,
+            List<IntelligenceSnapshot.SignalProposal> attention,
+            List<IntelligenceSnapshot.SignalProposal> tasks,
+            List<IntelligenceSnapshot.SignalProposal> times
+    ) {
+        String clean = clean(text);
+        if (clean.isEmpty() || isCountSummary(clean)) return;
+        String lower = clean.toLowerCase(Locale.ROOT);
+
+        for (String cue : TASK_CUES) {
+            if (lower.contains(cue.toLowerCase(Locale.ROOT))) {
+                tasks.add(new IntelligenceSnapshot.SignalProposal("TASK_CANDIDATE", compact(clean), record.id, 0.76));
+                break;
+            }
+        }
+
+        boolean explicitAttention = containsAny(lower, ATTENTION_CUES);
+        boolean relationalAttention = containsAny(lower, RELATIONAL_CUES);
+        if (explicitAttention || relationalAttention) {
+            attention.add(new IntelligenceSnapshot.SignalProposal(
+                    explicitAttention ? "REPLY_CANDIDATE" : "SOCIAL_FOLLOWUP_CANDIDATE",
+                    compact(clean),
+                    record.id,
+                    explicitAttention ? 0.78 : 0.62
+            ));
+        }
+
+        Matcher matcher = TIME.matcher(clean);
+        if (matcher.find()) {
+            times.add(new IntelligenceSnapshot.SignalProposal("TEMPORAL_HINT", matcher.group(), record.id, 0.84));
+        }
+    }
+
+    private static String notificationLabel(String raw, String sourceRef) {
+        String normalized = lineValue(raw, "conversation:");
+        if (!normalized.isEmpty()) return clean(normalized);
+        String legacy = lineValue(raw, "title:");
+        if (!legacy.isEmpty() && !isCountSummary(legacy)) return clean(decoratedTitlePrefix(legacy));
+        return fallbackLabel(sourceRef);
+    }
+
+    private static List<String> notificationMessages(String raw) {
+        List<String> out = lineValues(raw, "message:");
+        if (!out.isEmpty()) return out;
+        String body = lineValue(raw, "body:");
+        String expanded = lineValue(raw, "expanded:");
+        if (!expanded.isEmpty() && (body.isEmpty() || isCountSummary(body) || expanded.length() > body.length())) {
+            out.add(clean(expanded));
+        } else if (!body.isEmpty() && !isCountSummary(body)) {
+            out.add(clean(body));
+        }
+        return out;
+    }
+
+    private static String legacyBody(String raw) {
+        List<String> messages = notificationMessages(raw);
+        if (!messages.isEmpty()) return messages.get(messages.size() - 1);
+        return "";
     }
 
     private static List<IntelligenceSnapshot.SignalProposal> dedupeSignals(List<IntelligenceSnapshot.SignalProposal> input) {
@@ -89,22 +156,47 @@ public final class LocalIntelligenceEngine {
         return new ArrayList<>(unique.values());
     }
 
-    private static boolean usefulTitle(String title) {
-        if (title == null) return false;
-        String value = title.trim();
-        if (value.isEmpty()) return false;
+    private static boolean looksLikePerson(String label) {
+        String value = clean(label);
+        if (value.isEmpty() || value.length() > 64) return false;
+        if (value.contains("|") || value.contains("•")) return false;
         String lower = value.toLowerCase(Locale.ROOT);
         return !lower.equals("android system") && !lower.equals("system ui") && !lower.equals("cortex prime");
     }
 
+    private static String decoratedTitlePrefix(String title) {
+        int colon = title.indexOf(':');
+        if (colon > 0 && colon + 1 < title.length()) {
+            String suffix = title.substring(colon + 1);
+            if (suffix.contains("|") || suffix.contains("•")) return title.substring(0, colon);
+        }
+        return title;
+    }
+
     private static String lineValue(String raw, String prefix) {
-        for (String line : raw.split("\\r?\\n")) {
+        List<String> values = lineValues(raw, prefix);
+        return values.isEmpty() ? "" : values.get(0);
+    }
+
+    private static List<String> lineValues(String raw, String prefix) {
+        List<String> values = new ArrayList<>();
+        for (String line : safe(raw).split("\\r?\\n")) {
             String trimmed = line.trim();
             if (trimmed.regionMatches(true, 0, prefix, 0, prefix.length())) {
-                return trimmed.substring(prefix.length()).trim();
+                String value = trimmed.substring(prefix.length()).trim();
+                if (!value.isEmpty()) values.add(value);
             }
         }
-        return "";
+        return values;
+    }
+
+    private static boolean containsAny(String lower, String[] cues) {
+        for (String cue : cues) if (lower.contains(cue.toLowerCase(Locale.ROOT))) return true;
+        return false;
+    }
+
+    private static boolean isCountSummary(String value) {
+        return COUNT_SUMMARY.matcher(clean(value)).matches();
     }
 
     private static String fallbackLabel(String sourceRef) {
@@ -123,8 +215,8 @@ public final class LocalIntelligenceEngine {
     }
 
     private static String compact(String value) {
-        String clean = clean(value).replace("title:", "").replace("body:", " · ");
-        return clean.length() <= 120 ? clean : clean.substring(0, 120) + "…";
+        String normalized = clean(value);
+        return normalized.length() <= 120 ? normalized : normalized.substring(0, 120) + "…";
     }
 
     private static String safe(String value) {
@@ -134,7 +226,7 @@ public final class LocalIntelligenceEngine {
     private static final class MutableThread {
         final String key;
         final String label;
-        final List<String> ids = new ArrayList<>();
+        final Set<String> ids = new LinkedHashSet<>();
         long latest = Long.MIN_VALUE;
         String snippet = "";
 
@@ -152,7 +244,7 @@ public final class LocalIntelligenceEngine {
         }
 
         IntelligenceSnapshot.ThreadProposal freeze() {
-            return new IntelligenceSnapshot.ThreadProposal(key, label, ids, latest, snippet);
+            return new IntelligenceSnapshot.ThreadProposal(key, label, new ArrayList<>(ids), latest, snippet);
         }
     }
 }
