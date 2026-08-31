@@ -37,17 +37,20 @@ public final class IntelligenceSnapshot {
 
     public final List<ThreadProposal> threads;
     public final List<String> people;
+    public final List<SignalProposal> attentionCandidates;
     public final List<SignalProposal> taskCandidates;
     public final List<SignalProposal> temporalHints;
 
     public IntelligenceSnapshot(
             List<ThreadProposal> threads,
             List<String> people,
+            List<SignalProposal> attentionCandidates,
             List<SignalProposal> taskCandidates,
             List<SignalProposal> temporalHints
     ) {
         this.threads = Collections.unmodifiableList(new ArrayList<>(threads));
         this.people = Collections.unmodifiableList(new ArrayList<>(people));
+        this.attentionCandidates = Collections.unmodifiableList(new ArrayList<>(attentionCandidates));
         this.taskCandidates = Collections.unmodifiableList(new ArrayList<>(taskCandidates));
         this.temporalHints = Collections.unmodifiableList(new ArrayList<>(temporalHints));
     }
