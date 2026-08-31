@@ -1,8 +1,0 @@
-{
-  "job_id": "job_20260830_cortex0101_direct_export_01",
-  "source_ref": "rebuild/cortex-v1",
-  "package": "com.kareem.cortex.rebuild",
-  "version_code": 14,
-  "version_name": "0.10.1-groq-vision-router",
-  "expected_signer_sha256": "5c6550a070abe477dcad5f23f3f437e183bff8aeaeb6ac52e1beaa8243ee69a7"
-}

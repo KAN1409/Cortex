@@ -1,5 +1,24 @@
 # Termux Dev Bridge V1
 
+> **SUPERSEDED — historical record only. Do not follow these instructions.**
+>
+> The V1/V2 architecture described below was withdrawn during the PR #70 security
+> review. It fetched a *mutable* control branch, executed the latest agent script from
+> it after only a `bash -n` syntax check, and copied the app signing keystore into a
+> build worktree checked out from an attacker-influenceable ref. Write access to the
+> control branch was equivalent to arbitrary code execution on the device and loss of
+> the signing key.
+>
+> The supported runtime is **V3**: `scripts/devbridge-agent-v3.sh` driven by
+> `scripts/devbridge-bootstrap-v3.sh`. Jobs now name an immutable 40-hex commit that
+> must be reachable from a trusted named ref, Gradle tasks come from an enumerated
+> allowlist, signing happens in a separate stage that never exposes the keystore to
+> build logic, and the runtime itself is a pinned, digest-verified release.
+>
+> Read **`docs/TERMUX_DEV_BRIDGE_V3_THREAT_MODEL.md`** for the current design, the job
+> schema, the refusal codes, and the runtime update procedure. `scripts/devbridge-bootstrap.sh`,
+> `scripts/devbridge-bootstrap-v2.sh` and `scripts/devbridge-agent-v2.sh` no longer exist.
+
 Termux Dev Bridge is a bounded remote development executor for Cortex-class Android projects.
 
 ## Topology

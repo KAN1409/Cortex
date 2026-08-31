@@ -47,27 +47,38 @@ jobs:
 
       - name: Validate Dev Bridge shell
         run: |
-          if [ -f scripts/devbridge-bootstrap.sh ]; then
-            bash -n scripts/devbridge-bootstrap.sh
-            python3 - <<'PY'
-          from pathlib import Path
-          source = Path('scripts/devbridge-bootstrap.sh').read_text()
-          marker = "cat > \"$ROOT/agent.sh\" <<'AGENT'\n"
-          start = source.index(marker) + len(marker)
-          end = source.index('\nAGENT\n', start)
-          Path('/tmp/cortex-devbridge-agent.sh').write_text(source[start:end] + '\n')
-          PY
-            bash -n /tmp/cortex-devbridge-agent.sh
+          set -euo pipefail
+          # Every tracked Dev Bridge script must parse. The v3 runtime is the only
+          # permanent controller; superseded v1/v2 controllers and one-off exporters
+          # are no longer tracked, so no per-file conditional is needed.
+          found=0
+          for f in scripts/devbridge-*.sh; do
+            [ -e "$f" ] || continue
+            found=$((found+1))
+            echo "bash -n $f"
+            bash -n "$f"
+          done
+          test "$found" -gt 0
+          echo "DEVBRIDGE_SHELL_VALIDATED=$found"
+
+      - name: Dev Bridge runtime surface invariants
+        run: |
+          set -euo pipefail
+          # The job channel is data-only: operational job/result records must never be
+          # tracked in the source tree, and the runtime must expose exactly one
+          # permanent controller plus its pinned bootstrap.
+          if git ls-files | grep -q '^\.devbridge/'; then
+            echo 'FAIL: .devbridge job/result records are tracked in the source tree' >&2
+            exit 1
           fi
-          if [ -f scripts/devbridge-bootstrap-v2.sh ]; then
-            bash -n scripts/devbridge-bootstrap-v2.sh
+          expected="$(printf 'scripts/devbridge-agent-v3.sh\nscripts/devbridge-bootstrap-v3.sh\n')"
+          actual="$(git ls-files 'scripts/devbridge-*.sh')"
+          if [ "$actual" != "$expected" ]; then
+            echo "FAIL: unexpected Dev Bridge runtime surface:" >&2
+            echo "$actual" >&2
+            exit 1
           fi
-          if [ -f scripts/devbridge-agent-v2.sh ]; then
-            bash -n scripts/devbridge-agent-v2.sh
-          fi
-          if [ -f scripts/devbridge-agent-v3.sh ]; then
-            bash -n scripts/devbridge-agent-v3.sh
-          fi
+          echo 'DEVBRIDGE_RUNTIME_SURFACE=OK'
 
       - name: Build debug APK and instrumented-test sources
         run: gradle :app:assembleDebug :app:compileDebugAndroidTestJavaWithJavac --stacktrace

@@ -1,9 +1,0 @@
-{
-  "job_id": "job_20260830_gptoss_direct_export_01",
-  "authorized_owner": "KAN1409",
-  "package": "com.kareem.cortex.rebuild",
-  "version_code": 9,
-  "version_name": "0.7.2-gptoss-brain",
-  "expected_signer_sha256": "5c6550a070abe477dcad5f23f3f437e183bff8aeaeb6ac52e1beaa8243ee69a7",
-  "expected_apk_sha256": "15f8868d6c6b231460c30aabeaf5ac2a5880d6af7e721d215fdd12a680b95c17"
-}
