@@ -67,8 +67,13 @@ jobs:
           # The job channel is data-only: operational job/result records must never be
           # tracked in the source tree, and the runtime must expose exactly one
           # permanent controller plus its pinned bootstrap.
-          if git ls-files | grep -q '^\.devbridge/'; then
+          # Deliberately pipe-free. Under `set -o pipefail`, `git ls-files | grep -q ...`
+          # fails OPEN: grep exits on first match, git dies of SIGPIPE (141), pipefail
+          # promotes 141 to the pipeline status, and the `if` reads false exactly when a
+          # record IS tracked. Measured: 0 firings in 10 runs with 5 records staged.
+          if [ -n "$(git ls-files -- .devbridge/)" ]; then
             echo 'FAIL: .devbridge job/result records are tracked in the source tree' >&2
+            git ls-files -- .devbridge/ >&2
             exit 1
           fi
           expected="$(printf 'scripts/devbridge-agent-v3.sh\nscripts/devbridge-bootstrap-v3.sh\n')"
