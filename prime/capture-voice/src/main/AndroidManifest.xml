@@ -7,5 +7,10 @@
             android:name=".PrimeVoiceRecordingService"
             android:exported="false"
             android:foregroundServiceType="microphone" />
+        <provider
+            android:name=".PrimeAudioAssetProvider"
+            android:authorities="${applicationId}.voiceassets"
+            android:exported="false"
+            android:grantUriPermissions="true" />
     </application>
 </manifest>
