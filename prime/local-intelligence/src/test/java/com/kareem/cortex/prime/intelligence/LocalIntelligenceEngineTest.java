@@ -49,4 +49,34 @@ public final class LocalIntelligenceEngineTest {
         ));
         assertEquals(0, snapshot.taskCandidates.size());
     }
+
+    @Test
+    public void completedDerivedTranscriptCanFeedGroundedIntelligence() {
+        String payload = "{\"schema\":\"CORTEX_PRIME_DERIVED_TRANSCRIPT_V1\",\"status\":\"COMPLETE\",\"parent_evidence_id\":\"voice1\",\"derived\":true,\"immutable_parent\":true}";
+        IntelligenceSnapshot snapshot = LocalIntelligenceEngine.analyze(List.of(
+                new EvidenceRecord("t1", EvidenceSource.TEXT, 20, "remind me Monday 10:30", "derived-from:voice1", payload)
+        ));
+        assertEquals(1, snapshot.taskCandidates.size());
+        assertEquals(1, snapshot.temporalHints.size());
+    }
+
+    @Test
+    public void derivedStatusCannotLeakIntoIntelligence() {
+        String payload = "{\"schema\":\"CORTEX_PRIME_DERIVED_TRANSCRIPT_STATUS_V1\",\"status\":\"RETRYABLE\",\"parent_evidence_id\":\"voice1\",\"derived\":true,\"immutable_parent\":true}";
+        IntelligenceSnapshot snapshot = LocalIntelligenceEngine.analyze(List.of(
+                new EvidenceRecord("s1", EvidenceSource.TEXT, 20, "remind me Monday 10:30", "derived-from:voice1", payload)
+        ));
+        assertEquals(0, snapshot.taskCandidates.size());
+        assertEquals(0, snapshot.temporalHints.size());
+    }
+
+    @Test
+    public void mismatchedDerivedParentCannotFeedIntelligence() {
+        String payload = "{\"schema\":\"CORTEX_PRIME_DERIVED_OCR_V1\",\"status\":\"COMPLETE\",\"parent_evidence_id\":\"image-other\",\"derived\":true,\"immutable_parent\":true}";
+        IntelligenceSnapshot snapshot = LocalIntelligenceEngine.analyze(List.of(
+                new EvidenceRecord("o1", EvidenceSource.OCR, 20, "appointment Friday 14:00", "derived-from:image1", payload)
+        ));
+        assertEquals(0, snapshot.taskCandidates.size());
+        assertEquals(0, snapshot.temporalHints.size());
+    }
 }
