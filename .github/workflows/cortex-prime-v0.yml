@@ -25,5 +25,5 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: Cortex-Prime-0.1.3-vision-capture
+          name: Cortex-Prime-0.2.0-dashboard
           path: prime/app/build/outputs/apk/debug/app-debug.apk
