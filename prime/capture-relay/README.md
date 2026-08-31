@@ -16,3 +16,5 @@ Notification capture extracted from the proven `KAN1409/Second-Brain` Relay beha
 - personal importance or prioritization logic
 
 Each notification version becomes immutable `EvidenceRecord` data. Exact repeats produce the same evidence ID; content changes produce a new evidence ID under the same `sourceRef`, preserving notification revision history without rewriting raw evidence.
+
+The listener writes directly into the append-only `core-evidence` SQLite store inside the Cortex Prime APK. The raw table rejects updates and uses evidence ID as a primary key, so capture is persistent and idempotent without rebuilding the old Relay-to-Cortex bridge.
