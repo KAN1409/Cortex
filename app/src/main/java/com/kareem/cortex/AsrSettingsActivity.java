@@ -1,35 +1,33 @@
 package com.kareem.cortex;
 
 import android.app.*;
-import android.graphics.Color;
 import android.os.Bundle;
 import android.text.InputType;
-import android.view.View;
+import android.view.*;
 import android.widget.*;
 
 public class AsrSettingsActivity extends Activity {
     LinearLayout root; TextView status;
-    int bg=Color.rgb(16,17,20),panel=Color.rgb(24,26,31),text=Color.rgb(243,244,246),muted=Color.rgb(165,168,176),accent=Color.rgb(143,169,255);
-    int dp(int x){return(int)(x*getResources().getDisplayMetrics().density+.5f);} void pad(View v,int x){v.setPadding(dp(x),dp(x),dp(x),dp(x));}
+    int dp(int x){return CortexUi.dp(this,x);}
 
-    @Override public void onCreate(Bundle b){super.onCreate(b);build();refresh();}
+    @Override public void onCreate(Bundle b){super.onCreate(b);CortexUi.applyWindow(this);build();refresh();}
     @Override protected void onResume(){super.onResume();refresh();}
 
     void build(){
-        root=new LinearLayout(this);root.setOrientation(LinearLayout.VERTICAL);root.setBackgroundColor(bg);pad(root,20);
-        TextView title=tv("Cortex ASR Setup",26,text);title.setTypeface(null,1);root.addView(title);
-        TextView sub=tv("Gemini 3.6 Flash is primary. Groq Whisper Large v3 is fallback. Keys are encrypted with Android Keystore.",14,muted);sub.setPadding(0,dp(8),0,dp(18));root.addView(sub);
-        status=tv("",14,text);root.addView(status);
-        Button gemini=button("GEMINI 3.6 FLASH KEY");Button groq=button("GROQ WHISPER KEY");Button done=button("DONE");
+        root=new LinearLayout(this);root.setOrientation(LinearLayout.VERTICAL);root.setBackgroundColor(CortexUi.BG);root.setPadding(dp(18),dp(8),dp(18),dp(20));
+        root.addView(CortexUi.simpleHeader(this,"Voice transcription","Providers",v->finish()));
+        TextView sub=CortexUi.text(this,"Gemini is primary. Groq Whisper is fallback. Keys stay encrypted with Android Keystore.",13,CortexUi.MUTED);sub.setPadding(dp(2),dp(15),dp(4),dp(16));root.addView(sub);
+        status=CortexUi.text(this,"",13,CortexUi.TEXT);status.setPadding(dp(13),dp(12),dp(13),dp(12));status.setBackground(CortexUi.velvet(this,14));root.addView(status);
+        TextView gemini=CortexUi.action(this,"Gemini API key",CortexUi.LIME,false);TextView groq=CortexUi.action(this,"Groq Whisper key",CortexUi.LIME,false);TextView done=CortexUi.action(this,"Done",CortexUi.LIME,true);
         gemini.setOnClickListener(v->editGemini());groq.setOnClickListener(v->editGroq());done.setOnClickListener(v->finish());
-        add(root,gemini,14);add(root,groq,8);add(root,done,24);setContentView(root);
+        add(root,gemini,12);add(root,groq,7);add(root,done,20);setContentView(root);
     }
 
-    void refresh(){if(status==null)return;status.setText("Gemini: "+(GeminiKeyStore.has(this)?"configured ✓":"missing")+"\nGroq: "+(GroqKeyStore.has(this)?"configured ✓":"missing")+"\n\nAt least one provider is required for voice transcription.");}
+    void refresh(){if(status==null)return;status.setText("Gemini  "+(GeminiKeyStore.has(this)?"Configured":"Missing")+"\nGroq     "+(GroqKeyStore.has(this)?"Configured":"Missing")+"\n\nAt least one provider is required for voice transcription.");}
 
     void editGemini(){
         final boolean configured=GeminiKeyStore.has(this);EditText e=secret("Paste Gemini API key");
-        AlertDialog.Builder b=new AlertDialog.Builder(this).setTitle(configured?"Gemini 3.6 Flash key":"Enable Gemini 3.6 Flash").setMessage("Primary Cortex transcription provider.").setView(e).setNegativeButton("Cancel",null).setPositiveButton(configured?"Replace":"Save",null);
+        AlertDialog.Builder b=new AlertDialog.Builder(this).setTitle(configured?"Gemini API key":"Enable Gemini").setMessage("Primary Cortex transcription provider.").setView(e).setNegativeButton("Cancel",null).setPositiveButton(configured?"Replace":"Save",null);
         if(configured)b.setNeutralButton("Remove",null);AlertDialog d=b.create();d.setOnShowListener(x->{
             d.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->{String key=e.getText().toString().trim();if(key.isEmpty()){e.setError("API key required");return;}try{GeminiKeyStore.save(this,key);d.dismiss();refresh();Toast.makeText(this,"Gemini enabled",Toast.LENGTH_SHORT).show();}catch(Exception ex){Toast.makeText(this,"Could not save Gemini key: "+ex.getMessage(),Toast.LENGTH_LONG).show();}});
             Button n=d.getButton(AlertDialog.BUTTON_NEUTRAL);if(n!=null)n.setOnClickListener(v->{GeminiKeyStore.clear(this);d.dismiss();refresh();Toast.makeText(this,"Gemini key removed",Toast.LENGTH_SHORT).show();});
@@ -45,8 +43,6 @@ public class AsrSettingsActivity extends Activity {
         });d.show();
     }
 
-    EditText secret(String hint){EditText e=new EditText(this);e.setHint(hint);e.setSingleLine(true);e.setTextColor(text);e.setHintTextColor(muted);e.setInputType(InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_VARIATION_PASSWORD);pad(e,12);return e;}
-    TextView tv(String s,int sp,int c){TextView v=new TextView(this);v.setText(s);v.setTextSize(sp);v.setTextColor(c);return v;}
-    Button button(String s){Button b=new Button(this);b.setText(s);b.setTextColor(text);b.setBackgroundColor(panel);return b;}
-    void add(LinearLayout p,View v,int top){LinearLayout.LayoutParams x=new LinearLayout.LayoutParams(-1,dp(52));x.setMargins(0,dp(top),0,0);p.addView(v,x);}
+    EditText secret(String hint){EditText e=new EditText(this);e.setHint(hint);e.setSingleLine(true);e.setTextColor(CortexUi.TEXT);e.setHintTextColor(CortexUi.FAINT);e.setInputType(InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_VARIATION_PASSWORD);e.setPadding(dp(12),dp(10),dp(12),dp(10));return e;}
+    void add(LinearLayout p,View v,int top){LinearLayout.LayoutParams x=new LinearLayout.LayoutParams(-1,dp(48));x.setMargins(0,dp(top),0,0);p.addView(v,x);}
 }
