@@ -8,13 +8,12 @@ import android.provider.Settings;
 import android.text.InputType;
 import android.view.*;
 import android.widget.*;
-import java.util.*;
 
-/** Intelligence-first Cortex entry surface: one composer, then what Cortex knows. */
+/** Cortex input surface: capture only. Evidence and Deep Review remain dedicated full-screen destinations. */
 public class InputActivity extends Activity {
     VaultDb db;
     EditText composer;
-    TextView evidenceMeta, reviewMeta, screenMeta;
+    TextView screenMeta;
     int dp(int x){return CortexUi.dp(this,x);}
 
     @Override public void onCreate(Bundle b){
@@ -35,17 +34,10 @@ public class InputActivity extends Activity {
 
         body.addView(composerCard(),margins(0,8,0,0));
 
-        body.addView(section("CORTEX NOW",CortexUi.LIME));
-        LinearLayout intelligence=new LinearLayout(this);intelligence.setOrientation(LinearLayout.HORIZONTAL);
-        intelligence.addView(primaryCard("Evidence","nodes",CortexUi.GREEN,true),new LinearLayout.LayoutParams(0,dp(158),1));
-        LinearLayout.LayoutParams drp=new LinearLayout.LayoutParams(0,dp(158),1);drp.setMargins(dp(9),0,0,0);
-        intelligence.addView(primaryCard("Deep Review","brain",CortexUi.RED,false),drp);
-        body.addView(intelligence);
-
         body.addView(section("EVERYWHERE",CortexUi.GREEN));
         body.addView(screenCard());
 
-        TextView share=CortexUi.plain(this,"Share from any app → Cortex keeps the original as Evidence. Structured ChatGPT reviews return to Deep Review instead of becoming ordinary captures.",9,CortexUi.FAINT);
+        TextView share=CortexUi.plain(this,"Share from any app → Cortex keeps the original as Evidence.",9,CortexUi.FAINT);
         share.setPadding(dp(2),dp(12),dp(2),dp(2));body.addView(share);
 
         CortexUi.addBottomNav(this,root,"input",null);
@@ -54,7 +46,7 @@ public class InputActivity extends Activity {
 
     View composerCard(){
         LinearLayout card=CortexUi.card(this,24);card.setPadding(dp(16),dp(15),dp(16),dp(15));
-        TextView eyebrow=CortexUi.plain(this,"CAPTURE · THINK",9,CortexUi.ORANGE);CortexUi.medium(eyebrow);if(android.os.Build.VERSION.SDK_INT>=21)eyebrow.setLetterSpacing(.10f);card.addView(eyebrow);
+        TextView eyebrow=CortexUi.plain(this,"CAPTURE",9,CortexUi.ORANGE);CortexUi.medium(eyebrow);if(android.os.Build.VERSION.SDK_INT>=21)eyebrow.setLetterSpacing(.10f);card.addView(eyebrow);
         TextView title=CortexUi.plain(this,"What’s on your mind?",24,CortexUi.TEXT);CortexUi.medium(title);title.setPadding(0,dp(6),0,0);card.addView(title);
         TextView sub=CortexUi.text(this,"Type it, say it, show it or attach it. Cortex keeps the source and builds understanding from there.",11,CortexUi.MUTED);sub.setPadding(0,dp(5),0,0);card.addView(sub);
 
@@ -80,18 +72,6 @@ public class InputActivity extends Activity {
         LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,-1,1);p.setMargins(dp(left),0,0,0);row.addView(item,p);
     }
 
-    View primaryCard(String title,String glyph,int color,boolean evidence){
-        LinearLayout card=CortexUi.card(this,21);card.setPadding(dp(13),dp(13),dp(13),dp(12));CortexUi.pressable(this,card,CortexUi.velvet(this,21));
-        LinearLayout top=new LinearLayout(this);top.setGravity(Gravity.CENTER_VERTICAL);top.addView(CortexUi.glyph(this,glyph,color,true),new LinearLayout.LayoutParams(dp(42),dp(42)));
-        TextView badge=CortexUi.chip(this,evidence?"SOURCE":"CHATGPT",color,false);LinearLayout.LayoutParams bp=new LinearLayout.LayoutParams(-2,dp(28));bp.setMargins(dp(7),0,0,0);top.addView(badge,bp);card.addView(top);
-        TextView h=CortexUi.plain(this,title,16,CortexUi.TEXT);CortexUi.medium(h);h.setPadding(0,dp(10),0,0);card.addView(h);
-        TextView meta=CortexUi.text(this,evidence?"Your immutable source ledger":"Grounded external review, previewed before apply",10,CortexUi.MUTED);meta.setMaxLines(3);meta.setPadding(0,dp(4),0,0);card.addView(meta);
-        TextView state=CortexUi.plain(this,"",9,color);CortexUi.medium(state);state.setPadding(0,dp(8),0,0);card.addView(state);
-        if(evidence)evidenceMeta=state;else reviewMeta=state;
-        card.setOnClickListener(v->open(evidence?EvidenceActivity.class:DeepReviewActivity.class));
-        return card;
-    }
-
     View screenCard(){
         LinearLayout card=CortexUi.card(this,20);card.setPadding(dp(13),dp(12),dp(13),dp(12));CortexUi.pressable(this,card,CortexUi.velvet(this,20));
         LinearLayout row=new LinearLayout(this);row.setGravity(Gravity.CENTER_VERTICAL);row.addView(CortexUi.glyph(this,"open",CortexUi.GREEN,true),new LinearLayout.LayoutParams(dp(44),dp(44)));
@@ -103,8 +83,6 @@ public class InputActivity extends Activity {
     }
 
     void refreshState(){
-        if(db!=null&&evidenceMeta!=null){int total=0;try{total=db.lexicalSearch("",400).size();}catch(Throwable ignored){}int pending=0,failed=0;try{pending=db.pendingCount();failed=db.failedCount();}catch(Throwable ignored){}evidenceMeta.setText(total+" items · "+pending+" processing"+(failed>0?" · "+failed+" review":""));}
-        if(reviewMeta!=null){String req=getSharedPreferences("cortex_deep_review_v1",MODE_PRIVATE).getString("last_request_id","");reviewMeta.setText(req==null||req.isEmpty()?"READY FOR REVIEW":"RESPONSE PENDING");reviewMeta.setTextColor(req==null||req.isEmpty()?CortexUi.GREEN:CortexUi.YELLOW);}
         if(screenMeta!=null){boolean ready=CortexScreenAccessibilityService.connected();screenMeta.setText(ready?"Ready · use the Quick Settings tile from any app":"Setup needed · enable screen understanding once");screenMeta.setTextColor(ready?CortexUi.GREEN:CortexUi.MUTED);}
     }
 
@@ -123,7 +101,11 @@ public class InputActivity extends Activity {
         TextView c=CortexUi.plain(this,"C O R T E X",14,CortexUi.TEXT);CortexUi.bold(c);if(android.os.Build.VERSION.SDK_INT>=21)c.setLetterSpacing(.20f);LinearLayout.LayoutParams cp=new LinearLayout.LayoutParams(-2,dp(40));cp.setMargins(dp(12),0,0,0);row.addView(c,cp);
         View d=CortexUi.divider(this);LinearLayout.LayoutParams dv=new LinearLayout.LayoutParams(dp(1),dp(28));dv.setMargins(dp(12),0,dp(12),0);row.addView(d,dv);
         TextView sys=CortexUi.plain(this,"INPUT",10,CortexUi.MUTED);if(android.os.Build.VERSION.SDK_INT>=21)sys.setLetterSpacing(.10f);row.addView(sys,new LinearLayout.LayoutParams(0,dp(40),1));
-        CortexGlyphView settings=CortexUi.glyph(this,"settings",CortexUi.ORANGE,false);settings.setOnClickListener(v->open(SettingsActivity.class));row.addView(settings,new LinearLayout.LayoutParams(dp(44),dp(44)));return row;
+
+        CortexGlyphView evidence=CortexUi.glyph(this,"nodes",CortexUi.GREEN,false);evidence.setContentDescription("Evidence");evidence.setOnClickListener(v->open(EvidenceActivity.class));row.addView(evidence,new LinearLayout.LayoutParams(dp(40),dp(40)));
+        CortexGlyphView review=CortexUi.glyph(this,"brain",CortexUi.RED,false);review.setContentDescription("Deep Review");review.setOnClickListener(v->open(DeepReviewActivity.class));LinearLayout.LayoutParams rp=new LinearLayout.LayoutParams(dp(40),dp(40));rp.setMargins(dp(4),0,0,0);row.addView(review,rp);
+        CortexGlyphView settings=CortexUi.glyph(this,"settings",CortexUi.ORANGE,false);settings.setContentDescription("Settings");settings.setOnClickListener(v->open(SettingsActivity.class));LinearLayout.LayoutParams sp=new LinearLayout.LayoutParams(dp(40),dp(40));sp.setMargins(dp(4),0,0,0);row.addView(settings,sp);
+        return row;
     }
 
     TextView section(String title,int color){TextView h=CortexUi.plain(this,title,10,color);CortexUi.medium(h);if(android.os.Build.VERSION.SDK_INT>=21)h.setLetterSpacing(.09f);h.setPadding(dp(1),dp(18),0,dp(8));return h;}
