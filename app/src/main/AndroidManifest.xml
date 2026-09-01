@@ -40,6 +40,8 @@
         <activity android:name=".ProposalAskCortexActivity" android:exported="false" android:windowSoftInputMode="adjustResize" />
         <activity android:name=".SettingsActivity" android:exported="false" />
         <activity android:name=".UserSimulationTestLabActivity" android:exported="true" />
+        <activity android:name=".CortexTestUnblockWizardActivity" android:exported="false" />
+        <activity android:name=".CortexProtectedLiveTestsActivity" android:exported="false" />
         <activity android:name=".ReviewQueueActivity" android:exported="false" />
         <activity android:name=".RelevanceEvaluationActivity" android:exported="false" />
         <activity android:name=".CorrectionLearningActivity" android:exported="false" />
