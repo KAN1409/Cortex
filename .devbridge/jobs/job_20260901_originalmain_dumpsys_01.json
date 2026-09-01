@@ -1,0 +1,10 @@
+{
+  "protocol": "CORTEX_DEVBRIDGE_V1",
+  "repo": "KAN1409/Cortex",
+  "authorized_owner": "KAN1409",
+  "job_id": "job_20260901_originalmain_dumpsys_01",
+  "capability": "DUMPSYS_PACKAGE",
+  "ref": "main",
+  "package": "com.kareem.cortex",
+  "params": {}
+}
