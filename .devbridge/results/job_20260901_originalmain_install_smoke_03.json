@@ -1,0 +1,10 @@
+{
+  "protocol": "CORTEX_DEVBRIDGE_V1",
+  "agent_version": "3",
+  "job_id": "job_20260901_originalmain_install_smoke_03",
+  "capability": "BUILD_INSTALL_SMOKE",
+  "status": "FAILED",
+  "exit_code": 34,
+  "finished_at": "2026-09-01T07:02:44Z",
+  "log_tail": "started_at=2026-09-01T07:02:11Z\nagent_version=3\nBUILD_SUCCESS\ncandidate_signer_sha256=73503b47d359688ec22e558014d908d0019c422058fe1f7f4a62ee11b4866fd6\nsource_signer_sha256=5c6550a070abe477dcad5f23f3f437e183bff8aeaeb6ac52e1beaa8243ee69a7\nSIGNER_MISMATCH_REFUSE_FRESH_INSTALL\nfinished_at=2026-09-01T07:02:43Z"
+}
