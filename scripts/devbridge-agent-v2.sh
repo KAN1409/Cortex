@@ -7,14 +7,17 @@ CONTROL="$ROOT/control"
 TARGET="$ROOT/agent-v3.runtime.sh"
 
 [ -d "$CONTROL/.git" ] || { echo DEVBRIDGE_CONTROL_CLONE_MISSING >&2; exit 70; }
-git -C "$CONTROL" fetch origin "$CONTROL_BRANCH" >/dev/null 2>&1 || true
+if [ -L "$CONTROL" ]; then
+  git -C "$CONTROL" show-ref --verify --quiet "refs/remotes/origin/$CONTROL_BRANCH" || { echo DEVBRIDGE_CONTROL_REF_MISSING >&2; exit 73; }
+elif command -v timeout >/dev/null 2>&1; then
+  timeout 45 git -C "$CONTROL" fetch origin "$CONTROL_BRANCH" >/dev/null 2>&1 || true
+else
+  git -C "$CONTROL" fetch origin "$CONTROL_BRANCH" >/dev/null 2>&1 || true
+fi
 git -C "$CONTROL" show "origin/$CONTROL_BRANCH:scripts/devbridge-agent-v3.sh" > "$TARGET" 2>/dev/null || { echo DEVBRIDGE_V3_FETCH_FAILED >&2; exit 71; }
 
-# Fresh-install extension for the original Cortex package only.
-# Existing installs keep the V3 update-in-place signer comparison unchanged. When Cortex is absent,
-# the candidate APK must match the permanent on-device Cortex keystore certificate before pm install.
-# Also add an optional exact-job filter so recovery/manual kicks can skip historical backlog safely.
-# Fix the V3 fallback APK Signing Block parser so it hashes the actual X.509 certificate.
+# Runtime safety/recovery extensions. V3 remains the canonical engine; this wrapper patches only
+# fresh-install signer continuity, exact-job targeting, APK signer parsing, and local-control fetch behavior.
 python - "$TARGET" <<'PY'
 from pathlib import Path
 import sys
@@ -59,6 +62,24 @@ parser_replacement = '''        signers,_=lp(b,0)\n        signer,_=lp(signers,0
 if parser_needle not in text:
     raise SystemExit('DEVBRIDGE_SIGNER_PARSER_PATCH_TARGET_MISSING')
 text = text.replace(parser_needle, parser_replacement, 1)
+
+clone_needle = '''  git -C "$dir" remote set-url origin "$REMOTE" >/dev/null 2>&1 || return 1\n  git -C "$dir" fetch --prune origin "$branch" >/dev/null 2>&1 || return 1\n'''
+clone_replacement = '''  git -C "$dir" remote set-url origin "$REMOTE" >/dev/null 2>&1 || return 1\n  if [ "$dir" = "$CONTROL" ] && [ -L "$CONTROL" ]; then\n    git -C "$dir" show-ref --verify --quiet "refs/remotes/origin/$branch" || return 1\n  elif command -v timeout >/dev/null 2>&1; then\n    timeout 45 git -C "$dir" fetch --prune origin "$branch" >/dev/null 2>&1 || return 1\n  else\n    git -C "$dir" fetch --prune origin "$branch" >/dev/null 2>&1 || return 1\n  fi\n'''
+if clone_needle not in text:
+    raise SystemExit('DEVBRIDGE_LOCAL_CONTROL_CLONE_PATCH_TARGET_MISSING')
+text = text.replace(clone_needle, clone_replacement, 1)
+
+prepare_fetch_needle = '  git -C "$CONTROL" fetch origin "$ref" >/dev/null 2>&1 || return 1\n'
+prepare_fetch_replacement = '''  local source_ref='FETCH_HEAD'\n  if [ -L "$CONTROL" ]; then\n    source_ref="refs/remotes/origin/$ref"\n    git -C "$CONTROL" show-ref --verify --quiet "$source_ref" || return 1\n  elif command -v timeout >/dev/null 2>&1; then\n    timeout 45 git -C "$CONTROL" fetch origin "$ref" >/dev/null 2>&1 || return 1\n  else\n    git -C "$CONTROL" fetch origin "$ref" >/dev/null 2>&1 || return 1\n  fi\n'''
+if prepare_fetch_needle not in text:
+    raise SystemExit('DEVBRIDGE_LOCAL_CONTROL_REF_PATCH_TARGET_MISSING')
+text = text.replace(prepare_fetch_needle, prepare_fetch_replacement, 1)
+
+worktree_needle = '  git -C "$CONTROL" worktree add --detach "$dir" FETCH_HEAD >/dev/null 2>&1 || return 1\n'
+worktree_replacement = '  git -C "$CONTROL" worktree add --detach "$dir" "$source_ref" >/dev/null 2>&1 || return 1\n'
+if worktree_needle not in text:
+    raise SystemExit('DEVBRIDGE_LOCAL_CONTROL_WORKTREE_PATCH_TARGET_MISSING')
+text = text.replace(worktree_needle, worktree_replacement, 1)
 
 text = text.replace(
     'candidate_signer_sha256=|installed_signer_sha256=|apk_sha256=',
