@@ -1,0 +1,14 @@
+{
+  "protocol": "CORTEX_DEVBRIDGE_V1",
+  "repo": "KAN1409/Cortex",
+  "authorized_owner": "KAN1409",
+  "job_id": "job_20260901_brainux_install_smoke_01",
+  "capability": "BUILD_INSTALL_SMOKE",
+  "ref": "ux/brain-conversation-cleanup-20260901",
+  "package": "com.kareem.cortex",
+  "params": {
+    "gradle_tasks": [":app:assembleDebug"],
+    "apk_path": "app/build/outputs/apk/debug/app-debug.apk",
+    "smoke_wait_seconds": 8
+  }
+}

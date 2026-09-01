@@ -1,0 +1,10 @@
+{
+  "protocol": "CORTEX_DEVBRIDGE_V1",
+  "repo": "KAN1409/Cortex",
+  "authorized_owner": "KAN1409",
+  "job_id": "job_20260830_gptoss_postrepair_ping_01",
+  "capability": "PING",
+  "ref": "rebuild/cortex-v1",
+  "package": "com.kareem.cortex.rebuild",
+  "params": {}
+}

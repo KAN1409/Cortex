@@ -1,0 +1,11 @@
+{
+  "protocol": "CORTEX_DEVBRIDGE_V1",
+  "repo": "KAN1409/Cortex",
+  "authorized_owner": "KAN1409",
+  "job_id": "job_20260831_prime_signed_export_01",
+  "capability": "BUILD",
+  "ref": "prime/cortex-prime-v0",
+  "params": {
+    "gradle_tasks": ["primeExportDebugBase64"]
+  }
+}

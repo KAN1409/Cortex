@@ -1,0 +1,12 @@
+{
+  "protocol": "CORTEX_DEVBRIDGE_V1",
+  "repo": "KAN1409/Cortex",
+  "authorized_owner": "KAN1409",
+  "job_id": "job_20260830_cortex090_chatgpt_export_01",
+  "capability": "BUILD",
+  "ref": "rebuild/cortex-v1",
+  "package": "com.kareem.cortex.rebuild",
+  "params": {
+    "gradle_tasks": [":app:exportCortex090PermanentApk"]
+  }
+}

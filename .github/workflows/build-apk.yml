@@ -45,6 +45,30 @@ jobs:
             bash scripts/cortex-repo-audit.sh
           fi
 
+      - name: Validate Dev Bridge shell
+        run: |
+          if [ -f scripts/devbridge-bootstrap.sh ]; then
+            bash -n scripts/devbridge-bootstrap.sh
+            python3 - <<'PY'
+          from pathlib import Path
+          source = Path('scripts/devbridge-bootstrap.sh').read_text()
+          marker = "cat > \"$ROOT/agent.sh\" <<'AGENT'\n"
+          start = source.index(marker) + len(marker)
+          end = source.index('\nAGENT\n', start)
+          Path('/tmp/cortex-devbridge-agent.sh').write_text(source[start:end] + '\n')
+          PY
+            bash -n /tmp/cortex-devbridge-agent.sh
+          fi
+          if [ -f scripts/devbridge-bootstrap-v2.sh ]; then
+            bash -n scripts/devbridge-bootstrap-v2.sh
+          fi
+          if [ -f scripts/devbridge-agent-v2.sh ]; then
+            bash -n scripts/devbridge-agent-v2.sh
+          fi
+          if [ -f scripts/devbridge-agent-v3.sh ]; then
+            bash -n scripts/devbridge-agent-v3.sh
+          fi
+
       - name: Build debug APK and instrumented-test sources
         run: gradle :app:assembleDebug :app:compileDebugAndroidTestJavaWithJavac --stacktrace
 

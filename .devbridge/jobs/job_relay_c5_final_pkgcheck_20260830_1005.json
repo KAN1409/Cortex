@@ -1,0 +1,10 @@
+{
+  "protocol": "CORTEX_DEVBRIDGE_V1",
+  "repo": "KAN1409/Cortex",
+  "authorized_owner": "KAN1409",
+  "job_id": "job_relay_c5_final_pkgcheck_20260830_1005",
+  "capability": "DUMPSYS_PACKAGE",
+  "ref": "infra/termux-dev-bridge-v1",
+  "package": "com.kareem.secondbrain",
+  "params": {}
+}
