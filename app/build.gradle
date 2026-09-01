@@ -32,7 +32,7 @@ android {
     buildFeatures { buildConfig true }
     sourceSets { main { assets.srcDir generatedOcrAssets } }
     signingConfigs { debug { storeFile cortexDebugKeystore; storePassword 'android'; keyAlias 'androiddebugkey'; keyPassword 'android' } }
-    defaultConfig { applicationId 'com.kareem.cortex'; minSdk 26; targetSdk 35; versionCode 55; versionName '1.0.0-v55-full-user-simulation-testlab' }
+    defaultConfig { applicationId 'com.kareem.cortex'; minSdk 26; targetSdk 35; versionCode 56; versionName '1.0.0-v56-testlab-shell-launch' }
     buildTypes { debug { signingConfig signingConfigs.debug } }
     compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
     kotlinOptions { jvmTarget = '17' }
