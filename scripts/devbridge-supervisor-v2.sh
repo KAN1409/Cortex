@@ -15,7 +15,9 @@ else
 fi
 CONTROL="$ROOT/control"
 LOCK="$ROOT/fetch.lock"
+PIDFILE="$ROOT/supervisor.pid"
 mkdir -p "$ROOT/logs" "$ROOT/work"
+echo $$ > "$PIDFILE"
 ensure_control(){
   [ -d "$LOCAL_REPO/.git" ] || return 1
   if [ ! -L "$CONTROL" ] || [ "$(readlink "$CONTROL" 2>/dev/null || true)" != "$LOCAL_REPO" ]; then
@@ -36,16 +38,21 @@ fetch_control(){
   return $rc
 }
 while true; do
+  date -u +%Y-%m-%dT%H:%M:%SZ > "$ROOT/supervisor.heartbeat"
   if ensure_control && fetch_control; then
+    date -u +%Y-%m-%dT%H:%M:%SZ > "$ROOT/supervisor.last_fetch_ok"
     NEXT="$ROOT/agent.next.sh"
     CURRENT="$ROOT/agent.current.sh"
     if git -C "$LOCAL_REPO" show "origin/$CONTROL_BRANCH:scripts/devbridge-agent-v2.sh" > "$NEXT" 2>/dev/null && bash -n "$NEXT" >/dev/null 2>&1; then
       chmod 700 "$NEXT"
       mv -f "$NEXT" "$CURRENT"
       CORTEX_DEVBRIDGE_SUPERVISOR_V2=1 "$CURRENT" --once >> "$ROOT/agent.stdout.log" 2>> "$ROOT/agent.stderr.log" || true
+      date -u +%Y-%m-%dT%H:%M:%SZ > "$ROOT/supervisor.last_agent_run"
     else
       rm -f "$NEXT"
     fi
+  else
+    date -u +%Y-%m-%dT%H:%M:%SZ > "$ROOT/supervisor.last_fetch_fail"
   fi
   sleep "$POLL"
 done
