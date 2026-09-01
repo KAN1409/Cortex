@@ -23,7 +23,7 @@ public final class ProposalCaptureActivity extends SatinCaptureActivity {
         if(i!=null&&Intent.ACTION_SEND.equals(i.getAction())){
             CharSequence extra=i.getCharSequenceExtra(Intent.EXTRA_TEXT);String text=extra==null?"":extra.toString();
             if(text.contains(DeepReviewContractV1.RESPONSE_MARKER)){
-                try{Intent review=new Intent(this,DeepReviewActivity.class);review.putExtra("deep_review_response",text);review.addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT|Intent.FLAG_ACTIVITY_SINGLE_TOP);startActivity(review);}catch(Throwable e){Toast.makeText(this,"Could not open Deep Review",Toast.LENGTH_LONG).show();}
+                try{Intent review=new Intent(this,DeepReviewActivity.class);review.putExtra("deep_review_response",text);startActivity(review);}catch(Throwable e){Toast.makeText(this,"Could not open Deep Review",Toast.LENGTH_LONG).show();}
                 finish();return;
             }
         }
