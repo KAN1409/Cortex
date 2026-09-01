@@ -55,10 +55,46 @@ public final class LocalAnalyzer {
     private static void extractActions(String t,AnalysisResult r){
         LinkedHashSet<String> unique=new LinkedHashSet<>();
         String normalized=t.replace('\n',' ').replace('\r',' ');
-        String[] clauses=normalized.split("(?<=[.!?؟;؛])\\s+|\\s+(?:و?بعدها|then|and then)\\s+|\\s+(?=ولو|وإذا|واذا|if\\s)");
+        // Contrast words create a new intent clause so "don't call X, but send Y" keeps only Y.
+        String[] clauses=normalized.split("(?<=[.!?؟;؛])\\s+|\\s+(?:و?بعدها|then|and then|but|however|لكن|بس)\\s+|\\s+(?=ولو|وإذا|واذا|if\\s)");
         String[] keys={"todo","to-do","remind","follow up","follow-up","need to","must ","should ","call ","send ","book ","schedule ","check ","review ","upload ","fix ","لازم","محتاج","عاوز","عايز","فكرني","افتكر","ابعت","أبعت","كلم","أكلم","اكلم","احجز","راجع","شوف","اشتري","أشتري","أتابع","اتابع","هتابع"};
-        for(String clause:clauses){String c=clause.replaceAll("\\s+"," ").trim();if(c.length()<4)continue;String low=c.toLowerCase(Locale.US);boolean hit=false;for(String k:keys)if(low.contains(k.toLowerCase(Locale.US))){hit=true;break;}if(!hit)continue;ArrayList<String> parts=new ArrayList<>();Matcher m=Pattern.compile("(?i)(.+?)(?=\\s+(?:ولو|وإذا|واذا|if\\s)|$)").matcher(c);while(m.find()){String x=m.group(1).trim();if(!x.isEmpty())parts.add(x);}if(parts.isEmpty())parts.add(c);for(String a:parts){String action=cleanAction(a);if(action.length()<4||!unique.add(action.toLowerCase(Locale.US)))continue;r.actions.add(new AnalysisResult.Action(action,guessDue(a)));if(r.actions.size()>=12)return;}}
+        for(String clause:clauses){
+            String c=clause.replaceAll("\\s+"," ").trim();if(c.length()<4)continue;
+            String low=c.toLowerCase(Locale.ROOT);boolean hit=false;for(String k:keys)if(low.contains(k.toLowerCase(Locale.ROOT))){hit=true;break;}if(!hit)continue;
+            ArrayList<String> parts=new ArrayList<>();Matcher m=Pattern.compile("(?i)(.+?)(?=\\s+(?:ولو|وإذا|واذا|if\\s)|$)").matcher(c);while(m.find()){String x=m.group(1).trim();if(!x.isEmpty())parts.add(x);}if(parts.isEmpty())parts.add(c);
+            for(String a:parts){
+                String action=cleanAction(a);
+                if(action.length()<4||isNegatedAction(action)||!unique.add(action.toLowerCase(Locale.ROOT)))continue;
+                r.actions.add(new AnalysisResult.Action(action,guessDue(a)));if(r.actions.size()>=12)return;
+            }
+        }
     }
+
+    /**
+     * Action polarity gate. Evidence may mention an action without asking Cortex to create one.
+     * Keep explicit reminder idioms such as "don't forget to" / "متنساش" positive, while
+     * suppressing English and Egyptian-Arabic negative intent before it reaches the action table.
+     */
+    static boolean isNegatedAction(String clause){
+        if(clause==null)return false;
+        String low=MixedBidiText.stripControls(clause).toLowerCase(Locale.ROOT).replace('’','\'').replaceAll("\\s+"," ").trim();
+        if(low.isEmpty())return false;
+
+        // These are grammatically negative but semantically positive reminders.
+        if(hasAny(low,"don't forget to","dont forget to","do not forget to","never forget to","remember to","فكرني","افتكر","متنساش","ما تنساش","ماتنساش","ما تنسانيش","متنسانيش"))return false;
+
+        if(Pattern.compile("\\b(?:do\\s+not|don't|dont|does\\s+not|doesn't|doesnt|did\\s+not|didn't|didnt)\\s+(?:need|have|want)\\s+to\\b").matcher(low).find())return true;
+        if(Pattern.compile("\\b(?:no\\s+need\\s+to|not\\s+necessary\\s+to|should\\s+not|shouldn't|shouldnt|must\\s+not|mustn't|mustnt)\\b").matcher(low).find())return true;
+        if(Pattern.compile("\\b(?:do\\s+not|don't|dont|please\\s+do\\s+not)\\s+(?:call|send|book|schedule|check|review|upload|fix|buy|follow\\s+up)\\b").matcher(low).find())return true;
+
+        if(hasAny(low,"مش لازم","مش محتاج","مش محتاجة","مش عايز","مش عاوز","مش عايزة","مش عاوزة","مش مطلوب","مش ضروري","مفيش داعي","مافيش داعي","ما فيش داعي"))return true;
+
+        // Common Egyptian-Arabic direct prohibitions: ماتكلمش، متبعتش، ما تحجزش ...
+        String ar=low.replace("أ","ا").replace("إ","ا").replace("آ","ا");
+        if(Pattern.compile("(?:^|\\s)م(?:ا)?\\s*(?:ت?كلم|اكلم|ت?بعت|ابعت|ابعث|ت?حجز|احجز|ت?راجع|راجع|ت?شوف|شوف|ت?شتري|اشتري|ت?تابع|تابع)\\s*ش(?:\\s|$)").matcher(ar).find())return true;
+        return false;
+    }
+    private static boolean hasAny(String text,String... xs){for(String x:xs)if(text.contains(x))return true;return false;}
     private static String cleanAction(String s){String x=s.trim().replaceAll("^[•▪◦*-]+\\s*","").replaceAll("\\s+"," ");return x.length()>260?x.substring(0,260)+"…":x;}
     private static String guessDue(String s){String low=s.toLowerCase(Locale.US);String[] hints={"today","tomorrow","tonight","next week","next month","sunday","monday","tuesday","wednesday","thursday","friday","saturday","النهاردة","بكرة","بكره","الاسبوع الجاي","الأسبوع الجاي","الشهر الجاي","الأحد","الاتنين","الثلاثاء","الأربعاء","الخميس","الجمعة","السبت"};for(String h:hints)if(low.contains(h.toLowerCase(Locale.US)))return h;Matcher m=Pattern.compile("\\b[0-3]?\\d[/-][01]?\\d(?:[/-](?:19|20)?\\d{2})?\\b").matcher(s);return m.find()?m.group():"";}
 }
