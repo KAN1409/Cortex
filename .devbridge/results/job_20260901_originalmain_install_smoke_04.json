@@ -1,0 +1,10 @@
+{
+  "protocol": "CORTEX_DEVBRIDGE_V1",
+  "agent_version": "3",
+  "job_id": "job_20260901_originalmain_install_smoke_04",
+  "capability": "BUILD_INSTALL_SMOKE",
+  "status": "SUCCESS",
+  "exit_code": 0,
+  "finished_at": "2026-09-01T07:31:38Z",
+  "log_tail": "started_at=2026-09-01T07:30:27Z\nagent_version=3\nBUILD_SUCCESS\ncandidate_signer_sha256=5c6550a070abe477dcad5f23f3f437e183bff8aeaeb6ac52e1beaa8243ee69a7\nsource_signer_sha256=5c6550a070abe477dcad5f23f3f437e183bff8aeaeb6ac52e1beaa8243ee69a7\nSuccess\nfresh_install=true\napk_sha256=f733f14d248ac6bce13fd434521768db35fd69ffff2a30206aa709dd7b82883b\npid=31885\n    topResumedActivity=ActivityRecord{100469673 u0 com.kareem.cortex/.InputActivity t21054}\nfinished_at=2026-09-01T07:31:36Z"
+}
