@@ -14,6 +14,23 @@ elif command -v timeout >/dev/null 2>&1; then
 else
   git -C "$CONTROL" fetch origin "$CONTROL_BRANCH" >/dev/null 2>&1 || true
 fi
+
+# Unattended mode prefers the newest explicitly autorun job. This prevents stale backlog from
+# blocking a current device update while preserving normal backlog behavior when no autorun exists.
+if [ -z "${CORTEX_DEVBRIDGE_ONLY_JOB:-}" ] && command -v jq >/dev/null 2>&1; then
+  AUTO_JOB="$(
+    while IFS= read -r path; do
+      [ -n "$path" ] || continue
+      raw="$(git -C "$CONTROL" show "origin/$CONTROL_BRANCH:$path" 2>/dev/null || true)"
+      [ -n "$raw" ] || continue
+      printf '%s' "$raw" | jq -e '.params.autorun == true' >/dev/null 2>&1 || continue
+      printf '%s\n' "$raw" | jq -r '.job_id // empty'
+    done < <(git -C "$CONTROL" ls-tree -r --name-only "origin/$CONTROL_BRANCH" '.devbridge/jobs' 2>/dev/null | grep '\.json$' || true)
+  )"
+  AUTO_JOB="$(printf '%s\n' "$AUTO_JOB" | grep '^job_' | tail -n1)"
+  [ -n "$AUTO_JOB" ] && export CORTEX_DEVBRIDGE_ONLY_JOB="$AUTO_JOB"
+fi
+
 git -C "$CONTROL" show "origin/$CONTROL_BRANCH:scripts/devbridge-agent-v3.sh" > "$TARGET" 2>/dev/null || { echo DEVBRIDGE_V3_FETCH_FAILED >&2; exit 71; }
 
 # Runtime safety/recovery extensions. V3 remains the canonical engine; this wrapper patches only
@@ -91,4 +108,33 @@ PY
 
 bash -n "$TARGET" >/dev/null 2>&1 || { rm -f "$TARGET"; echo DEVBRIDGE_V3_SYNTAX_FAILED >&2; exit 72; }
 chmod 700 "$TARGET"
-exec "$TARGET" "$@"
+"$TARGET" "$@"
+rc=$?
+
+# Self-heal the long-lived poller. If an old supervisor invoked this agent, replace it safely.
+SUP_NEXT="$ROOT/supervisor.next.sh"
+SUP="$ROOT/supervisor.sh"
+if git -C "$CONTROL" show "origin/$CONTROL_BRANCH:scripts/devbridge-supervisor-v2.sh" > "$SUP_NEXT" 2>/dev/null && bash -n "$SUP_NEXT" >/dev/null 2>&1; then
+  chmod 700 "$SUP_NEXT"
+  mv -f "$SUP_NEXT" "$SUP"
+  parent_args="$(ps -p "$PPID" -o args= 2>/dev/null || true)"
+  pidfile="$ROOT/supervisor.pid"
+  current_pid="$(cat "$pidfile" 2>/dev/null || true)"
+  need_start=0
+  if [ -z "$current_pid" ] || ! kill -0 "$current_pid" 2>/dev/null; then need_start=1; fi
+  if [ "${CORTEX_DEVBRIDGE_SUPERVISOR_V2:-0}" != 1 ] && printf '%s' "$parent_args" | grep -Fq "$ROOT/supervisor.sh"; then
+    need_start=1
+    old_parent="$PPID"
+  else
+    old_parent=""
+  fi
+  if [ "$need_start" = 1 ]; then
+    command -v termux-wake-lock >/dev/null 2>&1 && termux-wake-lock || true
+    nohup "$SUP" >> "$ROOT/supervisor.stdout.log" 2>> "$ROOT/supervisor.stderr.log" < /dev/null &
+    echo $! > "$pidfile"
+    [ -z "$old_parent" ] || kill "$old_parent" 2>/dev/null || true
+  fi
+else
+  rm -f "$SUP_NEXT"
+fi
+exit $rc
