@@ -18,8 +18,6 @@ fi
 fail(){ printf 'CORTEX_DEVBRIDGE_V2_BOOTSTRAP_FAIL: %s\n' "$*" >&2; exit 1; }
 command -v pkg >/dev/null 2>&1 || fail "Termux pkg not found"
 
-# Avoid touching apt/pkg on already provisioned developer devices. Besides being faster,
-# this makes bootstrap independent from package-manager stdin/TTY behavior.
 missing=()
 command -v git >/dev/null 2>&1 || missing+=(git)
 command -v jq >/dev/null 2>&1 || missing+=(jq)
@@ -96,8 +94,23 @@ done
 command -v termux-wake-lock >/dev/null 2>&1 && termux-wake-lock || true
 nohup "$ROOT/supervisor.sh" >> "$ROOT/supervisor.stdout.log" 2>> "$ROOT/supervisor.stderr.log" < /dev/null &
 echo $! > "$ROOT/supervisor.pid"
-sleep 3
+sleep 2
 kill -0 "$(cat "$ROOT/supervisor.pid")" 2>/dev/null || fail "supervisor did not stay running"
+
+# Do not rely on the next poll for first contact. Pull the current agent and process queued jobs now.
+CONTROL="$ROOT/control"
+if [ ! -d "$CONTROL/.git" ]; then
+  rm -rf "$CONTROL"
+  git clone --filter=blob:none --no-tags "$REMOTE" "$CONTROL" >/dev/null 2>&1 || fail "control clone failed"
+fi
+git -C "$CONTROL" remote set-url origin "$REMOTE" >/dev/null 2>&1 || true
+git -C "$CONTROL" fetch --prune origin "$CONTROL_BRANCH" >/dev/null 2>&1 || fail "control fetch failed"
+BOOT_AGENT="$ROOT/bootstrap-agent-once.sh"
+git -C "$CONTROL" show "origin/$CONTROL_BRANCH:scripts/devbridge-agent-v2.sh" > "$BOOT_AGENT" 2>/dev/null || fail "agent fetch failed"
+bash -n "$BOOT_AGENT" >/dev/null 2>&1 || fail "agent syntax failed"
+chmod 700 "$BOOT_AGENT"
+printf 'CORTEX_DEVBRIDGE_PROCESSING_QUEUED_JOBS\n'
+"$BOOT_AGENT" --once || true
 
 printf 'CORTEX_DEVBRIDGE_V2_BOOTSTRAP_OK\npid=%s\ncontrol=%s\nresults=%s\nsigner_source=%s\n' \
   "$(cat "$ROOT/supervisor.pid")" "$CONTROL_BRANCH" "$RESULT_BRANCH" "$LOCAL_REPO/app/cortex-debug.keystore"
