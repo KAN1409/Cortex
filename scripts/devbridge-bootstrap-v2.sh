@@ -81,6 +81,7 @@ echo \$! > "$ROOT/supervisor.pid"
 EOF
 chmod 700 "$HOME/.termux/boot/20-cortex-devbridge"
 
+# Stop any previous poller before first-contact processing so it cannot race the one-shot agent.
 for pidfile in "$ROOT/agent.pid" "$ROOT/supervisor.pid"; do
   if [ -f "$pidfile" ]; then
     oldpid="$(cat "$pidfile" 2>/dev/null || true)"
@@ -91,13 +92,7 @@ for pidfile in "$ROOT/agent.pid" "$ROOT/supervisor.pid"; do
   fi
 done
 
-command -v termux-wake-lock >/dev/null 2>&1 && termux-wake-lock || true
-nohup "$ROOT/supervisor.sh" >> "$ROOT/supervisor.stdout.log" 2>> "$ROOT/supervisor.stderr.log" < /dev/null &
-echo $! > "$ROOT/supervisor.pid"
-sleep 2
-kill -0 "$(cat "$ROOT/supervisor.pid")" 2>/dev/null || fail "supervisor did not stay running"
-
-# Do not rely on the next poll for first contact. Pull the current agent and process queued jobs now.
+# Refresh control and execute queued work synchronously before starting continuous polling.
 CONTROL="$ROOT/control"
 if [ ! -d "$CONTROL/.git" ]; then
   rm -rf "$CONTROL"
@@ -111,6 +106,14 @@ bash -n "$BOOT_AGENT" >/dev/null 2>&1 || fail "agent syntax failed"
 chmod 700 "$BOOT_AGENT"
 printf 'CORTEX_DEVBRIDGE_PROCESSING_QUEUED_JOBS\n'
 "$BOOT_AGENT" --once || true
+printf 'CORTEX_DEVBRIDGE_ONE_SHOT_DONE\n'
+
+# Only after the one-shot is finished, restore the long-lived poller.
+command -v termux-wake-lock >/dev/null 2>&1 && termux-wake-lock || true
+nohup "$ROOT/supervisor.sh" >> "$ROOT/supervisor.stdout.log" 2>> "$ROOT/supervisor.stderr.log" < /dev/null &
+echo $! > "$ROOT/supervisor.pid"
+sleep 2
+kill -0 "$(cat "$ROOT/supervisor.pid")" 2>/dev/null || fail "supervisor did not stay running"
 
 printf 'CORTEX_DEVBRIDGE_V2_BOOTSTRAP_OK\npid=%s\ncontrol=%s\nresults=%s\nsigner_source=%s\n' \
   "$(cat "$ROOT/supervisor.pid")" "$CONTROL_BRANCH" "$RESULT_BRANCH" "$LOCAL_REPO/app/cortex-debug.keystore"
