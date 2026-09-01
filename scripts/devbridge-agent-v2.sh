@@ -13,6 +13,7 @@ git -C "$CONTROL" show "origin/$CONTROL_BRANCH:scripts/devbridge-agent-v3.sh" > 
 # Fresh-install extension for the original Cortex package only.
 # Existing installs keep the V3 update-in-place signer comparison unchanged. When Cortex is absent,
 # the candidate APK must match the permanent on-device Cortex keystore certificate before pm install.
+# Also add an optional exact-job filter so recovery/manual kicks can skip historical backlog safely.
 python - "$TARGET" <<'PY'
 from pathlib import Path
 import sys
@@ -44,6 +45,13 @@ replacement = r'''  if [ -z "$installed_path" ]; then
 if needle not in text:
     raise SystemExit('DEVBRIDGE_FRESH_INSTALL_PATCH_TARGET_MISSING')
 text = text.replace(needle, replacement, 1)
+
+filter_needle = '''    [ -n "$job" ] || continue\n    grep -Fxq "$job" "$STATE" && continue\n'''
+filter_replacement = '''    [ -n "$job" ] || continue\n    if [ -n "${CORTEX_DEVBRIDGE_ONLY_JOB:-}" ] && [ "$job" != "$CORTEX_DEVBRIDGE_ONLY_JOB" ]; then continue; fi\n    grep -Fxq "$job" "$STATE" && continue\n'''
+if filter_needle not in text:
+    raise SystemExit('DEVBRIDGE_ONLY_JOB_PATCH_TARGET_MISSING')
+text = text.replace(filter_needle, filter_replacement, 1)
+
 text = text.replace(
     'candidate_signer_sha256=|installed_signer_sha256=|apk_sha256=',
     'candidate_signer_sha256=|installed_signer_sha256=|source_signer_sha256=|fresh_install=|apk_sha256=',
