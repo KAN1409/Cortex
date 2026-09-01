@@ -14,12 +14,14 @@ git -C "$CONTROL" show "origin/$CONTROL_BRANCH:scripts/devbridge-agent-v3.sh" > 
 # Existing installs keep the V3 update-in-place signer comparison unchanged. When Cortex is absent,
 # the candidate APK must match the permanent on-device Cortex keystore certificate before pm install.
 # Also add an optional exact-job filter so recovery/manual kicks can skip historical backlog safely.
+# Fix the V3 fallback APK Signing Block parser so it hashes the actual X.509 certificate.
 python - "$TARGET" <<'PY'
 from pathlib import Path
 import sys
 
 path = Path(sys.argv[1])
 text = path.read_text()
+
 needle = '  [ -n "$installed_path" ] || { echo INSTALLED_APK_NOT_FOUND; return 25; }\n'
 replacement = r'''  if [ -z "$installed_path" ]; then
     [ "$pkg" = 'com.kareem.cortex' ] || { echo FRESH_INSTALL_DENY_PACKAGE; return 25; }
@@ -51,6 +53,12 @@ filter_replacement = '''    [ -n "$job" ] || continue\n    if [ -n "${CORTEX_DEV
 if filter_needle not in text:
     raise SystemExit('DEVBRIDGE_ONLY_JOB_PATCH_TARGET_MISSING')
 text = text.replace(filter_needle, filter_replacement, 1)
+
+parser_needle = '''        signer,_=lp(b,0)\n        signed,_=lp(signer,0)\n        _,q=lp(signed,0)\n        certs,_=lp(signed,q)\n        cert,_=lp(certs,0)\n'''
+parser_replacement = '''        signers,_=lp(b,0)\n        signer,_=lp(signers,0)\n        signed,_=lp(signer,0)\n        _,q=lp(signed,0)\n        certs,_=lp(signed,q)\n        cert,_=lp(certs,0)\n'''
+if parser_needle not in text:
+    raise SystemExit('DEVBRIDGE_SIGNER_PARSER_PATCH_TARGET_MISSING')
+text = text.replace(parser_needle, parser_replacement, 1)
 
 text = text.replace(
     'candidate_signer_sha256=|installed_signer_sha256=|apk_sha256=',
