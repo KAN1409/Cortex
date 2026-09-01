@@ -24,6 +24,7 @@ public class InputActivity extends Activity {
 
         body.addView(section("CORTEX KNOWS",CortexUi.GREEN));
         body.addView(featureCard("Evidence","See the immutable source ledger: what Cortex captured, where it came from, its raw/extracted content and current analysis state.","nodes",CortexUi.GREEN,"Open Evidence",v->open(EvidenceActivity.class)),margins(0,0,0,0));
+        body.addView(featureCard("Deep Review","Send a grounded Cortex snapshot to ChatGPT, return a machine-readable review, then preview and approve what Cortex may add.","brain",CortexUi.RED,"Open Deep Review",v->open(DeepReviewActivity.class)),margins(0,9,0,0));
 
         body.addView(section("EVERYWHERE CORTEX",CortexUi.GREEN));
         boolean screenReady=CortexScreenAccessibilityService.connected();body.addView(featureCard("Understand this screen",screenReady?"READY · Use the Understand screen Quick Settings tile while any app is visible.":"SETUP NEEDED · Enable screen understanding once, then add the Quick Settings tile.","open",screenReady?CortexUi.GREEN:CortexUi.ORANGE,screenReady?"Open Quick Settings setup":"Enable screen understanding",v->{try{startActivity(new Intent(screenReady?"android.settings.QUICK_SETTINGS_SETTINGS":Settings.ACTION_ACCESSIBILITY_SETTINGS));}catch(Throwable e){try{startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS));}catch(Throwable ignored){}}}),margins(0,0,0,0));
