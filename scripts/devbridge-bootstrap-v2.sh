@@ -16,6 +16,13 @@ else
 fi
 
 fail(){ printf 'CORTEX_DEVBRIDGE_V2_BOOTSTRAP_FAIL: %s\n' "$*" >&2; exit 1; }
+fetch_with_timeout(){
+  if command -v timeout >/dev/null 2>&1; then
+    timeout 45 git -C "$LOCAL_REPO" fetch --prune origin "$@"
+  else
+    git -C "$LOCAL_REPO" fetch --prune origin "$@"
+  fi
+}
 command -v pkg >/dev/null 2>&1 || fail "Termux pkg not found"
 
 missing=()
@@ -32,7 +39,13 @@ command -v jq >/dev/null 2>&1 || fail "jq unavailable"
 command -v sha256sum >/dev/null 2>&1 || fail "sha256sum unavailable"
 command -v rish >/dev/null 2>&1 || fail "rish not found"
 rish -c 'id' >/dev/null 2>&1 || fail "Shizuku/rish unavailable"
+[ -d "$LOCAL_REPO/.git" ] || fail "local Cortex repo missing: $LOCAL_REPO"
 mkdir -p "$ROOT" "$ROOT/logs" "$ROOT/work" "$HOME/.termux/boot"
+
+# One authoritative repository only. Work remains isolated in git worktrees under $ROOT/work.
+CONTROL="$ROOT/control"
+rm -rf "$CONTROL"
+ln -s "$LOCAL_REPO" "$CONTROL"
 
 cat > "$ROOT/supervisor.sh" <<'SUPERVISOR'
 #!/data/data/com.termux/files/usr/bin/bash
@@ -50,20 +63,37 @@ else
   REMOTE="https://github.com/${REPO}.git"
 fi
 CONTROL="$ROOT/control"
+LOCK="$ROOT/fetch.lock"
 mkdir -p "$ROOT/logs"
-while true; do
-  if [ ! -d "$CONTROL/.git" ]; then
+ensure_control(){
+  [ -d "$LOCAL_REPO/.git" ] || return 1
+  if [ ! -L "$CONTROL" ] || [ "$(readlink "$CONTROL" 2>/dev/null || true)" != "$LOCAL_REPO" ]; then
     rm -rf "$CONTROL"
-    git clone --filter=blob:none --no-tags "$REMOTE" "$CONTROL" >/dev/null 2>&1 || { sleep "$POLL"; continue; }
+    ln -s "$LOCAL_REPO" "$CONTROL" || return 1
   fi
-  git -C "$CONTROL" remote set-url origin "$REMOTE" >/dev/null 2>&1 || true
-  if git -C "$CONTROL" fetch --prune origin "$CONTROL_BRANCH" >/dev/null 2>&1; then
+}
+fetch_control(){
+  mkdir "$LOCK" 2>/dev/null || return 1
+  trap 'rmdir "$LOCK" 2>/dev/null || true' RETURN
+  git -C "$LOCAL_REPO" remote set-url origin "$REMOTE" >/dev/null 2>&1 || true
+  if command -v timeout >/dev/null 2>&1; then
+    timeout 45 git -C "$LOCAL_REPO" fetch --prune origin "$CONTROL_BRANCH" >/dev/null 2>&1
+  else
+    git -C "$LOCAL_REPO" fetch --prune origin "$CONTROL_BRANCH" >/dev/null 2>&1
+  fi
+  rc=$?
+  rmdir "$LOCK" 2>/dev/null || true
+  trap - RETURN
+  return $rc
+}
+while true; do
+  if ensure_control && fetch_control; then
     NEXT="$ROOT/agent.next.sh"
     CURRENT="$ROOT/agent.current.sh"
-    if git -C "$CONTROL" show "origin/$CONTROL_BRANCH:scripts/devbridge-agent-v2.sh" > "$NEXT" 2>/dev/null && bash -n "$NEXT" >/dev/null 2>&1; then
+    if git -C "$LOCAL_REPO" show "origin/$CONTROL_BRANCH:scripts/devbridge-agent-v2.sh" > "$NEXT" 2>/dev/null && bash -n "$NEXT" >/dev/null 2>&1; then
       chmod 700 "$NEXT"
       mv -f "$NEXT" "$CURRENT"
-      "$CURRENT" --once >> "$ROOT/agent.stdout.log" 2>> "$ROOT/agent.stderr.log" || true
+      CORTEX_DEVBRIDGE_SUPERVISED=1 "$CURRENT" --once >> "$ROOT/agent.stdout.log" 2>> "$ROOT/agent.stderr.log" || true
     else
       rm -f "$NEXT"
     fi
@@ -81,7 +111,7 @@ echo \$! > "$ROOT/supervisor.pid"
 EOF
 chmod 700 "$HOME/.termux/boot/20-cortex-devbridge"
 
-# Stop any previous poller before first-contact processing so it cannot race the one-shot agent.
+# Stop previous workers before first-contact processing so there is exactly one Git fetch owner.
 for pidfile in "$ROOT/agent.pid" "$ROOT/supervisor.pid"; do
   if [ -f "$pidfile" ]; then
     oldpid="$(cat "$pidfile" 2>/dev/null || true)"
@@ -91,24 +121,20 @@ for pidfile in "$ROOT/agent.pid" "$ROOT/supervisor.pid"; do
     fi
   fi
 done
+rm -rf "$ROOT/fetch.lock"
 
-# Refresh control and execute queued work synchronously before starting continuous polling.
-CONTROL="$ROOT/control"
-if [ ! -d "$CONTROL/.git" ]; then
-  rm -rf "$CONTROL"
-  git clone --filter=blob:none --no-tags "$REMOTE" "$CONTROL" >/dev/null 2>&1 || fail "control clone failed"
-fi
-git -C "$CONTROL" remote set-url origin "$REMOTE" >/dev/null 2>&1 || true
-git -C "$CONTROL" fetch --prune origin "$CONTROL_BRANCH" >/dev/null 2>&1 || fail "control fetch failed"
+# Bootstrap performs one bounded fetch, then the agent consumes already-fetched refs.
+git -C "$LOCAL_REPO" remote set-url origin "$REMOTE" >/dev/null 2>&1 || true
+fetch_with_timeout "$CONTROL_BRANCH" || fail "control fetch failed or timed out"
 BOOT_AGENT="$ROOT/bootstrap-agent-once.sh"
-git -C "$CONTROL" show "origin/$CONTROL_BRANCH:scripts/devbridge-agent-v2.sh" > "$BOOT_AGENT" 2>/dev/null || fail "agent fetch failed"
+git -C "$LOCAL_REPO" show "origin/$CONTROL_BRANCH:scripts/devbridge-agent-v2.sh" > "$BOOT_AGENT" 2>/dev/null || fail "agent fetch failed"
 bash -n "$BOOT_AGENT" >/dev/null 2>&1 || fail "agent syntax failed"
 chmod 700 "$BOOT_AGENT"
 printf 'CORTEX_DEVBRIDGE_PROCESSING_QUEUED_JOBS\n'
-"$BOOT_AGENT" --once || true
+CORTEX_DEVBRIDGE_SUPERVISED=1 "$BOOT_AGENT" --once || true
 printf 'CORTEX_DEVBRIDGE_ONE_SHOT_DONE\n'
 
-# Only after the one-shot is finished, restore the long-lived poller.
+# Only after one-shot completion restore continuous polling.
 command -v termux-wake-lock >/dev/null 2>&1 && termux-wake-lock || true
 nohup "$ROOT/supervisor.sh" >> "$ROOT/supervisor.stdout.log" 2>> "$ROOT/supervisor.stderr.log" < /dev/null &
 echo $! > "$ROOT/supervisor.pid"
