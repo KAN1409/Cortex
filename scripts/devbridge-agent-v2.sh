@@ -33,15 +33,11 @@ fi
 
 git -C "$CONTROL" show "origin/$CONTROL_BRANCH:scripts/devbridge-agent-v3.sh" > "$TARGET" 2>/dev/null || { echo DEVBRIDGE_V3_FETCH_FAILED >&2; exit 71; }
 
-# Runtime safety/recovery extensions. V3 remains the canonical engine; this wrapper patches only
-# fresh-install signer continuity, exact-job targeting, APK signer parsing, and local-control fetch behavior.
 python - "$TARGET" <<'PY'
 from pathlib import Path
 import sys
-
 path = Path(sys.argv[1])
 text = path.read_text()
-
 needle = '  [ -n "$installed_path" ] || { echo INSTALLED_APK_NOT_FOUND; return 25; }\n'
 replacement = r'''  if [ -z "$installed_path" ]; then
     [ "$pkg" = 'com.kareem.cortex' ] || { echo FRESH_INSTALL_DENY_PACKAGE; return 25; }
@@ -64,45 +60,29 @@ replacement = r'''  if [ -z "$installed_path" ]; then
     return 0
   fi
 '''
-if needle not in text:
-    raise SystemExit('DEVBRIDGE_FRESH_INSTALL_PATCH_TARGET_MISSING')
+if needle not in text: raise SystemExit('DEVBRIDGE_FRESH_INSTALL_PATCH_TARGET_MISSING')
 text = text.replace(needle, replacement, 1)
-
 filter_needle = '''    [ -n "$job" ] || continue\n    grep -Fxq "$job" "$STATE" && continue\n'''
 filter_replacement = '''    [ -n "$job" ] || continue\n    if [ -n "${CORTEX_DEVBRIDGE_ONLY_JOB:-}" ] && [ "$job" != "$CORTEX_DEVBRIDGE_ONLY_JOB" ]; then continue; fi\n    grep -Fxq "$job" "$STATE" && continue\n'''
-if filter_needle not in text:
-    raise SystemExit('DEVBRIDGE_ONLY_JOB_PATCH_TARGET_MISSING')
+if filter_needle not in text: raise SystemExit('DEVBRIDGE_ONLY_JOB_PATCH_TARGET_MISSING')
 text = text.replace(filter_needle, filter_replacement, 1)
-
 parser_needle = '''        signer,_=lp(b,0)\n        signed,_=lp(signer,0)\n        _,q=lp(signed,0)\n        certs,_=lp(signed,q)\n        cert,_=lp(certs,0)\n'''
 parser_replacement = '''        signers,_=lp(b,0)\n        signer,_=lp(signers,0)\n        signed,_=lp(signer,0)\n        _,q=lp(signed,0)\n        certs,_=lp(signed,q)\n        cert,_=lp(certs,0)\n'''
-if parser_needle not in text:
-    raise SystemExit('DEVBRIDGE_SIGNER_PARSER_PATCH_TARGET_MISSING')
+if parser_needle not in text: raise SystemExit('DEVBRIDGE_SIGNER_PARSER_PATCH_TARGET_MISSING')
 text = text.replace(parser_needle, parser_replacement, 1)
-
 clone_needle = '''  git -C "$dir" remote set-url origin "$REMOTE" >/dev/null 2>&1 || return 1\n  git -C "$dir" fetch --prune origin "$branch" >/dev/null 2>&1 || return 1\n'''
 clone_replacement = '''  git -C "$dir" remote set-url origin "$REMOTE" >/dev/null 2>&1 || return 1\n  if [ "$dir" = "$CONTROL" ] && [ -L "$CONTROL" ]; then\n    git -C "$dir" show-ref --verify --quiet "refs/remotes/origin/$branch" || return 1\n  elif command -v timeout >/dev/null 2>&1; then\n    timeout 45 git -C "$dir" fetch --prune origin "$branch" >/dev/null 2>&1 || return 1\n  else\n    git -C "$dir" fetch --prune origin "$branch" >/dev/null 2>&1 || return 1\n  fi\n'''
-if clone_needle not in text:
-    raise SystemExit('DEVBRIDGE_LOCAL_CONTROL_CLONE_PATCH_TARGET_MISSING')
+if clone_needle not in text: raise SystemExit('DEVBRIDGE_LOCAL_CONTROL_CLONE_PATCH_TARGET_MISSING')
 text = text.replace(clone_needle, clone_replacement, 1)
-
 prepare_fetch_needle = '  git -C "$CONTROL" fetch origin "$ref" >/dev/null 2>&1 || return 1\n'
 prepare_fetch_replacement = '''  local source_ref='FETCH_HEAD'\n  if [ -L "$CONTROL" ]; then\n    source_ref="refs/remotes/origin/$ref"\n    git -C "$CONTROL" show-ref --verify --quiet "$source_ref" || return 1\n  elif command -v timeout >/dev/null 2>&1; then\n    timeout 45 git -C "$CONTROL" fetch origin "$ref" >/dev/null 2>&1 || return 1\n  else\n    git -C "$CONTROL" fetch origin "$ref" >/dev/null 2>&1 || return 1\n  fi\n'''
-if prepare_fetch_needle not in text:
-    raise SystemExit('DEVBRIDGE_LOCAL_CONTROL_REF_PATCH_TARGET_MISSING')
+if prepare_fetch_needle not in text: raise SystemExit('DEVBRIDGE_LOCAL_CONTROL_REF_PATCH_TARGET_MISSING')
 text = text.replace(prepare_fetch_needle, prepare_fetch_replacement, 1)
-
 worktree_needle = '  git -C "$CONTROL" worktree add --detach "$dir" FETCH_HEAD >/dev/null 2>&1 || return 1\n'
 worktree_replacement = '  git -C "$CONTROL" worktree add --detach "$dir" "$source_ref" >/dev/null 2>&1 || return 1\n'
-if worktree_needle not in text:
-    raise SystemExit('DEVBRIDGE_LOCAL_CONTROL_WORKTREE_PATCH_TARGET_MISSING')
+if worktree_needle not in text: raise SystemExit('DEVBRIDGE_LOCAL_CONTROL_WORKTREE_PATCH_TARGET_MISSING')
 text = text.replace(worktree_needle, worktree_replacement, 1)
-
-text = text.replace(
-    'candidate_signer_sha256=|installed_signer_sha256=|apk_sha256=',
-    'candidate_signer_sha256=|installed_signer_sha256=|source_signer_sha256=|fresh_install=|apk_sha256=',
-    1,
-)
+text = text.replace('candidate_signer_sha256=|installed_signer_sha256=|apk_sha256=','candidate_signer_sha256=|installed_signer_sha256=|source_signer_sha256=|fresh_install=|apk_sha256=',1)
 path.write_text(text)
 PY
 
@@ -111,28 +91,20 @@ chmod 700 "$TARGET"
 "$TARGET" "$@"
 rc=$?
 
-# Self-heal the long-lived poller. If an old supervisor invoked this agent, replace it safely.
+# Install the current supervisor source. Only an agent that was actually invoked by an OLD
+# supervisor replaces/restarts that parent. Bootstrap/manual one-shots never spawn duplicates.
 SUP_NEXT="$ROOT/supervisor.next.sh"
 SUP="$ROOT/supervisor.sh"
 if git -C "$CONTROL" show "origin/$CONTROL_BRANCH:scripts/devbridge-supervisor-v2.sh" > "$SUP_NEXT" 2>/dev/null && bash -n "$SUP_NEXT" >/dev/null 2>&1; then
   chmod 700 "$SUP_NEXT"
   mv -f "$SUP_NEXT" "$SUP"
   parent_args="$(ps -p "$PPID" -o args= 2>/dev/null || true)"
-  pidfile="$ROOT/supervisor.pid"
-  current_pid="$(cat "$pidfile" 2>/dev/null || true)"
-  need_start=0
-  if [ -z "$current_pid" ] || ! kill -0 "$current_pid" 2>/dev/null; then need_start=1; fi
   if [ "${CORTEX_DEVBRIDGE_SUPERVISOR_V2:-0}" != 1 ] && printf '%s' "$parent_args" | grep -Fq "$ROOT/supervisor.sh"; then
-    need_start=1
     old_parent="$PPID"
-  else
-    old_parent=""
-  fi
-  if [ "$need_start" = 1 ]; then
     command -v termux-wake-lock >/dev/null 2>&1 && termux-wake-lock || true
     nohup "$SUP" >> "$ROOT/supervisor.stdout.log" 2>> "$ROOT/supervisor.stderr.log" < /dev/null &
-    echo $! > "$pidfile"
-    [ -z "$old_parent" ] || kill "$old_parent" 2>/dev/null || true
+    echo $! > "$ROOT/supervisor.pid"
+    kill "$old_parent" 2>/dev/null || true
   fi
 else
   rm -f "$SUP_NEXT"
