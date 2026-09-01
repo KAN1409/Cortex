@@ -33,6 +33,8 @@
         <activity android:name=".ProposalPeopleProjectsActivity" android:exported="false" />
         <activity android:name=".SmartInboxActivity" android:exported="false" />
         <activity android:name=".VaultActivity" android:exported="false" />
+        <activity android:name=".EvidenceActivity" android:exported="false" />
+        <activity android:name=".DeepReviewActivity" android:exported="false" android:windowSoftInputMode="adjustResize" />
         <activity android:name=".PromptLibraryActivity" android:exported="false" />
         <activity android:name=".AskCortexActivity" android:exported="false" android:windowSoftInputMode="adjustResize" />
         <activity android:name=".ProposalAskCortexActivity" android:exported="false" android:windowSoftInputMode="adjustResize" />
