@@ -34,6 +34,10 @@ public final class CortexGlobalSkin {
         }else if(v instanceof Button){
             Button b=(Button)v;b.setAllCaps(false);b.setTextColor(CortexUi.TEXT);b.setBackground(CortexUi.round(a,CortexUi.SURFACE_2,Color.TRANSPARENT,13));
             if(Build.VERSION.SDK_INT>=21)b.setBackgroundTintList(null);
+        }else if(v instanceof TextView){
+            TextView t=(TextView)v;String s=t.getText()==null?"":t.getText().toString().trim();
+            if("C O R T E X".equals(s)){t.setText("Cortex");t.setTextSize(19);CortexUi.medium(t);if(Build.VERSION.SDK_INT>=21)t.setLetterSpacing(0);}
+            else if("SYSTEM".equals(s)){t.setText("Brief");if(Build.VERSION.SDK_INT>=21)t.setLetterSpacing(0);}
         }else if(v instanceof ProgressBar){
             ProgressBar p=(ProgressBar)v;
             if(Build.VERSION.SDK_INT>=21){p.setProgressTintList(ColorStateList.valueOf(CortexUi.LIME));p.setIndeterminateTintList(ColorStateList.valueOf(CortexUi.LIME));}
