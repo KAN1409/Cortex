@@ -5,29 +5,28 @@ import android.graphics.Color;
 import android.view.*;
 import android.widget.*;
 
-/** CORTEX UI DESIGN LOCK V1 compact capture/attachment sheet. */
+/** Compact capture sheet shared by every entry point into Cortex, using the v51 app-wide UX. */
 public final class ProposalCaptureActivity extends SatinCaptureActivity {
     @Override void build(){
         Window w=getWindow();w.setBackgroundDrawableResource(android.R.color.transparent);w.addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND);w.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);WindowManager.LayoutParams lp=w.getAttributes();lp.dimAmount=.72f;w.setAttributes(lp);
         root=new FrameLayout(this);root.setBackgroundColor(Color.TRANSPARENT);root.setOnClickListener(v->finish());
-        sheet=new LinearLayout(this);sheet.setOrientation(LinearLayout.VERTICAL);sheet.setPadding(dp(16),dp(13),dp(16),dp(17));sheet.setBackground(CortexUi.round(this,Color.rgb(12,14,12),Color.rgb(55,59,53),24));sheet.setOnClickListener(v->{});
+        sheet=CortexUi.card(this,20);sheet.setOrientation(LinearLayout.VERTICAL);sheet.setPadding(dp(16),dp(14),dp(16),dp(16));sheet.setOnClickListener(v->{});
 
-        LinearLayout head=new LinearLayout(this);head.setGravity(Gravity.CENTER_VERTICAL);head.addView(new CortexLineIconView(this,"logo",CortexUi.LIME),new LinearLayout.LayoutParams(dp(30),dp(30)));TextView title=CortexUi.plain(this,"Add to Cortex",16,CortexUi.TEXT);CortexUi.medium(title);LinearLayout.LayoutParams tp=new LinearLayout.LayoutParams(0,-2,1);tp.setMargins(dp(9),0,0,0);head.addView(title,tp);FrameLayout close=new FrameLayout(this);close.setBackground(CortexUi.round(this,Color.rgb(23,25,23),Color.rgb(55,59,53),999));close.addView(new CortexLineIconView(this,"plus",CortexUi.MUTED),new FrameLayout.LayoutParams(dp(22),dp(22),Gravity.CENTER));close.setRotation(45f);close.setOnClickListener(v->finish());head.addView(close,new LinearLayout.LayoutParams(dp(38),dp(38)));sheet.addView(head,new LinearLayout.LayoutParams(-1,dp(44)));
+        LinearLayout head=new LinearLayout(this);head.setGravity(Gravity.CENTER_VERTICAL);LinearLayout tx=new LinearLayout(this);tx.setOrientation(LinearLayout.VERTICAL);TextView title=CortexUi.plain(this,"Add to Cortex",20,CortexUi.TEXT);CortexUi.medium(title);tx.addView(title);TextView sub=CortexUi.plain(this,"Choose how to capture it",10,CortexUi.MUTED);sub.setPadding(0,dp(2),0,0);tx.addView(sub);head.addView(tx,new LinearLayout.LayoutParams(0,-2,1));TextView close=CortexUi.plain(this,"×",27,CortexUi.MUTED);close.setGravity(Gravity.CENTER);close.setOnClickListener(v->finish());head.addView(close,new LinearLayout.LayoutParams(dp(40),dp(40)));sheet.addView(head);
 
-        importState=CortexUi.plain(this,"Importing safely…",9,CortexUi.LIME);importState.setPadding(dp(4),dp(6),0,dp(5));importState.setVisibility(View.GONE);sheet.addView(importState);
-        choices=new LinearLayout(this);choices.setOrientation(LinearLayout.VERTICAL);choices.setPadding(0,dp(7),0,0);
-        choices.addView(actionRow("voice","Voice","Speak naturally",this::startVoice));
-        choices.addView(actionRow("photo","Photo","Take or import visual evidence",this::pickPhoto));
-        choices.addView(actionRow("file","File","Documents, audio and attachments",this::pickFile));
-        choices.addView(actionRow("evidence","Text / Paste","Write or paste text into Cortex",this::quickNote));
-        sheet.addView(choices);
+        importState=CortexUi.plain(this,"Importing…",10,CortexUi.ORANGE);importState.setPadding(0,dp(8),0,0);importState.setVisibility(View.GONE);sheet.addView(importState);
 
-        TextView trust=CortexUi.plain(this,"Every capture keeps its source and provenance.",9,CortexUi.FAINT);trust.setPadding(dp(4),dp(10),0,0);sheet.addView(trust);
+        choices=new LinearLayout(this);choices.setOrientation(LinearLayout.VERTICAL);choices.setPadding(0,dp(14),0,0);
+        LinearLayout top=new LinearLayout(this);top.setOrientation(LinearLayout.HORIZONTAL);captureTile(top,"Voice","Speak","wave",CortexUi.RED,this::startVoice,0);captureTile(top,"Text","Type or paste","text",CortexUi.YELLOW,this::quickNote,8);choices.addView(top,new LinearLayout.LayoutParams(-1,dp(92)));
+        LinearLayout bottom=new LinearLayout(this);bottom.setOrientation(LinearLayout.HORIZONTAL);captureTile(bottom,"Photo","Camera or gallery","photo",CortexUi.GREEN,this::pickPhoto,0);captureTile(bottom,"File","Documents & media","file",CortexUi.ORANGE,this::pickFile,8);LinearLayout.LayoutParams bp=new LinearLayout.LayoutParams(-1,dp(92));bp.setMargins(0,dp(8),0,0);choices.addView(bottom,bp);sheet.addView(choices);
+
         FrameLayout.LayoutParams sp=new FrameLayout.LayoutParams(-1,-2,Gravity.BOTTOM);sp.setMargins(dp(10),0,dp(10),dp(10));root.addView(sheet,sp);setContentView(root);applyInsets();
     }
 
-    View actionRow(String icon,String title,String subtitle,Runnable action){LinearLayout row=new LinearLayout(this);row.setGravity(Gravity.CENTER_VERTICAL);row.setPadding(dp(7),dp(6),dp(5),dp(6));row.addView(iconDisc(icon),new LinearLayout.LayoutParams(dp(44),dp(44)));LinearLayout tx=new LinearLayout(this);tx.setOrientation(LinearLayout.VERTICAL);LinearLayout.LayoutParams xp=new LinearLayout.LayoutParams(0,-2,1);xp.setMargins(dp(11),0,0,0);row.addView(tx,xp);TextView h=CortexUi.plain(this,title,13,CortexUi.TEXT);CortexUi.medium(h);tx.addView(h);TextView s=CortexUi.plain(this,subtitle,9,CortexUi.MUTED);s.setPadding(0,dp(2),0,0);tx.addView(s);row.addView(new CortexLineIconView(this,"chevron",CortexUi.FAINT),new LinearLayout.LayoutParams(dp(20),dp(20)));row.setOnClickListener(v->action.run());LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,dp(60));p.setMargins(0,dp(1),0,0);row.setLayoutParams(p);return row;}
-    View iconDisc(String kind){FrameLayout f=new FrameLayout(this);f.setBackground(CortexUi.round(this,Color.rgb(22,24,22),Color.rgb(58,62,56),999));f.addView(new CortexLineIconView(this,kind,CortexUi.LIME),new FrameLayout.LayoutParams(dp(27),dp(27),Gravity.CENTER));return f;}
+    void captureTile(LinearLayout row,String title,String sub,String icon,int color,Runnable action,int left){
+        LinearLayout tile=new LinearLayout(this);tile.setOrientation(LinearLayout.VERTICAL);tile.setGravity(Gravity.CENTER_VERTICAL);tile.setPadding(dp(12),dp(9),dp(12),dp(9));CortexUi.pressable(this,tile,CortexUi.round(this,CortexUi.SURFACE_2,Color.TRANSPARENT,15));
+        LinearLayout top=new LinearLayout(this);top.setGravity(Gravity.CENTER_VERTICAL);top.addView(CortexUi.glyph(this,icon,color,false),new LinearLayout.LayoutParams(dp(30),dp(30)));TextView t=CortexUi.plain(this,title,14,CortexUi.TEXT);CortexUi.medium(t);LinearLayout.LayoutParams tp=new LinearLayout.LayoutParams(0,dp(32),1);tp.setMargins(dp(8),0,0,0);top.addView(t,tp);tile.addView(top);TextView s=CortexUi.plain(this,sub,9,CortexUi.MUTED);s.setPadding(0,dp(5),0,0);tile.addView(s);tile.setOnClickListener(v->action.run());LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,-1,1);p.setMargins(dp(left),0,0,0);row.addView(tile,p);
+    }
 
     /** Keep one Android Share owner. Structured ChatGPT returns are routed to Deep Review, not ingested as ordinary evidence. */
     @Override void handleIncoming(Intent i){
