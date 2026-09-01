@@ -5,47 +5,128 @@ import android.content.*;
 import android.graphics.Color;
 import android.os.Bundle;
 import android.provider.Settings;
+import android.text.InputType;
 import android.view.*;
 import android.widget.*;
+import java.util.*;
 
-/** PRIME input surface using the locked matte warm premium design language. */
+/** Intelligence-first Cortex entry surface: one composer, then what Cortex knows. */
 public class InputActivity extends Activity {
+    VaultDb db;
+    EditText composer;
+    TextView evidenceMeta, reviewMeta, screenMeta;
     int dp(int x){return CortexUi.dp(this,x);}
-    @Override public void onCreate(Bundle b){super.onCreate(b);CortexUi.applyWindow(this);build();}
-    @Override protected void onPostResume(){super.onPostResume();StartupMaintenance.schedule(this);}
+
+    @Override public void onCreate(Bundle b){
+        super.onCreate(b);
+        CortexUi.applyWindow(this);
+        db=new VaultDb(this);
+        build();
+    }
+    @Override protected void onResume(){super.onResume();StartupMaintenance.schedule(this);refreshState();}
+    @Override protected void onDestroy(){try{if(db!=null)db.close();}catch(Throwable ignored){}super.onDestroy();}
 
     void build(){
-        LinearLayout root=new LinearLayout(this);root.setOrientation(LinearLayout.VERTICAL);root.setBackgroundColor(CortexUi.BG);ScrollView sv=new ScrollView(this);sv.setFillViewport(true);sv.setClipToPadding(false);LinearLayout body=new LinearLayout(this);body.setOrientation(LinearLayout.VERTICAL);body.setPadding(dp(18),dp(10),dp(18),dp(26));sv.addView(body);root.addView(sv,new LinearLayout.LayoutParams(-1,0,1));
+        LinearLayout root=new LinearLayout(this);root.setOrientation(LinearLayout.VERTICAL);root.setBackgroundColor(CortexUi.BG);
+        ScrollView sv=new ScrollView(this);sv.setFillViewport(true);sv.setClipToPadding(false);
+        LinearLayout body=new LinearLayout(this);body.setOrientation(LinearLayout.VERTICAL);body.setPadding(dp(18),dp(10),dp(18),dp(24));
+        sv.addView(body);root.addView(sv,new LinearLayout.LayoutParams(-1,0,1));
         body.addView(header());
 
-        LinearLayout intro=CortexUi.card(this,22);intro.setPadding(0,0,0,0);LinearLayout core=new LinearLayout(this);core.setGravity(Gravity.CENTER_VERTICAL);core.setPadding(dp(14),dp(14),dp(13),dp(14));View rail=new View(this);rail.setBackground(CortexUi.round(this,CortexUi.ORANGE,Color.TRANSPARENT,999));LinearLayout.LayoutParams rp=new LinearLayout.LayoutParams(dp(2),dp(54));rp.setMargins(0,0,dp(12),0);core.addView(rail,rp);core.addView(CortexUi.glyph(this,"input",CortexUi.ORANGE,true),new LinearLayout.LayoutParams(dp(52),dp(52)));LinearLayout tx=new LinearLayout(this);tx.setOrientation(LinearLayout.VERTICAL);LinearLayout.LayoutParams tp=new LinearLayout.LayoutParams(0,-2,1);tp.setMargins(dp(12),0,0,0);core.addView(tx,tp);TextView ih=CortexUi.plain(this,"Capture anything",18,CortexUi.TEXT);CortexUi.medium(ih);tx.addView(ih);TextView is=CortexUi.text(this,"Speak, paste, photograph or share. Cortex keeps the evidence and turns the result into useful next proposals.",12,CortexUi.MUTED);is.setPadding(0,dp(5),0,0);tx.addView(is);intro.addView(core);body.addView(intro,margins(0,8,0,0));
+        body.addView(composerCard(),margins(0,8,0,0));
 
-        body.addView(section("CAPTURE",CortexUi.ORANGE));LinearLayout row1=new LinearLayout(this);row1.setOrientation(LinearLayout.HORIZONTAL);addTile(row1,"Voice","Speak naturally\nArabic + English","voice","wave",CortexUi.RED,0);addTile(row1,"Text / Paste","Notes, prompts, ideas\nor copied text","text","text",CortexUi.YELLOW,8);body.addView(row1,new LinearLayout.LayoutParams(-1,dp(150)));LinearLayout row2=new LinearLayout(this);row2.setOrientation(LinearLayout.HORIZONTAL);addTile(row2,"Photo","Take or import\nvisual evidence","photo","photo",CortexUi.GREEN,0);addTile(row2,"File","Documents, audio\nand attachments","file","file",CortexUi.ORANGE,8);LinearLayout.LayoutParams r2=new LinearLayout.LayoutParams(-1,dp(150));r2.setMargins(0,dp(8),0,0);body.addView(row2,r2);
+        body.addView(section("CORTEX NOW",CortexUi.LIME));
+        LinearLayout intelligence=new LinearLayout(this);intelligence.setOrientation(LinearLayout.HORIZONTAL);
+        intelligence.addView(primaryCard("Evidence","nodes",CortexUi.GREEN,true),new LinearLayout.LayoutParams(0,dp(158),1));
+        LinearLayout.LayoutParams drp=new LinearLayout.LayoutParams(0,dp(158),1);drp.setMargins(dp(9),0,0,0);
+        intelligence.addView(primaryCard("Deep Review","brain",CortexUi.RED,false),drp);
+        body.addView(intelligence);
 
-        body.addView(section("CORTEX KNOWS",CortexUi.GREEN));
-        body.addView(featureCard("Evidence","See the immutable source ledger: what Cortex captured, where it came from, its raw/extracted content and current analysis state.","nodes",CortexUi.GREEN,"Open Evidence",v->open(EvidenceActivity.class)),margins(0,0,0,0));
-        body.addView(featureCard("Deep Review","Send a grounded Cortex snapshot to ChatGPT, return a machine-readable review, then preview and approve what Cortex may add.","brain",CortexUi.RED,"Open Deep Review",v->open(DeepReviewActivity.class)),margins(0,9,0,0));
+        body.addView(section("EVERYWHERE",CortexUi.GREEN));
+        body.addView(screenCard());
 
-        body.addView(section("EVERYWHERE CORTEX",CortexUi.GREEN));
-        boolean screenReady=CortexScreenAccessibilityService.connected();body.addView(featureCard("Understand this screen",screenReady?"READY · Use the Understand screen Quick Settings tile while any app is visible.":"SETUP NEEDED · Enable screen understanding once, then add the Quick Settings tile.","open",screenReady?CortexUi.GREEN:CortexUi.ORANGE,screenReady?"Open Quick Settings setup":"Enable screen understanding",v->{try{startActivity(new Intent(screenReady?"android.settings.QUICK_SETTINGS_SETTINGS":Settings.ACTION_ACCESSIBILITY_SETTINGS));}catch(Throwable e){try{startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS));}catch(Throwable ignored){}}}),margins(0,0,0,0));
-        body.addView(featureCard("From another app","READY · Android Share → Cortex accepts text, links, screenshots, audio and files and returns to the same understanding flow.","nodes",CortexUi.YELLOW,"Show share instruction",v->new AlertDialog.Builder(this).setTitle("Share to Cortex").setMessage("In any app, tap Share and choose Cortex. Cortex imports the original item safely, analyzes it, then opens the grounded result with model-generated next proposals.").setPositiveButton("Got it",null).show()),margins(0,9,0,0));
-        body.addView(featureCard("Quick voice","Start the same one-tap voice capture now, or use the Cortex Voice Quick Settings tile from any app.","wave",CortexUi.RED,"Start quick voice now",v->capture("voice")),margins(0,9,0,0));
+        TextView share=CortexUi.plain(this,"Share from any app → Cortex keeps the original as Evidence. Structured ChatGPT reviews return to Deep Review instead of becoming ordinary captures.",9,CortexUi.FAINT);
+        share.setPadding(dp(2),dp(12),dp(2),dp(2));body.addView(share);
 
-        CortexUi.addBottomNav(this,root,"input",null);setContentView(root);
+        CortexUi.addBottomNav(this,root,"input",null);
+        setContentView(root);
     }
 
-    View header(){LinearLayout row=new LinearLayout(this);row.setGravity(Gravity.CENTER_VERTICAL);row.setPadding(dp(5),dp(8),dp(2),dp(11));View dot=new View(this);dot.setBackground(CortexUi.round(this,CortexUi.ORANGE,Color.TRANSPARENT,999));row.addView(dot,new LinearLayout.LayoutParams(dp(9),dp(9)));TextView c=CortexUi.plain(this,"C O R T E X",14,CortexUi.TEXT);CortexUi.bold(c);if(android.os.Build.VERSION.SDK_INT>=21)c.setLetterSpacing(.20f);LinearLayout.LayoutParams cp=new LinearLayout.LayoutParams(-2,dp(40));cp.setMargins(dp(12),0,0,0);row.addView(c,cp);View d=CortexUi.divider(this);LinearLayout.LayoutParams dpv=new LinearLayout.LayoutParams(dp(1),dp(28));dpv.setMargins(dp(12),0,dp(12),0);row.addView(d,dpv);TextView sys=CortexUi.plain(this,"INPUT",10,CortexUi.MUTED);if(android.os.Build.VERSION.SDK_INT>=21)sys.setLetterSpacing(.10f);row.addView(sys,new LinearLayout.LayoutParams(0,dp(40),1));CortexGlyphView settings=CortexUi.glyph(this,"settings",CortexUi.ORANGE,false);settings.setOnClickListener(v->open(SettingsActivity.class));row.addView(settings,new LinearLayout.LayoutParams(dp(46),dp(46)));return row;}
+    View composerCard(){
+        LinearLayout card=CortexUi.card(this,24);card.setPadding(dp(16),dp(15),dp(16),dp(15));
+        TextView eyebrow=CortexUi.plain(this,"CAPTURE · THINK",9,CortexUi.ORANGE);CortexUi.medium(eyebrow);if(android.os.Build.VERSION.SDK_INT>=21)eyebrow.setLetterSpacing(.10f);card.addView(eyebrow);
+        TextView title=CortexUi.plain(this,"What’s on your mind?",24,CortexUi.TEXT);CortexUi.medium(title);title.setPadding(0,dp(6),0,0);card.addView(title);
+        TextView sub=CortexUi.text(this,"Type it, say it, show it or attach it. Cortex keeps the source and builds understanding from there.",11,CortexUi.MUTED);sub.setPadding(0,dp(5),0,0);card.addView(sub);
 
-    TextView section(String title,int color){TextView h=CortexUi.plain(this,title,10,color);CortexUi.medium(h);if(android.os.Build.VERSION.SDK_INT>=21)h.setLetterSpacing(.09f);h.setPadding(dp(1),dp(19),0,dp(8));return h;}
+        LinearLayout inputRow=new LinearLayout(this);inputRow.setGravity(Gravity.BOTTOM);inputRow.setPadding(0,dp(14),0,0);
+        composer=new EditText(this);composer.setHint("Type or paste anything…");composer.setHintTextColor(CortexUi.FAINT);composer.setTextColor(CortexUi.TEXT);composer.setTextSize(14);composer.setGravity(Gravity.TOP|Gravity.START);composer.setMinLines(2);composer.setMaxLines(5);composer.setInputType(InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_FLAG_MULTI_LINE);composer.setPadding(dp(14),dp(12),dp(14),dp(12));composer.setBackground(CortexUi.round(this,CortexUi.SURFACE_2,CortexUi.BORDER,18));
+        inputRow.addView(composer,new LinearLayout.LayoutParams(0,dp(82),1));
+        TextView send=CortexUi.plain(this,"↑",27,CortexUi.BG);send.setGravity(Gravity.CENTER);CortexUi.medium(send);CortexUi.pressable(this,send,CortexUi.round(this,CortexUi.LIME,Color.rgb(207,230,120),18));send.setOnClickListener(v->submitText());
+        LinearLayout.LayoutParams sendp=new LinearLayout.LayoutParams(dp(54),dp(54));sendp.setMargins(dp(9),0,0,0);inputRow.addView(send,sendp);card.addView(inputRow);
 
-    void addTile(LinearLayout row,String title,String description,String mode,String icon,int color,int left){
-        LinearLayout tile=CortexUi.card(this,20);tile.setPadding(dp(13),dp(12),dp(13),dp(12));CortexUi.pressable(this,tile,CortexUi.velvet(this,20));tile.addView(CortexUi.glyph(this,icon,color,true),new LinearLayout.LayoutParams(dp(46),dp(46)));TextView t=CortexUi.plain(this,title,15,CortexUi.TEXT);CortexUi.medium(t);t.setPadding(0,dp(8),0,0);tile.addView(t);TextView d=CortexUi.text(this,description,10,CortexUi.MUTED);d.setPadding(0,dp(4),0,0);tile.addView(d);tile.setOnClickListener(v->capture(mode));LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,-1,1);p.setMargins(dp(left),0,0,0);row.addView(tile,p);
+        LinearLayout actions=new LinearLayout(this);actions.setOrientation(LinearLayout.HORIZONTAL);actions.setPadding(0,dp(11),0,0);
+        addMiniAction(actions,"Voice","wave",CortexUi.RED,()->capture("voice"),0);
+        addMiniAction(actions,"Photo","photo",CortexUi.GREEN,()->capture("photo"),7);
+        addMiniAction(actions,"File","file",CortexUi.ORANGE,()->capture("file"),7);
+        addMiniAction(actions,"Paste","text",CortexUi.YELLOW,this::pasteIntoComposer,7);
+        card.addView(actions,new LinearLayout.LayoutParams(-1,dp(58)));
+        return card;
     }
 
-    LinearLayout featureCard(String title,String body,String icon,int color,String action,View.OnClickListener listener){
-        LinearLayout card=CortexUi.card(this,20);card.setPadding(0,0,0,0);LinearLayout top=new LinearLayout(this);top.setGravity(Gravity.CENTER_VERTICAL);top.setPadding(dp(13),dp(13),dp(13),dp(10));top.addView(CortexUi.glyph(this,icon,color,true),new LinearLayout.LayoutParams(dp(46),dp(46)));LinearLayout tx=new LinearLayout(this);tx.setOrientation(LinearLayout.VERTICAL);LinearLayout.LayoutParams xp=new LinearLayout.LayoutParams(0,-2,1);xp.setMargins(dp(11),0,0,0);top.addView(tx,xp);TextView h=CortexUi.plain(this,title,15,CortexUi.TEXT);CortexUi.medium(h);tx.addView(h);TextView b=CortexUi.text(this,body,11,CortexUi.MUTED);b.setPadding(0,dp(5),0,0);tx.addView(b);card.addView(top);TextView button=CortexUi.action(this,action,color,false);LinearLayout.LayoutParams bp=new LinearLayout.LayoutParams(-1,dp(43));bp.setMargins(dp(13),0,dp(13),dp(13));card.addView(button,bp);button.setOnClickListener(listener);return card;
+    void addMiniAction(LinearLayout row,String label,String glyph,int color,Runnable action,int left){
+        LinearLayout item=new LinearLayout(this);item.setOrientation(LinearLayout.HORIZONTAL);item.setGravity(Gravity.CENTER);item.setPadding(dp(5),0,dp(5),0);CortexUi.pressable(this,item,CortexUi.round(this,CortexUi.SURFACE_2,CortexUi.BORDER_SOFT,16));
+        item.addView(CortexUi.glyph(this,glyph,color,false),new LinearLayout.LayoutParams(dp(28),dp(28)));
+        TextView t=CortexUi.plain(this,label,9,CortexUi.MUTED);CortexUi.medium(t);LinearLayout.LayoutParams tp=new LinearLayout.LayoutParams(-2,-2);tp.setMargins(dp(3),0,0,0);item.addView(t,tp);item.setOnClickListener(v->action.run());
+        LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,-1,1);p.setMargins(dp(left),0,0,0);row.addView(item,p);
     }
 
+    View primaryCard(String title,String glyph,int color,boolean evidence){
+        LinearLayout card=CortexUi.card(this,21);card.setPadding(dp(13),dp(13),dp(13),dp(12));CortexUi.pressable(this,card,CortexUi.velvet(this,21));
+        LinearLayout top=new LinearLayout(this);top.setGravity(Gravity.CENTER_VERTICAL);top.addView(CortexUi.glyph(this,glyph,color,true),new LinearLayout.LayoutParams(dp(42),dp(42)));
+        TextView badge=CortexUi.chip(this,evidence?"SOURCE":"CHATGPT",color,false);LinearLayout.LayoutParams bp=new LinearLayout.LayoutParams(-2,dp(28));bp.setMargins(dp(7),0,0,0);top.addView(badge,bp);card.addView(top);
+        TextView h=CortexUi.plain(this,title,16,CortexUi.TEXT);CortexUi.medium(h);h.setPadding(0,dp(10),0,0);card.addView(h);
+        TextView meta=CortexUi.text(this,evidence?"Your immutable source ledger":"Grounded external review, previewed before apply",10,CortexUi.MUTED);meta.setMaxLines(3);meta.setPadding(0,dp(4),0,0);card.addView(meta);
+        TextView state=CortexUi.plain(this,"",9,color);CortexUi.medium(state);state.setPadding(0,dp(8),0,0);card.addView(state);
+        if(evidence)evidenceMeta=state;else reviewMeta=state;
+        card.setOnClickListener(v->open(evidence?EvidenceActivity.class:DeepReviewActivity.class));
+        return card;
+    }
+
+    View screenCard(){
+        LinearLayout card=CortexUi.card(this,20);card.setPadding(dp(13),dp(12),dp(13),dp(12));CortexUi.pressable(this,card,CortexUi.velvet(this,20));
+        LinearLayout row=new LinearLayout(this);row.setGravity(Gravity.CENTER_VERTICAL);row.addView(CortexUi.glyph(this,"open",CortexUi.GREEN,true),new LinearLayout.LayoutParams(dp(44),dp(44)));
+        LinearLayout tx=new LinearLayout(this);tx.setOrientation(LinearLayout.VERTICAL);LinearLayout.LayoutParams xp=new LinearLayout.LayoutParams(0,-2,1);xp.setMargins(dp(10),0,dp(8),0);row.addView(tx,xp);
+        TextView h=CortexUi.plain(this,"Understand this screen",14,CortexUi.TEXT);CortexUi.medium(h);tx.addView(h);
+        screenMeta=CortexUi.text(this,"",10,CortexUi.MUTED);screenMeta.setPadding(0,dp(4),0,0);tx.addView(screenMeta);
+        TextView open=CortexUi.plain(this,"›",28,CortexUi.GREEN);open.setGravity(Gravity.CENTER);row.addView(open,new LinearLayout.LayoutParams(dp(28),dp(44)));card.addView(row);
+        card.setOnClickListener(v->openScreenSetup());return card;
+    }
+
+    void refreshState(){
+        if(db!=null&&evidenceMeta!=null){int total=0;try{total=db.lexicalSearch("",400).size();}catch(Throwable ignored){}int pending=0,failed=0;try{pending=db.pendingCount();failed=db.failedCount();}catch(Throwable ignored){}evidenceMeta.setText(total+" items · "+pending+" processing"+(failed>0?" · "+failed+" review":""));}
+        if(reviewMeta!=null){String req=getSharedPreferences("cortex_deep_review_v1",MODE_PRIVATE).getString("last_request_id","");reviewMeta.setText(req==null||req.isEmpty()?"READY FOR REVIEW":"RESPONSE PENDING");reviewMeta.setTextColor(req==null||req.isEmpty()?CortexUi.GREEN:CortexUi.YELLOW);}
+        if(screenMeta!=null){boolean ready=CortexScreenAccessibilityService.connected();screenMeta.setText(ready?"Ready · use the Quick Settings tile from any app":"Setup needed · enable screen understanding once");screenMeta.setTextColor(ready?CortexUi.GREEN:CortexUi.MUTED);}
+    }
+
+    void submitText(){
+        if(composer==null)return;String s=composer.getText().toString().trim();if(s.isEmpty()){composer.setError("Write something first");return;}
+        try{String cat=AutoClassifier.category(s,"text/plain");long id=db.insert("TEXT","manual",AutoClassifier.title(s,"text/plain"),s,cat,AutoClassifier.tags(s,cat),"",Fingerprint.text(s),"{}");if(id<0){Toast.makeText(this,"Already in Cortex",Toast.LENGTH_SHORT).show();return;}composer.setText("");AnalysisQueue.kick(this,null,null);Intent i=new Intent(this,ProposalCaptureResultActivity.class);i.putExtra("item_id",id);startActivity(i);}catch(Throwable e){Toast.makeText(this,"Could not capture text",Toast.LENGTH_LONG).show();}
+    }
+
+    void pasteIntoComposer(){try{android.content.ClipboardManager cm=(android.content.ClipboardManager)getSystemService(CLIPBOARD_SERVICE);if(cm==null||!cm.hasPrimaryClip()||cm.getPrimaryClip().getItemCount()==0){Toast.makeText(this,"Clipboard is empty",Toast.LENGTH_SHORT).show();return;}CharSequence s=cm.getPrimaryClip().getItemAt(0).coerceToText(this);if(s!=null){composer.setText(s.toString());composer.setSelection(composer.length());composer.requestFocus();}}catch(Throwable e){Toast.makeText(this,"Could not read clipboard",Toast.LENGTH_SHORT).show();}}
+
+    void openScreenSetup(){boolean ready=CortexScreenAccessibilityService.connected();try{startActivity(new Intent(ready?"android.settings.QUICK_SETTINGS_SETTINGS":Settings.ACTION_ACCESSIBILITY_SETTINGS));}catch(Throwable e){try{startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS));}catch(Throwable ignored){}}}
+
+    View header(){
+        LinearLayout row=new LinearLayout(this);row.setGravity(Gravity.CENTER_VERTICAL);row.setPadding(dp(5),dp(8),dp(2),dp(11));
+        View dot=new View(this);dot.setBackground(CortexUi.round(this,CortexUi.ORANGE,Color.TRANSPARENT,999));row.addView(dot,new LinearLayout.LayoutParams(dp(9),dp(9)));
+        TextView c=CortexUi.plain(this,"C O R T E X",14,CortexUi.TEXT);CortexUi.bold(c);if(android.os.Build.VERSION.SDK_INT>=21)c.setLetterSpacing(.20f);LinearLayout.LayoutParams cp=new LinearLayout.LayoutParams(-2,dp(40));cp.setMargins(dp(12),0,0,0);row.addView(c,cp);
+        View d=CortexUi.divider(this);LinearLayout.LayoutParams dv=new LinearLayout.LayoutParams(dp(1),dp(28));dv.setMargins(dp(12),0,dp(12),0);row.addView(d,dv);
+        TextView sys=CortexUi.plain(this,"INPUT",10,CortexUi.MUTED);if(android.os.Build.VERSION.SDK_INT>=21)sys.setLetterSpacing(.10f);row.addView(sys,new LinearLayout.LayoutParams(0,dp(40),1));
+        CortexGlyphView settings=CortexUi.glyph(this,"settings",CortexUi.ORANGE,false);settings.setOnClickListener(v->open(SettingsActivity.class));row.addView(settings,new LinearLayout.LayoutParams(dp(44),dp(44)));return row;
+    }
+
+    TextView section(String title,int color){TextView h=CortexUi.plain(this,title,10,color);CortexUi.medium(h);if(android.os.Build.VERSION.SDK_INT>=21)h.setLetterSpacing(.09f);h.setPadding(dp(1),dp(18),0,dp(8));return h;}
     LinearLayout.LayoutParams margins(int l,int t,int r,int b){LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,-2);p.setMargins(dp(l),dp(t),dp(r),dp(b));return p;}
     void capture(String mode){try{Intent i=new Intent(this,ProposalCaptureActivity.class);i.putExtra("mode",mode);startActivity(i);}catch(Throwable ignored){}}
     void open(Class<?> cls){try{startActivity(new Intent(this,cls));}catch(Throwable ignored){}}
