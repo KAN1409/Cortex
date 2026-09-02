@@ -6,6 +6,11 @@
         <item name="android:navigationBarColor">@color/cortex_bg</item>
         <item name="android:colorAccent">@color/cortex_accent</item>
         <item name="android:windowBackground">@color/cortex_bg</item>
+        <item name="android:windowDisablePreview">true</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:textColorPrimary">@color/cortex_text</item>
+        <item name="android:textColorSecondary">@color/cortex_muted</item>
+        <item name="android:windowActionModeOverlay">true</item>
     </style>
 
     <style name="CaptureSheetTheme" parent="@style/AppTheme">
