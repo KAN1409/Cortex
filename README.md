@@ -1,28 +1,42 @@
-# Cortex v0.2 — Intelligence Layer
+# Cortex
 
-Cortex is a local-first Android knowledge vault and second-brain foundation.
+Cortex is a local-first Android memory and context system. It captures user-approved phone signals, turns them into evidence and memories, maintains situations and open loops, and exposes grounded reasoning and review surfaces without automatically executing model suggestions.
 
-## v0.2 capabilities
+## Project identity
 
-- Share text and images into Cortex from Android.
-- On-device screenshot/image OCR using ML Kit Latin-script text recognition.
-- Local automatic title, category and tag generation.
-- Local entity extraction for URLs, emails, dates, phone-like numbers, money and hashtags.
-- Local action extraction including common Arabic action phrasing.
-- Prompt + Input + Example Result bundles with ratings and linked detail display.
-- SHA-256 duplicate fingerprints.
-- Persistent analysis queue/state and manual re-analysis.
-- Versioned analysis JSON while preserving the original source.
-- CSV/TSV detection and local tabular summaries including rows, columns, min, max and average for numeric columns.
-- Search across original text, OCR text, summaries, entities and actions.
-- v0.1 to v0.2 SQLite migration path.
+- Android package: `com.kareem.cortex`
+- Minimum Android version: 8.0 (API 26)
+- Target Android version: Android 15 (API 35)
+- Java/Kotlin target: 17
+- Current development generation: v63
+
+## Product flow
+
+`Evidence -> Episode -> Memory -> Facts/Worlds -> Situation -> Attention/Reasoning -> Pulse`
+
+The SQLite schema is migrated additively. Existing installations must remain update-compatible; do not clear app data or replace signing material during development.
 
 ## Build
 
-The GitHub Actions workflow in `.github/workflows/build-apk.yml` builds a debug APK automatically on pushes to `main` and on manual workflow dispatch.
+The project requires JDK 17, Android SDK 35, and Gradle 8.9.
 
-Expected artifact: `Cortex-v0.2.0-debug.apk`
+```bash
+gradle :app:assembleDebug --stacktrace
+```
 
-## Architecture direction
+GitHub Actions builds the same target on pushes and pull requests and publishes the APK as a workflow artifact. Generated APKs are not committed to source control.
 
-Cortex is intended to become a shared Memory Core for Cortex Vault and Cortex Voice, with future context packs, semantic relationships, timeline recall and proactive resurfacing.
+## Source layout
+
+- `app/src/main/java/com/kareem/cortex/` — application, storage, reasoning, capture, and verification code
+- `app/src/main/res/` — Android resources
+- `docs/` — architecture, design constraints, hardening notes, and roadmap material
+- `.github/workflows/build-apk.yml` — reproducible debug build
+
+## Safety boundaries
+
+- Preserve additive database migrations and update-in-place compatibility.
+- Keep observations, model proposals, and user-authorized actions separate.
+- Require grounded identifiers for reasoning outputs.
+- Keep protected or external actions confirmation-gated.
+- Never commit generated APKs, local build output, API keys, or replacement signing material.
