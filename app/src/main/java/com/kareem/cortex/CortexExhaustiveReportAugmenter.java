@@ -14,12 +14,13 @@ public final class CortexExhaustiveReportAugmenter {
 
     public static JSONObject augment(Context context,File report)throws Exception{
         if(context==null||report==null||!report.exists())throw new FileNotFoundException("Master simulation JSON is unavailable");
-        Context c=context.getApplicationContext();JSONObject root=new JSONObject(read(report));String runId=root.optString("run_id","augment_"+System.currentTimeMillis());VaultDb db=new VaultDb(c);JSONObject suite;JSONArray v61;
+        Context c=context.getApplicationContext();JSONObject root=new JSONObject(read(report));String runId=root.optString("run_id","augment_"+System.currentTimeMillis());VaultDb db=new VaultDb(c);JSONObject suite;JSONArray v61,v62;
         try{
             suite=CortexExhaustiveVerificationSuite.run(c,db,runId);
             v61=CortexProductRegressionV61.run(c,db,runId);
-            JSONArray tests=suite.optJSONArray("tests");if(tests==null){tests=new JSONArray();suite.put("tests",tests);}for(int i=0;i<v61.length();i++)tests.put(v61.get(i));
-            suite.put("v61_product_regression_count",v61.length()).put("v61_product_regressions",true);
+            v62=CortexProductRegressionV62.run(c,db,runId);
+            JSONArray tests=suite.optJSONArray("tests");if(tests==null){tests=new JSONArray();suite.put("tests",tests);}for(int i=0;i<v61.length();i++)tests.put(v61.get(i));for(int i=0;i<v62.length();i++)tests.put(v62.get(i));
+            suite.put("v61_product_regression_count",v61.length()).put("v61_product_regressions",true).put("v62_product_regression_count",v62.length()).put("v62_product_regressions",true);
         }finally{db.close();}
         normalizeSuite(c,suite);
         root.put("exhaustive_verification",suite);
@@ -38,11 +39,12 @@ public final class CortexExhaustiveReportAugmenter {
             .put("extra_execution_coverage",suite.optDouble("execution_coverage",0))
             .put("extra_counts",counts)
             .put("v61_product_regression_count",suite.optInt("v61_product_regression_count",0))
+            .put("v62_product_regression_count",suite.optInt("v62_product_regression_count",0))
             .put("blocked_waiting_user",blockedUser)
             .put("blocked_setup",blockedSetup)
             .put("protected_confirmation_tests",protectedCount)
             .put("coverage_note","Blocked tests are not counted as PASS. Use the in-app Unblock Wizard and Protected Live Tests, then rerun.");
-        JSONObject manifest=root.optJSONObject("max_data_manifest");if(manifest==null){manifest=new JSONObject();root.put("max_data_manifest",manifest);}manifest.put("exhaustive_verification_matrix",true).put("interactive_unblock_wizard",true).put("protected_live_test_layer",true).put("suite_artifact_normalization",true).put("v61_product_regressions",true);
+        JSONObject manifest=root.optJSONObject("max_data_manifest");if(manifest==null){manifest=new JSONObject();root.put("max_data_manifest",manifest);}manifest.put("exhaustive_verification_matrix",true).put("interactive_unblock_wizard",true).put("protected_live_test_layer",true).put("suite_artifact_normalization",true).put("v61_product_regressions",true).put("v62_product_regressions",true);
 
         write(report,root.toString(2));summary.put("report_bytes",report.length()).put("report_file",report.getName());return summary;
     }
