@@ -43,6 +43,7 @@ public class InputActivity extends Activity {
             catch(Throwable e){try{startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS));}catch(Throwable ignored){}}
         }));
         body.addView(contextRow("Share to Cortex","Text, links, screenshots, audio and files","nodes",CortexUi.YELLOW,v->new AlertDialog.Builder(this).setTitle("Share to Cortex").setMessage("In any app, tap Share and choose Cortex.").setPositiveButton("Got it",null).show()),gap());
+        body.addView(contextRow("Organize with ChatGPT","Sort, link and create follow-ups from Cortex data","nodes",CortexUi.LIME,v->open(CortexOrganizerActivity.class)),gap());
         body.addView(contextRow("Quick voice","Start a voice capture without leaving your flow","wave",CortexUi.RED,v->capture("voice")),gap());
 
         CortexUi.addBottomNav(this,root,"input",null);setContentView(root);
