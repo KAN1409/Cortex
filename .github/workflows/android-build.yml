@@ -2,7 +2,7 @@ name: Android Debug APK
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, 'ci/x115-phone-context-build-v63' ]
   pull_request:
     branches: [ main ]
   workflow_dispatch:
@@ -35,6 +35,6 @@ jobs:
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
         with:
-          name: Cortex-v16-debug
+          name: Cortex-v63-x115-debug
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
