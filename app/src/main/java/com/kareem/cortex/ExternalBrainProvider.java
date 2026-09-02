@@ -75,7 +75,9 @@ public final class ExternalBrainProvider {
             attempted=true;try{Result r=askGemini(context,question,grounded,combined,focal,phoneContext);ExternalProviderHealthStore.noteSuccess(context,"gemini",r.durationMs);return r;}catch(Throwable e){last=e;ExternalProviderHealthStore.noteFailure(context,"gemini",e);}
         }
         if(!attempted){long orWait=OpenRouterKeyStore.has(context)?ExternalProviderHealthStore.remainingMs(context,"openrouter"):0,gemWait=GeminiKeyStore.has(context)?ExternalProviderHealthStore.remainingMs(context,"gemini"):0;long wait=smallestPositive(orWait,gemWait);throw new ProviderException("All configured external Brain providers are cooling down"+(wait>0?"; retry in about "+Math.max(1,Math.round(wait/1000.0))+"s":""),429,activeModel(context),"router",0);}
-        if(last instanceof Exception)throw (Exception)last;throw new IOException(last==null?"External Brain provider failed":last);
+        if(last instanceof Exception)throw (Exception)last;
+        if(last!=null)throw new IOException(last);
+        throw new IOException("External Brain provider failed");
     }
 
     public static HealthReport healthCheck(Context context){
