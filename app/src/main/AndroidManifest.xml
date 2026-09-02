@@ -33,10 +33,15 @@
         <activity android:name=".ProposalPeopleProjectsActivity" android:exported="false" />
         <activity android:name=".SmartInboxActivity" android:exported="false" />
         <activity android:name=".VaultActivity" android:exported="false" />
+        <activity android:name=".EvidenceActivity" android:exported="false" />
+        <activity android:name=".DeepReviewActivity" android:exported="false" android:windowSoftInputMode="adjustResize" />
         <activity android:name=".PromptLibraryActivity" android:exported="false" />
         <activity android:name=".AskCortexActivity" android:exported="false" android:windowSoftInputMode="adjustResize" />
         <activity android:name=".ProposalAskCortexActivity" android:exported="false" android:windowSoftInputMode="adjustResize" />
         <activity android:name=".SettingsActivity" android:exported="false" />
+        <activity android:name=".UserSimulationTestLabActivity" android:exported="true" />
+        <activity android:name=".CortexTestUnblockWizardActivity" android:exported="false" />
+        <activity android:name=".CortexProtectedLiveTestsActivity" android:exported="false" />
         <activity android:name=".ReviewQueueActivity" android:exported="false" />
         <activity android:name=".RelevanceEvaluationActivity" android:exported="false" />
         <activity android:name=".CorrectionLearningActivity" android:exported="false" />

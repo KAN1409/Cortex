@@ -14,6 +14,7 @@ import java.nio.charset.StandardCharsets;
 /**
  * Provider-agnostic cloud route for Brain.
  * OpenRouter/Ox Alpha is primary when configured; Gemini remains fallback and vision-safe compatibility.
+ * Provider failures are circuit-broken so a rate-limited route is not hammered repeatedly.
  * Never invoked from Your Data mode.
  */
 public final class ExternalBrainProvider {
@@ -48,30 +49,42 @@ public final class ExternalBrainProvider {
         public boolean rateLimited(){return httpCode==429;}public boolean retryable(){return httpCode==408||httpCode==429||httpCode>=500;}
     }
 
-    public static String activeProviderId(Context context){return OpenRouterKeyStore.has(context)?"openrouter":(GeminiKeyStore.has(context)?"gemini":"openrouter");}
-    public static String activeModel(Context context){return OpenRouterKeyStore.has(context)?OpenRouterModelConfig.generationModel(context):GeminiModelConfig.generationModel(context);}
+    public static String activeProviderId(Context context){
+        if(OpenRouterKeyStore.has(context)&&!ExternalProviderHealthStore.cooling(context,"openrouter"))return"openrouter";
+        if(GeminiKeyStore.has(context)&&!ExternalProviderHealthStore.cooling(context,"gemini"))return"gemini";
+        return OpenRouterKeyStore.has(context)?"openrouter":(GeminiKeyStore.has(context)?"gemini":"openrouter");
+    }
+    public static String activeModel(Context context){return"gemini".equals(activeProviderId(context))?GeminiModelConfig.generationModel(context):OpenRouterModelConfig.generationModel(context);}
     public static boolean configured(Context context){return OpenRouterKeyStore.has(context)||GeminiKeyStore.has(context);}
-    public static String configurationHint(Context context){return configured(context)?activeProviderId(context)+" · "+activeModel(context):"Configure OpenRouter in Settings";}
+    public static String configurationHint(Context context){if(!configured(context))return"Configure OpenRouter in Settings";String p=activeProviderId(context);long wait=ExternalProviderHealthStore.remainingMs(context,p);return p+" · "+activeModel(context)+(wait>0?" · cooling down":"");}
 
     public static Result ask(Context context,String question,GroundedAnswer grounded,boolean combined)throws Exception{return ask(context,question,grounded,combined,null,"");}
     public static Result ask(Context context,String question,GroundedAnswer grounded,boolean combined,KnowledgeItem focal)throws Exception{return ask(context,question,grounded,combined,focal,"");}
 
-    /** OpenRouter is primary. If it fails and Gemini is configured, Gemini is the provider fallback. */
+    /**
+     * Cooldown-aware provider chain. A provider in circuit-breaker cooldown is skipped immediately.
+     * Any configured alternate provider gets one attempt. Combined-mode local fallback remains in BrainRouter.
+     */
     public static Result ask(Context context,String question,GroundedAnswer grounded,boolean combined,KnowledgeItem focal,String phoneContext)throws Exception{
-        if(OpenRouterKeyStore.has(context)){
-            try{return askOpenRouter(context,question,grounded,combined,focal,phoneContext);}catch(Throwable primary){
-                if(GeminiKeyStore.has(context))try{return askGemini(context,question,grounded,combined,focal,phoneContext);}catch(Throwable ignored){}
-                if(primary instanceof Exception)throw (Exception)primary;throw new IOException(primary);
-            }
+        if(!configured(context))throw new IllegalStateException("No external Brain provider configured. Add an OpenRouter API key in Settings.");
+        Throwable last=null;boolean attempted=false;
+        if(OpenRouterKeyStore.has(context)&&!ExternalProviderHealthStore.cooling(context,"openrouter")){
+            attempted=true;try{Result r=askOpenRouter(context,question,grounded,combined,focal,phoneContext);ExternalProviderHealthStore.noteSuccess(context,"openrouter",r.durationMs);return r;}catch(Throwable e){last=e;ExternalProviderHealthStore.noteFailure(context,"openrouter",e);}
         }
-        if(GeminiKeyStore.has(context))return askGemini(context,question,grounded,combined,focal,phoneContext);
-        throw new IllegalStateException("No external Brain provider configured. Add an OpenRouter API key in Settings.");
+        if(GeminiKeyStore.has(context)&&!ExternalProviderHealthStore.cooling(context,"gemini")){
+            attempted=true;try{Result r=askGemini(context,question,grounded,combined,focal,phoneContext);ExternalProviderHealthStore.noteSuccess(context,"gemini",r.durationMs);return r;}catch(Throwable e){last=e;ExternalProviderHealthStore.noteFailure(context,"gemini",e);}
+        }
+        if(!attempted){long orWait=OpenRouterKeyStore.has(context)?ExternalProviderHealthStore.remainingMs(context,"openrouter"):0,gemWait=GeminiKeyStore.has(context)?ExternalProviderHealthStore.remainingMs(context,"gemini"):0;long wait=smallestPositive(orWait,gemWait);throw new ProviderException("All configured external Brain providers are cooling down"+(wait>0?"; retry in about "+Math.max(1,Math.round(wait/1000.0))+"s":""),429,activeModel(context),"router",0);}
+        if(last instanceof Exception)throw (Exception)last;
+        if(last!=null)throw new IOException(last);
+        throw new IOException("External Brain provider failed");
     }
 
     public static HealthReport healthCheck(Context context){
-        if(OpenRouterKeyStore.has(context))return healthOpenRouter(context);
-        if(GeminiKeyStore.has(context))return healthGemini(context);
-        return new HealthReport(false,false,"openrouter",OpenRouterModelConfig.generationModel(context),"API key missing","OpenRouter API key not configured","",0,0);
+        if(!configured(context))return new HealthReport(false,false,"openrouter",OpenRouterModelConfig.generationModel(context),"API key missing","OpenRouter API key not configured","",0,0);
+        if(OpenRouterKeyStore.has(context)&&!ExternalProviderHealthStore.cooling(context,"openrouter")){HealthReport h=healthOpenRouter(context);ExternalProviderHealthStore.noteHealth(context,h);if(h.ok||!GeminiKeyStore.has(context))return h;}
+        if(GeminiKeyStore.has(context)&&!ExternalProviderHealthStore.cooling(context,"gemini")){HealthReport h=healthGemini(context);ExternalProviderHealthStore.noteHealth(context,h);return h;}
+        long orWait=OpenRouterKeyStore.has(context)?ExternalProviderHealthStore.remainingMs(context,"openrouter"):0,gemWait=GeminiKeyStore.has(context)?ExternalProviderHealthStore.remainingMs(context,"gemini"):0;long wait=smallestPositive(orWait,gemWait);return new HealthReport(true,false,"router",activeModel(context),"Configured providers are cooling down","Circuit breaker is preventing repeated requests"+(wait>0?" · retry in about "+Math.max(1,Math.round(wait/1000.0))+"s":""),"",429,0);
     }
 
     private static Result askOpenRouter(Context context,String question,GroundedAnswer grounded,boolean combined,KnowledgeItem focal,String phoneContext)throws Exception{
@@ -170,6 +183,7 @@ public final class ExternalBrainProvider {
     private static void write(HttpURLConnection c,JSONObject req)throws Exception{try(OutputStream out=c.getOutputStream()){out.write(req.toString().getBytes(StandardCharsets.UTF_8));}}
     private static String read(InputStream in)throws Exception{if(in==null)return"";try(InputStream x=in;ByteArrayOutputStream b=new ByteArrayOutputStream()){byte[] buf=new byte[8192];for(int n;(n=x.read(buf))!=-1;)b.write(buf,0,n);return b.toString("UTF-8");}}
     private static String statusFor(int code){if(code==400)return"Provider rejected the request/model configuration";if(code==401||code==403)return"Authentication/permission failed";if(code==404)return"Configured model was not found";if(code==429)return"Provider quota/rate limit reached";if(code>=500)return"Provider service error";return"Provider returned HTTP "+code;}
+    private static long smallestPositive(long a,long b){if(a<=0)return b;if(b<=0)return a;return Math.min(a,b);}
     private static String compact(String s){String x=safe(s).replaceAll("\\s+"," ").trim();return x.length()>500?x.substring(0,500)+"…":x;}
     private static String clip(String s,int n){String x=safe(s);return x.length()<=n?x:x.substring(0,n)+"…";}
     private static String safe(String s){return s==null?"":s;}private static boolean empty(String s){return s==null||s.trim().isEmpty();}

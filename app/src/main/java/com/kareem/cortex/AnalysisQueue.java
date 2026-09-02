@@ -1,6 +1,7 @@
 package com.kareem.cortex;
 
 import android.content.Context;
+import android.database.Cursor;
 import android.os.Handler;
 import android.os.Looper;
 import org.json.JSONObject;
@@ -16,6 +17,11 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * - never borrow an Activity-owned SQLiteOpenHelper;
  * - async OCR/ASR jobs have watchdogs so one missing callback cannot wedge the queue forever;
  * - UI change callbacks are always posted to the main thread.
+ *
+ * Scheduling rule:
+ * - direct/current evidence always outranks historical screenshot-folder catch-up;
+ * - when only screenshot-folder work remains, use the screenshot's original source_modified time,
+ *   not import insertion order, so the most recent real screenshot is understood first.
  */
 public final class AnalysisQueue {
     private static final AtomicBoolean running=new AtomicBoolean(false);
@@ -23,6 +29,7 @@ public final class AnalysisQueue {
     private static final ScheduledExecutorService WATCHDOG=Executors.newSingleThreadScheduledExecutor(r->{Thread t=new Thread(r,"cortex-analysis-watchdog");t.setDaemon(true);return t;});
     private static final Handler MAIN=new Handler(Looper.getMainLooper());
     private static final long OCR_TIMEOUT_SEC=150, AUDIO_TIMEOUT_SEC=240;
+    private static final int SCREENSHOT_PRIORITY_SCAN_LIMIT=3000;
 
     private AnalysisQueue(){}
 
@@ -48,7 +55,7 @@ public final class AnalysisQueue {
     private static void drain(Context ctx,VaultDb db,Runnable changed){
         while(true){
             KnowledgeItem item;
-            try{item=db.nextPending();}
+            try{item=nextPendingPrioritized(db);}
             catch(Throwable e){finishRun(ctx,db,changed);return;}
             if(item==null){finishRun(ctx,db,changed);return;}
 
@@ -73,6 +80,35 @@ public final class AnalysisQueue {
             }catch(Throwable e){safeFail(db,item.id,e,changed);}
             // Continue in the loop: no recursive next() calls, regardless of backlog size.
         }
+    }
+
+    /**
+     * Select work by user value instead of raw insertion age. A 700-item historical screenshot
+     * backlog must never force a text/voice/share capture to wait behind hundreds of OCR jobs.
+     * Screenshot-folder imports preserve source_modified in metadata, so catch-up uses that clock.
+     */
+    static KnowledgeItem nextPendingPrioritized(VaultDb db){
+        if(db==null)return null;
+        Cursor c=null;
+        try{
+            c=db.getReadableDatabase().query("knowledge_items",new String[]{"id"},"status='queued' AND NOT (type='SCREENSHOT' AND source='screenshot-folder')",null,null,null,"created_at DESC","1");
+            if(c.moveToFirst())return db.getById(c.getLong(0));
+        }finally{if(c!=null)c.close();}
+
+        long bestId=0,bestSourceModified=Long.MIN_VALUE,bestCreated=Long.MIN_VALUE;
+        try{
+            c=db.getReadableDatabase().query("knowledge_items",new String[]{"id","metadata_json","created_at"},"status='queued' AND type='SCREENSHOT' AND source='screenshot-folder'",null,null,null,"created_at DESC",String.valueOf(SCREENSHOT_PRIORITY_SCAN_LIMIT));
+            while(c.moveToNext()){
+                long id=c.getLong(0),created=c.getLong(2),sourceModified=created;
+                String meta=c.isNull(1)?"":c.getString(1);
+                if(meta!=null&&!meta.trim().isEmpty())try{sourceModified=new JSONObject(meta).optLong("source_modified",created);}catch(Throwable ignored){}
+                if(bestId==0||sourceModified>bestSourceModified||(sourceModified==bestSourceModified&&created>bestCreated)){
+                    bestId=id;bestSourceModified=sourceModified;bestCreated=created;
+                }
+            }
+        }finally{if(c!=null)c.close();}
+        if(bestId>0)return db.getById(bestId);
+        return db.nextPending();
     }
 
     private static void analyzeImage(Context ctx,VaultDb db,KnowledgeItem item,Runnable changed){

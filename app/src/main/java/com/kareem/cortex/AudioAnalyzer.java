@@ -54,7 +54,32 @@ public final class AudioAnalyzer {
 
     private static double geminiBenchmarkScore(TranscriptResult r){String text=r==null||r.text==null?"":r.text.trim();if(text.isEmpty())return -1000;double s=55;double ar=scriptRatio(text,true),la=scriptRatio(text,false);if(ar>0.08&&la>0.04)s+=25;else if(ar>0.08||la>0.08)s+=8;int words=wordCount(text);if(r.durationMs>0){double wps=words/(r.durationMs/1000.0);if(wps>=0.8&&wps<=4.5)s+=8;else s-=15;}return s;}
 
-    private static String acceptabilityWarning(TranscriptResult t){if(t==null)return "missing transcript result";String text=t.text==null?"":t.text.trim();if(text.isEmpty())return "empty transcript";if(text.toLowerCase(Locale.US).contains("<hesitation>"))return "contains <hesitation>";if(t.qualityWarning!=null&&!t.qualityWarning.trim().isEmpty())return t.qualityWarning.trim();int words=wordCount(text);if(t.durationMs>=8000){int minWords=Math.max(4,(int)Math.ceil(t.durationMs/3000.0));if(words<minWords)return words+" words for "+Math.round(t.durationMs/1000.0)+" seconds";}if(t.durationMs>0&&t.processedDurationMs>0){double coverage=(double)t.processedDurationMs/(double)t.durationMs;t.coverage=coverage;if(coverage<0.65)return "timestamp/file coverage "+Math.round(coverage*100)+"%";}return null;}
+    private static String acceptabilityWarning(TranscriptResult t){
+        if(t==null)return "missing transcript result";
+        String text=t.text==null?"":t.text.trim();if(text.isEmpty())return "empty transcript";
+        if(text.toLowerCase(Locale.US).contains("<hesitation>"))return "contains <hesitation>";
+        if(t.qualityWarning!=null&&!t.qualityWarning.trim().isEmpty())return t.qualityWarning.trim();
+
+        // Strong provider-language contradictions are usually hallucinations or a wrong candidate.
+        // Keep mixed Arabic/English eligible: only reject when one script overwhelmingly contradicts
+        // an explicit provider language label.
+        String language=t.language==null?"":t.language.trim().toLowerCase(Locale.ROOT);double ar=scriptRatio(text,true),la=scriptRatio(text,false);
+        boolean declaredEnglish=language.equals("en")||language.startsWith("en-")||language.contains("english");
+        boolean declaredArabic=language.equals("ar")||language.startsWith("ar-")||language.contains("arabic")||language.contains("العربي");
+        if(declaredEnglish&&ar>=0.72&&la<=0.20)return "declared English but transcript is predominantly Arabic script (arabic="+Math.round(ar*100)+"%, latin="+Math.round(la*100)+"%)";
+        if(declaredArabic&&la>=0.72&&ar<=0.20)return "declared Arabic but transcript is predominantly Latin script (arabic="+Math.round(ar*100)+"%, latin="+Math.round(la*100)+"%)";
+
+        int words=wordCount(text);
+        if(t.durationMs>=8000){int minWords=Math.max(4,(int)Math.ceil(t.durationMs/3000.0));if(words<minWords)return words+" words for "+Math.round(t.durationMs/1000.0)+" seconds";}
+        if(t.durationMs>0&&t.processedDurationMs>0){
+            long tolerance=Math.max(1500L,Math.round(t.durationMs*0.25));
+            if(t.processedDurationMs>t.durationMs+tolerance)return "timestamp coverage exceeds source duration (source "+t.durationMs+" ms, processed "+t.processedDurationMs+" ms)";
+            double coverage=(double)t.processedDurationMs/(double)t.durationMs;t.coverage=coverage;
+            if(coverage<0.65)return "timestamp/file coverage "+Math.round(coverage*100)+"%";
+            if(coverage>1.35)return "timestamp/file coverage "+Math.round(coverage*100)+"% exceeds source duration";
+        }
+        return null;
+    }
 
     private static double scriptRatio(String s,boolean arabic){int target=0,letters=0;if(s==null)return 0;for(int i=0;i<s.length();i++){char c=s.charAt(i);if(Character.isLetter(c)){letters++;if(arabic?(c>=0x0600&&c<=0x06ff):((c>='A'&&c<='Z')||(c>='a'&&c<='z')))target++;}}return letters==0?0:(double)target/letters;}
     private static double round3(double x){return Math.round(x*1000.0)/1000.0;}private static double round1(double x){return Math.round(x*10.0)/10.0;}private static int wordCount(String text){String s=text==null?"":text.trim();if(s.isEmpty())return 0;return s.split("\\s+").length;}

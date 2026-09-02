@@ -55,7 +55,24 @@ public class VaultDb extends SQLiteOpenHelper {
     public int pendingCount(){Cursor c=getReadableDatabase().rawQuery("SELECT COUNT(*) FROM knowledge_items WHERE status IN ('queued','analyzing')",null);int n=c.moveToFirst()?c.getInt(0):0;c.close();return n;}public int failedCount(){Cursor c=getReadableDatabase().rawQuery("SELECT COUNT(*) FROM knowledge_items WHERE status IN ('analysis_failed','failed_retryable')",null);int n=c.moveToFirst()?c.getInt(0):0;c.close();return n;}
 
     public ArrayList<KnowledgeItem> search(String q){if(q==null||q.trim().isEmpty())return lexicalSearch("",400);ArrayList<SemanticHit> hits=SemanticIndex.search(this,q,120);ArrayList<KnowledgeItem> out=new ArrayList<>();for(SemanticHit h:hits)out.add(h.item);return out;}
-    public ArrayList<KnowledgeItem> lexicalSearch(String q,int limit){ArrayList<KnowledgeItem> out=new ArrayList<>();String sel=null;String[] args=null;if(q!=null&&!q.trim().isEmpty()){String w="%"+q.trim()+"%";sel="title LIKE ? OR raw_text LIKE ? OR extracted_text LIKE ? OR summary LIKE ? OR category LIKE ? OR tags LIKE ? OR id IN (SELECT item_id FROM entities WHERE value LIKE ?) OR id IN (SELECT item_id FROM actions WHERE action_text LIKE ?) OR id IN (SELECT item_id FROM vision_fields WHERE field_key LIKE ? OR field_value LIKE ?)";args=new String[]{w,w,w,w,w,w,w,w,w,w};}Cursor c=getReadableDatabase().query("knowledge_items",null,sel,args,null,null,"created_at DESC",String.valueOf(limit));while(c.moveToNext())out.add(from(c));c.close();return out;}
+
+    /**
+     * Token-aware lexical retrieval. Every query token must occur somewhere in the evidence row
+     * (or its indexed entity/action/vision children), but tokens do not need to be contiguous.
+     * This matches how users naturally type multi-term searches such as "Atlas fallback latency".
+     */
+    public ArrayList<KnowledgeItem> lexicalSearch(String q,int limit){
+        ArrayList<KnowledgeItem> out=new ArrayList<>();String sel=null;String[] args=null;
+        if(q!=null&&!q.trim().isEmpty()){
+            String[] raw=q.trim().split("\\s+");ArrayList<String> tokens=new ArrayList<>();
+            for(String token:raw){String x=token==null?"":token.trim();if(x.isEmpty())continue;tokens.add(x);if(tokens.size()>=8)break;}
+            String unit="(title LIKE ? OR raw_text LIKE ? OR extracted_text LIKE ? OR summary LIKE ? OR category LIKE ? OR tags LIKE ? OR id IN (SELECT item_id FROM entities WHERE value LIKE ?) OR id IN (SELECT item_id FROM actions WHERE action_text LIKE ?) OR id IN (SELECT item_id FROM vision_fields WHERE field_key LIKE ? OR field_value LIKE ?))";
+            StringBuilder where=new StringBuilder();ArrayList<String> values=new ArrayList<>();
+            for(String token:tokens){if(where.length()>0)where.append(" AND ");where.append(unit);String w="%"+token+"%";for(int i=0;i<10;i++)values.add(w);}
+            if(where.length()>0){sel=where.toString();args=values.toArray(new String[0]);}
+        }
+        Cursor c=getReadableDatabase().query("knowledge_items",null,sel,args,null,null,"created_at DESC",String.valueOf(Math.max(1,limit)));while(c.moveToNext())out.add(from(c));c.close();return out;
+    }
 
     private KnowledgeItem from(Cursor c){return new KnowledgeItem(g(c,"id"),s(c,"type"),s(c,"source"),s(c,"title"),s(c,"raw_text"),s(c,"extracted_text"),s(c,"summary"),s(c,"category"),s(c,"tags"),s(c,"attachment_path"),s(c,"status"),s(c,"fingerprint"),s(c,"analysis_error"),s(c,"metadata_json"),g(c,"created_at"),g(c,"updated_at"));}
     private String s(Cursor c,String n){int i=c.getColumnIndex(n);return i<0?"":c.getString(i)==null?"":c.getString(i);}private long g(Cursor c,String n){int i=c.getColumnIndex(n);return i<0?0:c.getLong(i);}

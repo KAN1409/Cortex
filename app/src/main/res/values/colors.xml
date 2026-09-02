@@ -1,17 +1,17 @@
 <resources>
-    <color name="cortex_bg">#070708</color>
-    <color name="cortex_panel">#0F0F10</color>
-    <color name="cortex_panel_high">#141416</color>
-    <color name="cortex_text">#F4F3EF</color>
-    <color name="cortex_muted">#A4A3A0</color>
-    <color name="cortex_faint">#67676A</color>
-    <color name="cortex_accent">#FF483E</color>
-    <color name="cortex_red">#FF483E</color>
-    <color name="cortex_orange">#FF922A</color>
-    <color name="cortex_yellow">#F1BC34</color>
-    <color name="cortex_green">#69C252</color>
-    <color name="cortex_violet">#F1BC34</color>
-    <color name="cortex_amber">#FF922A</color>
-    <color name="cortex_sage">#69C252</color>
-    <color name="cortex_signal">#FF483E</color>
+    <color name="cortex_bg">#050605</color>
+    <color name="cortex_panel">#0F100F</color>
+    <color name="cortex_panel_high">#151615</color>
+    <color name="cortex_text">#F6F7F3</color>
+    <color name="cortex_muted">#A5A7A2</color>
+    <color name="cortex_faint">#656863</color>
+    <color name="cortex_accent">#B9DA4D</color>
+    <color name="cortex_red">#EF5C49</color>
+    <color name="cortex_orange">#F29A31</color>
+    <color name="cortex_yellow">#F0B838</color>
+    <color name="cortex_green">#6FCA56</color>
+    <color name="cortex_violet">#7E9137</color>
+    <color name="cortex_amber">#F0B838</color>
+    <color name="cortex_sage">#6FCA56</color>
+    <color name="cortex_signal">#B9DA4D</color>
 </resources>
