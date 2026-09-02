@@ -59,6 +59,16 @@ public final class AudioAnalyzer {
         String text=t.text==null?"":t.text.trim();if(text.isEmpty())return "empty transcript";
         if(text.toLowerCase(Locale.US).contains("<hesitation>"))return "contains <hesitation>";
         if(t.qualityWarning!=null&&!t.qualityWarning.trim().isEmpty())return t.qualityWarning.trim();
+
+        // Strong provider-language contradictions are usually hallucinations or a wrong candidate.
+        // Keep mixed Arabic/English eligible: only reject when one script overwhelmingly contradicts
+        // an explicit provider language label.
+        String language=t.language==null?"":t.language.trim().toLowerCase(Locale.ROOT);double ar=scriptRatio(text,true),la=scriptRatio(text,false);
+        boolean declaredEnglish=language.equals("en")||language.startsWith("en-")||language.contains("english");
+        boolean declaredArabic=language.equals("ar")||language.startsWith("ar-")||language.contains("arabic")||language.contains("العربي");
+        if(declaredEnglish&&ar>=0.72&&la<=0.20)return "declared English but transcript is predominantly Arabic script (arabic="+Math.round(ar*100)+"%, latin="+Math.round(la*100)+"%)";
+        if(declaredArabic&&la>=0.72&&ar<=0.20)return "declared Arabic but transcript is predominantly Latin script (arabic="+Math.round(ar*100)+"%, latin="+Math.round(la*100)+"%)";
+
         int words=wordCount(text);
         if(t.durationMs>=8000){int minWords=Math.max(4,(int)Math.ceil(t.durationMs/3000.0));if(words<minWords)return words+" words for "+Math.round(t.durationMs/1000.0)+" seconds";}
         if(t.durationMs>0&&t.processedDurationMs>0){
