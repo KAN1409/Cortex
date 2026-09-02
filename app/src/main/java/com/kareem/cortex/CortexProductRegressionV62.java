@@ -5,6 +5,7 @@ import android.content.Context;
 import android.database.sqlite.SQLiteDatabase;
 import org.json.JSONArray;
 import org.json.JSONObject;
+import java.lang.reflect.Method;
 import java.util.Locale;
 
 /** Permanent regressions for product repairs discovered by the v61 report. */
@@ -15,6 +16,7 @@ public final class CortexProductRegressionV62 {
         JSONArray rows=new JSONArray();
         routing(rows);
         providerCircuit(rows,context.getApplicationContext());
+        asrScriptSanity(rows);
         transactional(rows,context.getApplicationContext(),db,runId);
         return rows;
     }
@@ -35,6 +37,18 @@ public final class CortexProductRegressionV62 {
             ExternalProviderHealthStore.noteSuccess(c,key,7);ExternalProviderHealthStore.Snapshot healthy=ExternalProviderHealthStore.snapshot(c,key);
             row(rows,"R62-PROVIDER","Provider success closes circuit breaker",!ExternalProviderHealthStore.cooling(c,key)&&"healthy".equals(healthy.status)&&healthy.httpCode==200,"A successful provider response must clear cooldown and restore healthy routing",new JSONObject().put("status",healthy.status).put("http",healthy.httpCode).put("latency_ms",healthy.latencyMs));
         }finally{ExternalProviderHealthStore.restore(c,before);}
+    }
+
+    private static void asrScriptSanity(JSONArray rows)throws Exception{
+        Method m=AudioAnalyzer.class.getDeclaredMethod("acceptabilityWarning",TranscriptResult.class);m.setAccessible(true);
+        TranscriptResult wrongEnglish=new TranscriptResult();wrongEnglish.text="اشتركوا في القناة من فضلكم";wrongEnglish.language="English";wrongEnglish.durationMs=2000;wrongEnglish.processedDurationMs=2000;String en=(String)m.invoke(null,wrongEnglish);
+        row(rows,"R62-ASR","English label rejects Arabic-only hallucination",en!=null&&en.contains("declared English"),"An ASR candidate declared English must not silently pass when its transcript is overwhelmingly Arabic script",new JSONObject().put("warning",safe(en)).put("text",wrongEnglish.text).put("language",wrongEnglish.language));
+
+        TranscriptResult wrongArabic=new TranscriptResult();wrongArabic.text="please verify the fallback latency tomorrow";wrongArabic.language="Arabic";wrongArabic.durationMs=2000;wrongArabic.processedDurationMs=2000;String ar=(String)m.invoke(null,wrongArabic);
+        row(rows,"R62-ASR","Arabic label rejects Latin-only hallucination",ar!=null&&ar.contains("declared Arabic"),"An ASR candidate declared Arabic must not silently pass when its transcript is overwhelmingly Latin script",new JSONObject().put("warning",safe(ar)).put("text",wrongArabic.text).put("language",wrongArabic.language));
+
+        TranscriptResult mixed=new TranscriptResult();mixed.text="راجع Cortex fallback latency بكرة";mixed.language="English";mixed.durationMs=2000;mixed.processedDurationMs=2000;String mix=(String)m.invoke(null,mixed);
+        row(rows,"R62-ASR","Code-switch transcript remains eligible",mix==null,"Arabic/English code-switching must stay eligible; script sanity only rejects overwhelming contradictions",new JSONObject().put("warning",safe(mix)).put("text",mixed.text).put("language",mixed.language));
     }
 
     private static void transactional(JSONArray rows,Context c,VaultDb db,String runId)throws Exception{
