@@ -14,6 +14,7 @@ public final class CortexProductRegressionV62 {
     public static JSONArray run(Context context,VaultDb db,String runId)throws Exception{
         JSONArray rows=new JSONArray();
         routing(rows);
+        providerCircuit(rows,context.getApplicationContext());
         transactional(rows,context.getApplicationContext(),db,runId);
         return rows;
     }
@@ -23,6 +24,17 @@ public final class CortexProductRegressionV62 {
         row(rows,"R62-BRAIN","Global attention allows day context",AskOperationalEngine.globalAttentionForDiagnostics("What needs my attention today?"),"Today/now wording must not disable the global attention route",new JSONObject().put("question","What needs my attention today?"));
         row(rows,"R62-BRAIN","Scoped English question bypasses global attention",!AskOperationalEngine.globalAttentionForDiagnostics("What should I do for Orion search latency?"),"A named topic/project must continue to semantic grounded retrieval",new JSONObject().put("question","What should I do for Orion search latency?"));
         row(rows,"R62-BRAIN","Scoped Arabic question bypasses global attention",!AskOperationalEngine.globalAttentionForDiagnostics("محتاج أعمل ايه في مشروع Atlas؟"),"A named Arabic project/topic question must continue to semantic grounded retrieval",new JSONObject().put("question","محتاج أعمل ايه في مشروع Atlas؟"));
+    }
+
+    private static void providerCircuit(JSONArray rows,Context c)throws Exception{
+        String key="r62_diagnostic_provider";ExternalProviderHealthStore.Snapshot before=ExternalProviderHealthStore.snapshot(c,key);
+        try{
+            ExternalBrainProvider.ProviderException rate=new ExternalBrainProvider.ProviderException("synthetic 429",429,"diagnostic",key,12);
+            long wait=ExternalProviderHealthStore.noteFailure(c,key,rate);ExternalProviderHealthStore.Snapshot limited=ExternalProviderHealthStore.snapshot(c,key);
+            row(rows,"R62-PROVIDER","429 opens provider circuit breaker",wait>0&&ExternalProviderHealthStore.cooling(c,key)&&"rate_limited".equals(limited.status),"A rate-limited provider must enter cooldown so repeated Brain requests skip it",new JSONObject().put("wait_ms",wait).put("status",limited.status).put("http",limited.httpCode));
+            ExternalProviderHealthStore.noteSuccess(c,key,7);ExternalProviderHealthStore.Snapshot healthy=ExternalProviderHealthStore.snapshot(c,key);
+            row(rows,"R62-PROVIDER","Provider success closes circuit breaker",!ExternalProviderHealthStore.cooling(c,key)&&"healthy".equals(healthy.status)&&healthy.httpCode==200,"A successful provider response must clear cooldown and restore healthy routing",new JSONObject().put("status",healthy.status).put("http",healthy.httpCode).put("latency_ms",healthy.latencyMs));
+        }finally{ExternalProviderHealthStore.restore(c,before);}
     }
 
     private static void transactional(JSONArray rows,Context c,VaultDb db,String runId)throws Exception{
