@@ -7,7 +7,7 @@ import java.util.*;
 public final class AskOperationalEngine {
     private AskOperationalEngine(){}
 
-    public static GroundedAnswer tryAnswer(VaultDb db,String question){String q=n(question),norm=LocalSemanticEmbedder.norm(q);if(q.isEmpty())return null;if(isRunningApps(norm))return runningApps(db,q);if(isPhoneContext(norm))return phoneContext(db,q);if(isAttention(norm))return attention(db,q);if(isWaiting(norm))return waiting(db,q);if(isRecentDecisions(norm))return decisions(db,q);if(isGoals(norm))return kinds(db,q,"Your active goals",new String[]{"GOAL_SIGNAL"},12);if(isIdeas(norm))return kinds(db,q,"Ideas and opportunities currently in Cortex",new String[]{"IDEA","OPPORTUNITY","INSIGHT","HYPOTHESIS"},12);if(isContextlessProject(norm))return new GroundedAnswer(q,"Tell me which project you mean, and I’ll ground the answer in that project’s Cortex context.",1.0,new ArrayList<SemanticHit>(),new ArrayList<String>(),new ArrayList<String>());return null;}
+    public static GroundedAnswer tryAnswer(VaultDb db,String question){String q=n(question),norm=LocalSemanticEmbedder.norm(q);if(q.isEmpty())return null;if(isRunningApps(norm))return runningApps(db,q);if(isPhoneContext(norm))return phoneContext(db,q);if(isGlobalAttention(norm))return attention(db,q);if(isWaiting(norm))return waiting(db,q);if(isRecentDecisions(norm))return decisions(db,q);if(isGoals(norm))return kinds(db,q,"Your active goals",new String[]{"GOAL_SIGNAL"},12);if(isIdeas(norm))return kinds(db,q,"Ideas and opportunities currently in Cortex",new String[]{"IDEA","OPPORTUNITY","INSIGHT","HYPOTHESIS"},12);if(isContextlessProject(norm))return new GroundedAnswer(q,"Tell me which project you mean, and I’ll ground the answer in that project’s Cortex context.",1.0,new ArrayList<SemanticHit>(),new ArrayList<String>(),new ArrayList<String>());return null;}
 
     private static GroundedAnswer runningApps(VaultDb db,String q){try{PhoneContextStore.ensure(db);int count=PhoneContextStore.activeProcessCount(db);String s=PhoneContextStore.activeProcessSummary(db,35);if(count<=0||s.isEmpty())return new GroundedAnswer(q,"Cortex doesn’t have a current system-process snapshot yet. Standard foreground/recent-app context may still be available; Shizuku access is needed for the deeper running-process snapshot.",.98,new ArrayList<SemanticHit>(),new ArrayList<String>(),new ArrayList<String>());return new GroundedAnswer(q,"Latest running-process state ("+count+" visible process names):\n"+s,.98,new ArrayList<SemanticHit>(),new ArrayList<String>(),new ArrayList<String>());}catch(Throwable e){return new GroundedAnswer(q,"Cortex couldn’t read the current running-process state right now.",.80,new ArrayList<SemanticHit>(),new ArrayList<String>(),new ArrayList<String>());}}
     private static GroundedAnswer phoneContext(VaultDb db,String q){try{PhoneContextStore.ensure(db);String s=PhoneContextStore.recentSummary(db,6L*60L*60L*1000L,14);if(s.isEmpty())return new GroundedAnswer(q,"Cortex doesn’t have recent phone-context events yet. Enable Phone context access for Notification, Accessibility and Usage Access, then use the phone normally.",.98,new ArrayList<SemanticHit>(),new ArrayList<String>(),new ArrayList<String>());return new GroundedAnswer(q,"Recent phone context:\n"+s,.98,new ArrayList<SemanticHit>(),new ArrayList<String>(),new ArrayList<String>());}catch(Throwable e){return new GroundedAnswer(q,"Cortex couldn’t read the local phone-context timeline right now.",.80,new ArrayList<SemanticHit>(),new ArrayList<String>(),new ArrayList<String>());}}
@@ -19,13 +19,32 @@ public final class AskOperationalEngine {
 
     private static boolean isRunningApps(String q){return has(q,"what apps are running","what is running on my phone","running apps","running processes","background apps","background processes","ايه الابلكيشنات الشغاله","إيه الابلكيشنات الشغالة","ايه التطبيقات الشغاله","إيه التطبيقات الشغالة","ايه شغال على الموبايل","إيه شغال على الموبايل","البرامج اللي شغاله","البرامج اللي شغالة");}
     private static boolean isPhoneContext(String q){return has(q,"what app am i using","what app was i using","what was i doing on my phone","what was i doing","recent apps","last apps","current app","phone context","what did i open","what have i been doing on my phone","كنت فاتح ايه","كنت فاتح إيه","انا فاتح ايه","أنا فاتح إيه","كنت بعمل ايه على الموبايل","كنت بعمل إيه على الموبايل","آخر ابلكيشنات","اخر ابلكيشنات","آخر تطبيقات","اخر تطبيقات","عملت ايه على الموبايل","عملت إيه على الموبايل");}
-    private static boolean isAttention(String q){return has(q,"what still needs my attention","what needs my attention","what needs me","what do i need to do","what should i do","needs attention","محتاج انتباهي","محتاج مني","محتاج اعمل ايه","محتاج أعمل ايه","ايه اللي محتاجني","إيه اللي محتاجني","ايه اللي محتاج اهتمامي","إيه اللي محتاج اهتمامي");}
+
+    /**
+     * Global attention is intentionally strict. Phrases such as "what should I do" are only
+     * operational-state questions when they stand alone (optionally with now/today/Cortex).
+     * A scoped question such as "What should I do for Orion search latency?" must continue to
+     * semantic retrieval instead of being hijacked by the global open-loop list.
+     */
+    private static boolean isGlobalAttention(String q){
+        if(!has(q,"what still needs my attention","what needs my attention","what needs me","what do i need to do","what should i do","needs attention","محتاج انتباهي","محتاج مني","محتاج اعمل ايه","محتاج أعمل ايه","ايه اللي محتاجني","إيه اللي محتاجني","ايه اللي محتاج اهتمامي","إيه اللي محتاج اهتمامي"))return false;
+        String x=q;
+        String[] context={"right now","today","now","currently","at the moment","in cortex","from cortex","النهارده","النهاردة","دلوقتي","حاليا","حاليًا","في كورتكس","من كورتكس"};
+        for(String token:context)x=x.replace(LocalSemanticEmbedder.norm(token)," ");
+        x=x.replaceAll("\\s+"," ").trim();
+        return exact(x,
+            "what still needs my attention","what needs my attention","what needs me","what do i need to do","what should i do","what should i do next","needs attention",
+            "محتاج انتباهي","محتاج مني","محتاج اعمل ايه","محتاج أعمل ايه","ايه اللي محتاجني","إيه اللي محتاجني","ايه اللي محتاج اهتمامي","إيه اللي محتاج اهتمامي");
+    }
+    static boolean globalAttentionForDiagnostics(String question){return isGlobalAttention(LocalSemanticEmbedder.norm(n(question)));}
+
     private static boolean isWaiting(String q){return has(q,"what am i waiting for","what am i waiting on","what are we waiting for","waiting on","waiting for","مستني ايه","مستنى ايه","منتظر ايه","في انتظار ايه");}
     private static boolean isRecentDecisions(String q){return has(q,"what did i decide recently","recent decisions","what have i decided","قررت ايه مؤخرا","قررت ايه قريب","ايه القرارات الاخيره","إيه القرارات الأخيرة");}
     private static boolean isGoals(String q){return has(q,"what are my goals","what am i trying to achieve","my active goals","my goals","اهدافي ايه","أهدافي ايه","ايه اهدافي","إيه أهدافي","هدفي ايه","هدفي إيه");}
     private static boolean isIdeas(String q){return has(q,"what ideas do i have","what opportunities do i have","ideas and opportunities","my ideas","my opportunities","افكاري ايه","أفكاري ايه","ايه الفرص","إيه الفرص","ايه الافكار","إيه الأفكار");}
     private static boolean isContextlessProject(String q){return has(q,"this project","المشروع ده","المشروع دا","البروجكت ده","البروجكت دا");}
     private static boolean has(String t,String... xs){for(String x:xs)if(t.contains(LocalSemanticEmbedder.norm(x)))return true;return false;}
+    private static boolean exact(String t,String... xs){for(String x:xs)if(t.equals(LocalSemanticEmbedder.norm(x)))return true;return false;}
     private static void addSource(VaultDb db,ArrayList<SemanticHit> out,long id,double score,String snippet){for(SemanticHit h:out)if(h.item.id==id)return;KnowledgeItem k=db.getById(id);if(k!=null)out.add(new SemanticHit(k,score,snippet));}
     private static String friendly(String x){String k=n(x).toUpperCase(Locale.ROOT);if("GOAL_SIGNAL".equals(k))return"Goal";if("IDEA".equals(k))return"Idea";if("OPPORTUNITY".equals(k))return"Opportunity";if("INSIGHT".equals(k))return"Insight";if("HYPOTHESIS".equals(k))return"Hypothesis";String low=k.toLowerCase(Locale.ROOT).replace('_',' ');return low.isEmpty()?"item":low;}
     private static String clip(String s,int n){String x=s==null?"":s.replaceAll("\\s+"," ").trim();return x.length()<=n?x:x.substring(0,n)+"…";}
