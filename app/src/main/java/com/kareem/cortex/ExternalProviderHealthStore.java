@@ -33,13 +33,16 @@ public final class ExternalProviderHealthStore {
 
     public static synchronized long noteHealth(Context c,ExternalBrainProvider.HealthReport h){
         if(h==null)return 0;if(h.ok){noteSuccess(c,h.provider,h.latencyMs);return 0;}
-        ExternalBrainProvider.ProviderException e=new ExternalBrainProvider.ProviderException(h.error.isEmpty()?h.status:h.error,h.httpCode,h.model,h.provider,h.latencyMs);return noteFailure(c,h.provider,e);
+        Throwable e=h.httpCode==0?new java.io.IOException(h.error.isEmpty()?h.status:h.error):new ExternalBrainProvider.ProviderException(h.error.isEmpty()?h.status:h.error,h.httpCode,h.model,h.provider,h.latencyMs);return noteFailure(c,h.provider,e);
     }
 
     public static synchronized long remainingMs(Context c,String provider){return Math.max(0,prefs(c).getLong(key(provider)+"_cooldown_until",0)-System.currentTimeMillis());}
     public static synchronized boolean cooling(Context c,String provider){return remainingMs(c,provider)>0;}
 
     public static synchronized Snapshot snapshot(Context c,String provider){String p=key(provider);SharedPreferences s=prefs(c);return new Snapshot(provider,s.getString(p+"_status","unknown"),s.getInt(p+"_http",0),s.getString(p+"_error",""),s.getLong(p+"_latency",0),s.getLong(p+"_cooldown_until",0),s.getLong(p+"_last_success",0),s.getLong(p+"_last_failure",0));}
+
+    /** Used by local regression tests so circuit-breaker checks leave the prior device state untouched. */
+    static synchronized void restore(Context c,Snapshot s){if(s==null)return;String p=key(s.provider);SharedPreferences.Editor e=prefs(c).edit().putString(p+"_status",s.status).putInt(p+"_http",s.httpCode).putString(p+"_error",s.error).putLong(p+"_latency",s.latencyMs).putLong(p+"_last_success",s.lastSuccess).putLong(p+"_last_failure",s.lastFailure);if(s.cooldownUntil>0)e.putLong(p+"_cooldown_until",s.cooldownUntil);else e.remove(p+"_cooldown_until");e.apply();}
 
     public static synchronized JSONObject json(Context c,String provider){Snapshot s=snapshot(c,provider);JSONObject o=new JSONObject();try{o.put("provider",s.provider).put("status",s.status).put("http",s.httpCode).put("error",s.error).put("latency_ms",s.latencyMs).put("cooldown_until",s.cooldownUntil).put("cooldown_remaining_ms",Math.max(0,s.cooldownUntil-System.currentTimeMillis())).put("last_success",s.lastSuccess).put("last_failure",s.lastFailure);}catch(Exception ignored){}return o;}
 
