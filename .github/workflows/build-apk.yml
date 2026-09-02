@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   build-debug-apk:
@@ -34,37 +34,9 @@ jobs:
       - name: Build debug APK
         run: gradle :app:assembleDebug --stacktrace
 
-      - name: Upload APK to temporary public link
-        shell: bash
-        run: |
-          set -e
-          FILE=app/build/outputs/apk/debug/app-debug.apk
-          RESP=$(curl -fsSL -F "file=@${FILE}" https://tmpfiles.org/api/v1/upload)
-          echo "$RESP"
-          URL=$(printf '%s' "$RESP" | python -c 'import sys,json; d=json.load(sys.stdin); print(d["data"]["url"].replace("tmpfiles.org/","tmpfiles.org/dl/"))')
-          echo "APK_PUBLIC_URL=$URL"
-
       - name: Upload debug APK artifact
-        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
-          name: Cortex-v17-debug
+          name: Cortex-debug-${{ github.sha }}
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
-
-      - name: Publish latest APK into repo
-        if: github.event_name != 'pull_request'
-        shell: bash
-        run: |
-          mkdir -p downloads
-          cp app/build/outputs/apk/debug/app-debug.apk downloads/Cortex-latest-debug.apk
-          sha256sum downloads/Cortex-latest-debug.apk > downloads/Cortex-latest-debug.sha256
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add downloads/Cortex-latest-debug.apk downloads/Cortex-latest-debug.sha256
-          if ! git diff --cached --quiet; then
-            git commit -m "Publish latest Cortex APK [skip ci]"
-            git push
-          else
-            echo "APK unchanged; nothing to publish"
-          fi
