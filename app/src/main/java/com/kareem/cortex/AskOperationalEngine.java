@@ -44,7 +44,8 @@ public final class AskOperationalEngine {
     private static boolean isIdeas(String q){return has(q,"what ideas do i have","what opportunities do i have","ideas and opportunities","my ideas","my opportunities","افكاري ايه","أفكاري ايه","ايه الفرص","إيه الفرص","ايه الافكار","إيه الأفكار");}
     private static boolean isContextlessProject(String q){return has(q,"this project","المشروع ده","المشروع دا","البروجكت ده","البروجكت دا");}
     private static boolean has(String t,String... xs){for(String x:xs)if(t.contains(LocalSemanticEmbedder.norm(x)))return true;return false;}
-    private static boolean exact(String t,String... xs){for(String x:xs)if(t.equals(LocalSemanticEmbedder.norm(x)))return true;return false;}
+    private static boolean exact(String t,String... xs){String a=canonical(t);for(String x:xs)if(a.equals(canonical(x)))return true;return false;}
+    private static String canonical(String s){return LocalSemanticEmbedder.norm(s).replaceAll("[^\\p{L}\\p{Nd}\\s]+"," ").replaceAll("\\s+"," ").trim();}
     private static void addSource(VaultDb db,ArrayList<SemanticHit> out,long id,double score,String snippet){for(SemanticHit h:out)if(h.item.id==id)return;KnowledgeItem k=db.getById(id);if(k!=null)out.add(new SemanticHit(k,score,snippet));}
     private static String friendly(String x){String k=n(x).toUpperCase(Locale.ROOT);if("GOAL_SIGNAL".equals(k))return"Goal";if("IDEA".equals(k))return"Idea";if("OPPORTUNITY".equals(k))return"Opportunity";if("INSIGHT".equals(k))return"Insight";if("HYPOTHESIS".equals(k))return"Hypothesis";String low=k.toLowerCase(Locale.ROOT).replace('_',' ');return low.isEmpty()?"item":low;}
     private static String clip(String s,int n){String x=s==null?"":s.replaceAll("\\s+"," ").trim();return x.length()<=n?x:x.substring(0,n)+"…";}
