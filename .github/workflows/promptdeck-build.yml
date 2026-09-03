@@ -1,0 +1,62 @@
+name: PromptDeck APK Build
+
+on:
+  push:
+    branches: [ "promptdeck-build-v0.2.0" ]
+    paths:
+      - "promptdeck-build/**"
+      - ".github/workflows/promptdeck-build.yml"
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Rebuild source archive
+        run: |
+          cat promptdeck-build/chunks/* > /tmp/PromptDeck.b64
+          base64 -d /tmp/PromptDeck.b64 > /tmp/PromptDeck.zip
+          mkdir -p /tmp/pd
+          unzip -q /tmp/PromptDeck.zip -d /tmp/pd
+          test -f /tmp/pd/PromptDeck/app/build.gradle
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK
+        run: |
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager "platforms;android-35" "build-tools;35.0.0" "platform-tools"
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.9"
+
+      - name: Build APK
+        working-directory: /tmp/pd/PromptDeck
+        run: gradle --no-daemon assembleDebug
+
+      - name: Verify APK
+        run: |
+          APK=/tmp/pd/PromptDeck/app/build/outputs/apk/debug/app-debug.apk
+          test -f "$APK"
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose "$APK"
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK" | head -20
+          sha256sum "$APK" | tee /tmp/PromptDeck-v0.2.0.sha256
+          cp "$APK" /tmp/PromptDeck-v0.2.0.apk
+          cp /tmp/PromptDeck.zip /tmp/PromptDeck-v0.2.0-source.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PromptDeck-v0.2.0-build
+          path: |
+            /tmp/PromptDeck-v0.2.0.apk
+            /tmp/PromptDeck-v0.2.0-source.zip
+            /tmp/PromptDeck-v0.2.0.sha256
+          if-no-files-found: error
