@@ -22,9 +22,10 @@ jobs:
           unzip -o /tmp/PromptDeck.zip -d /tmp/pd || true
           test -f /tmp/pd/PromptDeck/app/build.gradle
           cp promptdeck-build/MainActivity.java /tmp/pd/PromptDeck/app/src/main/java/com/kareem/promptdeck/MainActivity.java
+          python3 promptdeck-build/patch-ui-rc2.py
           sed -i 's/((ClipboardManager)/((android.content.ClipboardManager)/' /tmp/pd/PromptDeck/app/src/main/java/com/kareem/promptdeck/MainActivity.java
-          sed -Ei 's/versionCode[[:space:]]+[0-9]+/versionCode 5/' /tmp/pd/PromptDeck/app/build.gradle || true
-          sed -Ei 's/versionName[[:space:]]+"[^"]+"/versionName "0.5.0"/' /tmp/pd/PromptDeck/app/build.gradle || true
+          sed -Ei 's/versionCode[[:space:]]+[0-9]+/versionCode 6/' /tmp/pd/PromptDeck/app/build.gradle || true
+          sed -Ei 's/versionName[[:space:]]+"[^"]+"/versionName "0.5.1"/' /tmp/pd/PromptDeck/app/build.gradle || true
           echo "Build metadata:"
           grep -E 'version(Code|Name)' /tmp/pd/PromptDeck/app/build.gradle || true
 
@@ -54,13 +55,13 @@ jobs:
           test -f "$APK"
           "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose "$APK"
           "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK" | head -20
-          sha256sum "$APK" | tee /tmp/PromptDeck-v0.5.0-rc1.sha256
-          cp "$APK" /tmp/PromptDeck-v0.5.0-rc1-unsigned-release.apk
+          sha256sum "$APK" | tee /tmp/PromptDeck-v0.5.1-rc2.sha256
+          cp "$APK" /tmp/PromptDeck-v0.5.1-rc2.apk
 
       - uses: actions/upload-artifact@v4
         with:
-          name: PromptDeck-v0.5.0-rc1-build
+          name: PromptDeck-v0.5.1-rc2-build
           path: |
-            /tmp/PromptDeck-v0.5.0-rc1-unsigned-release.apk
-            /tmp/PromptDeck-v0.5.0-rc1.sha256
+            /tmp/PromptDeck-v0.5.1-rc2.apk
+            /tmp/PromptDeck-v0.5.1-rc2.sha256
           if-no-files-found: error
