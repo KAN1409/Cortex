@@ -27,9 +27,10 @@ jobs:
           python3 promptdeck-build/patch-ui-rc4.py
           python3 promptdeck-build/patch-ui-rc5-github.py
           python3 promptdeck-build/patch-ui-rc6-photo.py
+          python3 promptdeck-build/patch-ui-rc9-extra-photo-codes.py
           sed -i 's/((ClipboardManager)/((android.content.ClipboardManager)/' /tmp/pd/PromptDeck/app/src/main/java/com/kareem/promptdeck/MainActivity.java
-          sed -Ei 's/versionCode[[:space:]]+[0-9]+/versionCode 12/' /tmp/pd/PromptDeck/app/build.gradle || true
-          sed -Ei "s/versionName[[:space:]]+['\"][^'\"]+['\"]/versionName '0.5.7'/" /tmp/pd/PromptDeck/app/build.gradle || true
+          sed -Ei 's/versionCode[[:space:]]+[0-9]+/versionCode 13/' /tmp/pd/PromptDeck/app/build.gradle || true
+          sed -Ei "s/versionName[[:space:]]+['\"][^'\"]+['\"]/versionName '0.5.8'/" /tmp/pd/PromptDeck/app/build.gradle || true
           echo "Build metadata:"
           grep -E 'version(Code|Name)' /tmp/pd/PromptDeck/app/build.gradle || true
           echo "Parser sanity:"
@@ -61,13 +62,13 @@ jobs:
           test -f "$APK"
           "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose "$APK"
           "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK" | head -20
-          sha256sum "$APK" | tee /tmp/PromptDeck-v0.5.7-rc8.sha256
-          cp "$APK" /tmp/PromptDeck-v0.5.7-rc8.apk
+          sha256sum "$APK" | tee /tmp/PromptDeck-v0.5.8-rc9.sha256
+          cp "$APK" /tmp/PromptDeck-v0.5.8-rc9.apk
 
       - uses: actions/upload-artifact@v4
         with:
-          name: PromptDeck-v0.5.7-rc8-build
+          name: PromptDeck-v0.5.8-rc9-build
           path: |
-            /tmp/PromptDeck-v0.5.7-rc8.apk
-            /tmp/PromptDeck-v0.5.7-rc8.sha256
+            /tmp/PromptDeck-v0.5.8-rc9.apk
+            /tmp/PromptDeck-v0.5.8-rc9.sha256
           if-no-files-found: error
