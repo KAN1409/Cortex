@@ -28,13 +28,14 @@ jobs:
           python3 promptdeck-build/patch-ui-rc5-github.py
           python3 promptdeck-build/patch-ui-rc6-photo.py
           python3 promptdeck-build/patch-ui-rc9-extra-photo-codes.py
+          python3 promptdeck-build/patch-ui-rc10-satin-nav.py
           sed -i 's/((ClipboardManager)/((android.content.ClipboardManager)/' /tmp/pd/PromptDeck/app/src/main/java/com/kareem/promptdeck/MainActivity.java
-          sed -Ei 's/versionCode[[:space:]]+[0-9]+/versionCode 13/' /tmp/pd/PromptDeck/app/build.gradle || true
-          sed -Ei "s/versionName[[:space:]]+['\"][^'\"]+['\"]/versionName '0.5.8'/" /tmp/pd/PromptDeck/app/build.gradle || true
+          sed -Ei 's/versionCode[[:space:]]+[0-9]+/versionCode 14/' /tmp/pd/PromptDeck/app/build.gradle || true
+          sed -Ei "s/versionName[[:space:]]+['\"][^'\"]+['\"]/versionName '0.5.9'/" /tmp/pd/PromptDeck/app/build.gradle || true
           echo "Build metadata:"
           grep -E 'version(Code|Name)' /tmp/pd/PromptDeck/app/build.gradle || true
-          echo "Parser sanity:"
-          grep -n 'replaceAll\|Pattern.compile\|body.append' /tmp/pd/PromptDeck/app/src/main/java/com/kareem/promptdeck/MainActivity.java | tail -12
+          echo "Navigation sanity:"
+          grep -n 'onBackPressed\|navBack\|page="stack"\|satinShape' /tmp/pd/PromptDeck/app/src/main/java/com/kareem/promptdeck/MainActivity.java | tail -20
 
       - uses: actions/setup-java@v4
         with:
@@ -62,13 +63,13 @@ jobs:
           test -f "$APK"
           "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose "$APK"
           "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK" | head -20
-          sha256sum "$APK" | tee /tmp/PromptDeck-v0.5.8-rc9.sha256
-          cp "$APK" /tmp/PromptDeck-v0.5.8-rc9.apk
+          sha256sum "$APK" | tee /tmp/PromptDeck-v0.5.9-rc10.sha256
+          cp "$APK" /tmp/PromptDeck-v0.5.9-rc10.apk
 
       - uses: actions/upload-artifact@v4
         with:
-          name: PromptDeck-v0.5.8-rc9-build
+          name: PromptDeck-v0.5.9-rc10-build
           path: |
-            /tmp/PromptDeck-v0.5.8-rc9.apk
-            /tmp/PromptDeck-v0.5.8-rc9.sha256
+            /tmp/PromptDeck-v0.5.9-rc10.apk
+            /tmp/PromptDeck-v0.5.9-rc10.sha256
           if-no-files-found: error
