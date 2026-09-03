@@ -19,8 +19,9 @@ jobs:
           cat promptdeck-build/chunks/* > /tmp/PromptDeck.b64
           base64 -d /tmp/PromptDeck.b64 > /tmp/PromptDeck.zip
           mkdir -p /tmp/pd
-          unzip -q /tmp/PromptDeck.zip -d /tmp/pd
+          unzip -o /tmp/PromptDeck.zip -d /tmp/pd || true
           test -f /tmp/pd/PromptDeck/app/build.gradle
+          test -f /tmp/pd/PromptDeck/app/src/main/java/com/kareem/promptdeck/MainActivity.java
 
       - uses: actions/setup-java@v4
         with:
@@ -50,13 +51,11 @@ jobs:
           "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK" | head -20
           sha256sum "$APK" | tee /tmp/PromptDeck-v0.2.0.sha256
           cp "$APK" /tmp/PromptDeck-v0.2.0.apk
-          cp /tmp/PromptDeck.zip /tmp/PromptDeck-v0.2.0-source.zip
 
       - uses: actions/upload-artifact@v4
         with:
           name: PromptDeck-v0.2.0-build
           path: |
             /tmp/PromptDeck-v0.2.0.apk
-            /tmp/PromptDeck-v0.2.0-source.zip
             /tmp/PromptDeck-v0.2.0.sha256
           if-no-files-found: error
