@@ -43,8 +43,8 @@ seed_method='''  void seedPhotoCommands(){
 
   String autoDescription(String prompt,String category){
     if(prompt==null)return "Custom prompt";
-    String t=prompt.replaceAll("\\\\s+"," ").trim();
-    t=t.replaceAll("(?i)^(please\\\\s+|create\\\\s+|generate\\\\s+|make\\\\s+|use\\\\s+|turn\\\\s+this\\\\s+into\\\\s+)","");
+    String t=prompt.replaceAll("\\s+"," ").trim();
+    t=t.replaceAll("(?i)^(please\\s+|create\\s+|generate\\s+|make\\s+|use\\s+|turn\\s+this\\s+into\\s+)","");
     String lower=t.toLowerCase(Locale.ROOT);
     if(category.toLowerCase(Locale.ROOT).contains("photo")){
       String kind="Photo editing preset";
@@ -100,15 +100,15 @@ bulk='''  void showBulkPaste(){
 
   int[] parseBulkCommands(String raw,String category){
     int added=0,skipped=0;
-    java.util.regex.Pattern header=java.util.regex.Pattern.compile("^\\\\s*(?:\\\\d+[.)]\\\\s*)?/([A-Za-z0-9_-]+)(?:\\\\s*(?:→|->|—|–|:|\\\\||=)\\\\s*(.*))?\\\\s*$");
+    java.util.regex.Pattern header=java.util.regex.Pattern.compile("^\\s*(?:\\d+[.)]\\s*)?/([A-Za-z0-9_-]+)(?:\\s*(?:→|->|—|–|:|\\||=)\\s*(.*))?\\s*$");
     String currentName=null,currentInline=null;StringBuilder body=new StringBuilder();
     ArrayList<String[]> blocks=new ArrayList<>();
-    for(String line:raw.split("\\\\r?\\\\n")){
+    for(String line:raw.split("\\r?\\n")){
       java.util.regex.Matcher m=header.matcher(line.trim());
       if(m.matches()){
         if(currentName!=null)blocks.add(new String[]{currentName,currentInline==null?"":currentInline,body.toString().trim()});
         currentName=m.group(1);currentInline=m.group(2)==null?"":m.group(2).trim();body.setLength(0);
-      }else if(currentName!=null){if(body.length()>0)body.append('\\\\n');body.append(line);}
+      }else if(currentName!=null){if(body.length()>0)body.append('\n');body.append(line);}
     }
     if(currentName!=null)blocks.add(new String[]{currentName,currentInline==null?"":currentInline,body.toString().trim()});
 
