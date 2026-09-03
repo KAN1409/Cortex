@@ -21,6 +21,7 @@ jobs:
           mkdir -p /tmp/pd
           unzip -o /tmp/PromptDeck.zip -d /tmp/pd || true
           test -f /tmp/pd/PromptDeck/app/build.gradle
+          cp promptdeck-build/MainActivity.java /tmp/pd/PromptDeck/app/src/main/java/com/kareem/promptdeck/MainActivity.java
           test -f /tmp/pd/PromptDeck/app/src/main/java/com/kareem/promptdeck/MainActivity.java
 
       - uses: actions/setup-java@v4
