@@ -26,7 +26,6 @@ if not m:
     raise SystemExit('load() not found')
 load=m.group(1)
 if 'seedPhotoCommands();' not in load:
-    # Insert before the final brace of load().
     load_new=load[:-2]+'seedPhotoCommands();}\n'
     s=s[:m.start()]+load_new+s[m.end():]
 
@@ -40,6 +39,26 @@ seed_method='''  void seedPhotoCommands(){
 
   String photoDescription(String shortText){
     return shortText+" — preset بصري جاهز يوجّه ChatGPT لنفس الستايل مع الحفاظ على تفاصيل طلب الصورة.";
+  }
+
+  String autoDescription(String prompt,String category){
+    if(prompt==null)return "Custom prompt";
+    String t=prompt.replaceAll("\\\\s+"," ").trim();
+    t=t.replaceAll("(?i)^(please\\\\s+|create\\\\s+|generate\\\\s+|make\\\\s+|use\\\\s+|turn\\\\s+this\\\\s+into\\\\s+)","");
+    String lower=t.toLowerCase(Locale.ROOT);
+    if(category.toLowerCase(Locale.ROOT).contains("photo")){
+      String kind="Photo editing preset";
+      if(lower.contains("portrait"))kind="Portrait style";
+      else if(lower.contains("product"))kind="Product photography style";
+      else if(lower.contains("cinematic")||lower.contains("movie"))kind="Cinematic image style";
+      else if(lower.contains("headshot"))kind="Professional headshot style";
+      else if(lower.contains("landscape")||lower.contains("travel"))kind="Travel photography style";
+      String detail=t;
+      int cut=detail.indexOf('.');if(cut>18)detail=detail.substring(0,cut);
+      if(detail.length()>72)detail=detail.substring(0,72).trim()+"…";
+      return kind+" — "+detail;
+    }
+    String first=t;int cut=first.indexOf('.');if(cut>15)first=first.substring(0,cut);if(first.length()>86)first=first.substring(0,86).trim()+"…";return first.isEmpty()?"Custom prompt":first;
   }
 
 '''
@@ -63,26 +82,37 @@ s=s.replace(old_tail,new_tail,1)
 
 # Add a bulk-paste entry in Prompt Library.
 old_lib='''    View add=menuCard("＋","Add prompt","Create one custom command manually");add.setOnClickListener(v->showAdd());root.addView(add);View imp=menuCard("↓","Import pack","Import a .promptdeck.json library");'''
-new_lib='''    View add=menuCard("＋","Add prompt","Create one custom command manually");add.setOnClickListener(v->showAdd());root.addView(add);View paste=menuCard("⌁","Paste command list","Paste lines like /NeonCity → Cyberpunk night portrait and PromptDeck separates them automatically");paste.setOnClickListener(v->showBulkPaste());root.addView(paste);View imp=menuCard("↓","Import pack","Import a .promptdeck.json library");'''
+new_lib='''    View add=menuCard("＋","Add prompt","Create one custom command manually");add.setOnClickListener(v->showAdd());root.addView(add);View paste=menuCard("⌁","Paste prompts","Paste simple command lines or complete multi-line prompts. PromptDeck separates them and creates descriptions automatically");paste.setOnClickListener(v->showBulkPaste());root.addView(paste);View imp=menuCard("↓","Import pack","Import a .promptdeck.json library");'''
 if old_lib not in s:
     raise SystemExit('library menu insertion point not found')
 s=s.replace(old_lib,new_lib,1)
 
-# Bulk-paste dialog and tolerant line parser.
 showadd='''  void showAdd(){'''
 bulk='''  void showBulkPaste(){
     LinearLayout box=vbox();box.setPadding(dp(18),dp(4),dp(18),0);
     EditText category=input("Category (default: Photo Editing & Image Generation)",1);category.setText("Photo Editing & Image Generation");
-    EditText bulk=input("Paste command lines here…\\n\\n1. /NeonCity → Cyberpunk night portrait\\n2. /GoldenHour → Cinematic sunset portrait\\n\\nAlso accepts ->  —  :  |  =",12);
+    EditText bulk=input("Paste anything here…\\n\\nSimple:\\n/NeonCity → Cyberpunk night portrait\\n\\nOr full prompt blocks:\\n/NeonPortrait\\nCreate a dramatic cyberpunk portrait at night with neon reflections, rain, cinematic contrast...\\n\\n/StudioClean\\nCreate a clean professional studio portrait with soft key light...",14);
     box.addView(category);box.addView(bulk);
-    AlertDialog d=new AlertDialog.Builder(this).setTitle("Smart paste commands").setView(box).setNegativeButton("Cancel",null).setPositiveButton("Parse & add",null).create();
-    d.setOnShowListener(z->d.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->{String cat=category.getText().toString().trim();if(cat.isEmpty())cat="Photo Editing & Image Generation";int[] result=parseBulkCommands(bulk.getText().toString(),cat);if(result[0]==0){toast("No command lines found. Use /Name → description");return;}saveCustom();d.dismiss();library();toast("Added "+result[0]+" prompts"+(result[1]>0?" • skipped "+result[1]:""));}));d.show();
+    TextView note=text("Description is optional. If you paste a full prompt, PromptDeck will derive a short description from the prompt automatically.",12,false,MUTED);note.setPadding(0,dp(4),0,dp(8));box.addView(note);
+    AlertDialog d=new AlertDialog.Builder(this).setTitle("Smart paste prompts").setView(box).setNegativeButton("Cancel",null).setPositiveButton("Parse & add",null).create();
+    d.setOnShowListener(z->d.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->{String cat=category.getText().toString().trim();if(cat.isEmpty())cat="Photo Editing & Image Generation";int[] result=parseBulkCommands(bulk.getText().toString(),cat);if(result[0]==0){toast("No prompts found. Start each prompt with /CommandName");return;}saveCustom();d.dismiss();library();toast("Added "+result[0]+" prompts"+(result[1]>0?" • skipped "+result[1]:""));}));d.show();
   }
 
   int[] parseBulkCommands(String raw,String category){
-    int added=0,skipped=0;String[] lines=raw.split("\\r?\\n");
-    java.util.regex.Pattern pattern=java.util.regex.Pattern.compile("^\\\\s*(?:\\\\d+[.)]\\\\s*)?/([A-Za-z0-9_-]+)\\\\s*(?:→|->|—|–|:|\\\\||=)\\\\s*(.+?)\\\\s*$");
-    for(String line:lines){line=line.trim();if(line.isEmpty())continue;java.util.regex.Matcher m=pattern.matcher(line);if(!m.matches()){skipped++;continue;}String name=m.group(1).trim(),desc=m.group(2).trim();if(name.isEmpty()||desc.isEmpty()){skipped++;continue;}boolean duplicate=false;for(Cmd c:all)if(c.command.equalsIgnoreCase(name)){duplicate=true;break;}if(duplicate){skipped++;continue;}try{JSONObject o=new JSONObject();o.put("id",nextId());o.put("command",name);o.put("category",category);o.put("description",category.toLowerCase(Locale.ROOT).contains("photo")?photoDescription(desc):desc);o.put("instruction",category.toLowerCase(Locale.ROOT).contains("photo")?"Use the /"+name+" image direction: "+desc+". Apply it faithfully to the user's image request while preserving any identity, subject, composition, or content constraints they provide.":"Apply /"+name+": "+desc+". Follow this instruction as a named PromptDeck operator within the user's request.");all.add(new Cmd(o,true));added++;}catch(Exception e){skipped++;}}
+    int added=0,skipped=0;
+    java.util.regex.Pattern header=java.util.regex.Pattern.compile("^\\\\s*(?:\\\\d+[.)]\\\\s*)?/([A-Za-z0-9_-]+)(?:\\\\s*(?:→|->|—|–|:|\\\\||=)\\\\s*(.*))?\\\\s*$");
+    String currentName=null,currentInline=null;StringBuilder body=new StringBuilder();
+    ArrayList<String[]> blocks=new ArrayList<>();
+    for(String line:raw.split("\\\\r?\\\\n")){
+      java.util.regex.Matcher m=header.matcher(line.trim());
+      if(m.matches()){
+        if(currentName!=null)blocks.add(new String[]{currentName,currentInline==null?"":currentInline,body.toString().trim()});
+        currentName=m.group(1);currentInline=m.group(2)==null?"":m.group(2).trim();body.setLength(0);
+      }else if(currentName!=null){if(body.length()>0)body.append('\\\\n');body.append(line);}
+    }
+    if(currentName!=null)blocks.add(new String[]{currentName,currentInline==null?"":currentInline,body.toString().trim()});
+
+    for(String[] b:blocks){String name=b[0],inline=b[1],full=b[2];String instruction=!full.isEmpty()?full:inline;if(instruction==null||instruction.trim().isEmpty()){skipped++;continue;}boolean duplicate=false;for(Cmd c:all)if(c.command.equalsIgnoreCase(name)){duplicate=true;break;}if(duplicate){skipped++;continue;}String desc=!inline.isEmpty()&&!full.isEmpty()?inline:autoDescription(instruction,category);if(!inline.isEmpty()&&full.isEmpty())desc=inline;try{JSONObject o=new JSONObject();o.put("id",nextId());o.put("command",name);o.put("category",category);o.put("description",category.toLowerCase(Locale.ROOT).contains("photo")?photoDescription(desc):desc);o.put("instruction",instruction);all.add(new Cmd(o,true));added++;}catch(Exception e){skipped++;}}
     return new int[]{added,skipped};
   }
 
@@ -92,4 +122,4 @@ if showadd not in s:
 s=s.replace(showadd,bulk+showadd,1)
 
 p.write_text(s)
-print('PromptDeck RC6 photo category + smart bulk paste applied')
+print('PromptDeck RC6 photo category + full-prompt smart paste applied')
