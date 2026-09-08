@@ -1,7 +1,7 @@
 package com.kareem.cortex;
 
 import android.content.Context;
-import com.google.mlkit.genai.prompt.FeatureStatus;
+import com.google.mlkit.genai.common.FeatureStatus;
 import com.google.mlkit.genai.prompt.Generation;
 import com.google.mlkit.genai.prompt.java.GenerativeModelFutures;
 
