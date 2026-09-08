@@ -9,6 +9,8 @@ on:
       - 'app/**'
       - '.github/workflows/cortex-recovery-ci.yml'
       - 'docs/CORTEX_RECOVERY_AUDIT.md'
+      - 'docs/CORTEX_V2_RECOVERY_AUDIT.md'
+      - 'docs/CORTEX_V2_ZERO_API_5G_ARCHITECTURE.md'
   workflow_dispatch:
 
 permissions:
@@ -17,7 +19,7 @@ permissions:
 jobs:
   local-recovery:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 35
     steps:
       - name: Checkout Cortex recovery branch
         uses: actions/checkout@v6
@@ -36,7 +38,7 @@ jobs:
         with:
           gradle-version: '8.9'
 
-      - name: Assert local ASR recovery stack is present
+      - name: Assert recovered local ASR stack is present
         shell: bash
         run: |
           set -euo pipefail
@@ -47,20 +49,38 @@ jobs:
             app/src/main/java/com/kareem/cortex/CodeSwitchCandidateSelector.java \
             app/src/main/java/com/kareem/cortex/WavSpeechChunker.java \
             app/src/main/java/com/kareem/cortex/WhisperGgmlModel.java \
-            app/src/main/java/com/kareem/cortex/WhisperRuntimeState.java; do
+            app/src/main/java/com/kareem/cortex/WhisperRuntimeState.java \
+            app/src/main/java/com/kareem/cortex/CortexExecutionRouter.java; do
             test -s "$f"
           done
           grep -q "whisper-android-cortex-prompt-1.0.0.aar" app/build.gradle
 
-      - name: Protect the working legacy voice baseline
+      - name: Protect the working voice-note baseline
         shell: bash
         run: |
           set -euo pipefail
           test -s app/src/main/java/com/kareem/cortex/CloudAudioTranscriber.java
           grep -q "CloudAudioTranscriber.transcribe" app/src/main/java/com/kareem/cortex/AudioAnalyzer.java
           grep -q "RATE=16000" app/src/main/java/com/kareem/cortex/AudioCapture.java
+          grep -q "CHANNEL_IN_MONO" app/src/main/java/com/kareem/cortex/AudioCapture.java
+          grep -q "ENCODING_PCM_16BIT" app/src/main/java/com/kareem/cortex/AudioCapture.java
+          grep -q "ACCESS_NETWORK_STATE" app/src/main/AndroidManifest.xml
 
-      - name: Unit tests
+      - name: Prevent new paid inference integrations
+        shell: bash
+        run: |
+          set -euo pipefail
+          # The legacy cloud transcriber remains temporarily as a golden quality reference.
+          # No other Android production source may introduce paid-provider endpoints/credentials.
+          hits="$(grep -R -n -E 'api\.openai\.com|speech\.googleapis\.com|cognitiveservices\.azure\.com|OPENAI_API_KEY|AZURE_SPEECH_KEY|GOOGLE_SERVICE_ACCOUNT_JSON' app/src/main --exclude=CloudAudioTranscriber.java || true)"
+          if [ -n "$hits" ]; then
+            echo "$hits"
+            echo 'New paid inference dependency detected in Android production source.' >&2
+            exit 1
+          fi
+          ! grep -R -n -E 'CLOUD|PAID' app/src/main/java/com/kareem/cortex/CortexExecutionRouter.java
+
+      - name: Unit and code-switch regression tests
         run: gradle :app:testDebugUnitTest --stacktrace
 
       - name: Android lint
@@ -69,7 +89,7 @@ jobs:
       - name: Build debug and release APKs
         run: gradle :app:assembleDebug :app:assembleRelease --stacktrace
 
-      - name: Upload recovery build reports
+      - name: Upload recovery QA reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -78,4 +98,15 @@ jobs:
             app/build/reports/
             app/build/test-results/
           if-no-files-found: warn
+          retention-days: 14
+
+      - name: Upload unsigned recovery APKs
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cortex-v2-recovery-unsigned-apks
+          path: |
+            app/build/outputs/apk/debug/app-debug.apk
+            app/build/outputs/apk/release/app-release-unsigned.apk
+          if-no-files-found: error
           retention-days: 14
