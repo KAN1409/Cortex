@@ -38,21 +38,23 @@ jobs:
           grep -q 'addNav(a,bar,"capture","Capture"' app/src/main/java/com/kareem/cortex/CortexUi.java
           ! grep -R -n -E 'Cortex Prime|Deep Review|Grounded review|AI-Assistant-TestLab' app/src/main --exclude-dir=build
           ! grep -q 'DeepReviewActivity.*MAIN' app/src/main/AndroidManifest.xml
-          test -s app/src/main/java/com/kareem/cortex/UniversalEventStore.java
-          test -s app/src/main/java/com/kareem/cortex/UniversalEventEngine.java
-          test -s app/src/main/java/com/kareem/cortex/UniversalReplayWorker.java
-          test -s app/src/main/java/com/kareem/cortex/UniversalReplayScheduler.java
-          test -s app/src/main/java/com/kareem/cortex/UniversalPipelineDiagnostics.java
-          test -s app/src/main/java/com/kareem/cortex/CanonicalPresentation.java
+          for f in UniversalEventStore UniversalEventEngine UniversalProjectionStore UniversalSemanticScheduler UniversalSemanticWorker UniversalReplayWorker UniversalReplayScheduler UniversalPipelineDiagnostics CanonicalPresentation; do test -s "app/src/main/java/com/kareem/cortex/$f.java"; done
           grep -q 'ue_raw_observations' app/src/main/java/com/kareem/cortex/UniversalEventStore.java
+          grep -q 'ue_streams' app/src/main/java/com/kareem/cortex/UniversalEventStore.java
           grep -q 'ue_semantic_events' app/src/main/java/com/kareem/cortex/UniversalEventStore.java
           grep -q 'ue_situations' app/src/main/java/com/kareem/cortex/UniversalEventStore.java
           grep -q 'ue_attention_items' app/src/main/java/com/kareem/cortex/UniversalEventStore.java
           grep -q 'ue_memory_promotions' app/src/main/java/com/kareem/cortex/UniversalEventStore.java
+          grep -q 'ue_reprocess_requests' app/src/main/java/com/kareem/cortex/UniversalEventStore.java
           grep -q 'DB_VERSION = 7' app/src/main/java/com/kareem/cortex/CognitiveSchema.java
           grep -q 'captureSearch' app/src/main/java/com/kareem/cortex/VaultDb.java
           grep -q 'UniversalEventEngine.processNotification' app/src/main/java/com/kareem/cortex/NotificationCaptureService.java
+          grep -q 'UniversalSemanticScheduler.kick' app/src/main/java/com/kareem/cortex/NotificationCaptureService.java
+          grep -q 'ue_attention_items' app/src/main/java/com/kareem/cortex/PrimeBriefStore.java
+          grep -q 'ue_semantic_events' app/src/main/java/com/kareem/cortex/CaptureOverviewActivity.java
+          grep -q 'UniversalPipelineDiagnostics.apply' app/src/main/java/com/kareem/cortex/CortexAuditScheduler.java
           grep -q '!"notification".equalsIgnoreCase(signal.kind)' app/src/main/java/com/kareem/cortex/RawSignalStore.java
+          test -s app/src/test/java/com/kareem/cortex/VaultDbV64MigrationTest.java
 
       - name: Protect production voice path
         shell: bash
