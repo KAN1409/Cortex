@@ -23,12 +23,13 @@ jobs:
           git show FETCH_HEAD:app/libs/whisper-android-cortex-prompt-1.0.0.aar > app/libs/whisper-android-cortex-prompt-1.0.0.aar
           test -s app/libs/whisper-android-cortex-prompt-1.0.0.aar
 
-      - name: Assert Cortex product identity before build
+      - name: Assert Cortex product identity and v64 architecture
         shell: bash
         run: |
           set -euo pipefail
           grep -q "applicationId 'com.kareem.cortex'" app/build.gradle
-          grep -q "versionCode 63" app/build.gradle
+          grep -q "versionCode 64" app/build.gradle
+          grep -q "1.2.0-v64-universal-event-engine" app/build.gradle
           grep -q 'android:label="Cortex"' app/src/main/AndroidManifest.xml
           grep -q '<activity android:name=".InputActivity" android:exported="true"><intent-filter><action android:name="android.intent.action.MAIN"' app/src/main/AndroidManifest.xml
           grep -q '<activity android:name=".NowActivity"' app/src/main/AndroidManifest.xml
@@ -37,8 +38,23 @@ jobs:
           grep -q 'addNav(a,bar,"capture","Capture"' app/src/main/java/com/kareem/cortex/CortexUi.java
           ! grep -R -n -E 'Cortex Prime|Deep Review|Grounded review|AI-Assistant-TestLab' app/src/main --exclude-dir=build
           ! grep -q 'DeepReviewActivity.*MAIN' app/src/main/AndroidManifest.xml
+          test -s app/src/main/java/com/kareem/cortex/UniversalEventStore.java
+          test -s app/src/main/java/com/kareem/cortex/UniversalEventEngine.java
+          test -s app/src/main/java/com/kareem/cortex/UniversalReplayWorker.java
+          test -s app/src/main/java/com/kareem/cortex/UniversalReplayScheduler.java
+          test -s app/src/main/java/com/kareem/cortex/UniversalPipelineDiagnostics.java
+          test -s app/src/main/java/com/kareem/cortex/CanonicalPresentation.java
+          grep -q 'ue_raw_observations' app/src/main/java/com/kareem/cortex/UniversalEventStore.java
+          grep -q 'ue_semantic_events' app/src/main/java/com/kareem/cortex/UniversalEventStore.java
+          grep -q 'ue_situations' app/src/main/java/com/kareem/cortex/UniversalEventStore.java
+          grep -q 'ue_attention_items' app/src/main/java/com/kareem/cortex/UniversalEventStore.java
+          grep -q 'ue_memory_promotions' app/src/main/java/com/kareem/cortex/UniversalEventStore.java
+          grep -q 'DB_VERSION = 7' app/src/main/java/com/kareem/cortex/CognitiveSchema.java
+          grep -q 'captureSearch' app/src/main/java/com/kareem/cortex/VaultDb.java
+          grep -q 'UniversalEventEngine.processNotification' app/src/main/java/com/kareem/cortex/NotificationCaptureService.java
+          grep -q '!"notification".equalsIgnoreCase(signal.kind)' app/src/main/java/com/kareem/cortex/RawSignalStore.java
 
-      - name: Protect voice and event-engine paths
+      - name: Protect production voice path
         shell: bash
         run: |
           set -euo pipefail
@@ -48,13 +64,6 @@ jobs:
           test -s app/src/main/java/com/kareem/cortex/CleanWhisperTranscriber.kt
           test -s app/src/main/java/com/kareem/cortex/AndroidOnDeviceAsrCandidate.java
           test -s app/src/main/java/com/kareem/cortex/GeminiNanoProbe.java
-          test -s app/src/main/java/com/kareem/cortex/NotificationCaptureService.java
-          test -s app/src/main/java/com/kareem/cortex/NotificationEventEngine.java
-          test -s app/src/main/java/com/kareem/cortex/CaptureOverviewActivity.java
-          grep -q 'notification_raw_observations' app/src/main/java/com/kareem/cortex/NotificationEventEngine.java
-          grep -q 'notification_streams' app/src/main/java/com/kareem/cortex/NotificationEventEngine.java
-          grep -q 'notification_semantic_events' app/src/main/java/com/kareem/cortex/NotificationEventEngine.java
-          grep -q 'platform_hint' app/src/main/java/com/kareem/cortex/NotificationCaptureService.java
 
       - name: Set up Java 17
         uses: actions/setup-java@v5
@@ -70,7 +79,7 @@ jobs:
         with:
           gradle-version: '8.9'
 
-      - name: Unit tests
+      - name: Unit and migration tests
         run: gradle :app:testDebugUnitTest --stacktrace
 
       - name: Build inherited lint baseline from original Cortex
@@ -86,7 +95,6 @@ jobs:
           test -s /tmp/cortex-original/app/lint-baseline.xml
           cp /tmp/cortex-original/app/lint-baseline.xml app/lint-baseline.xml
           printf '\nandroid { lint { baseline = file("lint-baseline.xml") } }\n' >> app/build.gradle
-          echo "Inherited lint baseline entries: $(grep -c '<issue' app/lint-baseline.xml || true)"
 
       - name: Android lint - reject new recovery errors
         run: gradle :app:lintDebug --stacktrace
@@ -100,33 +108,27 @@ jobs:
           set -euo pipefail
           APK=app/build/outputs/apk/debug/app-debug.apk
           test -s "$APK"
-
           BUILD_TOOLS="$(find "$ANDROID_SDK_ROOT/build-tools" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort -V | tail -n1)"
           AAPT="$ANDROID_SDK_ROOT/build-tools/$BUILD_TOOLS/aapt"
           APKSIGNER="$ANDROID_SDK_ROOT/build-tools/$BUILD_TOOLS/apksigner"
-          test -x "$AAPT"
-          test -x "$APKSIGNER"
-
           BADGING="$("$AAPT" dump badging "$APK")"
-          echo "$BADGING" | grep -q "package: name='com.kareem.cortex' versionCode='63'"
+          echo "$BADGING" | grep -q "package: name='com.kareem.cortex' versionCode='64'"
           echo "$BADGING" | grep -q "application-label:'Cortex'"
           echo "$BADGING" | grep -q "launchable-activity: name='com.kareem.cortex.InputActivity'"
           ! echo "$BADGING" | grep -q -E 'Cortex Prime|Deep Review|Grounded review|AI-Assistant-TestLab'
-
           SIGNING="$("$APKSIGNER" verify --verbose --print-certs "$APK")"
           echo "$SIGNING"
           echo "$SIGNING" | tr '[:upper:]' '[:lower:]' | grep -q '5c6550a070abe477dcad5f23f3f437e183bff8aeaeb6ac52e1beaa8243ee69a7'
           echo "$SIGNING" | grep -q 'Verified using v2 scheme (APK Signature Scheme v2): true'
+          sha256sum "$APK" | tee app/build/cortex-v64-sha256.txt
 
-          sha256sum "$APK" | tee app/build/cortex-v63-sha256.txt
-
-      - name: Upload Cortex v63 update
+      - name: Upload Cortex v64 update
         uses: actions/upload-artifact@v4
         with:
-          name: cortex-v1.1.3-v63-event-engine-update
+          name: cortex-v1.2.0-v64-universal-event-engine-update
           path: |
             app/build/outputs/apk/debug/app-debug.apk
-            app/build/cortex-v63-sha256.txt
+            app/build/cortex-v64-sha256.txt
           if-no-files-found: error
           retention-days: 14
 
@@ -134,7 +136,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: cortex-v63-event-engine-qa
+          name: cortex-v64-universal-event-engine-qa
           path: |
             app/build/reports/
             app/build/test-results/
