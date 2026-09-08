@@ -1,26 +1,35 @@
 package com.kareem.cortex;
 
 import android.Manifest;
-import android.content.*;
+import android.content.Context;
 import android.content.pm.PackageManager;
-import android.media.*;
-import java.io.*;
+import android.media.AudioFormat;
+import android.media.AudioRecord;
+import android.media.MediaRecorder;
+import android.os.Build;
+import java.io.File;
+import java.io.IOException;
+import java.io.RandomAccessFile;
 
 public final class AudioCapture {
     private static final int RATE=16000;
     private AudioRecord record; private Thread thread; private volatile boolean running; private RandomAccessFile out; private File file; private long pcmBytes;
 
-    public boolean hasPermission(Context c){return android.os.Build.VERSION.SDK_INT<23||c.checkSelfPermission(Manifest.permission.RECORD_AUDIO)==PackageManager.PERMISSION_GRANTED;}
+    public boolean hasPermission(Context c){return Build.VERSION.SDK_INT<23||c.checkSelfPermission(Manifest.permission.RECORD_AUDIO)==PackageManager.PERMISSION_GRANTED;}
 
     public File start(Context ctx) throws Exception {
         if(running)throw new IllegalStateException("Already recording");
-        if(!hasPermission(ctx))throw new SecurityException("Microphone permission is required for recording");
+        // Keep the permission check in the same method as AudioRecord construction so a
+        // runtime revocation cannot turn the capture boundary into an unhandled crash.
+        if(Build.VERSION.SDK_INT>=23&&ctx.checkSelfPermission(Manifest.permission.RECORD_AUDIO)!=PackageManager.PERMISSION_GRANTED)
+            throw new SecurityException("Microphone permission is required for recording");
         File dir=new File(ctx.getFilesDir(),"audio");if(!dir.exists())dir.mkdirs();file=new File(dir,"voice_"+System.currentTimeMillis()+".wav");
         int min=AudioRecord.getMinBufferSize(RATE,AudioFormat.CHANNEL_IN_MONO,AudioFormat.ENCODING_PCM_16BIT);int buffer=Math.max(min,8192);
         try{
             record=new AudioRecord(MediaRecorder.AudioSource.MIC,RATE,AudioFormat.CHANNEL_IN_MONO,AudioFormat.ENCODING_PCM_16BIT,buffer);
             if(record.getState()!=AudioRecord.STATE_INITIALIZED)throw new IOException("Microphone initialization failed");
             out=new RandomAccessFile(file,"rw");writeHeader(out,0);pcmBytes=0;record.startRecording();running=true;
+        }catch(SecurityException e){cleanupFailedStart();throw new SecurityException("Microphone permission was revoked while starting recording",e);
         }catch(IOException|RuntimeException e){cleanupFailedStart();throw e;}
         thread=new Thread(()->{byte[] b=new byte[buffer];try{while(running){int n=record.read(b,0,b.length);if(n>0){out.write(b,0,n);pcmBytes+=n;}}}catch(Exception ignored){}},"CortexVoiceRecorder");thread.start();return file;
     }
