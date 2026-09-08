@@ -1,5 +1,6 @@
 package com.kareem.cortex;
 
+import android.app.role.RoleManager;
 import android.content.Context;
 import android.net.ConnectivityManager;
 import android.net.Network;
@@ -15,20 +16,33 @@ public final class CortexRuntimeCapabilities {
         public final Transport transport;
         public final boolean validatedInternet;
         public final boolean metered;
+        public final boolean platformSpeechRecognizerAvailable;
         public final boolean platformOnDeviceSpeechAvailable;
+        public final boolean assistantRoleAvailable;
+        public final boolean assistantRoleHeld;
 
         Snapshot(Transport transport, boolean validatedInternet, boolean metered,
-                 boolean platformOnDeviceSpeechAvailable) {
+                 boolean platformSpeechRecognizerAvailable,
+                 boolean platformOnDeviceSpeechAvailable,
+                 boolean assistantRoleAvailable,
+                 boolean assistantRoleHeld) {
             this.transport = transport;
             this.validatedInternet = validatedInternet;
             this.metered = metered;
+            this.platformSpeechRecognizerAvailable = platformSpeechRecognizerAvailable;
             this.platformOnDeviceSpeechAvailable = platformOnDeviceSpeechAvailable;
+            this.assistantRoleAvailable = assistantRoleAvailable;
+            this.assistantRoleHeld = assistantRoleHeld;
         }
 
+        /** Core Cortex is deliberately transport-agnostic: cellular and offline are normal states. */
+        public boolean coreReadyWithoutWifi() {
+            return true;
+        }
+
+        /** Compatibility alias retained for the first recovery probes. */
         public boolean cellularFirstReady() {
-            return transport == Transport.CELLULAR || transport == Transport.WIFI ||
-                    transport == Transport.ETHERNET || transport == Transport.VPN ||
-                    transport == Transport.OFFLINE;
+            return coreReadyWithoutWifi();
         }
     }
 
@@ -46,8 +60,21 @@ public final class CortexRuntimeCapabilities {
         Transport transport = classify(caps);
         boolean validated = caps != null && caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED);
         boolean metered = cm != null && cm.isActiveNetworkMetered();
+        boolean speech = SpeechRecognizer.isRecognitionAvailable(app);
         boolean localSpeech = Build.VERSION.SDK_INT >= 31 && SpeechRecognizer.isOnDeviceRecognitionAvailable(app);
-        return new Snapshot(transport, validated, metered, localSpeech);
+
+        boolean assistantAvailable = false;
+        boolean assistantHeld = false;
+        if (Build.VERSION.SDK_INT >= 29) {
+            RoleManager roles = (RoleManager) app.getSystemService(Context.ROLE_SERVICE);
+            if (roles != null) {
+                assistantAvailable = roles.isRoleAvailable(RoleManager.ROLE_ASSISTANT);
+                assistantHeld = assistantAvailable && roles.isRoleHeld(RoleManager.ROLE_ASSISTANT);
+            }
+        }
+
+        return new Snapshot(transport, validated, metered, speech, localSpeech,
+                assistantAvailable, assistantHeld);
     }
 
     static Transport classify(NetworkCapabilities caps) {
