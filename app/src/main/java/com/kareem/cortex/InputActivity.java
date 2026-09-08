@@ -8,7 +8,7 @@ import android.provider.Settings;
 import android.view.*;
 import android.widget.*;
 
-/** PRIME input surface using the locked matte warm premium design language. */
+/** Cortex input surface using the locked matte warm premium design language. */
 public class InputActivity extends Activity {
     int dp(int x){return CortexUi.dp(this,x);}
     @Override public void onCreate(Bundle b){super.onCreate(b);CortexUi.applyWindow(this);build();}
