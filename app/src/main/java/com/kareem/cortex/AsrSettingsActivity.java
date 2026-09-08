@@ -3,6 +3,7 @@ package com.kareem.cortex;
 import android.app.*;
 import android.content.Intent;
 import android.graphics.Color;
+import android.graphics.Typeface;
 import android.os.Bundle;
 import android.text.InputType;
 import android.view.View;
@@ -18,7 +19,7 @@ public class AsrSettingsActivity extends Activity {
 
     void build(){
         root=new LinearLayout(this);root.setOrientation(LinearLayout.VERTICAL);root.setBackgroundColor(bg);pad(root,20);
-        TextView title=tv("Cortex ASR Setup",26,text);title.setTypeface(null,1);root.addView(title);
+        TextView title=tv("Cortex ASR Setup",26,text);title.setTypeface(null,Typeface.BOLD);root.addView(title);
         TextView sub=tv("Production voice stays unchanged while zero-paid local candidates are measured in shadow mode. Historical WAV files and stored transcripts are never overwritten by the lab.",14,muted);sub.setPadding(0,dp(8),0,dp(18));root.addView(sub);
         status=tv("",14,text);root.addView(status);
         Button lab=button("OPEN CORTEX ASR LAB");Button gemini=button("GEMINI 3.6 FLASH KEY");Button groq=button("GROQ WHISPER KEY");Button done=button("DONE");
