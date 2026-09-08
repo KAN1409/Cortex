@@ -31,9 +31,8 @@ jobs:
           grep -q "versionCode 61" app/build.gradle
           grep -q 'android:label="Cortex"' app/src/main/AndroidManifest.xml
           grep -q '<activity android:name=".InputActivity" android:exported="true"><intent-filter><action android:name="android.intent.action.MAIN"' app/src/main/AndroidManifest.xml
-          ! grep -q 'Cortex Prime' app/src/main/AndroidManifest.xml
+          ! grep -R -n -E 'Cortex Prime|Deep Review|Grounded review|AI-Assistant-TestLab' app/src/main --exclude-dir=build
           ! grep -q 'DeepReviewActivity.*MAIN' app/src/main/AndroidManifest.xml
-          ! grep -q 'Deep Review' app/src/main/java/com/kareem/cortex/InputActivity.java
 
       - name: Protect existing Cortex production voice path
         shell: bash
@@ -90,12 +89,24 @@ jobs:
           set -euo pipefail
           APK=app/build/outputs/apk/debug/app-debug.apk
           test -s "$APK"
-          BADGING="$(aapt dump badging "$APK")"
+
+          BUILD_TOOLS="$(find "$ANDROID_SDK_ROOT/build-tools" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort -V | tail -n1)"
+          AAPT="$ANDROID_SDK_ROOT/build-tools/$BUILD_TOOLS/aapt"
+          APKSIGNER="$ANDROID_SDK_ROOT/build-tools/$BUILD_TOOLS/apksigner"
+          test -x "$AAPT"
+          test -x "$APKSIGNER"
+
+          BADGING="$("$AAPT" dump badging "$APK")"
           echo "$BADGING" | grep -q "package: name='com.kareem.cortex' versionCode='61'"
           echo "$BADGING" | grep -q "application-label:'Cortex'"
           echo "$BADGING" | grep -q "launchable-activity: name='com.kareem.cortex.InputActivity'"
-          ! echo "$BADGING" | grep -q 'Cortex Prime'
-          apksigner verify --verbose --print-certs "$APK"
+          ! echo "$BADGING" | grep -q -E 'Cortex Prime|Deep Review|Grounded review|AI-Assistant-TestLab'
+
+          SIGNING="$("$APKSIGNER" verify --verbose --print-certs "$APK")"
+          echo "$SIGNING"
+          echo "$SIGNING" | tr '[:upper:]' '[:lower:]' | grep -q '5c6550a070abe477dcad5f23f3f437e183bff8aeaeb6ac52e1beaa8243ee69a7'
+          echo "$SIGNING" | grep -q 'Verified using v2 scheme (APK Signature Scheme v2): true'
+
           sha256sum "$APK" | tee app/build/cortex-v61-sha256.txt
 
       - name: Upload Cortex v61 update
