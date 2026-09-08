@@ -1,0 +1,86 @@
+name: Cortex v64 Local-First CI
+
+on:
+  push:
+    branches: [ v64/cortex-zero-api-local-first ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Set up Gradle 8.9
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: Zero-paid-API static contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q "versionCode 64" app/build.gradle
+          grep -q "1.0.0-v64-zero-api-local-first" app/build.gradle
+          grep -q "return true;" app/src/main/java/com/kareem/cortex/ZeroCostPolicy.java
+          grep -q "return false;" app/src/main/java/com/kareem/cortex/ZeroCostPolicy.java
+          grep -q "ZeroCostPolicy.enforced()" app/src/main/java/com/kareem/cortex/BrainRouter.java
+          grep -q "ZeroCostBrainEngine.ask" app/src/main/java/com/kareem/cortex/BrainRouter.java
+          grep -q "ZeroCostPolicy.enforced()" app/src/main/java/com/kareem/cortex/ExternalBrainProvider.java
+          grep -q "External AI is disabled by Cortex zero-paid-API policy" app/src/main/java/com/kareem/cortex/ExternalBrainProvider.java
+          grep -q "SystemAudioTranscriber.transcribe" app/src/main/java/com/kareem/cortex/AudioAnalyzer.java
+          ! grep -E "GeminiAudioTranscriber|GroqAudioTranscriber|CloudAudioTranscriber" app/src/main/java/com/kareem/cortex/AudioAnalyzer.java
+          grep -q "createOnDeviceSpeechRecognizer" app/src/main/java/com/kareem/cortex/SystemAudioTranscriber.java
+          grep -q '"ar-EG","en-US","en-GB"' app/src/main/java/com/kareem/cortex/SystemAudioTranscriber.java
+          grep -q "android.speech.RecognitionService" app/src/main/AndroidManifest.xml
+          grep -q "LocalBrainSettingsActivity" app/src/main/AndroidManifest.xml
+          grep -q "Gemini Nano on-device first" app/src/main/java/com/kareem/cortex/SettingsActivity.java
+          ! grep -q "OpenRouterSettingsActivity.class" app/src/main/java/com/kareem/cortex/SettingsActivity.java
+          ! grep -q "GeminiSettingsActivity.class" app/src/main/java/com/kareem/cortex/SettingsActivity.java
+          grep -q 'addMode("Local AI","external")' app/src/main/java/com/kareem/cortex/AskCortexActivity.java
+          ! grep -q "configured external AI" app/src/main/java/com/kareem/cortex/AskCortexActivity.java
+          ! grep -q "allows cloud use" app/src/main/java/com/kareem/cortex/AskCortexActivity.java
+          grep -q "Shizuku optional" app/src/main/java/com/kareem/cortex/SettingsActivity.java
+
+      - name: Unit tests
+        run: gradle :app:testDebugUnitTest --stacktrace
+
+      - name: Android lint
+        run: gradle :app:lintDebug --stacktrace
+
+      - name: Build installable debug APK
+        run: gradle :app:assembleDebug --stacktrace
+
+      - name: Verify APK exists
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s app/build/outputs/apk/debug/app-debug.apk
+          sha256sum app/build/outputs/apk/debug/app-debug.apk | tee Cortex-v64.sha256
+
+      - name: Upload v64 APK and QA reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: Cortex-v64-zero-api-local-first
+          path: |
+            app/build/outputs/apk/debug/app-debug.apk
+            app/build/reports/tests/testDebugUnitTest/
+            app/build/reports/lint-results-debug.html
+            app/build/reports/lint-results-debug.xml
+            Cortex-v64.sha256
+          if-no-files-found: error
+          retention-days: 30
