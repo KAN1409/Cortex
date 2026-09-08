@@ -63,7 +63,22 @@ jobs:
       - name: Unit tests
         run: gradle :app:testDebugUnitTest --stacktrace
 
-      - name: Android lint
+      - name: Build inherited lint baseline from original Cortex
+        shell: bash
+        run: |
+          set -euo pipefail
+          ORIGINAL=c8c49ccc71c6b367dfecaff76351279f256d5c2d
+          git fetch origin "$ORIGINAL" --depth=1
+          rm -rf /tmp/cortex-original
+          git worktree add --detach /tmp/cortex-original "$ORIGINAL"
+          printf '\nandroid { lint { baseline = file("lint-baseline.xml") } }\n' >> /tmp/cortex-original/app/build.gradle
+          gradle -p /tmp/cortex-original :app:updateLintBaseline --stacktrace
+          test -s /tmp/cortex-original/app/lint-baseline.xml
+          cp /tmp/cortex-original/app/lint-baseline.xml app/lint-baseline.xml
+          printf '\nandroid { lint { baseline = file("lint-baseline.xml") } }\n' >> app/build.gradle
+          echo "Inherited lint baseline entries: $(grep -c '<issue' app/lint-baseline.xml || true)"
+
+      - name: Android lint - reject new recovery errors
         run: gradle :app:lintDebug --stacktrace
 
       - name: Build signed update APK
@@ -101,5 +116,6 @@ jobs:
           path: |
             app/build/reports/
             app/build/test-results/
+            app/lint-baseline.xml
           if-no-files-found: warn
           retention-days: 14
