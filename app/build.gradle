@@ -1,5 +1,6 @@
 plugins {
     id 'com.android.application'
+    id 'org.jetbrains.kotlin.android'
 }
 
 android {
@@ -14,9 +15,18 @@ android {
         versionName '1.0.22'
     }
 
+    androidResources {
+        // Keep user-imported whisper.cpp GGML model files stored verbatim.
+        noCompress += ['bin']
+    }
+
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
+    }
+
+    kotlinOptions {
+        jvmTarget = '17'
     }
 }
 
@@ -24,5 +34,12 @@ dependencies {
     implementation 'com.google.mlkit:text-recognition:16.0.1'
     implementation 'cz.adaptech.tesseract4android:tesseract4android:4.9.0'
     implementation 'androidx.work:work-runtime:2.11.2'
+
+    // Recovery branch: resurrect the proven local Whisper runtime in parallel with
+    // the legacy cloud transcription code. The legacy path remains untouched until
+    // the local engine passes the saved-voice-note benchmark.
+    implementation files('libs/whisper-android-cortex-prompt-1.0.0.aar')
+    implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0'
+
     testImplementation 'junit:junit:4.13.2'
 }

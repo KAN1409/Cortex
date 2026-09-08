@@ -1,0 +1,81 @@
+name: Cortex Recovery CI
+
+on:
+  push:
+    branches: [ v2/cortex-recovery-zero-api ]
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'app/**'
+      - '.github/workflows/cortex-recovery-ci.yml'
+      - 'docs/CORTEX_RECOVERY_AUDIT.md'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  local-recovery:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout Cortex recovery branch
+        uses: actions/checkout@v6
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Set up Gradle 8.9
+        uses: gradle/actions/setup-gradle@v6
+        with:
+          gradle-version: '8.9'
+
+      - name: Assert local ASR recovery stack is present
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s app/libs/whisper-android-cortex-prompt-1.0.0.aar
+          for f in \
+            app/src/main/java/com/kareem/cortex/LocalAsrModelStore.java \
+            app/src/main/java/com/kareem/cortex/MultilingualWhisperTranscriber.kt \
+            app/src/main/java/com/kareem/cortex/CodeSwitchCandidateSelector.java \
+            app/src/main/java/com/kareem/cortex/WavSpeechChunker.java \
+            app/src/main/java/com/kareem/cortex/WhisperGgmlModel.java \
+            app/src/main/java/com/kareem/cortex/WhisperRuntimeState.java; do
+            test -s "$f"
+          done
+          grep -q "whisper-android-cortex-prompt-1.0.0.aar" app/build.gradle
+
+      - name: Protect the working legacy voice baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s app/src/main/java/com/kareem/cortex/CloudAudioTranscriber.java
+          grep -q "CloudAudioTranscriber.transcribe" app/src/main/java/com/kareem/cortex/AudioAnalyzer.java
+          grep -q "RATE=16000" app/src/main/java/com/kareem/cortex/AudioCapture.java
+
+      - name: Unit tests
+        run: gradle :app:testDebugUnitTest --stacktrace
+
+      - name: Android lint
+        run: gradle :app:lintDebug --stacktrace
+
+      - name: Build debug and release APKs
+        run: gradle :app:assembleDebug :app:assembleRelease --stacktrace
+
+      - name: Upload recovery build reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cortex-recovery-reports
+          path: |
+            app/build/reports/
+            app/build/test-results/
+          if-no-files-found: warn
+          retention-days: 14
