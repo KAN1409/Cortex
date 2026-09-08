@@ -14,11 +14,14 @@ public final class AudioCapture {
 
     public File start(Context ctx) throws Exception {
         if(running)throw new IllegalStateException("Already recording");
+        if(!hasPermission(ctx))throw new SecurityException("Microphone permission is required for recording");
         File dir=new File(ctx.getFilesDir(),"audio");if(!dir.exists())dir.mkdirs();file=new File(dir,"voice_"+System.currentTimeMillis()+".wav");
         int min=AudioRecord.getMinBufferSize(RATE,AudioFormat.CHANNEL_IN_MONO,AudioFormat.ENCODING_PCM_16BIT);int buffer=Math.max(min,8192);
-        record=new AudioRecord(MediaRecorder.AudioSource.MIC,RATE,AudioFormat.CHANNEL_IN_MONO,AudioFormat.ENCODING_PCM_16BIT,buffer);
-        if(record.getState()!=AudioRecord.STATE_INITIALIZED)throw new IOException("Microphone initialization failed");
-        out=new RandomAccessFile(file,"rw");writeHeader(out,0);pcmBytes=0;running=true;record.startRecording();
+        try{
+            record=new AudioRecord(MediaRecorder.AudioSource.MIC,RATE,AudioFormat.CHANNEL_IN_MONO,AudioFormat.ENCODING_PCM_16BIT,buffer);
+            if(record.getState()!=AudioRecord.STATE_INITIALIZED)throw new IOException("Microphone initialization failed");
+            out=new RandomAccessFile(file,"rw");writeHeader(out,0);pcmBytes=0;record.startRecording();running=true;
+        }catch(SecurityException|IOException|RuntimeException e){cleanupFailedStart();throw e;}
         thread=new Thread(()->{byte[] b=new byte[buffer];try{while(running){int n=record.read(b,0,b.length);if(n>0){out.write(b,0,n);pcmBytes+=n;}}}catch(Exception ignored){}},"CortexVoiceRecorder");thread.start();return file;
     }
 
@@ -27,6 +30,13 @@ public final class AudioCapture {
         try{record.release();}catch(Exception ignored){}record=null;if(out!=null){out.seek(0);writeHeader(out,pcmBytes);out.close();out=null;}return file;
     }
     public boolean isRunning(){return running;}
+
+    private void cleanupFailedStart(){
+        running=false;
+        if(record!=null){try{record.release();}catch(Exception ignored){}record=null;}
+        if(out!=null){try{out.close();}catch(Exception ignored){}out=null;}
+        if(file!=null&&file.exists()&&file.length()<=44)file.delete();
+    }
 
     private static void writeHeader(RandomAccessFile f,long data) throws IOException {
         int channels=1,bits=16;long byteRate=RATE*channels*bits/8;f.writeBytes("RIFF");le32(f,36+data);f.writeBytes("WAVEfmt ");le32(f,16);le16(f,1);le16(f,channels);le32(f,RATE);le32(f,byteRate);le16(f,channels*bits/8);le16(f,bits);f.writeBytes("data");le32(f,data);
