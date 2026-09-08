@@ -23,13 +23,13 @@ jobs:
           git show FETCH_HEAD:app/libs/whisper-android-cortex-prompt-1.0.0.aar > app/libs/whisper-android-cortex-prompt-1.0.0.aar
           test -s app/libs/whisper-android-cortex-prompt-1.0.0.aar
 
-      - name: Assert Cortex product identity and v64 architecture
+      - name: Assert Cortex product identity and v65 architecture
         shell: bash
         run: |
           set -euo pipefail
           grep -q "applicationId 'com.kareem.cortex'" app/build.gradle
-          grep -q "versionCode 64" app/build.gradle
-          grep -q "1.2.0-v64-universal-event-engine" app/build.gradle
+          grep -q "versionCode 65" app/build.gradle
+          grep -q "1.2.1-v65-universal-engine-hardening" app/build.gradle
           grep -q 'android:label="Cortex"' app/src/main/AndroidManifest.xml
           grep -q '<activity android:name=".InputActivity" android:exported="true"><intent-filter><action android:name="android.intent.action.MAIN"' app/src/main/AndroidManifest.xml
           grep -q '<activity android:name=".NowActivity"' app/src/main/AndroidManifest.xml
@@ -50,8 +50,14 @@ jobs:
           grep -q 'captureSearch' app/src/main/java/com/kareem/cortex/VaultDb.java
           grep -q 'UniversalEventEngine.processNotification' app/src/main/java/com/kareem/cortex/NotificationCaptureService.java
           grep -q 'UniversalSemanticScheduler.kick' app/src/main/java/com/kareem/cortex/NotificationCaptureService.java
+          grep -q 'UniversalSemanticScheduler.kick' app/src/main/java/com/kareem/cortex/InputActivity.java
+          grep -q 'maybeAutoSelfTest' app/src/main/java/com/kareem/cortex/UniversalSemanticWorker.java
+          grep -q "semantic_state='blocked'" app/src/main/java/com/kareem/cortex/UniversalSemanticWorker.java
+          grep -q 'd.confidence>=0.85' app/src/main/java/com/kareem/cortex/PrimeBriefStore.java
           grep -q 'ue_attention_items' app/src/main/java/com/kareem/cortex/PrimeBriefStore.java
           grep -q 'ue_semantic_events' app/src/main/java/com/kareem/cortex/CaptureOverviewActivity.java
+          grep -q 'Semantic interpretation, attention, situations and memory policy rebuilt' app/src/main/java/com/kareem/cortex/UniversalEventEngine.java
+          grep -q 'openrouter/free' app/src/main/java/com/kareem/cortex/OpenRouterModelConfig.java
           grep -q 'UniversalPipelineDiagnostics.apply' app/src/main/java/com/kareem/cortex/CortexAuditScheduler.java
           grep -q '!"notification".equalsIgnoreCase(signal.kind)' app/src/main/java/com/kareem/cortex/RawSignalStore.java
           test -s app/src/test/java/com/kareem/cortex/VaultDbV64MigrationTest.java
@@ -114,7 +120,7 @@ jobs:
           AAPT="$ANDROID_SDK_ROOT/build-tools/$BUILD_TOOLS/aapt"
           APKSIGNER="$ANDROID_SDK_ROOT/build-tools/$BUILD_TOOLS/apksigner"
           BADGING="$("$AAPT" dump badging "$APK")"
-          echo "$BADGING" | grep -q "package: name='com.kareem.cortex' versionCode='64'"
+          echo "$BADGING" | grep -q "package: name='com.kareem.cortex' versionCode='65'"
           echo "$BADGING" | grep -q "application-label:'Cortex'"
           echo "$BADGING" | grep -q "launchable-activity: name='com.kareem.cortex.InputActivity'"
           ! echo "$BADGING" | grep -q -E 'Cortex Prime|Deep Review|Grounded review|AI-Assistant-TestLab'
@@ -122,15 +128,15 @@ jobs:
           echo "$SIGNING"
           echo "$SIGNING" | tr '[:upper:]' '[:lower:]' | grep -q '5c6550a070abe477dcad5f23f3f437e183bff8aeaeb6ac52e1beaa8243ee69a7'
           echo "$SIGNING" | grep -q 'Verified using v2 scheme (APK Signature Scheme v2): true'
-          sha256sum "$APK" | tee app/build/cortex-v64-sha256.txt
+          sha256sum "$APK" | tee app/build/cortex-v65-sha256.txt
 
-      - name: Upload Cortex v64 update
+      - name: Upload Cortex v65 update
         uses: actions/upload-artifact@v4
         with:
-          name: cortex-v1.2.0-v64-universal-event-engine-update
+          name: cortex-v1.2.1-v65-universal-engine-hardening-update
           path: |
             app/build/outputs/apk/debug/app-debug.apk
-            app/build/cortex-v64-sha256.txt
+            app/build/cortex-v65-sha256.txt
           if-no-files-found: error
           retention-days: 14
 
@@ -138,7 +144,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: cortex-v64-universal-event-engine-qa
+          name: cortex-v65-universal-engine-hardening-qa
           path: |
             app/build/reports/
             app/build/test-results/
