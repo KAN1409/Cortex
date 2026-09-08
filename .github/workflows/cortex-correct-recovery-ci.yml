@@ -28,9 +28,13 @@ jobs:
         run: |
           set -euo pipefail
           grep -q "applicationId 'com.kareem.cortex'" app/build.gradle
-          grep -q "versionCode 61" app/build.gradle
+          grep -q "versionCode 62" app/build.gradle
           grep -q 'android:label="Cortex"' app/src/main/AndroidManifest.xml
           grep -q '<activity android:name=".InputActivity" android:exported="true"><intent-filter><action android:name="android.intent.action.MAIN"' app/src/main/AndroidManifest.xml
+          grep -q '<activity android:name=".NowActivity"' app/src/main/AndroidManifest.xml
+          grep -q '<activity android:name=".CaptureOverviewActivity"' app/src/main/AndroidManifest.xml
+          grep -q 'addNav(a,bar,"now","Now"' app/src/main/java/com/kareem/cortex/CortexUi.java
+          grep -q 'addNav(a,bar,"capture","Capture"' app/src/main/java/com/kareem/cortex/CortexUi.java
           ! grep -R -n -E 'Cortex Prime|Deep Review|Grounded review|AI-Assistant-TestLab' app/src/main --exclude-dir=build
           ! grep -q 'DeepReviewActivity.*MAIN' app/src/main/AndroidManifest.xml
 
@@ -44,6 +48,8 @@ jobs:
           test -s app/src/main/java/com/kareem/cortex/CleanWhisperTranscriber.kt
           test -s app/src/main/java/com/kareem/cortex/AndroidOnDeviceAsrCandidate.java
           test -s app/src/main/java/com/kareem/cortex/GeminiNanoProbe.java
+          test -s app/src/main/java/com/kareem/cortex/NotificationCaptureService.java
+          test -s app/src/main/java/com/kareem/cortex/CaptureOverviewActivity.java
 
       - name: Set up Java 17
         uses: actions/setup-java@v5
@@ -97,7 +103,7 @@ jobs:
           test -x "$APKSIGNER"
 
           BADGING="$("$AAPT" dump badging "$APK")"
-          echo "$BADGING" | grep -q "package: name='com.kareem.cortex' versionCode='61'"
+          echo "$BADGING" | grep -q "package: name='com.kareem.cortex' versionCode='62'"
           echo "$BADGING" | grep -q "application-label:'Cortex'"
           echo "$BADGING" | grep -q "launchable-activity: name='com.kareem.cortex.InputActivity'"
           ! echo "$BADGING" | grep -q -E 'Cortex Prime|Deep Review|Grounded review|AI-Assistant-TestLab'
@@ -107,15 +113,15 @@ jobs:
           echo "$SIGNING" | tr '[:upper:]' '[:lower:]' | grep -q '5c6550a070abe477dcad5f23f3f437e183bff8aeaeb6ac52e1beaa8243ee69a7'
           echo "$SIGNING" | grep -q 'Verified using v2 scheme (APK Signature Scheme v2): true'
 
-          sha256sum "$APK" | tee app/build/cortex-v61-sha256.txt
+          sha256sum "$APK" | tee app/build/cortex-v62-sha256.txt
 
-      - name: Upload Cortex v61 update
+      - name: Upload Cortex v62 update
         uses: actions/upload-artifact@v4
         with:
-          name: cortex-v1.1.1-v61-correct-recovery-update
+          name: cortex-v1.1.2-v62-capture-ux-update
           path: |
             app/build/outputs/apk/debug/app-debug.apk
-            app/build/cortex-v61-sha256.txt
+            app/build/cortex-v62-sha256.txt
           if-no-files-found: error
           retention-days: 14
 
@@ -123,7 +129,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: cortex-v61-recovery-qa
+          name: cortex-v62-capture-ux-qa
           path: |
             app/build/reports/
             app/build/test-results/
