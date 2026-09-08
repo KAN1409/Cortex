@@ -21,6 +21,7 @@ public class NotificationCaptureService extends NotificationListenerService {
             String pkg=sbn.getPackageName()==null?"":sbn.getPackageName(),app=label(pkg);long now=System.currentTimeMillis();
             JSONObject m=new JSONObject().put("capture_kind","android_notification").put("capture_mode","removed").put("package",pkg).put("app_label",app).put("notification_id",sbn.getId()).put("notification_key",sbn.getKey()==null?"":sbn.getKey()).put("tag",sbn.getTag()==null?"":sbn.getTag()).put("removed_at",now);
             db=new VaultDb(this);PhoneContextStore.ensure(db);NotificationEventEngine.Result p=NotificationEventEngine.ingest(db,pkg,app,"removed","","",now,m);UniversalEventEngine.Result u=UniversalEventEngine.processNotification(this,db,p,pkg,app,"removed","","",now,m);
+            if("waiting".equals(u.state))UniversalSemanticScheduler.kick(this);
             if(p.semanticEventId>0){m.put("pipeline_transition",p.transition).put("technical_type",p.technicalType).put("platform_hint",p.platformHint).put("raw_observation_id",u.rawId).put("notification_stream_id",u.streamId).put("semantic_event_id",u.semanticEventId);PhoneContextStore.record(db,"notification_context","notification_listener",pkg,app,"","removed","",now,m);}
         }catch(Throwable error){logFailure(error,sbn);}finally{if(db!=null)try{db.close();}catch(Throwable ignored){}}
     }
@@ -39,6 +40,7 @@ public class NotificationCaptureService extends NotificationListenerService {
         db=new VaultDb(this);PhoneContextStore.ensure(db);
         NotificationEventEngine.Result platform=NotificationEventEngine.ingest(db,pkg,app,"posted",title,text,sbn.getPostTime(),meta);
         UniversalEventEngine.Result semantic=UniversalEventEngine.processNotification(this,db,platform,pkg,app,"posted",title,text,sbn.getPostTime(),meta);
+        if("waiting".equals(semantic.state))UniversalSemanticScheduler.kick(this);
         meta.put("pipeline_transition",platform.transition).put("technical_type",platform.technicalType).put("platform_hint",platform.platformHint).put("raw_observation_id",semantic.rawId).put("notification_stream_id",semantic.streamId).put("semantic_event_id",semantic.semanticEventId).put("semantic_type",semantic.semanticType).put("semantic_state",semantic.state).put("semantic_route",semantic.route);
 
         // PhoneContext is user-facing observability only; the universal event ledger is the source of truth.
