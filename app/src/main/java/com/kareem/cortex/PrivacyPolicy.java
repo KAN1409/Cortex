@@ -9,6 +9,7 @@ public final class PrivacyPolicy {
     public static String mode(Context c,String source){String def=("contacts".equals(source)||"calendar".equals(source)||"phone_context".equals(source)||"app_usage".equals(source)||"screen_context".equals(source))?LOCAL_ONLY:AI_ALLOWED;return c.getSharedPreferences(PREF,0).getString(source,def);}
     public static void set(Context c,String source,String mode){c.getSharedPreferences(PREF,0).edit().putString(source,mode).apply();}
     public static boolean canCollect(Context c,String source){return !NEVER.equals(mode(c,source));}
-    public static boolean canUseCloud(Context c,String source){return AI_ALLOWED.equals(mode(c,source));}
-    public static String label(String m){if(LOCAL_ONLY.equals(m))return "Local only";if(NEVER.equals(m))return "Never collect";return "AI allowed";}
+    /** v64 keeps the legacy preference for migration compatibility, but operational cloud-AI upload is globally disabled. */
+    public static boolean canUseCloud(Context c,String source){return !ZeroCostPolicy.enforced()&&AI_ALLOWED.equals(mode(c,source));}
+    public static String label(String m){if(LOCAL_ONLY.equals(m))return "Local only";if(NEVER.equals(m))return "Never collect";return ZeroCostPolicy.enforced()?"Local in v64 (legacy AI-allowed preference retained)":"AI allowed";}
 }
