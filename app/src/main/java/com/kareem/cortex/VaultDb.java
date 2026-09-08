@@ -70,6 +70,14 @@ public class VaultDb extends SQLiteOpenHelper {
     }
 
     public KnowledgeItem getById(long id){Cursor c=getReadableDatabase().query("knowledge_items",null,"id=?",new String[]{String.valueOf(id)},null,null,null,"1");KnowledgeItem k=c.moveToFirst()?from(c):null;c.close();return k;}
+    public ArrayList<KnowledgeItem> recentVoiceCorpus(int limit){
+        ArrayList<KnowledgeItem> out=new ArrayList<>();
+        int safeLimit=Math.max(1,Math.min(limit,100));
+        Cursor c=getReadableDatabase().query("knowledge_items",null,
+                "type='AUDIO' AND attachment_path IS NOT NULL AND attachment_path<>'' AND extracted_text IS NOT NULL AND TRIM(extracted_text)<>''",
+                null,null,null,"created_at DESC",String.valueOf(safeLimit));
+        while(c.moveToNext())out.add(from(c));c.close();return out;
+    }
     public ArrayList<String> actions(long itemId){ArrayList<String> out=new ArrayList<>();Cursor c=getReadableDatabase().query("actions",new String[]{"action_text","due_text"},"item_id=?",new String[]{String.valueOf(itemId)},null,null,"id ASC");while(c.moveToNext()){String s=c.getString(0),d=c.getString(1);out.add(s+(d==null||d.isEmpty()?"":"  •  "+d));}c.close();return out;}
     public ArrayList<String> entities(long itemId){ArrayList<String> out=new ArrayList<>();Cursor c=getReadableDatabase().query("entities",new String[]{"kind","value"},"item_id=?",new String[]{String.valueOf(itemId)},null,null,"id ASC");while(c.moveToNext())out.add(c.getString(0)+": "+c.getString(1));c.close();return out;}
     public ArrayList<String> visionFields(long itemId){ArrayList<String> out=new ArrayList<>();Cursor c=getReadableDatabase().query("vision_fields",new String[]{"field_key","field_value","confidence"},"item_id=?",new String[]{String.valueOf(itemId)},null,null,"id ASC");while(c.moveToNext()){String k=c.getString(0),v=c.getString(1);double conf=c.getDouble(2);out.add(k+": "+v+(conf>0?"  •  "+Math.round(conf*100)+"%":""));}c.close();return out;}
