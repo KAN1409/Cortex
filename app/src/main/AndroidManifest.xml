@@ -21,14 +21,12 @@
         <activity android:name=".CortexOrbBriefActivity" android:exported="false" />
         <activity android:name=".ProposalBriefActivity" android:exported="false" />
         <activity-alias android:name=".PremiumHomeActivity" android:targetActivity=".ProposalBriefActivity" android:exported="false" />
-
         <activity android:name=".SatinCaptureActivity" android:exported="false" android:theme="@style/CaptureSheetTheme" android:windowSoftInputMode="adjustResize" />
         <activity android:name=".CaptureActivity" android:exported="false" android:theme="@style/CaptureSheetTheme" android:windowSoftInputMode="adjustResize" />
         <activity android:name=".ProposalCaptureActivity" android:exported="true" android:theme="@style/CaptureSheetTheme" android:windowSoftInputMode="adjustResize"><intent-filter><action android:name="android.intent.action.SEND" /><category android:name="android.intent.category.DEFAULT" /><data android:mimeType="*/*" /></intent-filter><intent-filter><action android:name="android.intent.action.SEND_MULTIPLE" /><category android:name="android.intent.category.DEFAULT" /><data android:mimeType="*/*" /></intent-filter></activity>
         <activity android:name=".CaptureResultActivity" android:exported="false" />
         <activity android:name=".ProposalCaptureResultActivity" android:exported="false" />
         <activity android:name=".PinRecordWidgetActivity" android:exported="true" android:label="Add Cortex Voice widget" />
-
         <activity android:name=".PeopleProjectsActivity" android:exported="false" />
         <activity android:name=".ProposalPeopleProjectsActivity" android:exported="false" />
         <activity android:name=".SmartInboxActivity" android:exported="false" />
@@ -50,6 +48,7 @@
         <activity android:name=".VisualIntelligenceActivity" android:exported="false" />
         <activity android:name=".OcrTestActivity" android:exported="false" />
         <activity android:name=".AsrSettingsActivity" android:exported="false" android:label="Cortex ASR Setup" />
+        <activity android:name=".CortexAsrLabActivity" android:exported="false" android:label="Cortex ASR Lab" />
         <activity android:name=".BrainActivity" android:exported="false" />
         <activity android:name=".OpenRouterSettingsActivity" android:exported="false" android:label="Cortex OpenRouter Setup" />
         <activity android:name=".GeminiSettingsActivity" android:exported="false" android:label="Cortex Gemini Setup" />
