@@ -3,6 +3,7 @@ package com.kareem.cortex;
 import android.app.*;
 import android.content.*;
 import android.graphics.Color;
+import android.graphics.Typeface;
 import android.net.Uri;
 import android.os.Bundle;
 import android.view.Gravity;
@@ -15,7 +16,7 @@ public class RestoreActivity extends Activity {
     @Override public void onCreate(Bundle b){super.onCreate(b);build();}
     void build(){
         LinearLayout root=new LinearLayout(this);root.setOrientation(LinearLayout.VERTICAL);root.setBackgroundColor(bg);root.setPadding(dp(24),dp(40),dp(24),dp(24));root.setGravity(Gravity.CENTER_HORIZONTAL);
-        TextView title=tv("CORTEX RESTORE",26,text);title.setTypeface(null,1);root.addView(title,new LinearLayout.LayoutParams(-1,-2));
+        TextView title=tv("CORTEX RESTORE",26,text);title.setTypeface(null,Typeface.BOLD);root.addView(title,new LinearLayout.LayoutParams(-1,-2));
         TextView body=tv("One-time signing migration. Restore a portable Cortex backup after installing the permanently signed app.\n\nThis restores cortex.db plus the original local attachments. Your backup ZIP stays untouched.",15,muted);body.setPadding(0,dp(18),0,dp(24));root.addView(body,new LinearLayout.LayoutParams(-1,-2));
         Button restore=new Button(this);restore.setText("SELECT CORTEX BACKUP ZIP");restore.setTextColor(Color.BLACK);restore.setBackgroundColor(accent);restore.setOnClickListener(v->pick());root.addView(restore,new LinearLayout.LayoutParams(-1,dp(56)));
         Button open=new Button(this);open.setText("OPEN CORTEX");open.setOnClickListener(v->openCortex());LinearLayout.LayoutParams op=new LinearLayout.LayoutParams(-1,dp(52));op.setMargins(0,dp(12),0,0);root.addView(open,op);setContentView(root);
