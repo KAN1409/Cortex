@@ -4,6 +4,7 @@ import android.app.*;
 import android.os.Bundle;
 import android.widget.Toast;
 import java.io.File;
+import java.util.Locale;
 
 /** Voice debugging console for the latest Cortex Prime recording. */
 public class DebugReviewActivity extends Activity {
@@ -20,13 +21,14 @@ public class DebugReviewActivity extends Activity {
     }
 
     void showMenu(){
-        String[] options={"RE-TRANSCRIBE IN CLOUD","DEBUG WITH CHATGPT","EXPORT VOICE"};
+        String[] options={"RUN LOCAL SHADOW BENCHMARK","RE-TRANSCRIBE IN CLOUD","DEBUG WITH CHATGPT","EXPORT VOICE"};
         new AlertDialog.Builder(this)
                 .setTitle("Cortex Prime Voice Debug")
                 .setMessage(statusMessage())
                 .setItems(options,(d,w)->{
-                    if(w==0)retryCloud();
-                    else if(w==1)openChatGpt();
+                    if(w==0)runLocalShadowBenchmark();
+                    else if(w==1)retryCloud();
+                    else if(w==2)openChatGpt();
                     else exportVoice();
                 })
                 .setNegativeButton("Close",(d,w)->finish())
@@ -38,10 +40,65 @@ public class DebugReviewActivity extends Activity {
         String status=item.status==null?"unknown":item.status;
         String engine="";
         try{String info=AudioStore.info(db,itemId);if(info!=null&&!info.trim().isEmpty())engine="\n"+info;}catch(Exception ignored){}
-        return "Cloud ASR • gpt-transcribe → Google Chirp 3 → Azure Speech\n"
-                +"No local ASR model is used.\n\nRecording: "+item.title
+        boolean localReady=false;
+        try{localReady=new LocalWhisperAsrCandidate().isReady(this);}catch(Throwable ignored){}
+        return "Production voice baseline: cloud ASR remains unchanged.\n"
+                +"Local Whisper: "+(localReady?"ready for shadow benchmark":"model not ready")+"\n"
+                +"Shadow runs never overwrite the stored transcript or source WAV.\n\nRecording: "+item.title
                 +"\nStatus: "+status+engine;
     }
+
+    void runLocalShadowBenchmark(){
+        File source=item.attachmentPath==null?null:new File(item.attachmentPath);
+        String reference=item.extractedText==null?"":item.extractedText.trim();
+        if(source==null||!source.exists()){
+            Toast.makeText(this,"Original WAV is missing",Toast.LENGTH_LONG).show();finish();return;
+        }
+        if(reference.isEmpty()){
+            Toast.makeText(this,"This recording has no working reference transcript yet",Toast.LENGTH_LONG).show();finish();return;
+        }
+
+        LocalWhisperAsrCandidate candidate=new LocalWhisperAsrCandidate();
+        if(!candidate.isReady(this)){
+            Toast.makeText(this,"Select/verify a supported local Whisper model first",Toast.LENGTH_LONG).show();finish();return;
+        }
+
+        Toast.makeText(this,"Running local ASR in shadow mode. Stored transcript will not change.",Toast.LENGTH_LONG).show();
+        AsrShadowBenchmarkRunner.run(this,itemId,source,reference,candidate,new AsrShadowBenchmarkRunner.Callback(){
+            @Override public void ok(AsrShadowBenchmarkRunner.Result r){
+                runOnUiThread(()->showBenchmarkResult(r));
+            }
+            @Override public void fail(Exception error){
+                runOnUiThread(()->new AlertDialog.Builder(DebugReviewActivity.this)
+                        .setTitle("Shadow benchmark failed")
+                        .setMessage(error==null?"Unknown benchmark failure":String.valueOf(error.getMessage()))
+                        .setPositiveButton("Close",(d,w)->finish())
+                        .show());
+            }
+        });
+    }
+
+    void showBenchmarkResult(AsrShadowBenchmarkRunner.Result r){
+        AsrBenchmarkMetrics.Score s=r.score;
+        String message="Reference: current working transcript (not human gold)\n\n"
+                +"WER: "+pct(s.wer)+"\n"
+                +"CER: "+pct(s.cer)+"\n"
+                +"Arabic WER: "+pct(s.arabicWer)+"\n"
+                +"English WER: "+pct(s.latinWer)+"\n"
+                +"Number recall: "+pct(1.0-s.numberRecall)+" error / "+pct(s.numberRecall)+" recall\n"
+                +"Code-switch boundaries: "+s.hypothesisScriptSwitches+" / "+s.referenceScriptSwitches+"\n"
+                +"Adjacent duplicates: "+s.duplicateAdjacentWords+"\n"
+                +"Latency: "+r.latencyMs+" ms\n\n"
+                +"LOCAL TRANSCRIPT\n"+r.candidateText+"\n\n"
+                +"Report saved internally:\n"+r.reportFile.getAbsolutePath();
+        new AlertDialog.Builder(this)
+                .setTitle("Local Whisper shadow result")
+                .setMessage(message)
+                .setPositiveButton("Close",(d,w)->finish())
+                .show();
+    }
+
+    String pct(double value){return String.format(Locale.US,"%.1f%%",value*100.0);}
 
     void retryCloud(){
         db.retry(itemId);
