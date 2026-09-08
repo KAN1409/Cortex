@@ -1,0 +1,105 @@
+name: Cortex Correct Recovery CI
+
+on:
+  push:
+    branches: [ v2/cortex-recovery-correct-baseline ]
+  workflow_dispatch:
+
+jobs:
+  cortex-recovery:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout correct Cortex recovery branch
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+
+      - name: Restore local Whisper runtime AAR from recovery evidence branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p app/libs
+          git fetch origin v2/cortex-recovery-zero-api --depth=1
+          git show FETCH_HEAD:app/libs/whisper-android-cortex-prompt-1.0.0.aar > app/libs/whisper-android-cortex-prompt-1.0.0.aar
+          test -s app/libs/whisper-android-cortex-prompt-1.0.0.aar
+
+      - name: Assert Cortex product identity before build
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q "applicationId 'com.kareem.cortex'" app/build.gradle
+          grep -q "versionCode 61" app/build.gradle
+          grep -q 'android:label="Cortex"' app/src/main/AndroidManifest.xml
+          grep -q '<activity android:name=".InputActivity" android:exported="true"><intent-filter><action android:name="android.intent.action.MAIN"' app/src/main/AndroidManifest.xml
+          ! grep -q 'Cortex Prime' app/src/main/AndroidManifest.xml
+          ! grep -q 'DeepReviewActivity.*MAIN' app/src/main/AndroidManifest.xml
+          ! grep -q 'Deep Review' app/src/main/java/com/kareem/cortex/InputActivity.java
+
+      - name: Protect existing Cortex production voice path
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s app/src/main/java/com/kareem/cortex/AudioAnalyzer.java
+          grep -q 'GeminiAudioTranscriber.transcribe' app/src/main/java/com/kareem/cortex/AudioAnalyzer.java
+          grep -q 'runGroqFallback' app/src/main/java/com/kareem/cortex/AudioAnalyzer.java
+          test -s app/src/main/java/com/kareem/cortex/CleanWhisperTranscriber.kt
+          test -s app/src/main/java/com/kareem/cortex/AndroidOnDeviceAsrCandidate.java
+          test -s app/src/main/java/com/kareem/cortex/GeminiNanoProbe.java
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Set up Gradle 8.9
+        uses: gradle/actions/setup-gradle@v6
+        with:
+          gradle-version: '8.9'
+
+      - name: Unit tests
+        run: gradle :app:testDebugUnitTest --stacktrace
+
+      - name: Android lint
+        run: gradle :app:lintDebug --stacktrace
+
+      - name: Build signed update APK
+        run: gradle :app:assembleDebug --stacktrace
+
+      - name: Verify final APK identity and signing
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK=app/build/outputs/apk/debug/app-debug.apk
+          test -s "$APK"
+          BADGING="$(aapt dump badging "$APK")"
+          echo "$BADGING" | grep -q "package: name='com.kareem.cortex' versionCode='61'"
+          echo "$BADGING" | grep -q "application-label:'Cortex'"
+          echo "$BADGING" | grep -q "launchable-activity: name='com.kareem.cortex.InputActivity'"
+          ! echo "$BADGING" | grep -q 'Cortex Prime'
+          apksigner verify --verbose --print-certs "$APK"
+          sha256sum "$APK" | tee app/build/cortex-v61-sha256.txt
+
+      - name: Upload Cortex v61 update
+        uses: actions/upload-artifact@v4
+        with:
+          name: cortex-v1.1.1-v61-correct-recovery-update
+          path: |
+            app/build/outputs/apk/debug/app-debug.apk
+            app/build/cortex-v61-sha256.txt
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload QA reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cortex-v61-recovery-qa
+          path: |
+            app/build/reports/
+            app/build/test-results/
+          if-no-files-found: warn
+          retention-days: 14
