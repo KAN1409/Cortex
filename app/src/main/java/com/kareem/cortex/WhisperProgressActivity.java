@@ -2,6 +2,7 @@ package com.kareem.cortex;
 
 import android.app.Activity;
 import android.graphics.Color;
+import android.graphics.Typeface;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -23,7 +24,7 @@ public class WhisperProgressActivity extends Activity {
 
     void build(){
         LinearLayout root=new LinearLayout(this);root.setOrientation(LinearLayout.VERTICAL);root.setGravity(Gravity.CENTER_HORIZONTAL);root.setBackgroundColor(bg);root.setPadding(dp(24),dp(34),dp(24),dp(24));
-        TextView title=tv("LOCAL CODE-SWITCH ASR",21,text);title.setTypeface(null,1);root.addView(title,new LinearLayout.LayoutParams(-1,-2));
+        TextView title=tv("LOCAL CODE-SWITCH ASR",21,text);title.setTypeface(null,Typeface.BOLD);root.addView(title,new LinearLayout.LayoutParams(-1,-2));
         TextView sub=tv("Egyptian Arabic + English • single context + span rescue + tail retry",14,muted);sub.setPadding(0,dp(6),0,dp(26));root.addView(sub,new LinearLayout.LayoutParams(-1,-2));
         stage=tv("Preparing…",18,text);root.addView(stage,new LinearLayout.LayoutParams(-1,-2));
         bar=new ProgressBar(this,null,android.R.attr.progressBarStyleHorizontal);bar.setMax(100);bar.setProgress(0);LinearLayout.LayoutParams bp=new LinearLayout.LayoutParams(-1,dp(18));bp.setMargins(0,dp(18),0,dp(8));root.addView(bar,bp);
