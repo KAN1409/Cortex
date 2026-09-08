@@ -1,8 +1,12 @@
 package com.kareem.cortex;
 
 import android.accessibilityservice.AccessibilityService;
+import android.accessibilityservice.AccessibilityServiceInfo;
+import android.content.ComponentName;
+import android.content.Context;
 import android.content.pm.ApplicationInfo;
 import android.view.accessibility.AccessibilityEvent;
+import android.view.accessibility.AccessibilityManager;
 import android.view.accessibility.AccessibilityNodeInfo;
 import java.util.*;
 
@@ -28,7 +32,30 @@ public final class CortexScreenAccessibilityService extends AccessibilityService
     @Override public void onAccessibilityEvent(AccessibilityEvent event){PhoneContextCollector.onAccessibilityEvent(this,event);}
     @Override public void onInterrupt(){}
 
+    /** True only while Android has an active service instance in this process. */
     public static boolean connected(){return live!=null;}
+
+    /**
+     * Authoritative user-facing state: asks Android which accessibility services are enabled.
+     * This deliberately does not depend on the process-local service instance, which can lag
+     * while returning from Settings or after process recreation.
+     */
+    public static boolean enabled(Context context){
+        if(context==null)return false;
+        try{
+            AccessibilityManager manager=(AccessibilityManager)context.getSystemService(Context.ACCESSIBILITY_SERVICE);
+            if(manager==null||!manager.isEnabled())return false;
+            ComponentName target=new ComponentName(context,CortexScreenAccessibilityService.class);
+            List<AccessibilityServiceInfo> services=manager.getEnabledAccessibilityServiceList(AccessibilityServiceInfo.FEEDBACK_ALL_MASK);
+            if(services==null)return false;
+            for(AccessibilityServiceInfo info:services){
+                if(info==null||info.getResolveInfo()==null||info.getResolveInfo().serviceInfo==null)continue;
+                android.content.pm.ServiceInfo s=info.getResolveInfo().serviceInfo;
+                if(target.getPackageName().equals(s.packageName)&&target.getClassName().equals(s.name))return true;
+            }
+        }catch(Throwable ignored){}
+        return false;
+    }
 
     public static Snapshot snapshot(){
         CortexScreenAccessibilityService s=live;if(s==null)return null;AccessibilityNodeInfo root=null;
