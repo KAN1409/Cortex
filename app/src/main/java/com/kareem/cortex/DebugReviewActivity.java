@@ -4,6 +4,7 @@ import android.app.*;
 import android.os.Bundle;
 import android.widget.Toast;
 import java.io.File;
+import java.util.ArrayList;
 import java.util.Locale;
 
 /** Voice debugging console for the latest Cortex Prime recording. */
@@ -21,14 +22,15 @@ public class DebugReviewActivity extends Activity {
     }
 
     void showMenu(){
-        String[] options={"RUN LOCAL SHADOW BENCHMARK","RE-TRANSCRIBE IN CLOUD","DEBUG WITH CHATGPT","EXPORT VOICE"};
+        String[] options={"RUN 10-VOICE CORPUS BENCHMARK","RUN LOCAL SHADOW BENCHMARK","RE-TRANSCRIBE IN CLOUD","DEBUG WITH CHATGPT","EXPORT VOICE"};
         new AlertDialog.Builder(this)
                 .setTitle("Cortex Prime Voice Debug")
                 .setMessage(statusMessage())
                 .setItems(options,(d,w)->{
-                    if(w==0)runLocalShadowBenchmark();
-                    else if(w==1)retryCloud();
-                    else if(w==2)openChatGpt();
+                    if(w==0)runCorpusBenchmark();
+                    else if(w==1)runLocalShadowBenchmark();
+                    else if(w==2)retryCloud();
+                    else if(w==3)openChatGpt();
                     else exportVoice();
                 })
                 .setNegativeButton("Close",(d,w)->finish())
@@ -42,10 +44,51 @@ public class DebugReviewActivity extends Activity {
         try{String info=AudioStore.info(db,itemId);if(info!=null&&!info.trim().isEmpty())engine="\n"+info;}catch(Exception ignored){}
         boolean localReady=false;
         try{localReady=new LocalWhisperAsrCandidate().isReady(this);}catch(Throwable ignored){}
+        int corpus=0;try{corpus=db.recentVoiceCorpus(10).size();}catch(Throwable ignored){}
         return "Production voice baseline: cloud ASR remains unchanged.\n"
                 +"Local Whisper: "+(localReady?"ready for shadow benchmark":"model not ready")+"\n"
-                +"Shadow runs never overwrite the stored transcript or source WAV.\n\nRecording: "+item.title
+                +"Historical corpus ready: "+corpus+" / 10 voice notes\n"
+                +"Shadow runs never overwrite stored transcripts or source WAVs.\n\nRecording: "+item.title
                 +"\nStatus: "+status+engine;
+    }
+
+    void runCorpusBenchmark(){
+        LocalWhisperAsrCandidate candidate=new LocalWhisperAsrCandidate();
+        if(!candidate.isReady(this)){
+            Toast.makeText(this,"Select/verify a supported local Whisper model first",Toast.LENGTH_LONG).show();finish();return;
+        }
+        ArrayList<KnowledgeItem> corpus=db.recentVoiceCorpus(10);
+        if(corpus.isEmpty()){
+            Toast.makeText(this,"No historical recordings have both original WAV and working transcript",Toast.LENGTH_LONG).show();finish();return;
+        }
+        Toast.makeText(this,"Running local ASR across "+corpus.size()+" historical recordings. Production data will not change.",Toast.LENGTH_LONG).show();
+        AsrCorpusBenchmarkRunner.run(this,corpus,candidate,new AsrCorpusBenchmarkRunner.Callback(){
+            @Override public void progress(int completed,int total,long currentItemId){
+                runOnUiThread(()->Toast.makeText(DebugReviewActivity.this,"Corpus benchmark "+completed+" / "+total,Toast.LENGTH_SHORT).show());
+            }
+            @Override public void ok(AsrCorpusBenchmarkRunner.Result r){runOnUiThread(()->showCorpusResult(r));}
+            @Override public void fail(Exception error){runOnUiThread(()->new AlertDialog.Builder(DebugReviewActivity.this)
+                    .setTitle("Corpus benchmark failed")
+                    .setMessage(error==null?"Unknown benchmark failure":String.valueOf(error.getMessage()))
+                    .setPositiveButton("Close",(d,w)->finish()).show());}
+        });
+    }
+
+    void showCorpusResult(AsrCorpusBenchmarkRunner.Result r){
+        String message="Reference: stored working transcripts (not human gold)\n\n"
+                +"Completed: "+r.completed+" / "+r.eligible+"\n"
+                +"Failed: "+r.failed+"\n"
+                +"Aggregate WER: "+pct(r.wer)+"\n"
+                +"Aggregate CER: "+pct(r.cer)+"\n"
+                +"Arabic WER: "+pct(r.arabicWer)+"\n"
+                +"English WER: "+pct(r.latinWer)+"\n"
+                +"Number recall: "+pct(r.numberRecall)+"\n"
+                +"Code-switch boundaries: "+r.hypothesisScriptSwitches+" / "+r.referenceScriptSwitches+"\n"
+                +"Adjacent duplicates: "+r.adjacentDuplicates+"\n"
+                +"Average latency: "+(r.completed==0?0:r.totalLatencyMs/r.completed)+" ms\n\n"
+                +"Corpus report:\n"+r.reportFile.getAbsolutePath();
+        new AlertDialog.Builder(this).setTitle("10-voice local ASR corpus result").setMessage(message)
+                .setPositiveButton("Close",(d,w)->finish()).show();
     }
 
     void runLocalShadowBenchmark(){
