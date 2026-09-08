@@ -5,7 +5,7 @@ import android.content.*;
 /** Truthful runtime readiness: only READY after loading the verified GGUF and producing a real local inference. */
 public final class LocalLlmRuntime {
     private static final String PREF="cortex_local_runtime";
-    private static final String K_STATE="state",K_ERROR="error",K_TEXT="self_test_text",K_INFO="system_info",K_TPS="tokens_per_second",K_TOKENS="tokens_generated",K_DURATION="duration_ms",K_TESTED="tested_at",K_MODEL_SHA="model_sha",K_AUTO="auto_started_v43";
+    private static final String K_STATE="state",K_ERROR="error",K_TEXT="self_test_text",K_INFO="system_info",K_TPS="tokens_per_second",K_TOKENS="tokens_generated",K_DURATION="duration_ms",K_TESTED="tested_at",K_MODEL_SHA="model_sha";
     private LocalLlmRuntime(){}
 
     public interface Callback{void done(State state);}
@@ -19,13 +19,23 @@ public final class LocalLlmRuntime {
     public static boolean testing(Context c){return "testing".equals(state(c).state);}
     public static String runtimeVersion(){return LocalLlmBridge.RUNTIME_VERSION;}
 
+    /**
+     * Safe idempotent auto-start. The old one-shot flag could permanently strand a verified model
+     * in not_tested after a process death. State=testing is now the only concurrency gate, so a
+     * future worker/app start can recover automatically.
+     */
     public static void maybeAutoSelfTest(Context c,Callback cb){
-        if(!LocalModelManager.verified(c)||ready(c)||testing(c))return;SharedPreferences p=c.getSharedPreferences(PREF,Context.MODE_PRIVATE);if(p.getBoolean(K_AUTO,false))return;p.edit().putBoolean(K_AUTO,true).apply();runSelfTest(c,cb);
+        if(!LocalModelManager.verified(c)||ready(c)||testing(c))return;
+        runSelfTest(c,cb);
     }
 
     public static void runSelfTest(Context c,Callback cb){
         Context app=c.getApplicationContext();if(!LocalModelManager.verified(app)){if(cb!=null)cb.done(state(app));return;}
-        app.getSharedPreferences(PREF,Context.MODE_PRIVATE).edit().putString(K_STATE,"testing").putString(K_ERROR,"").apply();
+        synchronized(LocalLlmRuntime.class){
+            if(ready(app)){if(cb!=null)cb.done(state(app));return;}
+            if(testing(app))return;
+            app.getSharedPreferences(PREF,Context.MODE_PRIVATE).edit().putString(K_STATE,"testing").putString(K_ERROR,"").apply();
+        }
         new Thread(()->{
             long at=System.currentTimeMillis();LocalLlmBridge.SelfTestResult r;
             try{r=LocalLlmBridge.selfTest(LocalModelManager.modelFile(app).getAbsolutePath());}
