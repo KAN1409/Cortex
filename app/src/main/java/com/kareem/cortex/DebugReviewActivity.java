@@ -5,6 +5,7 @@ import android.os.Bundle;
 import android.widget.Toast;
 import java.io.File;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Locale;
 
 /** Voice debugging console for the latest Cortex Prime recording. */
@@ -22,15 +23,25 @@ public class DebugReviewActivity extends Activity {
     }
 
     void showMenu(){
-        String[] options={"RUN 10-VOICE CORPUS BENCHMARK","RUN LOCAL SHADOW BENCHMARK","RE-TRANSCRIBE IN CLOUD","DEBUG WITH CHATGPT","EXPORT VOICE"};
+        String[] options={
+                "RUN ASR TOURNAMENT",
+                "RUN 10-VOICE RECOVERED WHISPER",
+                "RUN LOCAL SHADOW BENCHMARK",
+                "PROBE GEMINI NANO",
+                "RE-TRANSCRIBE IN CLOUD",
+                "DEBUG WITH CHATGPT",
+                "EXPORT VOICE"
+        };
         new AlertDialog.Builder(this)
-                .setTitle("Cortex Prime Voice Debug")
+                .setTitle("Cortex Prime Voice Lab")
                 .setMessage(statusMessage())
                 .setItems(options,(d,w)->{
-                    if(w==0)runCorpusBenchmark();
-                    else if(w==1)runLocalShadowBenchmark();
-                    else if(w==2)retryCloud();
-                    else if(w==3)openChatGpt();
+                    if(w==0)runTournament();
+                    else if(w==1)runCorpusBenchmark();
+                    else if(w==2)runLocalShadowBenchmark();
+                    else if(w==3)probeGeminiNano();
+                    else if(w==4)retryCloud();
+                    else if(w==5)openChatGpt();
                     else exportVoice();
                 })
                 .setNegativeButton("Close",(d,w)->finish())
@@ -42,26 +53,78 @@ public class DebugReviewActivity extends Activity {
         String status=item.status==null?"unknown":item.status;
         String engine="";
         try{String info=AudioStore.info(db,itemId);if(info!=null&&!info.trim().isEmpty())engine="\n"+info;}catch(Exception ignored){}
-        boolean localReady=false;
-        try{localReady=new LocalWhisperAsrCandidate().isReady(this);}catch(Throwable ignored){}
+        boolean recovered=false,clean=false,android=false;
+        try{recovered=new LocalWhisperAsrCandidate().isReady(this);}catch(Throwable ignored){}
+        try{clean=new CleanWhisperAsrCandidate().isReady(this);}catch(Throwable ignored){}
+        try{android=new AndroidOnDeviceAsrCandidate().isReady(this);}catch(Throwable ignored){}
         int corpus=0;try{corpus=db.recentVoiceCorpus(10).size();}catch(Throwable ignored){}
-        return "Production voice baseline: cloud ASR remains unchanged.\n"
-                +"Local Whisper: "+(localReady?"ready for shadow benchmark":"model not ready")+"\n"
-                +"Historical corpus ready: "+corpus+" / 10 voice notes\n"
-                +"Shadow runs never overwrite stored transcripts or source WAVs.\n\nRecording: "+item.title
+        return "Production voice baseline: unchanged cloud reference.\n"
+                +"Recovered Whisper: "+yes(recovered)+"\n"
+                +"Clean Whisper: "+yes(clean)+"\n"
+                +"Android on-device ASR: "+yes(android)+"\n"
+                +"Historical corpus: "+corpus+" / 10\n"
+                +"All tournament runs are shadow-only and never overwrite transcripts or WAVs.\n\nRecording: "+item.title
                 +"\nStatus: "+status+engine;
+    }
+
+    String yes(boolean v){return v?"ready":"not ready";}
+
+    void runTournament(){
+        ArrayList<KnowledgeItem> corpus=db.recentVoiceCorpus(10);
+        if(corpus.isEmpty()){
+            Toast.makeText(this,"No historical recordings have both original WAV and working transcript",Toast.LENGTH_LONG).show();return;
+        }
+        ArrayList<AsrCandidate> candidates=new ArrayList<>(Arrays.asList(
+                new LocalWhisperAsrCandidate(),
+                new CleanWhisperAsrCandidate(),
+                new AndroidOnDeviceAsrCandidate()
+        ));
+        Toast.makeText(this,"ASR tournament started across "+corpus.size()+" historical recordings",Toast.LENGTH_LONG).show();
+        AsrTournamentRunner.run(this,corpus,candidates,new AsrTournamentRunner.Callback(){
+            @Override public void progress(String name,int candidateIndex,int candidateTotal,int itemCompleted,int itemTotal){
+                runOnUiThread(()->Toast.makeText(DebugReviewActivity.this,name+" · "+itemCompleted+"/"+itemTotal,Toast.LENGTH_SHORT).show());
+            }
+            @Override public void done(ArrayList<AsrTournamentRunner.Entry> entries){runOnUiThread(()->showTournament(entries));}
+        });
+    }
+
+    void showTournament(ArrayList<AsrTournamentRunner.Entry> entries){
+        StringBuilder m=new StringBuilder("Reference: stored working transcripts, not human gold.\n\n");
+        for(AsrTournamentRunner.Entry e:entries){
+            m.append(e.name).append('\n');
+            if(!e.ready||e.result==null){m.append("  ").append(e.note==null?"Unavailable":e.note).append("\n\n");continue;}
+            AsrCorpusBenchmarkRunner.Result r=e.result;
+            m.append("  WER: ").append(pct(r.wer)).append('\n');
+            m.append("  Arabic WER: ").append(pct(r.arabicWer)).append('\n');
+            m.append("  English WER: ").append(pct(r.latinWer)).append('\n');
+            m.append("  Numbers: ").append(pct(r.numberRecall)).append(" recall\n");
+            m.append("  Code-switch: ").append(r.hypothesisScriptSwitches).append(" / ").append(r.referenceScriptSwitches).append('\n');
+            m.append("  Avg latency: ").append(r.completed==0?0:r.totalLatencyMs/r.completed).append(" ms\n");
+            m.append("  Completed: ").append(r.completed).append("  Failed: ").append(r.failed).append("\n\n");
+        }
+        m.append("Lower WER is better. A candidate is not promoted automatically; production voice remains unchanged.");
+        new AlertDialog.Builder(this).setTitle("Cortex ASR Tournament").setMessage(m.toString())
+                .setPositiveButton("Close",(d,w)->finish()).show();
+    }
+
+    void probeGeminiNano(){
+        Toast.makeText(this,"Checking Gemini Nano / AICore locally",Toast.LENGTH_SHORT).show();
+        GeminiNanoProbe.run(this,r->runOnUiThread(()->new AlertDialog.Builder(this)
+                .setTitle("Gemini Nano probe")
+                .setMessage("Status: "+r.label+"\n\n"+r.detail+"\n\nThis probe does not replace Cortex voice transcription and does not call a paid Cortex API.")
+                .setPositiveButton("Close",(d,w)->finish()).show()));
     }
 
     void runCorpusBenchmark(){
         LocalWhisperAsrCandidate candidate=new LocalWhisperAsrCandidate();
         if(!candidate.isReady(this)){
-            Toast.makeText(this,"Select/verify a supported local Whisper model first",Toast.LENGTH_LONG).show();finish();return;
+            Toast.makeText(this,"Select/verify a supported local Whisper model first",Toast.LENGTH_LONG).show();return;
         }
         ArrayList<KnowledgeItem> corpus=db.recentVoiceCorpus(10);
         if(corpus.isEmpty()){
-            Toast.makeText(this,"No historical recordings have both original WAV and working transcript",Toast.LENGTH_LONG).show();finish();return;
+            Toast.makeText(this,"No historical recordings have both original WAV and working transcript",Toast.LENGTH_LONG).show();return;
         }
-        Toast.makeText(this,"Running local ASR across "+corpus.size()+" historical recordings. Production data will not change.",Toast.LENGTH_LONG).show();
+        Toast.makeText(this,"Running recovered Whisper across "+corpus.size()+" historical recordings",Toast.LENGTH_LONG).show();
         AsrCorpusBenchmarkRunner.run(this,corpus,candidate,new AsrCorpusBenchmarkRunner.Callback(){
             @Override public void progress(int completed,int total,long currentItemId){
                 runOnUiThread(()->Toast.makeText(DebugReviewActivity.this,"Corpus benchmark "+completed+" / "+total,Toast.LENGTH_SHORT).show());
@@ -87,7 +150,7 @@ public class DebugReviewActivity extends Activity {
                 +"Adjacent duplicates: "+r.adjacentDuplicates+"\n"
                 +"Average latency: "+(r.completed==0?0:r.totalLatencyMs/r.completed)+" ms\n\n"
                 +"Corpus report:\n"+r.reportFile.getAbsolutePath();
-        new AlertDialog.Builder(this).setTitle("10-voice local ASR corpus result").setMessage(message)
+        new AlertDialog.Builder(this).setTitle("Recovered Whisper corpus result").setMessage(message)
                 .setPositiveButton("Close",(d,w)->finish()).show();
     }
 
@@ -95,29 +158,22 @@ public class DebugReviewActivity extends Activity {
         File source=item.attachmentPath==null?null:new File(item.attachmentPath);
         String reference=item.extractedText==null?"":item.extractedText.trim();
         if(source==null||!source.exists()){
-            Toast.makeText(this,"Original WAV is missing",Toast.LENGTH_LONG).show();finish();return;
+            Toast.makeText(this,"Original WAV is missing",Toast.LENGTH_LONG).show();return;
         }
         if(reference.isEmpty()){
-            Toast.makeText(this,"This recording has no working reference transcript yet",Toast.LENGTH_LONG).show();finish();return;
+            Toast.makeText(this,"This recording has no working reference transcript yet",Toast.LENGTH_LONG).show();return;
         }
-
         LocalWhisperAsrCandidate candidate=new LocalWhisperAsrCandidate();
         if(!candidate.isReady(this)){
-            Toast.makeText(this,"Select/verify a supported local Whisper model first",Toast.LENGTH_LONG).show();finish();return;
+            Toast.makeText(this,"Select/verify a supported local Whisper model first",Toast.LENGTH_LONG).show();return;
         }
-
         Toast.makeText(this,"Running local ASR in shadow mode. Stored transcript will not change.",Toast.LENGTH_LONG).show();
         AsrShadowBenchmarkRunner.run(this,itemId,source,reference,candidate,new AsrShadowBenchmarkRunner.Callback(){
-            @Override public void ok(AsrShadowBenchmarkRunner.Result r){
-                runOnUiThread(()->showBenchmarkResult(r));
-            }
-            @Override public void fail(Exception error){
-                runOnUiThread(()->new AlertDialog.Builder(DebugReviewActivity.this)
-                        .setTitle("Shadow benchmark failed")
-                        .setMessage(error==null?"Unknown benchmark failure":String.valueOf(error.getMessage()))
-                        .setPositiveButton("Close",(d,w)->finish())
-                        .show());
-            }
+            @Override public void ok(AsrShadowBenchmarkRunner.Result r){runOnUiThread(()->showBenchmarkResult(r));}
+            @Override public void fail(Exception error){runOnUiThread(()->new AlertDialog.Builder(DebugReviewActivity.this)
+                    .setTitle("Shadow benchmark failed")
+                    .setMessage(error==null?"Unknown benchmark failure":String.valueOf(error.getMessage()))
+                    .setPositiveButton("Close",(d,w)->finish()).show());}
         });
     }
 
@@ -128,17 +184,14 @@ public class DebugReviewActivity extends Activity {
                 +"CER: "+pct(s.cer)+"\n"
                 +"Arabic WER: "+pct(s.arabicWer)+"\n"
                 +"English WER: "+pct(s.latinWer)+"\n"
-                +"Number recall: "+pct(1.0-s.numberRecall)+" error / "+pct(s.numberRecall)+" recall\n"
+                +"Number recall: "+pct(s.numberRecall)+"\n"
                 +"Code-switch boundaries: "+s.hypothesisScriptSwitches+" / "+s.referenceScriptSwitches+"\n"
                 +"Adjacent duplicates: "+s.duplicateAdjacentWords+"\n"
                 +"Latency: "+r.latencyMs+" ms\n\n"
                 +"LOCAL TRANSCRIPT\n"+r.candidateText+"\n\n"
                 +"Report saved internally:\n"+r.reportFile.getAbsolutePath();
-        new AlertDialog.Builder(this)
-                .setTitle("Local Whisper shadow result")
-                .setMessage(message)
-                .setPositiveButton("Close",(d,w)->finish())
-                .show();
+        new AlertDialog.Builder(this).setTitle("Recovered Whisper shadow result").setMessage(message)
+                .setPositiveButton("Close",(d,w)->finish()).show();
     }
 
     String pct(double value){return String.format(Locale.US,"%.1f%%",value*100.0);}
@@ -148,13 +201,9 @@ public class DebugReviewActivity extends Activity {
         Toast.makeText(this,"Cloud re-transcription queued on the original recording",Toast.LENGTH_LONG).show();
         AnalysisQueue.kick(this,db,()->runOnUiThread(()->{
             KnowledgeItem fresh=db.getById(itemId);
-            if(fresh!=null&&"analyzed".equals(fresh.status)){
-                Toast.makeText(this,"Cloud transcription finished",Toast.LENGTH_LONG).show();
-            }else if(fresh!=null&&"analysis_failed".equals(fresh.status)){
-                Toast.makeText(this,"Cloud transcription will retry if the provider/network failure is temporary",Toast.LENGTH_LONG).show();
-            }else{
-                Toast.makeText(this,"Cloud transcription queued",Toast.LENGTH_LONG).show();
-            }
+            if(fresh!=null&&"analyzed".equals(fresh.status))Toast.makeText(this,"Cloud transcription finished",Toast.LENGTH_LONG).show();
+            else if(fresh!=null&&"analysis_failed".equals(fresh.status))Toast.makeText(this,"Cloud transcription will retry if the provider/network failure is temporary",Toast.LENGTH_LONG).show();
+            else Toast.makeText(this,"Cloud transcription queued",Toast.LENGTH_LONG).show();
             finish();
         }));
     }
