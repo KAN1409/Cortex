@@ -20,8 +20,8 @@ public class NotificationCaptureService extends NotificationListenerService {
         try{
             String pkg=sbn.getPackageName()==null?"":sbn.getPackageName(),app=label(pkg);long now=System.currentTimeMillis();
             JSONObject m=new JSONObject().put("capture_kind","android_notification").put("capture_mode","removed").put("package",pkg).put("app_label",app).put("notification_id",sbn.getId()).put("notification_key",sbn.getKey()==null?"":sbn.getKey()).put("tag",sbn.getTag()==null?"":sbn.getTag()).put("removed_at",now);
-            db=new VaultDb(this);PhoneContextStore.ensure(db);NotificationEventEngine.Result r=NotificationEventEngine.ingest(db,pkg,app,"removed","","",now,m);
-            if(r.semanticEventId>0){m.put("pipeline_transition",r.transition).put("technical_type",r.technicalType).put("platform_hint",r.platformHint).put("raw_observation_id",r.rawId).put("notification_stream_id",r.streamId);PhoneContextStore.record(db,"notification_context","notification_listener",pkg,app,"","removed","",now,m);}
+            db=new VaultDb(this);PhoneContextStore.ensure(db);NotificationEventEngine.Result p=NotificationEventEngine.ingest(db,pkg,app,"removed","","",now,m);UniversalEventEngine.Result u=UniversalEventEngine.processNotification(this,db,p,pkg,app,"removed","","",now,m);
+            if(p.semanticEventId>0){m.put("pipeline_transition",p.transition).put("technical_type",p.technicalType).put("platform_hint",p.platformHint).put("raw_observation_id",u.rawId).put("notification_stream_id",u.streamId).put("semantic_event_id",u.semanticEventId);PhoneContextStore.record(db,"notification_context","notification_listener",pkg,app,"","removed","",now,m);}
         }catch(Throwable error){logFailure(error,sbn);}finally{if(db!=null)try{db.close();}catch(Throwable ignored){}}
     }
 
@@ -37,14 +37,12 @@ public class NotificationCaptureService extends NotificationListenerService {
         meta.put("progress",e.getInt(Notification.EXTRA_PROGRESS,0));meta.put("progress_max",e.getInt(Notification.EXTRA_PROGRESS_MAX,0));meta.put("progress_indeterminate",e.getBoolean(Notification.EXTRA_PROGRESS_INDETERMINATE,false));meta.put("action_count",n.actions==null?0:n.actions.length);JSONArray actions=new JSONArray();if(n.actions!=null)for(Notification.Action a:n.actions){if(a==null)continue;JSONObject x=new JSONObject();x.put("title",str(a.title));if(Build.VERSION.SDK_INT>=20)x.put("remote_input_count",a.getRemoteInputs()==null?0:a.getRemoteInputs().length);actions.put(x);}meta.put("actions",actions);meta.put("has_content_intent",n.contentIntent!=null);meta.put("has_delete_intent",n.deleteIntent!=null);meta.put("has_fullscreen_intent",n.fullScreenIntent!=null);meta.put("has_custom_content",n.contentView!=null||n.bigContentView!=null||n.headsUpContentView!=null);
 
         db=new VaultDb(this);PhoneContextStore.ensure(db);
-        NotificationEventEngine.Result pipeline=NotificationEventEngine.ingest(db,pkg,app,"posted",title,text,sbn.getPostTime(),meta);
-        meta.put("pipeline_transition",pipeline.transition).put("technical_type",pipeline.technicalType).put("platform_hint",pipeline.platformHint).put("raw_observation_id",pipeline.rawId).put("notification_stream_id",pipeline.streamId).put("semantic_event_id",pipeline.semanticEventId);
+        NotificationEventEngine.Result platform=NotificationEventEngine.ingest(db,pkg,app,"posted",title,text,sbn.getPostTime(),meta);
+        UniversalEventEngine.Result semantic=UniversalEventEngine.processNotification(this,db,platform,pkg,app,"posted",title,text,sbn.getPostTime(),meta);
+        meta.put("pipeline_transition",platform.transition).put("technical_type",platform.technicalType).put("platform_hint",platform.platformHint).put("raw_observation_id",semantic.rawId).put("notification_stream_id",semantic.streamId).put("semantic_event_id",semantic.semanticEventId).put("semantic_type",semantic.semanticType).put("semantic_state",semantic.state).put("semantic_route",semantic.route);
 
-        // Raw evidence is already immutable above. Only meaningful transitions enter the user-facing activity stream.
-        if(pipeline.semanticEventId>0)PhoneContextStore.record(db,"notification_context","notification_listener",pkg,app,"","notification_"+pipeline.transition.toLowerCase(),visible,sbn.getPostTime(),meta);
-        if(!pipeline.shouldUnderstand)return;
-
-        String semanticBody=text.isEmpty()?visible:text;MasterRelevanceFilter.Signal signal=new MasterRelevanceFilter.Signal("notification",pkg,title,semanticBody,meta.toString(),sbn.getPostTime(),ongoing);long signalId=RawSignalStore.capture(db,signal),itemId=signalId>0?RawSignalStore.promotedItemId(db,signalId):0,threadId=signalId>0?RawSignalStore.threadId(db,signalId):0;if(signalId>0)NotificationEnrichmentEngine.enrich(db,signalId,itemId,threadId,signal);if(threadId>0)ThreadModelAdjudicator.enqueue(this,threadId,signalId);if(itemId>0)AnalysisQueue.kick(this,null,null);
+        // PhoneContext is user-facing observability only; the universal event ledger is the source of truth.
+        if(platform.semanticEventId>0)PhoneContextStore.record(db,"notification_context","notification_listener",pkg,app,"","notification_"+platform.transition.toLowerCase(),visible,sbn.getPostTime(),meta);
     }catch(Throwable error){logFailure(error,sbn);}finally{if(db!=null)try{db.close();}catch(Throwable ignored){}}}
 
     private void logFailure(Throwable error,StatusBarNotification sbn){android.util.Log.e("CortexNotification","Notification ingestion failed",error);VaultDb d=null;try{d=new VaultDb(this);JSONObject meta=new JSONObject();meta.put("package",sbn==null?"":String.valueOf(sbn.getPackageName()));DiagnosticsLog.error(d,"NotificationCaptureService","notification_ingest",error,"NOTIFICATION_INGEST",0,0,0,0,0,meta);}catch(Throwable ignored){}finally{if(d!=null)try{d.close();}catch(Throwable ignored){}}}
