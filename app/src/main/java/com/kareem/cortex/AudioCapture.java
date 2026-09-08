@@ -21,7 +21,7 @@ public final class AudioCapture {
             record=new AudioRecord(MediaRecorder.AudioSource.MIC,RATE,AudioFormat.CHANNEL_IN_MONO,AudioFormat.ENCODING_PCM_16BIT,buffer);
             if(record.getState()!=AudioRecord.STATE_INITIALIZED)throw new IOException("Microphone initialization failed");
             out=new RandomAccessFile(file,"rw");writeHeader(out,0);pcmBytes=0;record.startRecording();running=true;
-        }catch(SecurityException|IOException|RuntimeException e){cleanupFailedStart();throw e;}
+        }catch(IOException|RuntimeException e){cleanupFailedStart();throw e;}
         thread=new Thread(()->{byte[] b=new byte[buffer];try{while(running){int n=record.read(b,0,b.length);if(n>0){out.write(b,0,n);pcmBytes+=n;}}}catch(Exception ignored){}},"CortexVoiceRecorder");thread.start();return file;
     }
 
