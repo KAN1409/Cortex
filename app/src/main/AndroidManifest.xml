@@ -59,6 +59,7 @@
         <activity android:name=".VisualIntelligenceActivity" android:exported="false" />
         <activity android:name=".OcrTestActivity" android:exported="false" />
         <activity android:name=".AsrSettingsActivity" android:exported="false" android:label="Cortex ASR Setup" />
+        <activity android:name=".LocalBrainSettingsActivity" android:exported="false" android:label="Cortex Local Brain" />
         <activity android:name=".BrainActivity" android:exported="false" />
         <activity android:name=".OpenRouterSettingsActivity" android:exported="false" android:label="Cortex OpenRouter Setup" />
         <activity android:name=".GeminiSettingsActivity" android:exported="false" android:label="Cortex Gemini Setup" />
