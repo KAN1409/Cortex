@@ -12,6 +12,10 @@
     <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS" />
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
 
+    <queries>
+        <intent><action android:name="android.speech.RecognitionService" /></intent>
+    </queries>
+
     <application android:name=".CortexApp" android:theme="@style/AppTheme" android:label="Cortex" android:allowBackup="true">
         <provider android:name="androidx.core.content.FileProvider" android:authorities="${applicationId}.feedback.files" android:exported="false" android:grantUriPermissions="true"><meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/feedback_file_paths" /></provider>
         <provider android:name="rikka.shizuku.ShizukuProvider" android:authorities="${applicationId}.shizuku" android:multiprocess="false" android:enabled="true" android:exported="true" android:permission="android.permission.INTERACT_ACROSS_USERS_FULL" />
@@ -55,6 +59,7 @@
         <activity android:name=".VisualIntelligenceActivity" android:exported="false" />
         <activity android:name=".OcrTestActivity" android:exported="false" />
         <activity android:name=".AsrSettingsActivity" android:exported="false" android:label="Cortex ASR Setup" />
+        <activity android:name=".LocalBrainSettingsActivity" android:exported="false" android:label="Cortex Local Brain" />
         <activity android:name=".BrainActivity" android:exported="false" />
         <activity android:name=".OpenRouterSettingsActivity" android:exported="false" android:label="Cortex OpenRouter Setup" />
         <activity android:name=".GeminiSettingsActivity" android:exported="false" android:label="Cortex Gemini Setup" />

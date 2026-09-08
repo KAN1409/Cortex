@@ -17,13 +17,11 @@ public class SettingsActivity extends Activity {
         LinearLayout head=new LinearLayout(this);head.setOrientation(LinearLayout.HORIZONTAL);head.setGravity(Gravity.CENTER_VERTICAL);TextView back=CortexUi.plain(this,"‹",34,CortexUi.TEXT);back.setGravity(Gravity.CENTER);back.setOnClickListener(v->finish());head.addView(back,new LinearLayout.LayoutParams(dp(42),dp(48)));TextView h=CortexUi.plain(this,"Settings",29,CortexUi.TEXT);CortexUi.medium(h);head.addView(h,new LinearLayout.LayoutParams(0,-2,1));body.addView(head);
 
         body.addView(CortexUi.section(this,"Brain"));
-        String remote=OpenRouterKeyStore.has(this)?"Primary · "+OpenRouterModelConfig.generationModel(this)+" via OpenRouter":"Configure OpenRouter · default model stealth/ox-alpha";
-        row(body,"Reasoning model",remote,OpenRouterSettingsActivity.class);
-        row(body,"Vision / fallback",GeminiKeyStore.has(this)?"Gemini configured · retained for vision and provider fallback":"Optional Gemini fallback and cloud vision",GeminiSettingsActivity.class);
+        row(body,"Local Brain","Gemini Nano on-device first · optional local Qwen fallback · zero paid API",LocalBrainSettingsActivity.class);
 
         body.addView(CortexUi.section(this,"Capture & phone awareness"));
-        row(body,"Phone context access","Notifications, current app/window context and recent app usage",PhoneContextAccessActivity.class);
-        row(body,"Transcription","Voice transcription providers and preferences",AsrSettingsActivity.class);
+        row(body,"Phone context access","Notifications, current app/window context and recent app usage · Shizuku optional",PhoneContextAccessActivity.class);
+        row(body,"Transcription","On-device Android speech first · system fallback · no paid API key",AsrSettingsActivity.class);
         actionRow(body,"Screen understanding",CortexScreenAccessibilityService.connected()?"Ready · explicit Understand screen capture + local phone context":"Enable screen/window understanding",()->{try{startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS));}catch(Throwable ignored){}});
 
         body.addView(CortexUi.section(this,"Learning"));
@@ -33,7 +31,7 @@ public class SettingsActivity extends Activity {
         body.addView(CortexUi.section(this,"Advanced"));
         row(body,"43 capabilities","See what is ACTIVE, READY, needs access/setup, or failed right now",CapabilityMatrixActivity.class);
         row(body,"Full user simulation test","Exercise real Cortex paths safely and export one maximum-detail JSON report",UserSimulationTestLabActivity.class);
-        row(body,"Advanced diagnostics","External model health, phone-context health, runtime, audits, OCR and recovery tools",EnvironmentActivity.class);
+        row(body,"Advanced diagnostics","Phone-context health, local runtime, audits, OCR and recovery tools",EnvironmentActivity.class);
         row(body,"Review queue","Resolve uncertain actions, waiting items, decisions and projects",ReviewQueueActivity.class);
         setContentView(root);CortexUi.fitSystemBars(this,root);
     }
