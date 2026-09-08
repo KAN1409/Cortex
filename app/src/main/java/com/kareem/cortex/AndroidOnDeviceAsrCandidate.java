@@ -1,5 +1,6 @@
 package com.kareem.cortex;
 
+import android.annotation.TargetApi;
 import android.content.Context;
 import android.content.Intent;
 import android.media.AudioFormat;
@@ -39,6 +40,7 @@ public final class AndroidOnDeviceAsrCandidate implements AsrCandidate {
         new Handler(Looper.getMainLooper()).post(()->start(context,sourceWav,started,callback));
     }
 
+    @TargetApi(33)
     private void start(Context context, File sourceWav, long started, Callback callback){
         SpeechRecognizer recognizer=null;
         ParcelFileDescriptor readFd=null;
