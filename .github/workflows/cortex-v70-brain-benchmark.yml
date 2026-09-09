@@ -114,6 +114,51 @@ jobs:
           ! grep -q 'ue_attention_items.*INSERT\|INSERT.*ue_attention_items' app/src/main/java/com/kareem/cortex/CognitiveShadowStore.java
           ! grep -q 'ue_projection_decisions.*INSERT\|INSERT.*ue_projection_decisions' app/src/main/java/com/kareem/cortex/CognitiveShadowStore.java
 
+      - name: Verify extensive cognitive stress invariants
+        shell: bash
+        run: |
+          set -euo pipefail
+          XML=app/build/test-results/testDebugUnitTest/TEST-com.kareem.cortex.CognitiveBrainStressTest.xml
+          test -s "$XML"
+          python3 - <<'PY'
+          import xml.etree.ElementTree as ET
+          p='app/build/test-results/testDebugUnitTest/TEST-com.kareem.cortex.CognitiveBrainStressTest.xml'
+          root=ET.parse(p).getroot()
+          cases=root.findall('testcase')
+          bad=[c.attrib.get('name') for c in cases if c.find('failure') is not None or c.find('error') is not None or c.find('skipped') is not None]
+          assert len(cases) >= 16, f'expected at least 16 stress/invariant cases, found {len(cases)}'
+          assert not bad, 'failed/skipped cognitive stress cases: '+','.join(bad)
+          print(f'Cognitive stress invariants: {len(cases)}/{len(cases)} PASS')
+          PY
+
+      - name: Build installable debug APK and run Android lint
+        run: gradle :app:assembleDebug :app:lintDebug --stacktrace
+
+      - name: Repeat brain tests from scratch for determinism
+        run: gradle :app:testDebugUnitTest --rerun-tasks --stacktrace
+
+      - name: Verify second pass stayed green
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import glob, xml.etree.ElementTree as ET
+          files=glob.glob('app/build/test-results/testDebugUnitTest/TEST-*.xml')
+          assert files, 'no unit test XML files after repeatability pass'
+          total=0
+          bad=[]
+          for p in files:
+              root=ET.parse(p).getroot()
+              cases=root.findall('testcase')
+              total += len(cases)
+              for c in cases:
+                  if c.find('failure') is not None or c.find('error') is not None or c.find('skipped') is not None:
+                      bad.append(p.split('/')[-1]+':'+c.attrib.get('name','?'))
+          assert total >= 70, f'expected broad repeated suite, only {total} cases found'
+          assert not bad, 'repeatability failures/skips: '+','.join(bad)
+          print(f'Repeatability pass: {total}/{total} tests PASS')
+          PY
+
       - name: Upload benchmark reports
         if: always()
         uses: actions/upload-artifact@v4
@@ -122,6 +167,9 @@ jobs:
           path: |
             app/build/test-results/
             app/build/reports/tests/
+            app/build/reports/lint-results-debug.html
+            app/build/reports/lint-results-debug.xml
+            app/build/outputs/apk/debug/
             docs/CORTEX_BRAIN_BENCHMARK_V1.md
           if-no-files-found: warn
           retention-days: 14
