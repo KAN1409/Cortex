@@ -23,13 +23,13 @@ jobs:
           git show FETCH_HEAD:app/libs/whisper-android-cortex-prompt-1.0.0.aar > app/libs/whisper-android-cortex-prompt-1.0.0.aar
           test -s app/libs/whisper-android-cortex-prompt-1.0.0.aar
 
-      - name: Assert Cortex product identity and v67 Capture hardening
+      - name: Assert Cortex product identity and v68 projection truth
         shell: bash
         run: |
           set -euo pipefail
           grep -q "applicationId 'com.kareem.cortex'" app/build.gradle
-          grep -q "versionCode 67" app/build.gradle
-          grep -q "1.2.3-v67-capture-crash-hotfix" app/build.gradle
+          grep -q "versionCode 68" app/build.gradle
+          grep -q "1.2.4-v68-projection-root-fix" app/build.gradle
           grep -q 'android:label="Cortex"' app/src/main/AndroidManifest.xml
           grep -q '<activity android:name=".InputActivity" android:exported="true"><intent-filter><action android:name="android.intent.action.MAIN"' app/src/main/AndroidManifest.xml
           grep -q '<activity android:name=".CaptureOverviewActivity"' app/src/main/AndroidManifest.xml
@@ -44,6 +44,11 @@ jobs:
           grep -q 'renderRecovery' app/src/main/java/com/kareem/cortex/CaptureOverviewActivity.java
           grep -q "semantic_state='complete'" app/src/main/java/com/kareem/cortex/CaptureOverviewActivity.java
           grep -q 'Processing now' app/src/main/java/com/kareem/cortex/CaptureOverviewActivity.java
+          grep -q 's.external_key' app/src/main/java/com/kareem/cortex/CaptureOverviewActivity.java
+          ! grep -q 's.source_key FROM ue_semantic_events e JOIN ue_streams s' app/src/main/java/com/kareem/cortex/CaptureOverviewActivity.java
+          grep -q "'call_event'" app/src/main/java/com/kareem/cortex/PrimeBriefStore.java
+          grep -q 'sameProjection' app/src/main/java/com/kareem/cortex/PrimeBriefStore.java
+          grep -q 'BRIEF / CHANGED & EVOLVING' app/src/main/java/com/kareem/cortex/ProposalUi.java
           test -s app/src/test/java/com/kareem/cortex/VaultDbV64MigrationTest.java
           test -s app/src/test/java/com/kareem/cortex/UniversalProjectionPolicyTest.java
 
@@ -105,7 +110,7 @@ jobs:
           AAPT="$ANDROID_SDK_ROOT/build-tools/$BUILD_TOOLS/aapt"
           APKSIGNER="$ANDROID_SDK_ROOT/build-tools/$BUILD_TOOLS/apksigner"
           BADGING="$("$AAPT" dump badging "$APK")"
-          echo "$BADGING" | grep -q "package: name='com.kareem.cortex' versionCode='67'"
+          echo "$BADGING" | grep -q "package: name='com.kareem.cortex' versionCode='68'"
           echo "$BADGING" | grep -q "application-label:'Cortex'"
           echo "$BADGING" | grep -q "launchable-activity: name='com.kareem.cortex.InputActivity'"
           ! echo "$BADGING" | grep -q -E 'Cortex Prime|Deep Review|Grounded review|AI-Assistant-TestLab'
@@ -113,15 +118,15 @@ jobs:
           echo "$SIGNING"
           echo "$SIGNING" | tr '[:upper:]' '[:lower:]' | grep -q '5c6550a070abe477dcad5f23f3f437e183bff8aeaeb6ac52e1beaa8243ee69a7'
           echo "$SIGNING" | grep -q 'Verified using v2 scheme (APK Signature Scheme v2): true'
-          sha256sum "$APK" | tee app/build/cortex-v67-sha256.txt
+          sha256sum "$APK" | tee app/build/cortex-v68-sha256.txt
 
-      - name: Upload Cortex v67 update
+      - name: Upload Cortex v68 update
         uses: actions/upload-artifact@v4
         with:
-          name: cortex-v1.2.3-v67-capture-crash-hotfix-update
+          name: cortex-v1.2.4-v68-projection-root-fix-update
           path: |
             app/build/outputs/apk/debug/app-debug.apk
-            app/build/cortex-v67-sha256.txt
+            app/build/cortex-v68-sha256.txt
           if-no-files-found: error
           retention-days: 14
 
@@ -129,7 +134,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: cortex-v67-capture-crash-hotfix-qa
+          name: cortex-v68-projection-root-fix-qa
           path: |
             app/build/reports/
             app/build/test-results/
