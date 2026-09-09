@@ -15,7 +15,7 @@ public final class CognitiveSchema {
 
     public static void ensure(SQLiteDatabase db){
         synchronized(CognitiveSchema.class){
-            DatabaseCompatibilityRepair.repair(db);createMeta(db);createRawSignals(db);createThreads(db);createDerivedItems(db);createEntityGraph(db);createSourceLinks(db);createFeedback(db);createAiJobs(db);createModelRuns(db);createDiagnostics(db);createRelevanceEvaluations(db);UniversalEventStore.ensure(db);migrateLegacyEntities(db);backfillDerivedRouting(db);backfillFeedbackRouting(db);db.execSQL("INSERT OR REPLACE INTO schema_meta(key,value,updated_at) VALUES('cognitive_schema','"+REVISION+"',strftime('%s','now')*1000)");ready=true;
+            createMeta(db);createRawSignals(db);createThreads(db);createDerivedItems(db);createEntityGraph(db);createSourceLinks(db);createFeedback(db);createAiJobs(db);createModelRuns(db);createDiagnostics(db);createRelevanceEvaluations(db);UniversalEventStore.ensure(db);migrateLegacyEntities(db);backfillDerivedRouting(db);backfillFeedbackRouting(db);db.execSQL("INSERT OR REPLACE INTO schema_meta(key,value,updated_at) VALUES('cognitive_schema','"+REVISION+"',strftime('%s','now')*1000)");ready=true;
         }
     }
 
