@@ -68,6 +68,7 @@ public final class StatefulMeaningPolicy {
             boolean missed=all.contains("missed")||all.contains("فائت")||all.contains("لم يتم الرد");now=missed&&repeatedCount>=2;brief=missed&&repeatedCount>=2&&materialTransition(transition);return new ProjectionDecision(capture,now,brief,false,"call lifecycle is capture-only unless repeated missed calls matter");}
         if(isWeather(type,all)){boolean severe=isSevereWeather(all);brief=severe&&materialTransition(transition);return new ProjectionDecision(capture,false,brief,false,severe?"material weather change":"routine weather");}
         if(isSocial(type,all))return new ProjectionDecision(capture,false,false,false,"routine social update defaults to low salience");
+        if(type.contains("conversation_message")||"message".equals(in))return new ProjectionDecision(capture,false,false,false,"ordinary message is understood but not promoted without obligation or material context");
         brief=materialTransition(transition)&&!type.contains("technical")&&!type.contains("notification_event");
         return new ProjectionDecision(capture,false,brief,false,brief?"material situation delta":"capture-only semantic fact");
     }
