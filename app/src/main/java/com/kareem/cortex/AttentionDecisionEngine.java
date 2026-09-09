@@ -13,7 +13,7 @@ import java.util.Locale;
  * ranks them globally for Now. It deliberately does not read or mutate UI state.
  */
 public final class AttentionDecisionEngine {
-    public static final String VERSION = "attention_decision_engine_001";
+    public static final String VERSION = "attention_decision_engine_002";
 
     private AttentionDecisionEngine() {}
 
@@ -97,18 +97,13 @@ public final class AttentionDecisionEngine {
         }
     }
 
-    /**
-     * Evaluates one already-correlated situation. This is not the final ordering step.
-     */
+    /** Evaluates one already-correlated situation. This is not the final ordering step. */
     public static Decision evaluate(Candidate c) {
-        if (c == null) {
-            throw new IllegalArgumentException("candidate == null");
-        }
+        if (c == null) throw new IllegalArgumentException("candidate == null");
 
         if (!c.unresolved || isResolved(c.state)) {
             return new Decision(c, false, 0.0, "resolved situation stays out of Now");
         }
-
         if (c.confidence < 0.70) {
             return new Decision(c, false, 0.0, "low-confidence inference stays in Capture");
         }
@@ -123,18 +118,12 @@ public final class AttentionDecisionEngine {
                 && c.actionability < 0.55
                 && c.risk < 0.55;
 
-        if (technical) {
-            return new Decision(c, false, 0.0, "technical evidence is Capture-only");
-        }
+        if (technical) return new Decision(c, false, 0.0, "technical evidence is Capture-only");
         if (social && !c.linkedOpenCommitment && c.risk < 0.70 && c.actionability < 0.70) {
             return new Decision(c, false, 0.0, "routine social activity has low attention value");
         }
-        if (routineWeather) {
-            return new Decision(c, false, 0.0, "routine weather has no current contextual impact");
-        }
-        if (ordinaryMessage) {
-            return new Decision(c, false, 0.0, "ordinary message has no obligation or material context");
-        }
+        if (routineWeather) return new Decision(c, false, 0.0, "routine weather has no current contextual impact");
+        if (ordinaryMessage) return new Decision(c, false, 0.0, "ordinary message has no obligation or material context");
 
         double score = 0.0;
         score += c.urgency * 0.22;
@@ -149,8 +138,7 @@ public final class AttentionDecisionEngine {
         if (c.materialChange) score += 0.08;
         if (c.severeContextImpact) score += 0.14;
 
-        // Repetition is evidence, not meaning. It has a small effect alone and a stronger
-        // effect only when a known unresolved context also exists.
+        // Repetition is supporting evidence, not meaning by itself.
         if (c.repeatedCount >= 2) score += 0.04;
         if (c.repeatedCount >= 2 && c.linkedOpenCommitment) score += 0.08;
         if (c.evidenceCount >= 2) score += Math.min(0.05, (c.evidenceCount - 1) * 0.01);
@@ -160,11 +148,7 @@ public final class AttentionDecisionEngine {
         final boolean dueCommitment = c.linkedOpenCommitment && deadlineScore(c.deadlineAt, c.nowAt) >= 0.60;
         final boolean contextualEmergency = c.severeContextImpact && (c.urgency >= 0.60 || c.risk >= 0.60);
 
-        boolean surface = obviousSecurity
-                || hardAction
-                || dueCommitment
-                || contextualEmergency
-                || score >= 0.68;
+        boolean surface = obviousSecurity || hardAction || dueCommitment || contextualEmergency || score >= 0.68;
 
         String reason;
         if (obviousSecurity) reason = "high-risk actionable security situation";
@@ -180,11 +164,13 @@ public final class AttentionDecisionEngine {
     /**
      * Returns a sparse, globally ranked Now list. Duplicate evidence must already be
      * correlated into one situation before it reaches this layer.
+     *
+     * Ranking is lexicographic: attention class first, continuous score second. This
+     * prevents a pile of small bonuses (deadline + commitment + repetition) from
+     * outranking a genuinely critical high-risk actionable situation.
      */
     public static List<Decision> rankForNow(List<Candidate> candidates, int maxItems) {
-        if (candidates == null || candidates.isEmpty() || maxItems <= 0) {
-            return Collections.emptyList();
-        }
+        if (candidates == null || candidates.isEmpty() || maxItems <= 0) return Collections.emptyList();
 
         List<Decision> eligible = new ArrayList<>();
         for (Candidate candidate : candidates) {
@@ -196,6 +182,8 @@ public final class AttentionDecisionEngine {
         Collections.sort(eligible, new Comparator<Decision>() {
             @Override
             public int compare(Decision a, Decision b) {
+                int byClass = Integer.compare(attentionClass(b), attentionClass(a));
+                if (byClass != 0) return byClass;
                 int byScore = Double.compare(b.score, a.score);
                 if (byScore != 0) return byScore;
                 int byRisk = Double.compare(b.candidate.risk, a.candidate.risk);
@@ -208,6 +196,16 @@ public final class AttentionDecisionEngine {
 
         if (eligible.size() <= maxItems) return Collections.unmodifiableList(eligible);
         return Collections.unmodifiableList(new ArrayList<>(eligible.subList(0, maxItems)));
+    }
+
+    /** Broad semantic priority classes; intentionally not tied to app/package names. */
+    private static int attentionClass(Decision d) {
+        Candidate c = d.candidate;
+        if (c.risk >= 0.80 && c.urgency >= 0.70 && c.actionability >= 0.60) return 4;
+        if (c.severeContextImpact && (c.risk >= 0.60 || c.urgency >= 0.75)) return 4;
+        if (c.explicitRequest && c.actionability >= 0.65) return 3;
+        if (c.linkedOpenCommitment && deadlineScore(c.deadlineAt, c.nowAt) >= 0.60) return 2;
+        return 1;
     }
 
     private static double deadlineScore(long deadlineAt, long nowAt) {
