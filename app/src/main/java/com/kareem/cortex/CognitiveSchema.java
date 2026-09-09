@@ -5,17 +5,17 @@ import android.database.Cursor;
 import android.database.sqlite.SQLiteDatabase;
 import org.json.JSONObject;
 
-/** Unified Cortex cognitive schema. Legacy tables remain intact and v7 adds the universal event ledger. */
+/** Unified Cortex cognitive schema. Legacy tables remain intact and v8 adds additive schema-integrity repair. */
 public final class CognitiveSchema {
-    public static final int DB_VERSION = 7;
-    public static final String REVISION = "cognitive_004_universal_events";
+    public static final int DB_VERSION = 8;
+    public static final String REVISION = "cognitive_005_schema_integrity";
     private static volatile boolean ready;
 
     private CognitiveSchema(){}
 
     public static void ensure(SQLiteDatabase db){
         synchronized(CognitiveSchema.class){
-            createMeta(db);createRawSignals(db);createThreads(db);createDerivedItems(db);createEntityGraph(db);createSourceLinks(db);createFeedback(db);createAiJobs(db);createModelRuns(db);createDiagnostics(db);createRelevanceEvaluations(db);UniversalEventStore.ensure(db);migrateLegacyEntities(db);backfillDerivedRouting(db);backfillFeedbackRouting(db);db.execSQL("INSERT OR REPLACE INTO schema_meta(key,value,updated_at) VALUES('cognitive_schema','"+REVISION+"',strftime('%s','now')*1000)");ready=true;
+            DatabaseCompatibilityRepair.repair(db);createMeta(db);createRawSignals(db);createThreads(db);createDerivedItems(db);createEntityGraph(db);createSourceLinks(db);createFeedback(db);createAiJobs(db);createModelRuns(db);createDiagnostics(db);createRelevanceEvaluations(db);UniversalEventStore.ensure(db);migrateLegacyEntities(db);backfillDerivedRouting(db);backfillFeedbackRouting(db);db.execSQL("INSERT OR REPLACE INTO schema_meta(key,value,updated_at) VALUES('cognitive_schema','"+REVISION+"',strftime('%s','now')*1000)");ready=true;
         }
     }
 
