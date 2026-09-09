@@ -1,0 +1,87 @@
+name: Cortex v70 Brain Benchmark
+
+on:
+  push:
+    branches: [ v70/cognitive-core-benchmark ]
+  workflow_dispatch:
+
+jobs:
+  brain-benchmark:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout benchmark branch
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 20
+
+      - name: Restore local Whisper runtime AAR
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p app/libs
+          git fetch origin v2/cortex-recovery-zero-api --depth=1
+          git show FETCH_HEAD:app/libs/whisper-android-cortex-prompt-1.0.0.aar > app/libs/whisper-android-cortex-prompt-1.0.0.aar
+          test -s app/libs/whisper-android-cortex-prompt-1.0.0.aar
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Set up Gradle 8.9
+        uses: gradle/actions/setup-gradle@v6
+        with:
+          gradle-version: '8.9'
+
+      - name: Preserve v69 acceptance gates and run v70 brain benchmark
+        run: gradle :app:testDebugUnitTest --stacktrace
+
+      - name: Verify v69 gates remain green
+        shell: bash
+        run: |
+          set -euo pipefail
+          XML=app/build/test-results/testDebugUnitTest/TEST-com.kareem.cortex.StatefulMeaningAcceptanceTest.xml
+          test -s "$XML"
+          python3 - <<'PY'
+          import xml.etree.ElementTree as ET
+          p='app/build/test-results/testDebugUnitTest/TEST-com.kareem.cortex.StatefulMeaningAcceptanceTest.xml'
+          root=ET.parse(p).getroot()
+          cases=[x for x in root.findall('testcase') if x.attrib.get('name','').startswith('gate')]
+          assert len(cases)==35, f'expected 35 inherited gates, found {len(cases)}'
+          bad=[c.attrib.get('name') for c in cases if c.find('failure') is not None or c.find('error') is not None or c.find('skipped') is not None]
+          assert not bad, 'failed/skipped inherited gates: '+','.join(bad)
+          print('Inherited v69 acceptance: 35/35 PASS')
+          PY
+
+      - name: Verify v70 attention benchmark
+        shell: bash
+        run: |
+          set -euo pipefail
+          XML=app/build/test-results/testDebugUnitTest/TEST-com.kareem.cortex.AttentionDecisionEngineTest.xml
+          test -s "$XML"
+          python3 - <<'PY'
+          import xml.etree.ElementTree as ET
+          p='app/build/test-results/testDebugUnitTest/TEST-com.kareem.cortex.AttentionDecisionEngineTest.xml'
+          root=ET.parse(p).getroot()
+          cases=root.findall('testcase')
+          bad=[c.attrib.get('name') for c in cases if c.find('failure') is not None or c.find('error') is not None or c.find('skipped') is not None]
+          assert len(cases) >= 12, f'expected at least 12 attention benchmark cases, found {len(cases)}'
+          assert not bad, 'failed/skipped attention cases: '+','.join(bad)
+          print(f'v70 attention benchmark: {len(cases)}/{len(cases)} PASS')
+          PY
+
+      - name: Upload benchmark reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cortex-v70-brain-benchmark-qa
+          path: |
+            app/build/test-results/
+            app/build/reports/tests/
+            docs/CORTEX_BRAIN_BENCHMARK_V1.md
+          if-no-files-found: warn
+          retention-days: 14
