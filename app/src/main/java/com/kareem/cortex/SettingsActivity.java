@@ -31,9 +31,9 @@ public class SettingsActivity extends Activity {
 
         String crash=CrashRecorder.read(this,60000);
         String processExit=ProcessExitRecorder.read(this,120000);
-        actionRow(body,"Share Java crash report",crash.trim().isEmpty()?"No uncaught Java crash is currently stored":"Java exception captured locally · tap to share",()->shareCrash(crash));
-        actionRow(body,"Share Android process exit",processExit.trim().isEmpty()?"No Android process-exit diagnosis is stored yet":"Android recorded the previous process exit · includes crash / native / ANR reason when available",()->shareProcessExit(processExit));
-        actionRow(body,"Export attention trace","Read-only Capture → situation → decision → Now snapshot for brain evaluation",this::shareAttentionTrace);
+        actionRow(body,"Share Java crash report",crash.trim().isEmpty()?"No uncaught Java crash is currently stored":"Java exception captured locally · exports as a .txt attachment",()->shareCrash(crash));
+        actionRow(body,"Share Android process exit",processExit.trim().isEmpty()?"No Android process-exit diagnosis is stored yet":"Android exit trace captured · exports as a .txt attachment",()->shareProcessExit(processExit));
+        actionRow(body,"Export attention trace","Read-only Capture → situation → decision → Now snapshot · exports as a .json attachment",this::shareAttentionTrace);
 
         LinearLayout diagnostic=CortexUi.card(this,20);diagnostic.setPadding(dp(14),dp(14),dp(14),dp(14));
         LinearLayout dtop=new LinearLayout(this);dtop.setGravity(Gravity.CENTER_VERTICAL);dtop.addView(CortexUi.glyph(this,"check",CortexUi.LIME,true),new LinearLayout.LayoutParams(dp(50),dp(50)));LinearLayout dtx=new LinearLayout(this);dtx.setOrientation(LinearLayout.VERTICAL);LinearLayout.LayoutParams dx=new LinearLayout.LayoutParams(0,-2,1);dx.setMargins(dp(12),0,0,0);dtop.addView(dtx,dx);TextView dt=CortexUi.plain(this,"Full Cortex Diagnostic",17,CortexUi.TEXT);CortexUi.medium(dt);dtx.addView(dt);TextView ds=CortexUi.text(this,"One exhaustive test for app identity, permissions, capture, storage, AI, background work, reliability and evidence.",11,CortexUi.MUTED);ds.setPadding(0,dp(4),0,0);dtx.addView(ds);diagnostic.addView(dtop);TextView run=CortexUi.action(this,"OPEN FULL DIAGNOSTIC",CortexUi.LIME,true);LinearLayout.LayoutParams rp=new LinearLayout.LayoutParams(-1,dp(46));rp.setMargins(0,dp(12),0,0);diagnostic.addView(run,rp);run.setOnClickListener(v->startActivity(new Intent(this,CortexAuditActivity.class)));body.addView(diagnostic);
@@ -42,14 +42,36 @@ public class SettingsActivity extends Activity {
     }
 
     void shareAttentionTrace(){
-        new Thread(()->{try{VaultDb helper=new VaultDb(getApplicationContext());String trace=AttentionTraceExporter.export(helper.getReadableDatabase());helper.close();runOnUiThread(()->shareText("Cortex attention trace",trace,"Share Cortex attention trace"));}catch(Throwable e){runOnUiThread(()->Toast.makeText(this,"Attention trace export failed: "+e.getClass().getSimpleName(),Toast.LENGTH_LONG).show());}}).start();
+        new Thread(()->{try{
+            VaultDb helper=new VaultDb(getApplicationContext());
+            String trace=AttentionTraceExporter.export(helper.getReadableDatabase());
+            helper.close();
+            runOnUiThread(()->shareAttachment("Cortex attention trace","Share Cortex attention trace","cortex-attention-trace.json",trace));
+        }catch(Throwable e){runOnUiThread(()->Toast.makeText(this,"Attention trace export failed: "+e.getClass().getSimpleName(),Toast.LENGTH_LONG).show());}}).start();
     }
-    void shareCrash(String crash){if(crash==null||crash.trim().isEmpty()){Toast.makeText(this,"No Java crash report stored",Toast.LENGTH_LONG).show();return;}shareText("Cortex Java crash report",crash,"Share Cortex Java crash report");}
-    void shareProcessExit(String report){if(report==null||report.trim().isEmpty()){Toast.makeText(this,"No Android process-exit report stored",Toast.LENGTH_LONG).show();return;}shareText("Cortex Android process exit",report,"Share Cortex Android process exit");}
-    void shareText(String subject,String text,String chooser){
-        try{Intent i=new Intent(Intent.ACTION_SEND);i.setType("text/plain");i.putExtra(Intent.EXTRA_SUBJECT,subject);i.putExtra(Intent.EXTRA_TEXT,text);startActivity(Intent.createChooser(i,chooser));}
-        catch(Throwable shareError){try{android.content.ClipboardManager cm=(android.content.ClipboardManager)getSystemService(CLIPBOARD_SERVICE);cm.setPrimaryClip(android.content.ClipData.newPlainText(subject,text));Toast.makeText(this,"Share failed · copied instead",Toast.LENGTH_LONG).show();}catch(Throwable ignored){Toast.makeText(this,"Could not export report",Toast.LENGTH_LONG).show();}}
+
+    void shareCrash(String crash){
+        if(crash==null||crash.trim().isEmpty()){Toast.makeText(this,"No Java crash report stored",Toast.LENGTH_LONG).show();return;}
+        shareAttachment("Cortex Java crash report","Share Cortex Java crash report","cortex-java-crash.txt",crash);
     }
+
+    void shareProcessExit(String report){
+        if(report==null||report.trim().isEmpty()){Toast.makeText(this,"No Android process-exit report stored",Toast.LENGTH_LONG).show();return;}
+        shareAttachment("Cortex Android process exit","Share Cortex Android process exit","cortex-process-exit.txt",report);
+    }
+
+    void shareAttachment(String subject,String chooser,String fileName,String text){
+        try{DiagnosticFileShare.share(this,subject,chooser,fileName,text);}
+        catch(Throwable shareError){
+            try{
+                String summary=DiagnosticFileShare.summary(text);
+                android.content.ClipboardManager cm=(android.content.ClipboardManager)getSystemService(CLIPBOARD_SERVICE);
+                cm.setPrimaryClip(android.content.ClipData.newPlainText(subject,summary));
+                Toast.makeText(this,"Attachment share failed · short summary copied instead",Toast.LENGTH_LONG).show();
+            }catch(Throwable ignored){Toast.makeText(this,"Could not export report",Toast.LENGTH_LONG).show();}
+        }
+    }
+
     void row(LinearLayout parent,String title,String sub,Class<?> cls){actionRow(parent,title,sub,()->startActivity(new Intent(this,cls)));}
     void actionRow(LinearLayout parent,String title,String sub,Runnable action){LinearLayout c=new LinearLayout(this);c.setOrientation(LinearLayout.HORIZONTAL);c.setGravity(Gravity.CENTER_VERTICAL);c.setPadding(dp(2),dp(14),dp(2),dp(14));LinearLayout text=new LinearLayout(this);text.setOrientation(LinearLayout.VERTICAL);TextView t=CortexUi.plain(this,title,15,CortexUi.TEXT);CortexUi.medium(t);text.addView(t);TextView s=CortexUi.text(this,sub,11,CortexUi.MUTED);s.setPadding(0,dp(3),0,0);text.addView(s);c.addView(text,new LinearLayout.LayoutParams(0,-2,1));TextView go=CortexUi.plain(this,"›",25,CortexUi.MUTED);go.setGravity(Gravity.CENTER);c.addView(go,new LinearLayout.LayoutParams(dp(32),dp(44)));CortexUi.pressable(this,c,CortexUi.round(this,android.graphics.Color.TRANSPARENT,android.graphics.Color.TRANSPARENT,12));c.setOnClickListener(v->{try{action.run();}catch(Throwable e){Toast.makeText(this,"Action failed",Toast.LENGTH_LONG).show();}});parent.addView(c);parent.addView(CortexUi.divider(this),new LinearLayout.LayoutParams(-1,dp(1)));}
 }
