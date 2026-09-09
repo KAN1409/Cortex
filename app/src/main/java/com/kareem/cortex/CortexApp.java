@@ -4,13 +4,14 @@ import android.app.Application;
 
 /**
  * Process bootstrap must stay intentionally tiny.
- * Heavy DB maintenance/recovery is deferred until the first PRIME surface has drawn.
+ * Heavy DB maintenance/recovery is deferred until the first visible Cortex surface has drawn.
  */
 public class CortexApp extends Application {
     @Override public void onCreate(){
         super.onCreate();
         CrashRecorder.install(this);
-        // Never open Cortex DB, run migrations, recovery or backfills on process start.
-        // StartupMaintenance is scheduled by the first visible PRIME activity.
+        // This is intentionally limited to an idempotent persisted-schema compatibility repair.
+        // It does not create the DB, rebuild tables, backfill semantic data, or run heavy recovery.
+        DatabaseCompatibilityRepair.repairExistingDatabase(this);
     }
 }
