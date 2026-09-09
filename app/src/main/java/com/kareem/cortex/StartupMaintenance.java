@@ -15,6 +15,7 @@ public final class StartupMaintenance {
         if(context==null||!scheduled.compareAndSet(false,true))return;
         Context app=context.getApplicationContext();
         PhoneContextScheduler.schedule(app);
+        StatefulMeaningScheduler.kick(app);
         new Handler(Looper.getMainLooper()).postDelayed(()->{
             Thread t=new Thread(()->run(app),"cortex-maintenance");
             t.setPriority(Thread.NORM_PRIORITY-1);
@@ -27,6 +28,7 @@ public final class StartupMaintenance {
         try{
             db=new VaultDb(context);
             CognitiveSchema.ensure(db.getWritableDatabase());
+            StatefulMeaningStore.ensure(db.getWritableDatabase());
             RelevanceDecisionStatusStore.ensure(db);
             PhoneContextStore.ensure(db);
             if(PhoneUsageAccess.has(context))PhoneUsageAccess.syncRecent(context,db,System.currentTimeMillis()-2L*60L*60L*1000L);
@@ -35,8 +37,10 @@ public final class StartupMaintenance {
             ContactSafetyMaintenance.run(db);
             EntityGraphMaintenance.run(db);
             IntentionalCognitiveBridge.backfill(db,250);
+            StatefulMeaningRebuilder.run(db,240);
             EnvironmentPreflight.run(context);
             AdjudicationRecovery.schedule(context);
+            if(StatefulMeaningRebuilder.hasBacklog(db))StatefulMeaningScheduler.kick(context);
         }catch(Throwable ignored){
         }finally{
             if(db!=null)try{db.close();}catch(Throwable ignored){}
