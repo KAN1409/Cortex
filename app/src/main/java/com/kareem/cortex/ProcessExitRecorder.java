@@ -1,5 +1,6 @@
 package com.kareem.cortex;
 
+import android.annotation.SuppressLint;
 import android.app.ActivityManager;
 import android.app.ApplicationExitInfo;
 import android.content.Context;
@@ -16,6 +17,7 @@ import java.util.Locale;
  * This catches the classes of failures CrashRecorder cannot see: native crashes, ANRs, LMK/system
  * termination and initialization failures. It never touches the Cortex database.
  */
+@SuppressLint("NewApi")
 public final class ProcessExitRecorder {
     private static final String FILE = "last_process_exit.txt";
     private ProcessExitRecorder() {}
