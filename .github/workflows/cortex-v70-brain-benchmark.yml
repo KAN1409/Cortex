@@ -91,6 +91,29 @@ jobs:
           print(f'v70 world-state benchmark: {len(cases)}/{len(cases)} PASS')
           PY
 
+      - name: Verify v70 shadow comparator and persisted shadow isolation
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import xml.etree.ElementTree as ET
+          checks={
+            'AttentionShadowComparatorTest':2,
+            'CognitiveShadowStoreTest':2,
+          }
+          for cls,minimum in checks.items():
+              p=f'app/build/test-results/testDebugUnitTest/TEST-com.kareem.cortex.{cls}.xml'
+              root=ET.parse(p).getroot()
+              cases=root.findall('testcase')
+              bad=[c.attrib.get('name') for c in cases if c.find('failure') is not None or c.find('error') is not None or c.find('skipped') is not None]
+              assert len(cases)>=minimum, f'{cls}: expected at least {minimum}, found {len(cases)}'
+              assert not bad, f'{cls}: failed/skipped '+','.join(bad)
+              print(f'{cls}: {len(cases)}/{len(cases)} PASS')
+          PY
+          grep -q 'CognitiveShadowStore.run' app/src/main/java/com/kareem/cortex/StatefulMeaningWorker.java
+          ! grep -q 'ue_attention_items.*INSERT\|INSERT.*ue_attention_items' app/src/main/java/com/kareem/cortex/CognitiveShadowStore.java
+          ! grep -q 'ue_projection_decisions.*INSERT\|INSERT.*ue_projection_decisions' app/src/main/java/com/kareem/cortex/CognitiveShadowStore.java
+
       - name: Upload benchmark reports
         if: always()
         uses: actions/upload-artifact@v4
