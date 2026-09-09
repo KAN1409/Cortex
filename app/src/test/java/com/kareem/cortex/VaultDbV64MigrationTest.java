@@ -27,7 +27,7 @@ public class VaultDbV64MigrationTest {
         old.execSQL("INSERT INTO knowledge_items(type,source,title,raw_text,status,created_at,updated_at) VALUES('TEXT','manual','Long term fact','remember me','analyzed',2000,2000)");
         old.setVersion(6);old.close();
 
-        VaultDb migrated=new VaultDb(context);SQLiteDatabase db=migrated.getWritableDatabase();assertEquals(7,db.getVersion());
+        VaultDb migrated=new VaultDb(context);SQLiteDatabase db=migrated.getWritableDatabase();assertEquals(CognitiveSchema.DB_VERSION,db.getVersion());
         assertEquals(2,count(db,"SELECT COUNT(*) FROM knowledge_items"));
         assertEquals(1,count(db,"SELECT COUNT(*) FROM ue_legacy_classification WHERE classification='captured_artifact'"));
         assertEquals(1,count(db,"SELECT COUNT(*) FROM ue_legacy_classification WHERE classification='memory_candidate'"));
