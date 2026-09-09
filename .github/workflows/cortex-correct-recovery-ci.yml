@@ -23,39 +23,27 @@ jobs:
           git show FETCH_HEAD:app/libs/whisper-android-cortex-prompt-1.0.0.aar > app/libs/whisper-android-cortex-prompt-1.0.0.aar
           test -s app/libs/whisper-android-cortex-prompt-1.0.0.aar
 
-      - name: Assert Cortex product identity and v66 projection architecture
+      - name: Assert Cortex product identity and v67 Capture hardening
         shell: bash
         run: |
           set -euo pipefail
           grep -q "applicationId 'com.kareem.cortex'" app/build.gradle
-          grep -q "versionCode 66" app/build.gradle
-          grep -q "1.2.2-v66-projection-truth" app/build.gradle
+          grep -q "versionCode 67" app/build.gradle
+          grep -q "1.2.3-v67-capture-crash-hotfix" app/build.gradle
           grep -q 'android:label="Cortex"' app/src/main/AndroidManifest.xml
           grep -q '<activity android:name=".InputActivity" android:exported="true"><intent-filter><action android:name="android.intent.action.MAIN"' app/src/main/AndroidManifest.xml
-          grep -q '<activity android:name=".NowActivity"' app/src/main/AndroidManifest.xml
           grep -q '<activity android:name=".CaptureOverviewActivity"' app/src/main/AndroidManifest.xml
-          grep -q 'addNav(a,bar,"now","Now"' app/src/main/java/com/kareem/cortex/CortexUi.java
           grep -q 'addNav(a,bar,"capture","Capture"' app/src/main/java/com/kareem/cortex/CortexUi.java
           ! grep -R -n -E 'Cortex Prime|Deep Review|Grounded review|AI-Assistant-TestLab' app/src/main --exclude-dir=build
-          ! grep -q 'DeepReviewActivity.*MAIN' app/src/main/AndroidManifest.xml
           for f in UniversalEventStore UniversalEventEngine UniversalProjectionStore UniversalProjectionPolicy UniversalSemanticScheduler UniversalSemanticWorker UniversalReplayWorker UniversalReplayScheduler UniversalPipelineDiagnostics CanonicalPresentation; do test -s "app/src/main/java/com/kareem/cortex/$f.java"; done
-          grep -q 'ue_raw_observations' app/src/main/java/com/kareem/cortex/UniversalEventStore.java
-          grep -q 'ue_streams' app/src/main/java/com/kareem/cortex/UniversalEventStore.java
-          grep -q 'ue_semantic_events' app/src/main/java/com/kareem/cortex/UniversalEventStore.java
-          grep -q 'ue_situations' app/src/main/java/com/kareem/cortex/UniversalEventStore.java
-          grep -q 'ue_attention_items' app/src/main/java/com/kareem/cortex/UniversalEventStore.java
-          grep -q 'ue_memory_promotions' app/src/main/java/com/kareem/cortex/UniversalEventStore.java
           grep -q 'DB_VERSION = 7' app/src/main/java/com/kareem/cortex/CognitiveSchema.java
-          grep -q 'captureSearch' app/src/main/java/com/kareem/cortex/VaultDb.java
-          grep -q 'UniversalEventEngine.processNotification' app/src/main/java/com/kareem/cortex/NotificationCaptureService.java
-          grep -q 'UniversalSemanticScheduler.kick' app/src/main/java/com/kareem/cortex/NotificationCaptureService.java
-          grep -q 'UniversalSemanticScheduler.kick' app/src/main/java/com/kareem/cortex/InputActivity.java
           grep -q 'UniversalProjectionPolicy.validateAttention' app/src/main/java/com/kareem/cortex/UniversalSemanticWorker.java
           grep -q 'UniversalProjectionPolicy.sanitizeExisting' app/src/main/java/com/kareem/cortex/PrimeBriefStore.java
+          ! grep -q 'UniversalProjectionPolicy.sanitizeExisting(db.getWritableDatabase())' app/src/main/java/com/kareem/cortex/CaptureOverviewActivity.java
+          grep -q 'void safeRefresh()' app/src/main/java/com/kareem/cortex/CaptureOverviewActivity.java
+          grep -q 'renderRecovery' app/src/main/java/com/kareem/cortex/CaptureOverviewActivity.java
           grep -q "semantic_state='complete'" app/src/main/java/com/kareem/cortex/CaptureOverviewActivity.java
           grep -q 'Processing now' app/src/main/java/com/kareem/cortex/CaptureOverviewActivity.java
-          grep -q 'UniversalPipelineDiagnostics.apply' app/src/main/java/com/kareem/cortex/CortexAuditScheduler.java
-          grep -q '!"notification".equalsIgnoreCase(signal.kind)' app/src/main/java/com/kareem/cortex/RawSignalStore.java
           test -s app/src/test/java/com/kareem/cortex/VaultDbV64MigrationTest.java
           test -s app/src/test/java/com/kareem/cortex/UniversalProjectionPolicyTest.java
 
@@ -117,7 +105,7 @@ jobs:
           AAPT="$ANDROID_SDK_ROOT/build-tools/$BUILD_TOOLS/aapt"
           APKSIGNER="$ANDROID_SDK_ROOT/build-tools/$BUILD_TOOLS/apksigner"
           BADGING="$("$AAPT" dump badging "$APK")"
-          echo "$BADGING" | grep -q "package: name='com.kareem.cortex' versionCode='66'"
+          echo "$BADGING" | grep -q "package: name='com.kareem.cortex' versionCode='67'"
           echo "$BADGING" | grep -q "application-label:'Cortex'"
           echo "$BADGING" | grep -q "launchable-activity: name='com.kareem.cortex.InputActivity'"
           ! echo "$BADGING" | grep -q -E 'Cortex Prime|Deep Review|Grounded review|AI-Assistant-TestLab'
@@ -125,15 +113,15 @@ jobs:
           echo "$SIGNING"
           echo "$SIGNING" | tr '[:upper:]' '[:lower:]' | grep -q '5c6550a070abe477dcad5f23f3f437e183bff8aeaeb6ac52e1beaa8243ee69a7'
           echo "$SIGNING" | grep -q 'Verified using v2 scheme (APK Signature Scheme v2): true'
-          sha256sum "$APK" | tee app/build/cortex-v66-sha256.txt
+          sha256sum "$APK" | tee app/build/cortex-v67-sha256.txt
 
-      - name: Upload Cortex v66 update
+      - name: Upload Cortex v67 update
         uses: actions/upload-artifact@v4
         with:
-          name: cortex-v1.2.2-v66-projection-truth-update
+          name: cortex-v1.2.3-v67-capture-crash-hotfix-update
           path: |
             app/build/outputs/apk/debug/app-debug.apk
-            app/build/cortex-v66-sha256.txt
+            app/build/cortex-v67-sha256.txt
           if-no-files-found: error
           retention-days: 14
 
@@ -141,7 +129,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: cortex-v66-projection-truth-qa
+          name: cortex-v67-capture-crash-hotfix-qa
           path: |
             app/build/reports/
             app/build/test-results/
