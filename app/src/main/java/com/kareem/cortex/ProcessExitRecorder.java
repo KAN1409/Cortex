@@ -12,7 +12,7 @@ import java.util.List;
 import java.util.Locale;
 
 /**
- * Persists Android's process-exit diagnosis separately from the Java uncaught-exception recorder.
+ * Persists Android's latest process-exit diagnosis separately from the Java uncaught-exception recorder.
  * This catches the classes of failures CrashRecorder cannot see: native crashes, ANRs, LMK/system
  * termination and initialization failures. It never touches the Cortex database.
  */
@@ -27,23 +27,11 @@ public final class ProcessExitRecorder {
             if (am == null) return;
             List<ApplicationExitInfo> exits = am.getHistoricalProcessExitReasons(context.getPackageName(), 0, 8);
             if (exits == null || exits.isEmpty()) return;
-
-            ApplicationExitInfo selected = null;
-            for (ApplicationExitInfo info : exits) {
-                if (info == null) continue;
-                int reason = info.getReason();
-                if (reason == ApplicationExitInfo.REASON_CRASH
-                        || reason == ApplicationExitInfo.REASON_CRASH_NATIVE
-                        || reason == ApplicationExitInfo.REASON_ANR
-                        || reason == ApplicationExitInfo.REASON_INITIALIZATION_FAILURE
-                        || reason == ApplicationExitInfo.REASON_EXCESSIVE_RESOURCE_USAGE
-                        || reason == ApplicationExitInfo.REASON_LOW_MEMORY) {
-                    selected = info;
-                    break;
-                }
-            }
-            if (selected == null) selected = exits.get(0);
-            write(context.getApplicationContext(), selected);
+            // Android returns these newest first. Always persist the newest exit even if it is OTHER,
+            // USER_REQUESTED or a system kill; selecting an older "more interesting" crash would hide
+            // the exact failure that just happened on the device.
+            ApplicationExitInfo selected = exits.get(0);
+            if (selected != null) write(context.getApplicationContext(), selected);
         } catch (Throwable ignored) {
             // Diagnostics must never become a startup dependency.
         }
