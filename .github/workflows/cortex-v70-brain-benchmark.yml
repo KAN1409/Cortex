@@ -74,6 +74,23 @@ jobs:
           print(f'v70 attention benchmark: {len(cases)}/{len(cases)} PASS')
           PY
 
+      - name: Verify v70 world-state benchmark
+        shell: bash
+        run: |
+          set -euo pipefail
+          XML=app/build/test-results/testDebugUnitTest/TEST-com.kareem.cortex.CognitiveWorldStateTest.xml
+          test -s "$XML"
+          python3 - <<'PY'
+          import xml.etree.ElementTree as ET
+          p='app/build/test-results/testDebugUnitTest/TEST-com.kareem.cortex.CognitiveWorldStateTest.xml'
+          root=ET.parse(p).getroot()
+          cases=root.findall('testcase')
+          bad=[c.attrib.get('name') for c in cases if c.find('failure') is not None or c.find('error') is not None or c.find('skipped') is not None]
+          assert len(cases) >= 9, f'expected at least 9 world-state cases, found {len(cases)}'
+          assert not bad, 'failed/skipped world-state cases: '+','.join(bad)
+          print(f'v70 world-state benchmark: {len(cases)}/{len(cases)} PASS')
+          PY
+
       - name: Upload benchmark reports
         if: always()
         uses: actions/upload-artifact@v4
