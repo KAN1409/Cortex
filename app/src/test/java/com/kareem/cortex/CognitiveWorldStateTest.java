@@ -117,6 +117,7 @@ public class CognitiveWorldStateTest {
         CognitiveWorldState.Situation s = world.getSituation(5);
         assertEquals(2, s.evidenceCount);
         assertFalse(s.unresolved);
+        assertEquals(0L, s.deadlineAt);
         assertTrue(world.rankNow(NOW, 5).isEmpty());
     }
 
@@ -166,6 +167,62 @@ public class CognitiveWorldStateTest {
         assertEquals("Unauthorized login detected; change password now", s.summary);
         assertEquals(2, s.evidenceCount);
         assertTrue(world.rankNow(NOW, 5).get(0).surfaceNow);
+    }
+
+    @Test
+    public void newerDeescalationChangesCurrentRiskButKeepsHistoricalPeak() {
+        CognitiveWorldState world = new CognitiveWorldState();
+        world.observe(observation(9, "account:test", "security_alert", "ESCALATED",
+                "Account", "Unauthorized login detected",
+                .97, .95, .90, .90, .96, .90, 0, NOW - HOUR,
+                true, true, false));
+        world.observe(observation(9, "account:test", "account_update", "OPEN",
+                "Account", "Login reviewed; no further action requested",
+                .96, .20, .15, .70, .10, .35, 0, NOW,
+                true, false, false));
+
+        CognitiveWorldState.Situation s = world.getSituation(9);
+        assertEquals(.20, s.urgency, .0001);
+        assertEquals(.10, s.risk, .0001);
+        assertEquals(.95, s.peakUrgency, .0001);
+        assertEquals(.96, s.peakRisk, .0001);
+        assertFalse(s.explicitRequest);
+    }
+
+    @Test
+    public void outOfOrderOlderEvidenceCannotOverwriteNewerCurrentTruth() {
+        CognitiveWorldState world = new CognitiveWorldState();
+        world.observe(observation(10, "task:po", "commitment", "OPEN",
+                "PO", "Latest status is awaiting final signature",
+                .95, .70, .80, .90, .15, .70, NOW + 4 * HOUR, NOW,
+                true, true, false));
+        world.observe(observation(10, "task:po", "commitment", "OPEN",
+                "PO", "Old draft was still being prepared",
+                .92, .30, .30, .60, .05, .30, NOW + HOUR, NOW - 3 * HOUR,
+                true, false, false));
+
+        CognitiveWorldState.Situation s = world.getSituation(10);
+        assertEquals("Latest status is awaiting final signature", s.summary);
+        assertEquals(.70, s.urgency, .0001);
+        assertEquals(NOW + 4 * HOUR, s.deadlineAt);
+        assertEquals(NOW, s.lastSeenAt);
+        assertEquals(2, s.evidenceCount);
+    }
+
+    @Test
+    public void newerExplicitDeadlineCanReplaceEarlierSchedule() {
+        CognitiveWorldState world = new CognitiveWorldState();
+        world.observe(observation(11, "task:quote", "commitment", "WAITING",
+                "Quotation", "Send quotation at noon",
+                .95, .70, .80, .90, .10, .70, NOW + HOUR, NOW - HOUR,
+                true, true, false));
+        world.observe(observation(11, "task:quote", "commitment", "WAITING",
+                "Quotation", "Deadline moved to end of day",
+                .96, .55, .80, .90, .10, .80, NOW + 6 * HOUR, NOW,
+                true, true, false));
+
+        CognitiveWorldState.Situation s = world.getSituation(11);
+        assertEquals(NOW + 6 * HOUR, s.deadlineAt);
     }
 
     @Test
