@@ -7,7 +7,7 @@ import org.json.JSONObject;
 
 /** Read-only diagnostic snapshot: Capture -> semantic -> situation -> world state -> attention -> Now. */
 public final class AttentionTraceExporter {
-    public static final String VERSION="CORTEX_ATTENTION_TRACE_V2";
+    public static final String VERSION="CORTEX_ATTENTION_TRACE_V3";
     private AttentionTraceExporter(){}
 
     public static String export(SQLiteDatabase db) throws Exception {
@@ -66,8 +66,10 @@ public final class AttentionTraceExporter {
         if(table(db,"ue_projection_decisions")){Cursor c=db.rawQuery("SELECT situation_id,semantic_event_id,projection,eligible,reason,policy_version,created_at FROM ue_projection_decisions ORDER BY id DESC LIMIT 500",null);try{while(c.moveToNext()){JSONObject o=new JSONObject();o.put("engine","production");o.put("situation_id",c.getLong(0));o.put("semantic_event_id",c.getLong(1));o.put("projection",s(c,2));o.put("eligible",c.getInt(3)==1);o.put("reason",s(c,4));o.put("policy_version",s(c,5));o.put("created_at",c.getLong(6));a.put(o);}}finally{c.close();}}
         if(table(db,"ue_cognitive_shadow_decisions")&&table(db,"ue_cognitive_shadow_runs")){
             String eligible=column(db,"ue_cognitive_shadow_decisions","cognitive_eligible")?"cognitive_eligible":"cognitive_surface";
-            Cursor c=db.rawQuery("SELECT situation_id,legacy_surface,"+eligible+",cognitive_surface,cognitive_rank,cognitive_score,delta,legacy_reason,cognitive_reason,created_at FROM ue_cognitive_shadow_decisions WHERE run_id=(SELECT MAX(id) FROM ue_cognitive_shadow_runs WHERE completed_at>0) ORDER BY CASE WHEN cognitive_rank=0 THEN 999999 ELSE cognitive_rank END,situation_id",null);
-            try{while(c.moveToNext()){JSONObject o=new JSONObject();o.put("engine","v70_shadow");o.put("situation_id",c.getLong(0));o.put("legacy_surface",c.getInt(1)==1);o.put("cognitive_eligible",c.getInt(2)==1);o.put("cognitive_surface",c.getInt(3)==1);o.put("cognitive_rank",c.getInt(4));o.put("cognitive_score",c.getDouble(5));o.put("delta",s(c,6));o.put("legacy_reason",s(c,7));o.put("cognitive_reason",s(c,8));o.put("created_at",c.getLong(9));a.put(o);}}finally{c.close();}
+            String lastSeen=column(db,"ue_cognitive_shadow_decisions","candidate_last_seen_at")?"candidate_last_seen_at":"0";
+            String freshness=column(db,"ue_cognitive_shadow_decisions","cognitive_freshness")?"cognitive_freshness":"1.0";
+            Cursor c=db.rawQuery("SELECT situation_id,legacy_surface,"+eligible+",cognitive_surface,cognitive_rank,cognitive_score,"+lastSeen+","+freshness+",delta,legacy_reason,cognitive_reason,created_at FROM ue_cognitive_shadow_decisions WHERE run_id=(SELECT MAX(id) FROM ue_cognitive_shadow_runs WHERE completed_at>0) ORDER BY CASE WHEN cognitive_rank=0 THEN 999999 ELSE cognitive_rank END,situation_id",null);
+            try{while(c.moveToNext()){JSONObject o=new JSONObject();o.put("engine","v70_shadow");o.put("situation_id",c.getLong(0));o.put("legacy_surface",c.getInt(1)==1);o.put("cognitive_eligible",c.getInt(2)==1);o.put("cognitive_surface",c.getInt(3)==1);o.put("cognitive_rank",c.getInt(4));o.put("cognitive_score",c.getDouble(5));o.put("candidate_last_seen_at",c.getLong(6));o.put("cognitive_freshness",c.getDouble(7));o.put("delta",s(c,8));o.put("legacy_reason",s(c,9));o.put("cognitive_reason",s(c,10));o.put("created_at",c.getLong(11));a.put(o);}}finally{c.close();}
         }
         return a;
     }
@@ -97,8 +99,10 @@ public final class AttentionTraceExporter {
             JSONObject shadow=new JSONObject();shadow.put("available",false);
             if(table(db,"ue_cognitive_shadow_decisions")&&table(db,"ue_cognitive_shadow_runs")){
                 String eligible=column(db,"ue_cognitive_shadow_decisions","cognitive_eligible")?"cognitive_eligible":"cognitive_surface";
-                Cursor sh=db.rawQuery("SELECT d.legacy_surface,d."+eligible+",d.cognitive_surface,d.cognitive_rank,d.cognitive_score,d.delta,d.legacy_reason,d.cognitive_reason,d.created_at FROM ue_cognitive_shadow_decisions d WHERE d.run_id=(SELECT MAX(id) FROM ue_cognitive_shadow_runs WHERE completed_at>0) AND d.situation_id=? LIMIT 1",new String[]{String.valueOf(id)});
-                try{if(sh.moveToFirst()){shadow.put("available",true);shadow.put("legacy_surface",sh.getInt(0)==1);shadow.put("cognitive_eligible",sh.getInt(1)==1);shadow.put("cognitive_surface",sh.getInt(2)==1);shadow.put("cognitive_rank",sh.getInt(3));shadow.put("cognitive_score",sh.getDouble(4));shadow.put("delta",s(sh,5));shadow.put("legacy_reason",s(sh,6));shadow.put("cognitive_reason",s(sh,7));shadow.put("created_at",sh.getLong(8));}}finally{sh.close();}
+                String lastSeen=column(db,"ue_cognitive_shadow_decisions","candidate_last_seen_at")?"d.candidate_last_seen_at":"0";
+                String freshness=column(db,"ue_cognitive_shadow_decisions","cognitive_freshness")?"d.cognitive_freshness":"1.0";
+                Cursor sh=db.rawQuery("SELECT d.legacy_surface,d."+eligible+",d.cognitive_surface,d.cognitive_rank,d.cognitive_score,"+lastSeen+","+freshness+",d.delta,d.legacy_reason,d.cognitive_reason,d.created_at FROM ue_cognitive_shadow_decisions d WHERE d.run_id=(SELECT MAX(id) FROM ue_cognitive_shadow_runs WHERE completed_at>0) AND d.situation_id=? LIMIT 1",new String[]{String.valueOf(id)});
+                try{if(sh.moveToFirst()){shadow.put("available",true);shadow.put("legacy_surface",sh.getInt(0)==1);shadow.put("cognitive_eligible",sh.getInt(1)==1);shadow.put("cognitive_surface",sh.getInt(2)==1);shadow.put("cognitive_rank",sh.getInt(3));shadow.put("cognitive_score",sh.getDouble(4));shadow.put("candidate_last_seen_at",sh.getLong(5));shadow.put("cognitive_freshness",sh.getDouble(6));shadow.put("delta",s(sh,7));shadow.put("legacy_reason",s(sh,8));shadow.put("cognitive_reason",s(sh,9));shadow.put("created_at",sh.getLong(10));}}finally{sh.close();}
             }
             o.put("shadow_attention",shadow);
 
@@ -125,9 +129,11 @@ public final class AttentionTraceExporter {
         if(runId<=0)return o;
         o.put("available",true);o.put("run_id",runId);
 
-        Cursor r=db.rawQuery("SELECT engine_version,started_at,completed_at,candidate_count,legacy_now_count,cognitive_now_count FROM ue_cognitive_shadow_runs WHERE id=? LIMIT 1",new String[]{String.valueOf(runId)});
+        String fresh=column(db,"ue_cognitive_shadow_runs","fresh_candidate_count")?"fresh_candidate_count":"0";
+        String stale=column(db,"ue_cognitive_shadow_runs","stale_candidate_count")?"stale_candidate_count":"0";
+        Cursor r=db.rawQuery("SELECT engine_version,started_at,completed_at,candidate_count,legacy_now_count,cognitive_now_count,"+fresh+","+stale+" FROM ue_cognitive_shadow_runs WHERE id=? LIMIT 1",new String[]{String.valueOf(runId)});
         long candidates=0,selected=0;
-        try{if(r.moveToFirst()){o.put("engine_version",s(r,0));o.put("started_at",r.getLong(1));o.put("completed_at",r.getLong(2));candidates=r.getLong(3);o.put("candidate_count",candidates);o.put("legacy_now_count",r.getLong(4));selected=r.getLong(5);o.put("cognitive_selected_count",selected);}}finally{r.close();}
+        try{if(r.moveToFirst()){o.put("engine_version",s(r,0));o.put("started_at",r.getLong(1));o.put("completed_at",r.getLong(2));candidates=r.getLong(3);o.put("candidate_count",candidates);o.put("legacy_now_count",r.getLong(4));selected=r.getLong(5);o.put("cognitive_selected_count",selected);o.put("fresh_candidate_count",r.getLong(6));o.put("stale_candidate_count",r.getLong(7));}}finally{r.close();}
 
         String eligibleColumn=column(db,"ue_cognitive_shadow_decisions","cognitive_eligible")?"cognitive_eligible":"cognitive_surface";
         long eligible=scalar(db,"SELECT COUNT(*) FROM ue_cognitive_shadow_decisions WHERE run_id="+runId+" AND "+eligibleColumn+"=1");
@@ -159,12 +165,14 @@ public final class AttentionTraceExporter {
         o.put("materialized_without_current_eligibility_count",consistencyCount(db,false,true));
         if(funnel!=null&&funnel.optBoolean("available")){
             o.put("world_state_candidate_count",funnel.optLong("candidate_count",0));
+            o.put("fresh_candidate_count",funnel.optLong("fresh_candidate_count",0));
+            o.put("stale_candidate_count",funnel.optLong("stale_candidate_count",0));
             o.put("cognitive_eligible_count",funnel.optLong("cognitive_eligible_count",0));
             o.put("cognitive_rejected_count",funnel.optLong("cognitive_rejected_count",0));
             o.put("cognitive_topk_excluded_count",funnel.optLong("topk_excluded_count",0));
             o.put("cognitive_selected_count",funnel.optLong("cognitive_selected_count",0));
         }
-        o.put("note","Diagnostic trace only. Funnel counts identify where candidates leave the pipeline; human-level correctness still requires reviewing the reasons and evidence.");
+        o.put("note","Diagnostic trace only. Funnel counts identify where candidates leave the pipeline; freshness shows temporal attention state, while human-level correctness still requires reviewing reasons and evidence.");
         return o;
     }
 
