@@ -4,6 +4,7 @@ import static org.junit.Assert.*;
 
 import android.content.Context;
 import androidx.test.core.app.ApplicationProvider;
+import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.robolectric.Robolectric;
@@ -13,10 +14,15 @@ import org.robolectric.android.controller.ActivityController;
 /** Regression contract for recovery startup and provider-first WorkManager bootstrap safety. */
 @RunWith(RobolectricTestRunner.class)
 public class ColdStartQuarantineTest {
+    @Before public void resetSafeCore() {
+        SafeCoreRuntime.resetForTests();
+    }
+
     @Test public void quarantineIsCompileTimeActive() {
         assertTrue(StartupSafetyGate.active());
         assertEquals("startup_quarantine_001", StartupSafetyGate.VERSION);
         assertEquals("native runtime quarantined", LocalLlmRuntime.runtimeVersion());
+        assertFalse(SafeCoreRuntime.ready());
     }
 
     @Test public void cortexAppDoesNotOwnCustomWorkManagerInitialization() {
@@ -34,13 +40,15 @@ public class ColdStartQuarantineTest {
         ScreenshotWorkScheduler.kick(c);
         VisualIntelligenceScheduler.kick(c);
         assertTrue(StartupSafetyGate.active());
+        assertFalse(SafeCoreRuntime.ready());
     }
 
-    @Test public void launcherCanReachResumedStateUnderQuarantine() {
+    @Test public void launcherCanReachResumedStateBeforeDelayedSafeCoreProbe() {
         try(ActivityController<InputActivity> controller=Robolectric.buildActivity(InputActivity.class).create().start().resume().visible()) {
             InputActivity activity=controller.get();
             assertNotNull(activity);
             assertFalse(activity.isFinishing());
+            assertTrue(StartupSafetyGate.active());
         }
     }
 }
