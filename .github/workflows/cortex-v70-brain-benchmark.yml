@@ -75,7 +75,7 @@ jobs:
             'CognitiveShadowStoreTest':2,
             'CognitiveBrainStressTest':16,
             'ColdStartQuarantineTest':4,
-            'CapabilitySupervisorTest':5,
+            'CapabilitySupervisorTest':7,
           }
           total=0
           for cls,minimum in checks.items():
@@ -87,7 +87,7 @@ jobs:
               assert not bad, f'{cls}: failed/skipped '+','.join(bad)
               total += len(cases)
               print(f'{cls}: {len(cases)}/{len(cases)} PASS')
-          assert total >= 50
+          assert total >= 52
           print(f'v70 cognitive/staged-recovery suites: {total}/{total} PASS')
           PY
           grep -q 'CognitiveShadowStore.run' app/src/main/java/com/kareem/cortex/StatefulMeaningWorker.java
@@ -96,6 +96,10 @@ jobs:
           grep -q 'SafeCoreLifecycle.install(this)' app/src/main/java/com/kareem/cortex/CortexApp.java
           grep -q 'CapabilitySupervisor.Capability.RAW_NOTIFICATION_CAPTURE' app/src/main/java/com/kareem/cortex/NotificationCaptureService.java
           grep -q 'CapabilitySupervisor.Capability.LOCAL_LLM_NATIVE' app/src/main/java/com/kareem/cortex/UniversalSemanticScheduler.java
+          grep -q 'CapabilitySupervisor.Capability.OCR_NATIVE' app/src/main/java/com/kareem/cortex/OcrAnalyzer.java
+          grep -q 'CapabilitySupervisor.Capability.OCR_NATIVE' app/src/main/java/com/kareem/cortex/ArabicOcr.java
+          grep -q 'CapabilitySupervisor.Capability.ASR_NATIVE' app/src/main/java/com/kareem/cortex/CleanWhisperTranscriber.kt
+          grep -q 'requireNativeAllowed()' app/src/main/java/com/kareem/cortex/LocalLlmBridge.kt
 
       - name: Build installable debug APK
         run: gradle :app:assembleDebug --stacktrace
@@ -110,6 +114,9 @@ jobs:
           grep -q 'POST_RESUME_SETTLE_MS' app/src/main/java/com/kareem/cortex/SafeCoreRuntime.java
           grep -q 'SELECT 1' app/src/main/java/com/kareem/cortex/SafeCoreRuntime.java
           grep -q 'CapabilitySupervisor.Capability.LOCAL_LLM_NATIVE' app/src/main/java/com/kareem/cortex/UniversalSemanticScheduler.java
+          grep -q 'CapabilitySupervisor.Capability.OCR_NATIVE' app/src/main/java/com/kareem/cortex/OcrAnalyzer.java
+          grep -q 'CapabilitySupervisor.Capability.ASR_NATIVE' app/src/main/java/com/kareem/cortex/CleanWhisperTranscriber.kt
+          grep -q 'StartupSafetyGate.active()' app/src/main/java/com/kareem/cortex/LocalLlmBridge.kt
           ! grep -q 'androidx.work.WorkManagerInitializer' app/src/main/AndroidManifest.xml
           ! grep -q 'Configuration.Provider' app/src/main/java/com/kareem/cortex/CortexApp.java
           ! grep -q 'WorkManager.initialize' app/src/main/java/com/kareem/cortex/CortexApp.java
@@ -122,7 +129,7 @@ jobs:
           done < <(find app/build/intermediates -type f -name AndroidManifest.xml \( -path '*merged_manifest*' -o -path '*merged_manifests*' \) | sort)
           test "$found" = 1
           test "$init" = 1
-          echo 'WorkManager bootstrap: default AndroidX Startup initializer PRESENT; staged safe-core contract PRESENT'
+          echo 'WorkManager bootstrap: default AndroidX Startup initializer PRESENT; staged safe-core + native quarantine contracts PRESENT'
 
       - name: Re-run exhaustive startup audit against merged manifest
         shell: bash
@@ -152,6 +159,7 @@ jobs:
               'CognitiveBrainStressTest.java','StartupSafetyGate.java','ColdStartQuarantineTest.java',
               'CapabilitySupervisor.java','CapabilitySupervisorTest.java','SafeCoreRuntime.java',
               'SafeCoreLifecycle.java','NotificationCaptureService.java','UniversalSemanticScheduler.java',
+              'OcrAnalyzer.java','ArabicOcr.java','CleanWhisperTranscriber.kt','LocalLlmBridge.kt',
               'CortexApp.java'
           }
           brain=[]
@@ -164,9 +172,9 @@ jobs:
                   crash.append((i.attrib.get('id'),f,i.attrib.get('message')))
           print(f'Full-project lint debt: {len(errors)} errors')
           assert len(errors) <= 26, f'lint error count regressed: {len(errors)} > known post-fix ceiling 26'
-          assert not brain, 'cognitive/staged-recovery v70 lint errors: '+repr(brain)
+          assert not brain, 'cognitive/staged-recovery/native-quarantine v70 lint errors: '+repr(brain)
           assert not crash, 'runtime/crash-risk lint errors remain: '+repr(crash)
-          print('Cognitive/staged-recovery lint gate: PASS; no brain or startup recovery errors')
+          print('Cognitive/staged-recovery/native-quarantine lint gate: PASS')
           PY
 
       - name: Repeat brain tests from scratch for determinism
@@ -189,7 +197,7 @@ jobs:
               for c in cases:
                   if c.find('failure') is not None or c.find('error') is not None or c.find('skipped') is not None:
                       bad.append(p.split('/')[-1]+':'+c.attrib.get('name','?'))
-          assert total >= 79, f'expected broad repeated suite including staged recovery, only {total} cases found'
+          assert total >= 81, f'expected broad repeated suite including staged recovery, only {total} cases found'
           assert not bad, 'repeatability failures/skips: '+','.join(bad)
           print(f'Repeatability pass: {total}/{total} tests PASS')
           PY
