@@ -9,8 +9,9 @@ public final class StatefulMeaningScheduler {
     public static final String UNIQUE_WORK="cortex-stateful-meaning-drain";
     private StatefulMeaningScheduler(){}
     public static void kick(Context c){
-        if(StartupSafetyGate.active()||c==null)return;
+        if(c==null)return;
         Context app=c.getApplicationContext();
+        if(!CapabilitySupervisor.allowed(app,CapabilitySupervisor.Capability.DATABASE))return;
         if(!CapabilitySupervisor.allowed(app,CapabilitySupervisor.Capability.BACKGROUND_SCHEDULING))return;
         if(!CapabilitySupervisor.allowed(app,CapabilitySupervisor.Capability.DETERMINISTIC_COGNITION))return;
         Constraints x=new Constraints.Builder().setRequiresBatteryNotLow(true).build();
