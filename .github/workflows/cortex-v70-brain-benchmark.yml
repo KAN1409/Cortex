@@ -75,6 +75,7 @@ jobs:
             'CognitiveShadowStoreTest':6,
             'AttentionTraceExporterTest':4,
             'CommitmentLifecycleStoreTest':7,
+            'CommitmentLifecyclePrecisionTest':1,
             'CognitiveBrainStressTest':16,
             'ColdStartQuarantineTest':4,
             'CapabilitySupervisorTest':7,
@@ -89,7 +90,7 @@ jobs:
               assert not bad, f'{cls}: failed/skipped '+','.join(bad)
               total += len(cases)
               print(f'{cls}: {len(cases)}/{len(cases)} PASS')
-          assert total >= 74
+          assert total >= 75
           print(f'v70 cognitive/staged-recovery/commitment-lifecycle suites: {total}/{total} PASS')
           PY
           grep -q 'CognitiveShadowStore.run' app/src/main/java/com/kareem/cortex/StatefulMeaningWorker.java
@@ -179,7 +180,7 @@ jobs:
               'AttentionDecisionEngine.java','CognitiveWorldState.java','CognitiveShadowStore.java',
               'CommitmentLifecycleStore.java','TemporalResolver.java',
               'AttentionShadowComparator.java','AttentionTraceExporter.java','StatefulMeaningWorker.java','StatefulMeaningScheduler.java',
-              'CognitiveBrainStressTest.java','CommitmentLifecycleStoreTest.java','StartupSafetyGate.java','ColdStartQuarantineTest.java',
+              'CognitiveBrainStressTest.java','CommitmentLifecycleStoreTest.java','CommitmentLifecyclePrecisionTest.java','StartupSafetyGate.java','ColdStartQuarantineTest.java',
               'CapabilitySupervisor.java','CapabilitySupervisorTest.java','SafeCoreRuntime.java',
               'SafeCoreLifecycle.java','NotificationCaptureService.java','UniversalSemanticScheduler.java',
               'OcrAnalyzer.java','ArabicOcr.java','CleanWhisperTranscriber.kt','LocalLlmBridge.kt',
@@ -220,7 +221,7 @@ jobs:
               for c in cases:
                   if c.find('failure') is not None or c.find('error') is not None or c.find('skipped') is not None:
                       bad.append(p.split('/')[-1]+':'+c.attrib.get('name','?'))
-          assert total >= 129, f'expected broad repeated suite including commitment lifecycle coverage, only {total} cases found'
+          assert total >= 130, f'expected broad repeated suite including commitment lifecycle precision coverage, only {total} cases found'
           assert not bad, 'repeatability failures/skips: '+','.join(bad)
           print(f'Repeatability pass: {total}/{total} tests PASS')
           PY
