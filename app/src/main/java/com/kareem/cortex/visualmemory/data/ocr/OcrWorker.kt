@@ -8,6 +8,11 @@ import androidx.core.content.ContextCompat
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
+import androidx.work.ExistingWorkPolicy
+import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.WorkManager
+import com.kareem.cortex.visualmemory.data.search.EmbeddingWorker
+import com.kareem.cortex.visualmemory.data.search.SemanticModelStore
 import com.kareem.cortex.visualmemory.VisualMemoryStore
 
 class OcrWorker(
@@ -44,6 +49,15 @@ class OcrWorker(
                 )
 
                 if (batch.attempted == 0) break
+            }
+
+            if (totalSuccess > 0 && SemanticModelStore(applicationContext).isInstalled()) {
+                val semanticRequest = OneTimeWorkRequestBuilder<EmbeddingWorker>().build()
+                WorkManager.getInstance(applicationContext).enqueueUniqueWork(
+                    EmbeddingWorker.UNIQUE_WORK_NAME,
+                    ExistingWorkPolicy.KEEP,
+                    semanticRequest
+                )
             }
 
             Result.success(
