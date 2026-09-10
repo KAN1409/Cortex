@@ -11,21 +11,13 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.robolectric.RobolectricTestRunner;
 
-/**
- * Single authoritative CI test for Cortex.
- *
- * This deliberately exercises production health evaluators instead of maintaining dozens of
- * disconnected test counters. The test fails only for broken Cortex wiring/contracts; missing
- * user permissions, credentials or optional models are represented by runtime status and are not
- * faked as CI failures.
- */
+/** Single authoritative CI test for Cortex. */
 @RunWith(RobolectricTestRunner.class)
 public class CortexExtensiveSystemTest {
     @Test public void cortexExtensiveSystemContract() throws Exception {
         Context context = ApplicationProvider.getApplicationContext();
         assertEquals("com.kareem.cortex", context.getPackageName());
 
-        // Recovery/startup contract: UI survives while native engines remain isolated.
         assertTrue("recovery gate must stay active in this recovery lineage", StartupSafetyGate.active());
         assertTrue(CapabilitySupervisor.allowed(context, CapabilitySupervisor.Capability.CORE_UI));
         assertFalse(CapabilitySupervisor.allowed(context, CapabilitySupervisor.Capability.OCR_NATIVE));
@@ -58,6 +50,23 @@ public class CortexExtensiveSystemTest {
                 assertNotEquals("capability evaluator missing: " + capability.key,
                         CortexCapabilityRegistry.NOT_VERIFIED, state.status);
             }
+
+            // Recovery semantics: the native model can stay quarantined without turning Capture
+            // into a dead-end queue. Obvious obligations are still actionable and ordinary text is
+            // retained as understood informational context.
+            DeterministicSemanticRecovery.Classification request =
+                    DeterministicSemanticRecovery.classify("conversation_notification", "Ahmed", "Please send the quotation today");
+            assertEquals("ACTION", request.attentionKind);
+            assertEquals("action_request", request.type);
+            DeterministicSemanticRecovery.Classification security =
+                    DeterministicSemanticRecovery.classify("notification", "Google", "Critical security alert for saved passwords");
+            assertEquals("ACTION", security.attentionKind);
+            assertEquals("security_alert", security.type);
+            DeterministicSemanticRecovery.Classification ordinary =
+                    DeterministicSemanticRecovery.classify("conversation_notification", "Nasser", "وصلت البيت");
+            assertNull(ordinary.attentionKind);
+            assertEquals("conversation_message", ordinary.type);
+            assertTrue(ordinary.confidence >= .75);
 
             String trace = AttentionTraceExporter.export(db.getReadableDatabase());
             assertTrue(trace.contains("CORTEX_ATTENTION_TRACE_V4"));
