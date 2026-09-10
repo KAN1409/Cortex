@@ -46,6 +46,7 @@ preBuild.dependsOn tasks.named('prepareArabicOcrModel')
 
 dependencies {
     implementation 'com.google.mlkit:text-recognition:16.0.1'
+    implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.10.2'
     implementation 'androidx.room:room-runtime:2.8.5'
     implementation 'androidx.room:room-ktx:2.8.5'
     kapt 'androidx.room:room-compiler:2.8.5'
