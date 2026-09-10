@@ -16,6 +16,13 @@ public final class StatefulMeaningWorker extends Worker {
         VaultDb db=null;
         try{
             db=new VaultDb(app);
+
+            // Recovery builds intentionally keep the native semantic runtime quarantined. Do not
+            // leave ordinary captured notifications parked forever in semantic_state='waiting'.
+            // First classify the bounded waiting backlog deterministically; stronger models can
+            // replay the immutable raw evidence later without losing provenance.
+            DeterministicSemanticRecovery.recover(db,120);
+
             StatefulMeaningRebuilder.run(db,160);
 
             // v70 remains shadow-only. It records the cognitive answer without changing Now.
