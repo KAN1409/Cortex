@@ -11,11 +11,11 @@ public final class ScreenshotWorkScheduler {
 
     private static OneTimeWorkRequest request(){Constraints constraints=new Constraints.Builder().setRequiresStorageNotLow(true).build();return new OneTimeWorkRequest.Builder(ScreenshotAnalysisWorker.class).setConstraints(constraints).setBackoffCriteria(BackoffPolicy.LINEAR,10,TimeUnit.SECONDS).addTag(UNIQUE).build();}
 
-    public static void kick(Context c){Context app=c.getApplicationContext();WorkManager wm=WorkManager.getInstance(app);wm.enqueueUniqueWork(UNIQUE,ExistingWorkPolicy.KEEP,request());
+    public static void kick(Context c){if(StartupSafetyGate.active()||c==null)return;Context app=c.getApplicationContext();WorkManager wm=WorkManager.getInstance(app);wm.enqueueUniqueWork(UNIQUE,ExistingWorkPolicy.KEEP,request());
         // v47: stop the old blind 3-pass OCR backfill. Keep its stored evidence, but do not spend more battery on it.
         wm.cancelUniqueWork("cortex-screenshot-deep-ocr");wm.cancelUniqueWork("cortex-screenshot-deep-ocr-periodic");
         VisualIntelligenceScheduler.enablePeriodic(app);VisualIntelligenceScheduler.kick(app);
     }
 
-    static void continueChain(Context c){WorkManager.getInstance(c.getApplicationContext()).enqueueUniqueWork(UNIQUE,ExistingWorkPolicy.APPEND_OR_REPLACE,request());}
+    static void continueChain(Context c){if(StartupSafetyGate.active()||c==null)return;WorkManager.getInstance(c.getApplicationContext()).enqueueUniqueWork(UNIQUE,ExistingWorkPolicy.APPEND_OR_REPLACE,request());}
 }
