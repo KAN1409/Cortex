@@ -19,7 +19,7 @@ tasks.register('prepareArabicOcrModel') {
             arabicOcrModel.parentFile.mkdirs()
             def tmp = file(arabicOcrModel.absolutePath + '.part')
             if (tmp.exists()) tmp.delete()
-            new URL('https://raw.githubusercontent.com/tesseract-ocr/tessdata_fast/4.1.0/ara.traineddata').withInputStream { input -> tmp.withOutputStream { output -> output << input } }
+            new URL('https://raw.githubusercontent.com/tesseract-ocr/tessdata_best/e12c65a915945e4c28e237a9b52bc4a8f39a0cec/ara.traineddata').withInputStream { input -> tmp.withOutputStream { output -> output << input } }
             if (tmp.length() < 500000) throw new GradleException('Arabic OCR model download was incomplete')
             if (arabicOcrModel.exists()) arabicOcrModel.delete()
             if (!tmp.renameTo(arabicOcrModel)) { arabicOcrModel.bytes = tmp.bytes; tmp.delete() }
