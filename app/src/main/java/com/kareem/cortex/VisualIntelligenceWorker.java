@@ -11,7 +11,7 @@ public class VisualIntelligenceWorker extends Worker {
     private static final int BATCH=2;
     public VisualIntelligenceWorker(@NonNull Context c,@NonNull WorkerParameters p){super(c,p);}
 
-    @NonNull @Override public Result doWork(){Context ctx=getApplicationContext();VaultDb db=new VaultDb(ctx);VisualInsightStore.ensure(db);long start=VisualInsightStore.backgroundStart(ctx);int done=0;try{
+    @NonNull @Override public Result doWork(){if(StartupSafetyGate.active())return Result.success();Context ctx=getApplicationContext();VaultDb db=new VaultDb(ctx);VisualInsightStore.ensure(db);long start=VisualInsightStore.backgroundStart(ctx);int done=0;try{
         long gateWait=VisionRateLimitGate.remainingMs(ctx);if(gateWait>0){VisualInsightStore.setWorker(ctx,"waiting",0,"Vision provider cooling down","Retrying automatically in about "+Math.max(1,Math.round(gateWait/1000.0))+"s");VisualIntelligenceScheduler.continueChain(ctx);return Result.success();}
         while(done<BATCH&&!isStopped()){
             KnowledgeItem k=VisualInsightStore.nextBackground(db,start);if(k==null)break;
