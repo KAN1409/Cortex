@@ -39,7 +39,7 @@ public final class CognitiveNowReadModel {
                 double confidence = c.getDouble(7);
                 long at = c.getLong(8);
                 String source = nz(c.getString(9));
-                String kind = kind(type, intent, summary);
+                if(AttentionNoisePolicy.suppress(source,subject,summary,type,intent)) continue;\n                String kind = kind(type, intent, summary);
                 String title = CanonicalPresentation.cleanTitle("notification", type,
                         subject.isEmpty() ? source : subject, subject);
                 String body = CanonicalPresentation.cleanBody(summary);
