@@ -29,18 +29,19 @@ public class AttentionTraceExporterTest {
     @After public void after() { if (db != null) db.close(); }
 
     @Test public void exportLinksCaptureWorldStateDecisionAndActualNowWithoutMutation() throws Exception {
+        long at=System.currentTimeMillis()-1000L;
         long raw = UniversalEventStore.appendRaw(db, "notification", "com.google.android.gms", "security-1",
                 "posted", "system", "security", "Google security alert",
-                "Saved passwords were found online", new JSONObject(), 1000);
+                "Saved passwords were found online", new JSONObject(), at);
         long stream = UniversalEventStore.upsertStream(db, "notification", "security-stream",
                 "active", "h1", "Google security alert", "Saved passwords were found online",
-                "system", "security", 1000, true, new JSONObject());
+                "system", "security", at, true, new JSONObject());
         long event = UniversalEventStore.insertSemantic(db, raw, stream, 1, "security_alert", "action",
                 "Google security alert", "Saved passwords were found online; change passwords", .96,
-                "complete", true, "test", "trace test", 1000);
+                "complete", true, "test", "trace test", at);
         long situation = StatefulMeaningStore.correlate(db, event, 0, "google",
                 "security_alert", "Google security alert",
-                "Saved passwords were found online; change passwords", .96, 1000);
+                "Saved passwords were found online; change passwords", .96, at);
         StatefulMeaningPolicy.ProjectionDecision decision = StatefulMeaningPolicy.projection(
                 "security_alert", "action", .96, "OPENED", 1,
                 "Google security alert", "Saved passwords were found online; change passwords");
@@ -57,10 +58,11 @@ public class AttentionTraceExporterTest {
 
         JSONObject root = new JSONObject(AttentionTraceExporter.export(db));
         assertEquals(AttentionTraceExporter.VERSION, root.getString("format"));
-        assertEquals("CORTEX_ATTENTION_TRACE_V2", root.getString("format"));
+        assertEquals("CORTEX_ATTENTION_TRACE_V3", root.getString("format"));
         assertTrue(root.has("app_version_name"));
         assertTrue(root.has("schema_revision"));
         assertEquals(CognitiveWorldState.VERSION, root.getString("world_state_version"));
+        assertEquals(AttentionDecisionEngine.VERSION, root.getString("attention_engine_version"));
 
         JSONArray capture = root.getJSONArray("capture");
         assertEquals(1, capture.length());
@@ -77,14 +79,19 @@ public class AttentionTraceExporterTest {
         assertTrue(trace.getJSONObject("production_now_decision").getBoolean("surface_now"));
         assertTrue(trace.getJSONObject("actual_now").getBoolean("present"));
         assertEquals(1, trace.getJSONObject("actual_now").getInt("rank"));
-        assertTrue(trace.getJSONObject("shadow_attention").getBoolean("available"));
-        assertTrue(trace.getJSONObject("shadow_attention").getBoolean("cognitive_eligible"));
-        assertTrue(trace.getJSONObject("shadow_attention").getBoolean("cognitive_surface"));
+        JSONObject shadow=trace.getJSONObject("shadow_attention");
+        assertTrue(shadow.getBoolean("available"));
+        assertTrue(shadow.getBoolean("cognitive_eligible"));
+        assertTrue(shadow.getBoolean("cognitive_surface"));
+        assertEquals(at,shadow.getLong("candidate_last_seen_at"));
+        assertTrue(shadow.getDouble("cognitive_freshness")>=.80);
         assertEquals("CONSISTENT", trace.getString("projection_consistency"));
 
         JSONObject funnel = root.getJSONObject("cognitive_funnel");
         assertTrue(funnel.getBoolean("available"));
         assertEquals(1, funnel.getLong("candidate_count"));
+        assertEquals(1, funnel.getLong("fresh_candidate_count"));
+        assertEquals(0, funnel.getLong("stale_candidate_count"));
         assertEquals(1, funnel.getLong("cognitive_eligible_count"));
         assertEquals(0, funnel.getLong("cognitive_rejected_count"));
         assertEquals(0, funnel.getLong("topk_excluded_count"));
@@ -95,6 +102,8 @@ public class AttentionTraceExporterTest {
         assertEquals(1, summary.getLong("linked_semantic_count"));
         assertEquals(0, summary.getLong("unlinked_complete_semantic_count"));
         assertEquals(1, summary.getLong("world_state_candidate_count"));
+        assertEquals(1, summary.getLong("fresh_candidate_count"));
+        assertEquals(0, summary.getLong("stale_candidate_count"));
         assertEquals(1, summary.getLong("cognitive_eligible_count"));
         assertEquals(0, summary.getLong("eligible_not_materialized_count"));
         assertEquals(0, summary.getLong("materialized_without_current_eligibility_count"));
@@ -107,18 +116,20 @@ public class AttentionTraceExporterTest {
     }
 
     @Test public void exportMakesCognitiveRejectionReasonsVisible() throws Exception {
+        long at=System.currentTimeMillis()-1000L;
         long raw = UniversalEventStore.appendRaw(db, "notification", "weather", "weather-rejected",
-                "posted", "system", "weather", "New Cairo", "24° and clear", new JSONObject(), 1500);
+                "posted", "system", "weather", "New Cairo", "24° and clear", new JSONObject(), at);
         long stream = UniversalEventStore.upsertStream(db, "notification", "weather-rejected-stream",
-                "active", "h-weather", "New Cairo", "24° and clear", "system", "weather", 1500, true, new JSONObject());
+                "active", "h-weather", "New Cairo", "24° and clear", "system", "weather", at, true, new JSONObject());
         long event = UniversalEventStore.insertSemantic(db, raw, stream, 1, "weather_event", "weather",
-                "New Cairo", "24° and clear", .96, "complete", true, "test", "trace test", 1500);
+                "New Cairo", "24° and clear", .96, "complete", true, "test", "trace test", at);
         StatefulMeaningStore.correlate(db, event, 0, "weather", "weather_event",
-                "New Cairo", "24° and clear", .96, 1500);
+                "New Cairo", "24° and clear", .96, at);
         CognitiveShadowStore.run(db, 5);
 
         JSONObject funnel = new JSONObject(AttentionTraceExporter.export(db)).getJSONObject("cognitive_funnel");
         assertEquals(1, funnel.getLong("candidate_count"));
+        assertEquals(1, funnel.getLong("fresh_candidate_count"));
         assertEquals(0, funnel.getLong("cognitive_eligible_count"));
         assertEquals(1, funnel.getLong("cognitive_rejected_count"));
         JSONArray reasons=funnel.getJSONArray("rejection_reasons");
