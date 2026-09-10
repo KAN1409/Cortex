@@ -11,12 +11,13 @@ import java.util.Set;
 /**
  * Pure shadow-mode comparator. It never changes Now.
  *
- * The legacy side represents the current v69 projection answer for each semantic event.
- * The cognitive side represents globally ranked situation-level decisions. The result is
- * intentionally explainable so real-device traces can be audited before cutover.
+ * The legacy side represents the current v69 projection answer for each situation.
+ * The cognitive side first evaluates every world-state candidate, then applies global Now
+ * capacity. Keeping those stages separate is critical diagnostics: "not eligible" and
+ * "eligible but outside the top-K" are different failures and must never be conflated.
  */
 public final class AttentionShadowComparator {
-    public static final String VERSION = "attention_shadow_001";
+    public static final String VERSION = "attention_shadow_002";
 
     private AttentionShadowComparator() {}
 
@@ -43,6 +44,9 @@ public final class AttentionShadowComparator {
     public static final class Comparison {
         public final long situationId;
         public final boolean legacySurface;
+        /** Pure per-candidate decision before global capacity is applied. */
+        public final boolean cognitiveEligible;
+        /** Final cognitive Now selection after global ranking and maxItems. */
         public final boolean cognitiveSurface;
         public final int cognitiveRank;
         public final double cognitiveScore;
@@ -52,6 +56,7 @@ public final class AttentionShadowComparator {
 
         Comparison(long situationId,
                    boolean legacySurface,
+                   boolean cognitiveEligible,
                    boolean cognitiveSurface,
                    int cognitiveRank,
                    double cognitiveScore,
@@ -60,6 +65,7 @@ public final class AttentionShadowComparator {
                    String cognitiveReason) {
             this.situationId = situationId;
             this.legacySurface = legacySurface;
+            this.cognitiveEligible = cognitiveEligible;
             this.cognitiveSurface = cognitiveSurface;
             this.cognitiveRank = cognitiveRank;
             this.cognitiveScore = cognitiveScore;
@@ -74,12 +80,24 @@ public final class AttentionShadowComparator {
         public final int agreements;
         public final int cognitiveRecoveries;
         public final int cognitiveNoiseSuppressions;
+        public final int cognitiveEligibleCount;
+        public final int cognitiveSelectedCount;
+        public final int topKExcludedCount;
 
-        Report(List<Comparison> comparisons, int agreements, int recoveries, int suppressions) {
+        Report(List<Comparison> comparisons,
+               int agreements,
+               int recoveries,
+               int suppressions,
+               int eligible,
+               int selected,
+               int topKExcluded) {
             this.comparisons = Collections.unmodifiableList(comparisons);
             this.agreements = agreements;
             this.cognitiveRecoveries = recoveries;
             this.cognitiveNoiseSuppressions = suppressions;
+            this.cognitiveEligibleCount = eligible;
+            this.cognitiveSelectedCount = selected;
+            this.topKExcludedCount = topKExcluded;
         }
     }
 
@@ -93,23 +111,30 @@ public final class AttentionShadowComparator {
             }
         }
 
+        Map<Long, AttentionDecisionEngine.Decision> evaluatedBySituation = new HashMap<>();
+        int eligibleCount = 0;
+        if (cognitiveCandidates != null) {
+            for (AttentionDecisionEngine.Candidate c : cognitiveCandidates) {
+                if (c == null) continue;
+                AttentionDecisionEngine.Decision d = AttentionDecisionEngine.evaluate(c);
+                evaluatedBySituation.put(c.situationId, d);
+                if (d.surfaceNow) eligibleCount++;
+            }
+        }
+
         List<AttentionDecisionEngine.Decision> ranked =
                 AttentionDecisionEngine.rankForNow(cognitiveCandidates, maxNowItems);
-        Map<Long, AttentionDecisionEngine.Decision> newBySituation = new HashMap<>();
+        Map<Long, AttentionDecisionEngine.Decision> selectedBySituation = new HashMap<>();
         Map<Long, Integer> rankBySituation = new HashMap<>();
         for (int i = 0; i < ranked.size(); i++) {
             AttentionDecisionEngine.Decision d = ranked.get(i);
-            newBySituation.put(d.candidate.situationId, d);
+            selectedBySituation.put(d.candidate.situationId, d);
             rankBySituation.put(d.candidate.situationId, i + 1);
         }
 
         Set<Long> allIds = new HashSet<>();
         allIds.addAll(oldBySituation.keySet());
-        if (cognitiveCandidates != null) {
-            for (AttentionDecisionEngine.Candidate c : cognitiveCandidates) {
-                if (c != null) allIds.add(c.situationId);
-            }
-        }
+        allIds.addAll(evaluatedBySituation.keySet());
 
         List<Long> orderedIds = new ArrayList<>(allIds);
         Collections.sort(orderedIds);
@@ -118,14 +143,17 @@ public final class AttentionShadowComparator {
 
         for (Long id : orderedIds) {
             LegacyDecision old = oldBySituation.get(id);
-            AttentionDecisionEngine.Decision fresh = newBySituation.get(id);
+            AttentionDecisionEngine.Decision evaluated = evaluatedBySituation.get(id);
+            AttentionDecisionEngine.Decision selected = selectedBySituation.get(id);
             boolean oldSurface = old != null && old.surfaceNow;
-            boolean newSurface = fresh != null;
+            boolean cognitiveEligible = evaluated != null && evaluated.surfaceNow;
+            boolean cognitiveSurface = selected != null;
+
             Delta delta;
-            if (oldSurface && newSurface) {
+            if (oldSurface && cognitiveSurface) {
                 delta = Delta.AGREES_SURFACE;
                 agreements++;
-            } else if (!oldSurface && !newSurface) {
+            } else if (!oldSurface && !cognitiveSurface) {
                 delta = Delta.AGREES_SUPPRESS;
                 agreements++;
             } else if (!oldSurface) {
@@ -135,18 +163,31 @@ public final class AttentionShadowComparator {
                 delta = Delta.NEW_SUPPRESSES_LEGACY_NOISE;
                 suppressions++;
             }
+
+            String cognitiveReason;
+            if (evaluated == null) {
+                cognitiveReason = "no cognitive candidate";
+            } else if (cognitiveEligible && !cognitiveSurface) {
+                cognitiveReason = "eligible but outside global Now capacity: " + evaluated.reason;
+            } else {
+                cognitiveReason = evaluated.reason;
+            }
+
             out.add(new Comparison(
                     id,
                     oldSurface,
-                    newSurface,
+                    cognitiveEligible,
+                    cognitiveSurface,
                     rankBySituation.containsKey(id) ? rankBySituation.get(id) : 0,
-                    fresh == null ? 0.0 : fresh.score,
+                    evaluated == null ? 0.0 : evaluated.score,
                     delta,
                     old == null ? "no legacy Now projection" : old.reason,
-                    fresh == null ? "not selected by cognitive ranker" : fresh.reason));
+                    cognitiveReason));
         }
 
-        return new Report(out, agreements, recoveries, suppressions);
+        int selectedCount = ranked.size();
+        return new Report(out, agreements, recoveries, suppressions,
+                eligibleCount, selectedCount, Math.max(0, eligibleCount - selectedCount));
     }
 
     private static String n(String s) {
