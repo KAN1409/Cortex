@@ -72,7 +72,8 @@ jobs:
             'AttentionDecisionEngineTest':12,
             'CognitiveWorldStateTest':9,
             'AttentionShadowComparatorTest':2,
-            'CognitiveShadowStoreTest':2,
+            'CognitiveShadowStoreTest':3,
+            'AttentionTraceExporterTest':3,
             'CognitiveBrainStressTest':16,
             'ColdStartQuarantineTest':4,
             'CapabilitySupervisorTest':7,
@@ -87,10 +88,14 @@ jobs:
               assert not bad, f'{cls}: failed/skipped '+','.join(bad)
               total += len(cases)
               print(f'{cls}: {len(cases)}/{len(cases)} PASS')
-          assert total >= 52
-          print(f'v70 cognitive/staged-recovery suites: {total}/{total} PASS')
+          assert total >= 56
+          print(f'v70 cognitive/staged-recovery/funnel suites: {total}/{total} PASS')
           PY
           grep -q 'CognitiveShadowStore.run' app/src/main/java/com/kareem/cortex/StatefulMeaningWorker.java
+          grep -q 'new CognitiveWorldState' app/src/main/java/com/kareem/cortex/CognitiveShadowStore.java
+          grep -q 'world.attentionCandidates' app/src/main/java/com/kareem/cortex/CognitiveShadowStore.java
+          grep -q 'cognitive_eligible' app/src/main/java/com/kareem/cortex/CognitiveShadowStore.java
+          grep -q 'cognitive_funnel' app/src/main/java/com/kareem/cortex/AttentionTraceExporter.java
           ! grep -q 'ue_attention_items.*INSERT\|INSERT.*ue_attention_items' app/src/main/java/com/kareem/cortex/CognitiveShadowStore.java
           ! grep -q 'ue_projection_decisions.*INSERT\|INSERT.*ue_projection_decisions' app/src/main/java/com/kareem/cortex/CognitiveShadowStore.java
           grep -q 'SafeCoreLifecycle.install(this)' app/src/main/java/com/kareem/cortex/CortexApp.java
@@ -155,7 +160,7 @@ jobs:
           errors=[i for i in root.findall('issue') if i.attrib.get('severity')=='Error']
           brain_names={
               'AttentionDecisionEngine.java','CognitiveWorldState.java','CognitiveShadowStore.java',
-              'AttentionShadowComparator.java','StatefulMeaningWorker.java','StatefulMeaningScheduler.java',
+              'AttentionShadowComparator.java','AttentionTraceExporter.java','StatefulMeaningWorker.java','StatefulMeaningScheduler.java',
               'CognitiveBrainStressTest.java','StartupSafetyGate.java','ColdStartQuarantineTest.java',
               'CapabilitySupervisor.java','CapabilitySupervisorTest.java','SafeCoreRuntime.java',
               'SafeCoreLifecycle.java','NotificationCaptureService.java','UniversalSemanticScheduler.java',
@@ -197,7 +202,7 @@ jobs:
               for c in cases:
                   if c.find('failure') is not None or c.find('error') is not None or c.find('skipped') is not None:
                       bad.append(p.split('/')[-1]+':'+c.attrib.get('name','?'))
-          assert total >= 81, f'expected broad repeated suite including staged recovery, only {total} cases found'
+          assert total >= 83, f'expected broad repeated suite including cognitive funnel coverage, only {total} cases found'
           assert not bad, 'repeatability failures/skips: '+','.join(bad)
           print(f'Repeatability pass: {total}/{total} tests PASS')
           PY
