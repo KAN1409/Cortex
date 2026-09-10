@@ -161,8 +161,11 @@ public final class CommitmentLifecycleStore {
         boolean parsedHasTime=resolution!=null&&resolution.hasTime;
         String deadlineExpression=resolution==null?"":n(subject+" "+summary);
 
-        if(old==null&&!commitmentLike&&terminal==null) {
-            evaluation(db,semanticEventId,situationId,"none","no commitment or lifecycle evidence",now);
+        // A terminal-looking sentence alone must not invent a historical commitment from nothing.
+        // It may close an existing commitment, or create a terminal row only when its semantic type
+        // independently says this evidence is commitment/task/request related.
+        if(old==null&&!commitmentLike) {
+            evaluation(db,semanticEventId,situationId,"none","no prior or semantic commitment identity",now);
             return null;
         }
 
@@ -209,12 +212,14 @@ public final class CommitmentLifecycleStore {
             newDeadlineExpression="";
         }
 
+        String resolvedSubject=n(subject).isEmpty()&&old!=null?old.subject:n(subject);
+        String resolvedSummary=n(summary).isEmpty()&&old!=null?old.summary:n(summary);
         ContentValues v=new ContentValues();
         v.put("commitment_key",key);
         v.put("situation_id",situationId);
         v.put("link_key",n(linkKey).isEmpty()?key:n(linkKey));
-        v.put("subject",n(subject).isEmpty()&&old!=null?old.subject:n(subject));
-        v.put("summary",n(summary).isEmpty()&&old!=null?old.summary:n(summary));
+        v.put("subject",resolvedSubject);
+        v.put("summary",resolvedSummary);
         v.put("state",newState);
         v.put("deadline_at",newDeadline);
         v.put("deadline_has_time",newHasTime?1:0);
@@ -232,7 +237,7 @@ public final class CommitmentLifecycleStore {
             long id=db.insertOrThrow("ue_commitments",null,v);
             transition(db,id,semanticEventId,"",newState,transitionKind,0L,newDeadline,summary,when,now);
         } else {
-            boolean changed=!old.state.equals(newState)||oldDeadline!=newDeadline||!old.summary.equals(n(summary))||!old.subject.equals(n(subject));
+            boolean changed=!old.state.equals(newState)||oldDeadline!=newDeadline||!old.summary.equals(resolvedSummary)||!old.subject.equals(resolvedSubject);
             v.put("last_changed_at",changed?when:old.lastChangedAt);
             v.put("terminal_at",isTerminal(newState)?when:0L);
             v.put("revision",changed?old.revision+1:old.revision);
