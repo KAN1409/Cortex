@@ -10,6 +10,7 @@ public final class StatefulMeaningWorker extends Worker {
     public StatefulMeaningWorker(@NonNull Context c,@NonNull WorkerParameters p){super(c,p);}
 
     @NonNull @Override public Result doWork(){
+        if(StartupSafetyGate.active())return Result.success();
         VaultDb db=null;
         try{
             db=new VaultDb(getApplicationContext());
