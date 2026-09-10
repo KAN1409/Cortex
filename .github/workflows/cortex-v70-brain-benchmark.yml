@@ -72,8 +72,9 @@ jobs:
             'AttentionDecisionEngineTest':16,
             'CognitiveWorldStateTest':12,
             'AttentionShadowComparatorTest':2,
-            'CognitiveShadowStoreTest':4,
-            'AttentionTraceExporterTest':3,
+            'CognitiveShadowStoreTest':6,
+            'AttentionTraceExporterTest':4,
+            'CommitmentLifecycleStoreTest':7,
             'CognitiveBrainStressTest':16,
             'ColdStartQuarantineTest':4,
             'CapabilitySupervisorTest':7,
@@ -88,10 +89,15 @@ jobs:
               assert not bad, f'{cls}: failed/skipped '+','.join(bad)
               total += len(cases)
               print(f'{cls}: {len(cases)}/{len(cases)} PASS')
-          assert total >= 64
-          print(f'v70 cognitive/staged-recovery/temporal-attention suites: {total}/{total} PASS')
+          assert total >= 74
+          print(f'v70 cognitive/staged-recovery/commitment-lifecycle suites: {total}/{total} PASS')
           PY
           grep -q 'CognitiveShadowStore.run' app/src/main/java/com/kareem/cortex/StatefulMeaningWorker.java
+          grep -q 'CommitmentLifecycleStore.rebuild' app/src/main/java/com/kareem/cortex/StatefulMeaningRebuilder.java
+          grep -q 'ue_commitments' app/src/main/java/com/kareem/cortex/CommitmentLifecycleStore.java
+          grep -q 'RESCHEDULED' app/src/main/java/com/kareem/cortex/CommitmentLifecycleStore.java
+          grep -q 'resolveExpression' app/src/main/java/com/kareem/cortex/TemporalResolver.java
+          grep -q 'CommitmentLifecycleStore.loadOpen' app/src/main/java/com/kareem/cortex/CognitiveShadowStore.java
           grep -q 'new CognitiveWorldState' app/src/main/java/com/kareem/cortex/CognitiveShadowStore.java
           grep -q 'world.attentionCandidates' app/src/main/java/com/kareem/cortex/CognitiveShadowStore.java
           grep -q 'cognitive_eligible' app/src/main/java/com/kareem/cortex/CognitiveShadowStore.java
@@ -99,10 +105,14 @@ jobs:
           grep -q 'cognitive_freshness' app/src/main/java/com/kareem/cortex/CognitiveShadowStore.java
           grep -q 'freshnessScore' app/src/main/java/com/kareem/cortex/AttentionDecisionEngine.java
           grep -q 's.lastSeenAt' app/src/main/java/com/kareem/cortex/CognitiveWorldState.java
-          grep -q 'cognitive_funnel' app/src/main/java/com/kareem/cortex/AttentionTraceExporter.java
+          grep -q 'CORTEX_ATTENTION_TRACE_V4' app/src/main/java/com/kareem/cortex/AttentionTraceExporter.java
+          grep -q 'commitment_lifecycle_version' app/src/main/java/com/kareem/cortex/AttentionTraceExporter.java
+          grep -q 'overdue_commitment_count' app/src/main/java/com/kareem/cortex/AttentionTraceExporter.java
           grep -q 'peakRisk' app/src/main/java/com/kareem/cortex/CognitiveWorldState.java
           grep -q 'if (!newer) return s' app/src/main/java/com/kareem/cortex/CognitiveWorldState.java
           grep -q 's.risk = o.risk' app/src/main/java/com/kareem/cortex/CognitiveWorldState.java
+          ! grep -q 'ue_attention_items' app/src/main/java/com/kareem/cortex/CommitmentLifecycleStore.java
+          ! grep -q 'ue_projection_decisions' app/src/main/java/com/kareem/cortex/CommitmentLifecycleStore.java
           ! grep -q 'ue_attention_items.*INSERT\|INSERT.*ue_attention_items' app/src/main/java/com/kareem/cortex/CognitiveShadowStore.java
           ! grep -q 'ue_projection_decisions.*INSERT\|INSERT.*ue_projection_decisions' app/src/main/java/com/kareem/cortex/CognitiveShadowStore.java
           grep -q 'SafeCoreLifecycle.install(this)' app/src/main/java/com/kareem/cortex/CortexApp.java
@@ -167,8 +177,9 @@ jobs:
           errors=[i for i in root.findall('issue') if i.attrib.get('severity')=='Error']
           brain_names={
               'AttentionDecisionEngine.java','CognitiveWorldState.java','CognitiveShadowStore.java',
+              'CommitmentLifecycleStore.java','TemporalResolver.java',
               'AttentionShadowComparator.java','AttentionTraceExporter.java','StatefulMeaningWorker.java','StatefulMeaningScheduler.java',
-              'CognitiveBrainStressTest.java','StartupSafetyGate.java','ColdStartQuarantineTest.java',
+              'CognitiveBrainStressTest.java','CommitmentLifecycleStoreTest.java','StartupSafetyGate.java','ColdStartQuarantineTest.java',
               'CapabilitySupervisor.java','CapabilitySupervisorTest.java','SafeCoreRuntime.java',
               'SafeCoreLifecycle.java','NotificationCaptureService.java','UniversalSemanticScheduler.java',
               'OcrAnalyzer.java','ArabicOcr.java','CleanWhisperTranscriber.kt','LocalLlmBridge.kt',
@@ -184,9 +195,9 @@ jobs:
                   crash.append((i.attrib.get('id'),f,i.attrib.get('message')))
           print(f'Full-project lint debt: {len(errors)} errors')
           assert len(errors) <= 26, f'lint error count regressed: {len(errors)} > known post-fix ceiling 26'
-          assert not brain, 'cognitive/staged-recovery/native-quarantine v70 lint errors: '+repr(brain)
+          assert not brain, 'cognitive/staged-recovery/commitment-lifecycle v70 lint errors: '+repr(brain)
           assert not crash, 'runtime/crash-risk lint errors remain: '+repr(crash)
-          print('Cognitive/staged-recovery/native-quarantine lint gate: PASS')
+          print('Cognitive/staged-recovery/commitment-lifecycle lint gate: PASS')
           PY
 
       - name: Repeat brain tests from scratch for determinism
@@ -209,7 +220,7 @@ jobs:
               for c in cases:
                   if c.find('failure') is not None or c.find('error') is not None or c.find('skipped') is not None:
                       bad.append(p.split('/')[-1]+':'+c.attrib.get('name','?'))
-          assert total >= 91, f'expected broad repeated suite including temporal attention coverage, only {total} cases found'
+          assert total >= 129, f'expected broad repeated suite including commitment lifecycle coverage, only {total} cases found'
           assert not bad, 'repeatability failures/skips: '+','.join(bad)
           print(f'Repeatability pass: {total}/{total} tests PASS')
           PY
