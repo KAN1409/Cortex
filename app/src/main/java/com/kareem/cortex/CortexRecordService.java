@@ -21,9 +21,10 @@ public final class CortexRecordService extends Service {
     static void setState(Context c,boolean running,long started){c.getSharedPreferences(PREF,MODE_PRIVATE).edit().putBoolean(KEY_RUNNING,running).putLong(KEY_STARTED,running?started:0L).apply();CortexRecordWidget.updateAll(c);}
 
     @Override public void onCreate(){super.onCreate();ensureChannel();}
-    @Override public int onStartCommand(Intent intent,int flags,int startId){String a=intent==null?null:intent.getAction();if(ACTION_STOP.equals(a)){stopAndPersist();return START_NOT_STICKY;}if(ACTION_START.equals(a)){startRecording();return START_NOT_STICKY;}if(!recorder.isRunning())stopSelf();return START_NOT_STICKY;}
+    @Override public int onStartCommand(Intent intent,int flags,int startId){if(StartupSafetyGate.active()){try{stopForeground(true);}catch(Throwable ignored){}stopSelf();return START_NOT_STICKY;}String a=intent==null?null:intent.getAction();if(ACTION_STOP.equals(a)){stopAndPersist();return START_NOT_STICKY;}if(ACTION_START.equals(a)){startRecording();return START_NOT_STICKY;}if(!recorder.isRunning())stopSelf();return START_NOT_STICKY;}
 
     private void startRecording(){
+        if(StartupSafetyGate.active())return;
         if(recorder.isRunning())return;
         if(!recorder.hasPermission(this)){setState(this,false,0);stopSelf();return;}
         try{
@@ -37,11 +38,11 @@ public final class CortexRecordService extends Service {
         if(stopping)return;stopping=true;File f=null;
         try{if(recorder.isRunning())f=recorder.stop();}catch(Throwable ignored){}
         setState(this,false,0);try{stopForeground(true);}catch(Throwable ignored){}
-        if(f!=null&&f.exists()&&f.length()>44)persistAsync(f);else if(f!=null)try{f.delete();}catch(Throwable ignored){}
+        if(!StartupSafetyGate.active()&&f!=null&&f.exists()&&f.length()>44)persistAsync(f);else if(f!=null)try{f.delete();}catch(Throwable ignored){}
         stopSelf();
     }
 
-    private void persistAsync(File file){final File f=file;new Thread(()->{VaultDb db=null;try{JSONObject m=new JSONObject();m.put("mime","audio/wav");m.put("bytes",f.length());m.put("recorded_at",System.currentTimeMillis());m.put("source","home_record_control");db=new VaultDb(getApplicationContext());long id=db.insert("AUDIO","manual_recording","Voice recording","","Voice & Audio","voice,audio,transcript",f.getAbsolutePath(),Fingerprint.file(f.getAbsolutePath()),m.toString());if(id>0)AnalysisQueue.kick(getApplicationContext(),null,null);else if(id<0)f.delete();}catch(Throwable ignored){}finally{if(db!=null)try{db.close();}catch(Throwable ignored){}}},"cortex-widget-record-save").start();}
+    private void persistAsync(File file){if(StartupSafetyGate.active())return;final File f=file;new Thread(()->{VaultDb db=null;try{JSONObject m=new JSONObject();m.put("mime","audio/wav");m.put("bytes",f.length());m.put("recorded_at",System.currentTimeMillis());m.put("source","home_record_control");db=new VaultDb(getApplicationContext());long id=db.insert("AUDIO","manual_recording","Voice recording","","Voice & Audio","voice,audio,transcript",f.getAbsolutePath(),Fingerprint.file(f.getAbsolutePath()),m.toString());if(id>0)AnalysisQueue.kick(getApplicationContext(),null,null);else if(id<0)f.delete();}catch(Throwable ignored){}finally{if(db!=null)try{db.close();}catch(Throwable ignored){}}},"cortex-widget-record-save").start();}
 
     private Notification notification(){
         Intent stop=new Intent(this,CortexRecordService.class).setAction(ACTION_STOP);PendingIntent stopPi=PendingIntent.getService(this,41025,stop,PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE);

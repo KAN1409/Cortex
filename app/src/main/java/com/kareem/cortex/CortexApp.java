@@ -3,14 +3,16 @@ package com.kareem.cortex;
 import android.app.Application;
 
 /**
- * Process bootstrap must stay intentionally tiny.
- * Heavy DB maintenance/recovery is deferred until the first PRIME surface has drawn.
+ * Cortex process bootstrap.
+ *
+ * Keep Application startup intentionally inert. AndroidX owns provider-first WorkManager
+ * initialization. Cortex installs only crash recording and a lightweight lifecycle observer here;
+ * no database, WorkManager scheduling, model, JNI or heavyweight maintenance runs in onCreate().
  */
-public class CortexApp extends Application {
+public final class CortexApp extends Application {
     @Override public void onCreate(){
         super.onCreate();
         CrashRecorder.install(this);
-        // Never open Cortex DB, run migrations, recovery or backfills on process start.
-        // StartupMaintenance is scheduled by the first visible PRIME activity.
+        SafeCoreLifecycle.install(this);
     }
 }

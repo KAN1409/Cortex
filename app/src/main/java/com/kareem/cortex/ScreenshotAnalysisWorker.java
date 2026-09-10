@@ -14,7 +14,7 @@ public class ScreenshotAnalysisWorker extends Worker {
     private static final int BATCH=8;
     public ScreenshotAnalysisWorker(@NonNull Context c,@NonNull WorkerParameters p){super(c,p);}
 
-    @NonNull @Override public Result doWork(){Context ctx=getApplicationContext();VaultDb db=new VaultDb(ctx);requeueStale(db);int done=0;try{
+    @NonNull @Override public Result doWork(){if(StartupSafetyGate.active())return Result.success();Context ctx=getApplicationContext();VaultDb db=new VaultDb(ctx);requeueStale(db);int done=0;try{
         while(done<BATCH&&!isStopped()){
             KnowledgeItem item=next(db);if(item==null)break;db.markAnalyzing(item.id);
             CountDownLatch latch=new CountDownLatch(1);AtomicReference<AnalysisResult> ok=new AtomicReference<>();AtomicReference<Exception> bad=new AtomicReference<>();

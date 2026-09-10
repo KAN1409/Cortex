@@ -13,6 +13,11 @@ public final class OcrAnalyzer {
     private OcrAnalyzer(){}
 
     public static void analyze(Context ctx,KnowledgeItem item,Callback cb){
+        if(cb==null)return;
+        if(ctx==null||!CapabilitySupervisor.allowed(ctx,CapabilitySupervisor.Capability.OCR_NATIVE)){
+            cb.fail(new IllegalStateException("OCR native capability is quarantined in this recovery build"));
+            return;
+        }
         TextRecognizer recognizer=null;Bitmap decoded=null;
         try{
             if(item.attachmentPath==null||item.attachmentPath.isEmpty())throw new IllegalArgumentException("Missing image file");

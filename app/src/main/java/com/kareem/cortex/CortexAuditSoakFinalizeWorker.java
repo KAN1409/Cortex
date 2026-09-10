@@ -12,6 +12,7 @@ public final class CortexAuditSoakFinalizeWorker extends Worker {
     public CortexAuditSoakFinalizeWorker(@NonNull Context c,@NonNull WorkerParameters p){super(c,p);}
 
     @NonNull @Override public Result doWork(){
+        if(StartupSafetyGate.active())return Result.success();
         long runId=getInputData().getLong("run_id",0);if(runId<=0)return Result.failure();Context ctx=getApplicationContext();VaultDb db=new VaultDb(ctx);
         try{
             CortexAuditStore.Run r=CortexAuditStore.get(db,runId);if(r==null||"canceled".equals(r.status)||"complete".equals(r.status))return Result.success();

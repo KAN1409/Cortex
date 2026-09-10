@@ -7,5 +7,5 @@ import androidx.work.WorkerParameters;
 /** Belt-and-suspenders recovery for stale local adjudication jobs after process death. */
 public final class AdjudicationRecoveryWorker extends Worker {
     public AdjudicationRecoveryWorker(Context appContext,WorkerParameters params){super(appContext,params);}
-    @Override public Result doWork(){VaultDb db=null;try{db=new VaultDb(getApplicationContext());AdjudicationRecovery.run(getApplicationContext(),db);return Result.success();}catch(Throwable e){return Result.retry();}finally{if(db!=null)try{db.close();}catch(Throwable ignored){}}}
+    @Override public Result doWork(){if(StartupSafetyGate.active())return Result.success();VaultDb db=null;try{db=new VaultDb(getApplicationContext());AdjudicationRecovery.run(getApplicationContext(),db);return Result.success();}catch(Throwable e){return Result.retry();}finally{if(db!=null)try{db.close();}catch(Throwable ignored){}}}
 }

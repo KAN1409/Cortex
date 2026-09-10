@@ -1,0 +1,148 @@
+name: Cortex Extensive System Gate
+
+on:
+  push:
+    branches: [ v70/cognitive-core-benchmark ]
+  workflow_dispatch:
+
+jobs:
+  extensive-system-gate:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout Cortex
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 50
+
+      - name: Restore local Whisper runtime AAR
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p app/libs
+          git fetch origin v2/cortex-recovery-zero-api --depth=1
+          git show FETCH_HEAD:app/libs/whisper-android-cortex-prompt-1.0.0.aar > app/libs/whisper-android-cortex-prompt-1.0.0.aar
+          test -s app/libs/whisper-android-cortex-prompt-1.0.0.aar
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Set up Gradle 8.9
+        uses: gradle/actions/setup-gradle@v6
+        with:
+          gradle-version: '8.9'
+
+      - name: Startup crash-risk audit
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x scripts/startup-crash-audit.sh
+          scripts/startup-crash-audit.sh .
+
+      - name: ONE extensive Cortex system test
+        run: gradle :app:testDebugUnitTest --tests com.kareem.cortex.CortexExtensiveSystemTest --stacktrace
+
+      - name: Verify the single extensive test really ran
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import xml.etree.ElementTree as ET
+          p='app/build/test-results/testDebugUnitTest/TEST-com.kareem.cortex.CortexExtensiveSystemTest.xml'
+          root=ET.parse(p).getroot()
+          cases=root.findall('testcase')
+          assert len(cases)==1, f'expected exactly ONE authoritative test, found {len(cases)}'
+          bad=[c.attrib.get('name') for c in cases if c.find('failure') is not None or c.find('error') is not None or c.find('skipped') is not None]
+          assert not bad, 'extensive system test failed/skipped: '+','.join(bad)
+          assert cases[0].attrib.get('name')=='cortexExtensiveSystemContract'
+          print('ONE extensive Cortex system test: PASS')
+          PY
+
+      - name: Build installable update APK
+        run: gradle :app:assembleDebug --stacktrace
+
+      - name: Verify provider-first WorkManager and recovery isolation
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q 'private static final boolean ACTIVE = true' app/src/main/java/com/kareem/cortex/StartupSafetyGate.java
+          grep -q 'SafeCoreLifecycle.install(this)' app/src/main/java/com/kareem/cortex/CortexApp.java
+          grep -q 'CapabilitySupervisor.Capability.OCR_NATIVE' app/src/main/java/com/kareem/cortex/OcrAnalyzer.java
+          grep -q 'CapabilitySupervisor.Capability.ASR_NATIVE' app/src/main/java/com/kareem/cortex/CleanWhisperTranscriber.kt
+          grep -q 'requireNativeAllowed()' app/src/main/java/com/kareem/cortex/LocalLlmBridge.kt
+          grep -q 'RUN ONE EXTENSIVE SYSTEM TEST' app/src/main/java/com/kareem/cortex/CortexAuditActivity.java
+          ! grep -q 'androidx.work.WorkManagerInitializer' app/src/main/AndroidManifest.xml
+          found=0; init=0
+          while IFS= read -r manifest; do
+            found=1
+            if grep -q 'androidx.work.WorkManagerInitializer' "$manifest"; then init=1; fi
+          done < <(find app/build/intermediates -type f -name AndroidManifest.xml \( -path '*merged_manifest*' -o -path '*merged_manifests*' \) | sort)
+          test "$found" = 1
+          test "$init" = 1
+          echo 'Provider-first WorkManager + recovery isolation + in-app status contract: PASS'
+
+      - name: Re-run startup audit against built project
+        run: scripts/startup-crash-audit.sh .
+
+      - name: Android lint
+        id: lint
+        continue-on-error: true
+        run: gradle :app:lintDebug --stacktrace
+
+      - name: Gate new-code and crash-risk lint errors
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os, xml.etree.ElementTree as ET
+          p='app/build/reports/lint-results-debug.xml'
+          root=ET.parse(p).getroot()
+          errors=[i for i in root.findall('issue') if i.attrib.get('severity')=='Error']
+          critical={'CortexExtensiveSystemTest.java','CortexAuditActivity.java','DiagnosticFileShare.java','SettingsActivity.java','StartupSafetyGate.java','CapabilitySupervisor.java','CortexApp.java'}
+          bad=[]; crash=[]
+          for i in errors:
+              loc=i.find('location'); f=os.path.basename(loc.attrib.get('file','')) if loc is not None else ''
+              if f in critical: bad.append((i.attrib.get('id'),f,i.attrib.get('message')))
+              if i.attrib.get('id') in {'MissingPermission','UnsafeOptInUsageError','NewApi'}: crash.append((i.attrib.get('id'),f,i.attrib.get('message')))
+          assert not bad, 'new authoritative test/status lint errors: '+repr(bad)
+          assert not crash, 'runtime/crash-risk lint errors: '+repr(crash)
+          print(f'Lint gate PASS; legacy project debt not used as fake test-count signal ({len(errors)} total Error items)')
+          PY
+
+      - name: Repeat the ONE extensive test from scratch
+        run: gradle :app:testDebugUnitTest --tests com.kareem.cortex.CortexExtensiveSystemTest --rerun-tasks --stacktrace
+
+      - name: Verify deterministic repeat
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import xml.etree.ElementTree as ET
+          p='app/build/test-results/testDebugUnitTest/TEST-com.kareem.cortex.CortexExtensiveSystemTest.xml'
+          root=ET.parse(p).getroot(); cases=root.findall('testcase')
+          assert len(cases)==1
+          c=cases[0]
+          assert c.find('failure') is None and c.find('error') is None and c.find('skipped') is None
+          print('Deterministic extensive-system repeat: PASS')
+          PY
+
+      - name: Upload Cortex extensive-system QA
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cortex-extensive-system-qa
+          path: |
+            app/build/test-results/testDebugUnitTest/
+            app/build/reports/tests/testDebugUnitTest/
+            app/build/reports/lint-results-debug.html
+            app/build/reports/lint-results-debug.xml
+            app/build/reports/startup-crash-audit.txt
+            app/build/outputs/apk/debug/
+            app/build/intermediates/merged_manifests/
+          if-no-files-found: warn
+          retention-days: 14

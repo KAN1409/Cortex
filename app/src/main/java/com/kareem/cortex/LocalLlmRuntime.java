@@ -5,31 +5,54 @@ import android.content.*;
 /** Truthful runtime readiness: only READY after loading the verified GGUF and producing a real local inference. */
 public final class LocalLlmRuntime {
     private static final String PREF="cortex_local_runtime";
-    private static final String K_STATE="state",K_ERROR="error",K_TEXT="self_test_text",K_INFO="system_info",K_TPS="tokens_per_second",K_TOKENS="tokens_generated",K_DURATION="duration_ms",K_TESTED="tested_at",K_MODEL_SHA="model_sha",K_AUTO="auto_started_v43";
+    private static final String K_STATE="state",K_ERROR="error",K_TEXT="self_test_text",K_INFO="system_info",K_TPS="tokens_per_second",K_TOKENS="tokens_generated",K_DURATION="duration_ms",K_TESTED="tested_at",K_MODEL_SHA="model_sha";
     private LocalLlmRuntime(){}
 
     public interface Callback{void done(State state);}
 
+    private static boolean capabilityAllowed(Context c){
+        return c!=null&&CapabilitySupervisor.allowed(c,CapabilitySupervisor.Capability.LOCAL_LLM_NATIVE);
+    }
+
     public static State state(Context c){
         SharedPreferences p=c.getSharedPreferences(PREF,Context.MODE_PRIVATE);String st=p.getString(K_STATE,"not_tested");
         if("ready".equals(st)&&!LocalModelManager.SHA256.equalsIgnoreCase(p.getString(K_MODEL_SHA,"")))st="not_tested";
+        if(StartupSafetyGate.active()||!capabilityAllowed(c))st="quarantined";
         return new State(st,p.getString(K_ERROR,""),p.getString(K_TEXT,""),p.getString(K_INFO,""),p.getFloat(K_TPS,0f),p.getInt(K_TOKENS,0),p.getLong(K_DURATION,0),p.getLong(K_TESTED,0));
     }
-    public static boolean ready(Context c){return "ready".equals(state(c).state)&&LocalModelManager.verified(c);}
-    public static boolean testing(Context c){return "testing".equals(state(c).state);}
-    public static String runtimeVersion(){return LocalLlmBridge.RUNTIME_VERSION;}
+    public static boolean ready(Context c){return !StartupSafetyGate.active()&&capabilityAllowed(c)&&"ready".equals(state(c).state)&&LocalModelManager.verified(c);}
+    public static boolean testing(Context c){return !StartupSafetyGate.active()&&capabilityAllowed(c)&&"testing".equals(state(c).state);}
+    public static String runtimeVersion(){return StartupSafetyGate.active()?"native runtime quarantined":LocalLlmBridge.RUNTIME_VERSION;}
 
+    /**
+     * Safe idempotent auto-start. Native runtime entry is blocked by both the startup recovery
+     * gate and the local-LLM circuit breaker because SIGABRT/SIGSEGV cannot be caught by Java.
+     */
     public static void maybeAutoSelfTest(Context c,Callback cb){
-        if(!LocalModelManager.verified(c)||ready(c)||testing(c))return;SharedPreferences p=c.getSharedPreferences(PREF,Context.MODE_PRIVATE);if(p.getBoolean(K_AUTO,false))return;p.edit().putBoolean(K_AUTO,true).apply();runSelfTest(c,cb);
+        if(StartupSafetyGate.active()||!capabilityAllowed(c)){if(cb!=null)cb.done(state(c));return;}
+        if(!LocalModelManager.verified(c)||ready(c)||testing(c))return;
+        runSelfTest(c,cb);
     }
 
     public static void runSelfTest(Context c,Callback cb){
+        if(StartupSafetyGate.active()||!capabilityAllowed(c)){if(cb!=null)cb.done(state(c));return;}
         Context app=c.getApplicationContext();if(!LocalModelManager.verified(app)){if(cb!=null)cb.done(state(app));return;}
-        app.getSharedPreferences(PREF,Context.MODE_PRIVATE).edit().putString(K_STATE,"testing").putString(K_ERROR,"").apply();
+        synchronized(LocalLlmRuntime.class){
+            if(ready(app)){if(cb!=null)cb.done(state(app));return;}
+            if(testing(app))return;
+            app.getSharedPreferences(PREF,Context.MODE_PRIVATE).edit().putString(K_STATE,"testing").putString(K_ERROR,"").apply();
+        }
         new Thread(()->{
+            if(StartupSafetyGate.active()||!capabilityAllowed(app))return;
             long at=System.currentTimeMillis();LocalLlmBridge.SelfTestResult r;
             try{r=LocalLlmBridge.selfTest(LocalModelManager.modelFile(app).getAbsolutePath());}
-            catch(Throwable t){r=null;SharedPreferences.Editor e=app.getSharedPreferences(PREF,Context.MODE_PRIVATE).edit().putString(K_STATE,"failed").putString(K_ERROR,t.getClass().getSimpleName()+": "+safe(t.getMessage())).putLong(K_TESTED,at).putString(K_MODEL_SHA,LocalModelManager.SHA256);e.apply();if(cb!=null)cb.done(state(app));return;}
+            catch(Throwable t){
+                r=null;
+                CapabilitySupervisor.recordFailure(app,CapabilitySupervisor.Capability.LOCAL_LLM_NATIVE,t);
+                SharedPreferences.Editor e=app.getSharedPreferences(PREF,Context.MODE_PRIVATE).edit().putString(K_STATE,"failed").putString(K_ERROR,t.getClass().getSimpleName()+": "+safe(t.getMessage())).putLong(K_TESTED,at).putString(K_MODEL_SHA,LocalModelManager.SHA256);e.apply();if(cb!=null)cb.done(state(app));return;
+            }
+            if(r.getOk())CapabilitySupervisor.recordHealthy(app,CapabilitySupervisor.Capability.LOCAL_LLM_NATIVE);
+            else CapabilitySupervisor.recordFailure(app,CapabilitySupervisor.Capability.LOCAL_LLM_NATIVE,new IllegalStateException(safe(r.getError())));
             SharedPreferences.Editor e=app.getSharedPreferences(PREF,Context.MODE_PRIVATE).edit();e.putString(K_STATE,r.getOk()?"ready":"failed");e.putString(K_ERROR,safe(r.getError()));e.putString(K_TEXT,safeLong(r.getText(),1200));e.putString(K_INFO,safeLong(r.getSystemInfo(),2400));e.putFloat(K_TPS,r.getTokensPerSecond());e.putInt(K_TOKENS,r.getTokensGenerated());e.putLong(K_DURATION,r.getDurationMs());e.putLong(K_TESTED,System.currentTimeMillis());e.putString(K_MODEL_SHA,LocalModelManager.SHA256);e.apply();if(cb!=null)cb.done(state(app));
         },"cortex-local-self-test").start();
     }
@@ -41,6 +64,6 @@ public final class LocalLlmRuntime {
     public static final class State{
         public final String state,error,selfTestText,systemInfo;public final float tokensPerSecond;public final int tokensGenerated;public final long durationMs,testedAt;
         State(String s,String e,String t,String i,float tps,int tok,long d,long at){state=s;error=e;selfTestText=t;systemInfo=i;tokensPerSecond=tps;tokensGenerated=tok;durationMs=d;testedAt=at;}
-        public String label(){if("ready".equals(state))return"Installed • Verified • Local inference ready";if("testing".equals(state))return"Loading model + running local self-test";if("failed".equals(state))return"Runtime self-test failed";return"Runtime installed in APK • self-test pending";}
+        public String label(){if("quarantined".equals(state))return"Native local inference temporarily quarantined for startup recovery";if("ready".equals(state))return"Installed • Verified • Local inference ready";if("testing".equals(state))return"Loading model + running local self-test";if("failed".equals(state))return"Runtime self-test failed";return"Runtime installed in APK • self-test pending";}
     }
 }

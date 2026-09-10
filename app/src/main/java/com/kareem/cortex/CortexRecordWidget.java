@@ -9,12 +9,27 @@ import android.widget.RemoteViews;
 
 /** Home-screen control: Record when idle, Stop while the shared Cortex recorder is active. */
 public final class CortexRecordWidget extends AppWidgetProvider {
-    @Override public void onUpdate(Context c,AppWidgetManager m,int[] ids){for(int id:ids)update(c,m,id);}
-    @Override public void onEnabled(Context c){super.onEnabled(c);updateAll(c);}
+    @Override public void onUpdate(Context c,AppWidgetManager m,int[] ids){
+        if(StartupSafetyGate.active())return;
+        for(int id:ids)update(c,m,id);
+    }
 
-    public static void updateAll(Context c){AppWidgetManager m=AppWidgetManager.getInstance(c);ComponentName n=new ComponentName(c,CortexRecordWidget.class);int[] ids=m.getAppWidgetIds(n);for(int id:ids)update(c,m,id);}
+    @Override public void onEnabled(Context c){
+        super.onEnabled(c);
+        if(StartupSafetyGate.active())return;
+        updateAll(c);
+    }
+
+    public static void updateAll(Context c){
+        if(c==null||StartupSafetyGate.active())return;
+        AppWidgetManager m=AppWidgetManager.getInstance(c);
+        ComponentName n=new ComponentName(c,CortexRecordWidget.class);
+        int[] ids=m.getAppWidgetIds(n);
+        for(int id:ids)update(c,m,id);
+    }
 
     private static void update(Context c,AppWidgetManager m,int id){
+        if(c==null||m==null||StartupSafetyGate.active())return;
         boolean running=CortexRecordService.isRecording(c);long started=CortexRecordService.startedAt(c);RemoteViews v=new RemoteViews(c.getPackageName(),R.layout.cortex_record_widget);
         v.setTextViewText(R.id.record_widget_state,running?"RECORDING":"READY");
         v.setTextColor(R.id.record_widget_state,running?CortexUi.SIGNAL:CortexUi.MUTED);

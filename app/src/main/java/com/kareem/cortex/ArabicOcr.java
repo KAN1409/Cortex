@@ -35,8 +35,14 @@ public final class ArabicOcr {
 
     /** Production/test path: raw Tesseract is preserved, but only gate-approved Arabic is returned as evidence. */
     public static void recognizeDetailed(Context context,File image,String latinEvidence,DetailedCallback cb){
+        if(cb==null)return;
+        if(context==null){cb.done(failed("Arabic OCR unavailable: missing context"));return;}
         Context app=context.getApplicationContext();
         EXEC.execute(()->{
+            if(!CapabilitySupervisor.allowed(app,CapabilitySupervisor.Capability.OCR_NATIVE)){
+                cb.done(failed("Arabic OCR native capability is quarantined in this recovery build"));
+                return;
+            }
             Bitmap bmp=null;TessBaseAPI tess=null;
             try{
                 File model=ensureBundledModel(app);
@@ -62,6 +68,7 @@ public final class ArabicOcr {
                 else status="Arabic OCR rejected • confidence "+confidence+"% • "+gate.reason;
                 cb.done(new Result(raw,gate.accepted?raw:"",status,confidence,gate));
             }catch(Throwable e){
+                CapabilitySupervisor.recordFailure(app,CapabilitySupervisor.Capability.OCR_NATIVE,e);
                 cb.done(failed("Arabic OCR unavailable: "+e.getClass().getSimpleName()));
             }finally{
                 try{if(tess!=null)tess.recycle();}catch(Throwable ignored){}
@@ -70,7 +77,10 @@ public final class ArabicOcr {
         });
     }
 
-    public static boolean modelReady(Context ctx){try{File f=ensureBundledModel(ctx.getApplicationContext());return f.exists()&&f.length()>=MIN_MODEL_BYTES;}catch(Exception e){return false;}}
+    public static boolean modelReady(Context ctx){
+        if(ctx==null||!CapabilitySupervisor.allowed(ctx,CapabilitySupervisor.Capability.OCR_NATIVE))return false;
+        try{File f=ensureBundledModel(ctx.getApplicationContext());return f.exists()&&f.length()>=MIN_MODEL_BYTES;}catch(Exception e){return false;}
+    }
 
     private static Result failed(String status){OcrGarbageGate.ArabicDecision g=OcrGarbageGate.evaluateArabic("",0,"");return new Result("","",status,0,g);}
     private static String n(String s){return s==null?"":s.trim();}

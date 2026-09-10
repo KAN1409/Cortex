@@ -13,6 +13,7 @@ public final class ProposalUi {
 
     public static void attach(Activity activity,VaultDb db,LinearLayout parent,ResultProposalEngine.Target target){
         if(activity==null||db==null||parent==null||target==null||target.text.trim().isEmpty())return;
+        if(!proposalEligible(target))return;
         final int dp=CortexUi.dp(activity,1);LinearLayout holder=new LinearLayout(activity);holder.setOrientation(LinearLayout.VERTICAL);holder.setPadding(0,8*dp,0,2*dp);
         LinearLayout waiting=new LinearLayout(activity);waiting.setGravity(Gravity.CENTER_VERTICAL);waiting.addView(CortexUi.glyph(activity,"brain",CortexUi.RED,true),new LinearLayout.LayoutParams(28*dp,28*dp));TextView thinking=CortexUi.plain(activity,"Thinking of useful next moves…",9,CortexUi.MUTED);LinearLayout.LayoutParams tp=new LinearLayout.LayoutParams(0,-2,1);tp.setMargins(7*dp,0,0,0);waiting.addView(thinking,tp);holder.addView(waiting);parent.addView(holder);
         ResultProposalEngine.request(activity,target,(proposals,provider,error)->{
@@ -29,6 +30,8 @@ public final class ProposalUi {
             holder.addView(scroller,new LinearLayout.LayoutParams(-1,45*dp));if(provider!=null&&!provider.trim().isEmpty()){TextView model=CortexUi.plain(activity,"Suggested by "+provider,7,CortexUi.FAINT);model.setPadding(0,1*dp,0,0);holder.addView(model);}
         });
     }
+
+    private static boolean proposalEligible(ResultProposalEngine.Target target){String s=target.surface==null?"":target.surface.trim().toUpperCase(Locale.ROOT);if(s.startsWith("BRIEF / CHANGED & EVOLVING")||s.startsWith("BRIEF / WORTH KNOWING"))return false;return true;}
 
     private static int proposalColor(ResultProposalEngine.Proposal p){
         if(p==null)return CortexUi.RED;if("BRAIN_PROMPT".equals(p.execution))return CortexUi.RED;String t=p.actionType==null?"":p.actionType;

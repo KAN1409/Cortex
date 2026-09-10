@@ -1,0 +1,214 @@
+name: Cortex Correct Recovery CI
+
+on:
+  push:
+    branches: [ v2/cortex-recovery-correct-baseline ]
+  workflow_dispatch:
+
+jobs:
+  cortex-recovery:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout correct Cortex recovery branch
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 80
+
+      - name: Restore local Whisper runtime AAR from recovery evidence branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p app/libs
+          git fetch origin v2/cortex-recovery-zero-api --depth=1
+          git show FETCH_HEAD:app/libs/whisper-android-cortex-prompt-1.0.0.aar > app/libs/whisper-android-cortex-prompt-1.0.0.aar
+          test -s app/libs/whisper-android-cortex-prompt-1.0.0.aar
+
+      - name: Assert Cortex identity and v69 Stateful Meaning architecture
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q "applicationId 'com.kareem.cortex'" app/build.gradle
+          grep -q "versionCode 69" app/build.gradle
+          grep -q "1.2.5-v69-stateful-meaning-engine" app/build.gradle
+          grep -q 'android:label="Cortex"' app/src/main/AndroidManifest.xml
+          grep -q '<activity android:name=".InputActivity" android:exported="true"><intent-filter><action android:name="android.intent.action.MAIN"' app/src/main/AndroidManifest.xml
+          grep -q '<activity android:name=".CaptureOverviewActivity"' app/src/main/AndroidManifest.xml
+          grep -q 'addNav(a,bar,"capture","Capture"' app/src/main/java/com/kareem/cortex/CortexUi.java
+          ! grep -R -n -E 'Cortex Prime|Deep Review|Grounded review|AI-Assistant-TestLab' app/src/main --exclude-dir=build
+          for f in StatefulMeaningPolicy StatefulMeaningStore StatefulMeaningRebuilder StatefulMeaningWorker StatefulMeaningScheduler UniversalEventStore UniversalEventEngine UniversalProjectionPolicy UniversalSemanticScheduler UniversalSemanticWorker CanonicalPresentation; do test -s "app/src/main/java/com/kareem/cortex/$f.java"; done
+          test -s app/src/test/java/com/kareem/cortex/StatefulMeaningAcceptanceTest.java
+          grep -q 'ue_source_instances' app/src/main/java/com/kareem/cortex/StatefulMeaningStore.java
+          grep -q 'ue_source_transitions' app/src/main/java/com/kareem/cortex/StatefulMeaningStore.java
+          grep -q 'ue_situation_members_v2' app/src/main/java/com/kareem/cortex/StatefulMeaningStore.java
+          grep -q 'ue_situation_transitions' app/src/main/java/com/kareem/cortex/StatefulMeaningStore.java
+          grep -q 'ue_projection_decisions' app/src/main/java/com/kareem/cortex/StatefulMeaningStore.java
+          grep -q 'enqueueUniqueWork' app/src/main/java/com/kareem/cortex/StatefulMeaningScheduler.java
+          grep -q 'ExistingWorkPolicy.KEEP' app/src/main/java/com/kareem/cortex/StatefulMeaningScheduler.java
+          grep -q 'ue_situation_transitions' app/src/main/java/com/kareem/cortex/PrimeBriefStore.java
+          ! grep -q 'UniversalProjectionPolicy.sanitizeExisting' app/src/main/java/com/kareem/cortex/PrimeBriefStore.java
+          ! grep -q 'UniversalProjectionPolicy.sanitizeExisting(db.getWritableDatabase())' app/src/main/java/com/kareem/cortex/CaptureOverviewActivity.java
+          grep -q 'DB_VERSION = 7' app/src/main/java/com/kareem/cortex/CognitiveSchema.java
+          ! grep -R -n -E 'DROP TABLE|DELETE FROM knowledge_items|DELETE FROM ue_raw_observations' app/src/main/java/com/kareem/cortex/StatefulMeaning*.java
+
+      - name: Protect production voice path
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s app/src/main/java/com/kareem/cortex/AudioAnalyzer.java
+          grep -q 'GeminiAudioTranscriber.transcribe' app/src/main/java/com/kareem/cortex/AudioAnalyzer.java
+          grep -q 'runGroqFallback' app/src/main/java/com/kareem/cortex/AudioAnalyzer.java
+          test -s app/src/main/java/com/kareem/cortex/CleanWhisperTranscriber.kt
+          test -s app/src/main/java/com/kareem/cortex/AndroidOnDeviceAsrCandidate.java
+          test -s app/src/main/java/com/kareem/cortex/GeminiNanoProbe.java
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Set up Gradle 8.9
+        uses: gradle/actions/setup-gradle@v6
+        with:
+          gradle-version: '8.9'
+
+      - name: Unit, migration and 35-gate tests
+        run: gradle :app:testDebugUnitTest --stacktrace
+
+      - name: Verify 35 Stateful Meaning gates individually
+        shell: bash
+        run: |
+          set -euo pipefail
+          XML=app/build/test-results/testDebugUnitTest/TEST-com.kareem.cortex.StatefulMeaningAcceptanceTest.xml
+          test -s "$XML"
+          python3 - <<'PY'
+          import xml.etree.ElementTree as ET
+          p='app/build/test-results/testDebugUnitTest/TEST-com.kareem.cortex.StatefulMeaningAcceptanceTest.xml'
+          root=ET.parse(p).getroot()
+          cases=[x for x in root.findall('testcase') if x.attrib.get('name','').startswith('gate')]
+          assert len(cases)==35, f'expected 35 v69 gates, found {len(cases)}'
+          bad=[]
+          for c in cases:
+              if c.find('failure') is not None or c.find('error') is not None or c.find('skipped') is not None:
+                  bad.append(c.attrib.get('name'))
+          assert not bad, 'failed/skipped gates: '+','.join(bad)
+          print('v69 unit acceptance: 35/35 PASS')
+          PY
+          MIG=app/build/test-results/testDebugUnitTest/TEST-com.kareem.cortex.VaultDbV64MigrationTest.xml
+          test -s "$MIG"
+          ! grep -q '<failure' "$MIG"
+          ! grep -q '<error' "$MIG"
+
+      - name: Build inherited lint baseline from original Cortex
+        shell: bash
+        run: |
+          set -euo pipefail
+          ORIGINAL=c8c49ccc71c6b367dfecaff76351279f256d5c2d
+          git fetch origin "$ORIGINAL" --depth=1
+          rm -rf /tmp/cortex-original
+          git worktree add --detach /tmp/cortex-original "$ORIGINAL"
+          printf '\nandroid { lint { baseline = file("lint-baseline.xml") } }\n' >> /tmp/cortex-original/app/build.gradle
+          gradle -p /tmp/cortex-original :app:updateLintBaseline --stacktrace
+          test -s /tmp/cortex-original/app/lint-baseline.xml
+          cp /tmp/cortex-original/app/lint-baseline.xml app/lint-baseline.xml
+          printf '\nandroid { lint { baseline = file("lint-baseline.xml") } }\n' >> app/build.gradle
+
+      - name: Android lint - reject new recovery errors
+        run: gradle :app:lintDebug --stacktrace
+
+      - name: Build signed update APK
+        run: gradle :app:assembleDebug --stacktrace
+
+      - name: Verify final APK identity, update lineage and signing
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK=app/build/outputs/apk/debug/app-debug.apk
+          test -s "$APK"
+          BUILD_TOOLS="$(find "$ANDROID_SDK_ROOT/build-tools" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort -V | tail -n1)"
+          AAPT="$ANDROID_SDK_ROOT/build-tools/$BUILD_TOOLS/aapt"
+          APKSIGNER="$ANDROID_SDK_ROOT/build-tools/$BUILD_TOOLS/apksigner"
+          BADGING="$("$AAPT" dump badging "$APK")"
+          echo "$BADGING" | grep -q "package: name='com.kareem.cortex' versionCode='69'"
+          echo "$BADGING" | grep -q "application-label:'Cortex'"
+          echo "$BADGING" | grep -q "launchable-activity: name='com.kareem.cortex.InputActivity'"
+          ! echo "$BADGING" | grep -q -E 'Cortex Prime|Deep Review|Grounded review|AI-Assistant-TestLab'
+          SIGNING="$("$APKSIGNER" verify --verbose --print-certs "$APK")"
+          echo "$SIGNING"
+          echo "$SIGNING" | tr '[:upper:]' '[:lower:]' | grep -q '5c6550a070abe477dcad5f23f3f437e183bff8aeaeb6ac52e1beaa8243ee69a7'
+          echo "$SIGNING" | grep -q 'Verified using v2 scheme (APK Signature Scheme v2): true'
+          sha256sum "$APK" | tee app/build/cortex-v69-sha256.txt
+
+      - name: Write final 35-step acceptance report
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > app/build/cortex-v69-acceptance-gate.txt <<'EOF'
+          CORTEX v69 ACCEPTANCE GATE
+          01 Source identity / same SBN key ................ PASS
+          02 Raw observations preserved .................... PASS
+          03 Exact delivery dedup .......................... PASS
+          04 Stateful progress lifecycle ................... PASS
+          05 Removal reason preserved ...................... PASS
+          06 Removal alone not user event .................. PASS
+          07 Progress terminal semantics ................... PASS
+          08 Ringing call is state ......................... PASS
+          09 Missed call can become fact ................... PASS
+          10 Cross-source Google security correlation ...... PASS
+          11 Conservative provider correlation ............. PASS
+          12 One logical security situation ................ PASS
+          13 Supporting evidence no duplicate Brief ........ PASS
+          14 Material situation delta ...................... PASS
+          15 Routine weather suppressed from Brief ......... PASS
+          16 Severe weather may enter Brief ................ PASS
+          17 Social update defaults Capture-only ........... PASS
+          18 Explicit request enters Now ................... PASS
+          19 Ordinary message stays out of Now/Brief ....... PASS
+          20 Decision durability/projection ................ PASS
+          21 Commitment durability/projection .............. PASS
+          22 Answered call stays Capture-only .............. PASS
+          23 Single missed call not auto-action ............ PASS
+          24 Repeated missed calls may surface ............. PASS
+          25 Low confidence stays Capture-only ............. PASS
+          26 Identical fact is not material delta .......... PASS
+          27 Materially different fact is delta ............ PASS
+          28 Supporting evidence is not material delta ..... PASS
+          29 Exact delivery idempotency .................... PASS
+          30 Android SBN identity priority ................. PASS
+          31 Shortcut fallback identity .................... PASS
+          32 Same call session correlation window .......... PASS
+          33 SQL/schema contract + compile/lint ............ PASS
+          34 Legacy v63-v68 data preservation/no drops ..... PASS
+          35 UPDATE package/signing lineage ................ PASS
+
+          RESULT: 35 / 35 PASS
+          RELEASE ELIGIBLE: YES
+          EOF
+          cat app/build/cortex-v69-acceptance-gate.txt
+
+      - name: Upload Cortex v69 update
+        uses: actions/upload-artifact@v4
+        with:
+          name: cortex-v1.2.5-v69-stateful-meaning-engine-update
+          path: |
+            app/build/outputs/apk/debug/app-debug.apk
+            app/build/cortex-v69-sha256.txt
+            app/build/cortex-v69-acceptance-gate.txt
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload QA reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cortex-v69-stateful-meaning-engine-qa
+          path: |
+            app/build/reports/
+            app/build/test-results/
+            app/lint-baseline.xml
+            app/build/cortex-v69-acceptance-gate.txt
+          if-no-files-found: warn
+          retention-days: 14

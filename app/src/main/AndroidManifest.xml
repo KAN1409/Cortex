@@ -1,5 +1,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+    <uses-permission android:name="android.permission.READ_MEDIA_VISUAL_USER_SELECTED" />
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
@@ -13,22 +16,28 @@
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
 
     <application android:name=".CortexApp" android:theme="@style/AppTheme" android:label="Cortex" android:allowBackup="true">
+        <!-- Keep AndroidX WorkManagerInitializer enabled. Persisted JobScheduler jobs may recreate
+             SystemJobService before any Cortex UI scheduler runs, so provider-first initialization
+             is the safest and canonical bootstrap path for this app. -->
+
         <provider android:name="androidx.core.content.FileProvider" android:authorities="${applicationId}.feedback.files" android:exported="false" android:grantUriPermissions="true"><meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/feedback_file_paths" /></provider>
         <provider android:name="rikka.shizuku.ShizukuProvider" android:authorities="${applicationId}.shizuku" android:multiprocess="false" android:enabled="true" android:exported="true" android:permission="android.permission.INTERACT_ACROSS_USERS_FULL" />
 
         <activity android:name=".InputActivity" android:exported="true"><intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter></activity>
+        <activity android:name=".NowActivity" android:exported="false" />
+        <activity android:name=".CaptureOverviewActivity" android:exported="false" />
+        <activity android:name=".CognitiveShadowActivity" android:exported="true" />
+        <activity android:name=".CrashReportActivity" android:exported="false" />
         <activity android:name=".SatinBriefActivity" android:exported="false" />
         <activity android:name=".CortexOrbBriefActivity" android:exported="false" />
         <activity android:name=".ProposalBriefActivity" android:exported="false" />
         <activity-alias android:name=".PremiumHomeActivity" android:targetActivity=".ProposalBriefActivity" android:exported="false" />
-
         <activity android:name=".SatinCaptureActivity" android:exported="false" android:theme="@style/CaptureSheetTheme" android:windowSoftInputMode="adjustResize" />
         <activity android:name=".CaptureActivity" android:exported="false" android:theme="@style/CaptureSheetTheme" android:windowSoftInputMode="adjustResize" />
         <activity android:name=".ProposalCaptureActivity" android:exported="true" android:theme="@style/CaptureSheetTheme" android:windowSoftInputMode="adjustResize"><intent-filter><action android:name="android.intent.action.SEND" /><category android:name="android.intent.category.DEFAULT" /><data android:mimeType="*/*" /></intent-filter><intent-filter><action android:name="android.intent.action.SEND_MULTIPLE" /><category android:name="android.intent.category.DEFAULT" /><data android:mimeType="*/*" /></intent-filter></activity>
         <activity android:name=".CaptureResultActivity" android:exported="false" />
         <activity android:name=".ProposalCaptureResultActivity" android:exported="false" />
         <activity android:name=".PinRecordWidgetActivity" android:exported="true" android:label="Add Cortex Voice widget" />
-
         <activity android:name=".PeopleProjectsActivity" android:exported="false" />
         <activity android:name=".ProposalPeopleProjectsActivity" android:exported="false" />
         <activity android:name=".SmartInboxActivity" android:exported="false" />
@@ -48,8 +57,11 @@
         <activity android:name=".CortexAuditActivity" android:exported="false" />
         <activity android:name=".ExternalModelCheckActivity" android:exported="false" />
         <activity android:name=".VisualIntelligenceActivity" android:exported="false" />
+        <activity android:name=".VisualMemoryActivity" android:exported="false" />
+        <activity android:name=".VisualMemoryDetailActivity" android:exported="false" />
         <activity android:name=".OcrTestActivity" android:exported="false" />
         <activity android:name=".AsrSettingsActivity" android:exported="false" android:label="Cortex ASR Setup" />
+        <activity android:name=".CortexAsrLabActivity" android:exported="false" android:label="Cortex ASR Lab" />
         <activity android:name=".BrainActivity" android:exported="false" />
         <activity android:name=".OpenRouterSettingsActivity" android:exported="false" android:label="Cortex OpenRouter Setup" />
         <activity android:name=".GeminiSettingsActivity" android:exported="false" android:label="Cortex Gemini Setup" />

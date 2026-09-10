@@ -1,39 +1,123 @@
 package com.kareem.cortex;
 
 import android.app.*;
-import android.content.*;
-import android.graphics.Color;
-import android.graphics.drawable.GradientDrawable;
 import android.os.*;
 import android.view.*;
 import android.widget.*;
-import org.json.*;
-import java.text.SimpleDateFormat;
 import java.util.*;
+import java.util.concurrent.*;
 
-/** Advanced Diagnostics: full safe audit plus explicit runnable provider diagnostics. */
+/** One authoritative real-device Cortex status test. */
 public class CortexAuditActivity extends Activity {
-    VaultDb db;LinearLayout root,testsBox;TextView headline,current,timing,counts,recent;ProgressBar progress;Button start,external,feedback,export,stop;Handler h=new Handler(Looper.getMainLooper());String lastTests="";boolean destroyed=false;
-    int bg=Color.rgb(11,12,14),surface=Color.rgb(24,26,30),text=Color.rgb(245,244,240),muted=Color.rgb(156,159,168),accent=Color.rgb(232,177,72),ok=Color.rgb(120,205,150),warn=Color.rgb(238,184,94),danger=Color.rgb(246,124,118),border=Color.rgb(47,50,57);
-    int dp(int x){return(int)(x*getResources().getDisplayMetrics().density+.5f);}GradientDrawable round(int fill,int stroke,int r){GradientDrawable g=new GradientDrawable();g.setColor(fill);g.setCornerRadius(dp(r));g.setStroke(dp(1),stroke);return g;}TextView tv(String s,int sp,int c){TextView v=new TextView(this);v.setTextSize(sp);v.setTextColor(c);CortexTextUi.setReadable(v,s);return v;}
-    @Override public void onCreate(Bundle b){super.onCreate(b);db=new VaultDb(this);CortexAuditStore.ensure(db);build();refresh();}
-    @Override protected void onResume(){super.onResume();h.post(tick);}
-    @Override protected void onPause(){super.onPause();h.removeCallbacks(tick);}
-    @Override protected void onDestroy(){destroyed=true;h.removeCallbacksAndMessages(null);if(db!=null)try{db.close();}catch(Throwable ignored){}db=null;super.onDestroy();}
-    Runnable tick=new Runnable(){public void run(){if(!destroyed&&!isFinishing()){refresh();h.postDelayed(this,1000);}}};
+    private LinearLayout body,statusBox,resultBox;
+    private TextView headline,summary,run;
+    private volatile boolean destroyed=false;
+    private final ExecutorService worker=Executors.newSingleThreadExecutor(r->{Thread t=new Thread(r,"CortexExtensiveStatus");t.setPriority(Thread.NORM_PRIORITY-1);return t;});
+    private int dp(int x){return CortexUi.dp(this,x);}
 
-    void build(){ScrollView sv=new ScrollView(this);root=new LinearLayout(this);root.setOrientation(LinearLayout.VERTICAL);root.setPadding(dp(16),dp(16),dp(16),dp(32));root.setBackgroundColor(bg);sv.addView(root);TextView t=tv("ADVANCED DIAGNOSTICS",27,text);t.setTypeface(null,1);root.addView(t);TextView sub=tv("Run real Cortex health checks. PASS means the tested path actually responded; configuration alone is not treated as success.",13,muted);sub.setPadding(0,dp(4),0,dp(14));root.addView(sub);
-        external=button("RUN EXTERNAL MODEL CHECK");external.setOnClickListener(v->{try{startActivity(new Intent(this,ExternalModelCheckActivity.class));}catch(Throwable e){Toast.makeText(this,"Could not open external model diagnostics",Toast.LENGTH_LONG).show();}});root.addView(external,lp());TextView externalNote=tv("Tests the configured external model end-to-end: key, model, request, HTTP status, response parsing, latency and quota/rate-limit errors. No private Cortex evidence is sent.",11,muted);externalNote.setPadding(dp(5),0,dp(5),dp(14));root.addView(externalNote);
-        headline=card("OVERALL STATUS");progress=new ProgressBar(this,null,android.R.attr.progressBarStyleHorizontal);progress.setMax(1000);LinearLayout.LayoutParams pp=new LinearLayout.LayoutParams(-1,dp(9));pp.setMargins(dp(4),-dp(4),dp(4),dp(12));root.addView(progress,pp);current=card("WHAT CORTEX IS DOING NOW");timing=card("TEST TIMING");counts=card("TEST COUNTS");
-        start=button("RUN FULL APP TEST NOW");start.setOnClickListener(v->startAudit());root.addView(start,lp());feedback=button("ADD FEEDBACK / REPORT SOMETHING SLOW");feedback.setOnClickListener(v->feedback());root.addView(feedback,lp());export=button("EXPORT FULL DEBUG NOW");export.setOnClickListener(v->{if(db==null)return;export.setText("BUILDING FULL DEBUG…");export.setEnabled(false);DebugExporter.exportAndShare(this,db);h.postDelayed(()->{if(!destroyed){export.setEnabled(true);export.setText("EXPORT FULL DEBUG NOW");}},2500);});root.addView(export,lp());stop=button("STOP TEST");stop.setOnClickListener(v->stopAudit());root.addView(stop,lp());recent=card("RECENT AUDIT EVENTS");TextView all=tv("ALL FEATURES / TESTS",11,accent);all.setTypeface(null,1);all.setPadding(dp(2),dp(12),0,dp(7));root.addView(all);testsBox=new LinearLayout(this);testsBox.setOrientation(LinearLayout.VERTICAL);root.addView(testsBox);TextView note=tv("Safe by design: diagnostics do not fabricate personal events/messages or restore over the live Vault. Protected operations remain explicit, while provider/capture/retrieval paths that can be tested safely should perform real end-to-end checks.",12,muted);note.setPadding(dp(4),dp(12),dp(4),0);root.addView(note);setContentView(sv);}
+    @Override public void onCreate(Bundle b){super.onCreate(b);CortexUi.applyWindow(this);build();refreshStatus();}
+    @Override protected void onResume(){super.onResume();refreshStatus();}
+    @Override protected void onDestroy(){destroyed=true;worker.shutdownNow();super.onDestroy();}
 
-    TextView card(String label){LinearLayout c=new LinearLayout(this);c.setOrientation(LinearLayout.VERTICAL);c.setPadding(dp(15),dp(13),dp(15),dp(13));c.setBackground(round(surface,border,18));TextView l=tv(label,11,accent);l.setTypeface(null,1);c.addView(l);TextView x=tv("",13,text);x.setPadding(0,dp(6),0,0);c.addView(x);LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,-2);p.setMargins(0,0,0,dp(10));root.addView(c,p);return x;}Button button(String s){Button b=new Button(this);b.setText(s);b.setTextSize(11);b.setTextColor(text);b.setAllCaps(false);b.setBackground(round(surface,border,16));return b;}LinearLayout.LayoutParams lp(){LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,dp(48));p.setMargins(0,0,0,dp(9));return p;}
-    void startAudit(){if(db==null)return;start.setEnabled(false);start.setText("TAP RECEIVED • STARTING…");headline.setText("Tap registered. Cortex is preparing the full test suite now…");current.setText("Creating the audit plan and starting the first test.");new Thread(()->{try{long id=CortexAuditScheduler.start(this);post(()->{Toast.makeText(this,"Full Cortex test started • run #"+id,Toast.LENGTH_LONG).show();refresh();});}catch(Throwable e){post(()->{start.setEnabled(true);start.setText("RUN FULL APP TEST NOW");headline.setText("Could not start audit: "+safe(e.getMessage()));});}},"CortexAuditStart").start();}
-    void stopAudit(){if(db==null)return;CortexAuditStore.Run r=CortexAuditStore.active(db);if(r==null)return;new AlertDialog.Builder(this).setTitle("Stop full test?").setMessage("Everything already tested will stay in the debug export.").setPositiveButton("Stop",(d,w)->{CortexAuditScheduler.stop(this,r.id);refresh();}).setNegativeButton("Keep running",null).show();}
-    void feedback(){if(db==null)return;CortexAuditStore.Run r=CortexAuditStore.latest(db);if(r==null){Toast.makeText(this,"Start a test first so your feedback is attached to it",Toast.LENGTH_LONG).show();return;}final EditText e=new EditText(this);e.setHint("Example: I tapped Analyze and nothing changed for 8 seconds…");e.setMinLines(3);e.setTextColor(text);e.setHintTextColor(muted);e.setPadding(dp(12),dp(8),dp(12),dp(8));new AlertDialog.Builder(this).setTitle("Add test feedback").setMessage("Write exactly what felt slow, confusing, wrong, or surprisingly good. It will be timestamped in the debug package.").setView(e).setPositiveButton("Save",(d,w)->{String x=e.getText().toString().trim();if(!x.isEmpty())try{CortexAuditStore.log(db,r.id,"user","user_feedback","user_note",x,new JSONObject().put("app_version",getPackageManager().getPackageInfo(getPackageName(),0).versionName));Toast.makeText(this,"Feedback attached",Toast.LENGTH_SHORT).show();refresh();}catch(Throwable ex){Toast.makeText(this,"Could not save feedback",Toast.LENGTH_LONG).show();}}).setNegativeButton("Cancel",null).show();}
+    private void build(){
+        LinearLayout root=new LinearLayout(this);root.setOrientation(LinearLayout.VERTICAL);root.setBackgroundColor(CortexUi.BG);
+        ScrollView sv=new ScrollView(this);body=new LinearLayout(this);body.setOrientation(LinearLayout.VERTICAL);body.setPadding(dp(18),dp(14),dp(18),dp(30));sv.addView(body);root.addView(sv,new LinearLayout.LayoutParams(-1,0,1));
 
-    void refresh(){if(db==null||destroyed)return;CortexAuditStore.Run r=CortexAuditStore.latest(db);if(r==null){headline.setText("No full-app test has been run yet.");current.setText("Run the suite once. Safe paths execute now; protected/destructive paths stay explicitly NOT RUN.");timing.setText("Expected: usually a few minutes. Provider/model checks can take longer.");counts.setText(CortexAuditStore.defs().size()+" registered checks covering app, Vault, AI, capture, privacy, integrations and diagnostics.");progress.setProgress(0);start.setEnabled(true);start.setText("RUN FULL APP TEST NOW");feedback.setEnabled(false);stop.setVisibility(View.GONE);recent.setText("No audit events yet.");renderTests(0);return;}int pc=r.progress();progress.setProgress(pc*10);headline.setText(statusHuman(r.status)+" • "+pc+"%\n"+empty(r.summary,"Test in progress"));current.setText(empty(r.phase,"Audit")+"\n"+empty(r.currentTest,"Waiting for next check")+(r.error.isEmpty()?"":"\nLast error: "+r.error));String started=new SimpleDateFormat("dd MMM • HH:mm:ss",Locale.getDefault()).format(new Date(r.startedAt));long end=r.completedAt>0?r.completedAt:System.currentTimeMillis();timing.setText("Started: "+started+"\nElapsed: "+elapsed(end-r.startedAt)+(r.completedAt>0?"\nCompleted: "+new SimpleDateFormat("HH:mm:ss",Locale.getDefault()).format(new Date(r.completedAt)):""));JSONObject sc=CortexAuditStore.statusCounts(db,r.id);counts.setText("PASS "+sc.optInt("pass",0)+" • WARN "+sc.optInt("warn",0)+" • FAIL "+sc.optInt("fail",0)+"\nRUNNING "+sc.optInt("running",0)+" • OBSERVING "+sc.optInt("observing",0)+" • NOT RUN "+sc.optInt("not_run",0)+" • PENDING "+sc.optInt("pending",0));boolean active=r.active();start.setEnabled(!active);start.setText(active?"FULL TEST IS RUNNING":"RUN FULL APP TEST AGAIN");feedback.setEnabled(true);stop.setVisibility(active?View.VISIBLE:View.GONE);recent.setText(events(r.id));renderTests(r.id);}
-    void renderTests(long runId){JSONArray a=runId>0?CortexAuditStore.testsJson(db,runId):CortexAuditStore.catalogJson();String sig=a.toString();if(sig.equals(lastTests))return;lastTests=sig;testsBox.removeAllViews();for(int i=0;i<a.length();i++){JSONObject o=a.optJSONObject(i);if(o==null)continue;String status=runId>0?o.optString("status","pending"):o.optString("mode","");LinearLayout c=new LinearLayout(this);c.setOrientation(LinearLayout.VERTICAL);c.setPadding(dp(13),dp(11),dp(13),dp(11));c.setBackground(round(surface,statusColor(status),16));TextView t=tv((i+1)+". "+o.optString("title",o.optString("test_key","Test")),13,text);t.setTypeface(null,1);c.addView(t);TextView st=tv(status.toUpperCase(Locale.ROOT)+" • "+o.optString("feature",""),10,statusColor(status));st.setPadding(0,dp(4),0,0);c.addView(st);String detail=runId>0?o.optString("detail",""):o.optString("description","");if(!detail.isEmpty()){TextView d=tv(detail,11,muted);d.setPadding(0,dp(5),0,0);d.setMaxLines(5);c.addView(d);}LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,-2);p.setMargins(0,0,0,dp(7));testsBox.addView(c,p);}}
-    String events(long id){JSONArray a=CortexAuditStore.eventsJson(db,id,12);if(a.length()==0)return"Waiting for first event…";StringBuilder b=new StringBuilder();for(int i=0;i<a.length();i++){JSONObject o=a.optJSONObject(i);if(o==null)continue;long at=o.optLong("created_at",0);String tm=at>0?new SimpleDateFormat("HH:mm:ss",Locale.getDefault()).format(new Date(at)):"";b.append(tm).append(" • ").append(o.optString("component","")).append(" • ").append(o.optString("detail",o.optString("event",""))).append('\n');}return b.toString().trim();}
-    void post(Runnable r){if(destroyed||isFinishing()||isDestroyed())return;runOnUiThread(()->{if(!destroyed&&!isFinishing()&&!isDestroyed())r.run();});}int statusColor(String s){if("pass".equals(s))return ok;if("warn".equals(s)||"observing".equals(s))return warn;if("fail".equals(s))return danger;if("running".equals(s))return accent;return border;}String statusHuman(String s){if("complete".equals(s))return"TEST COMPLETE";if("canceled".equals(s))return"TEST STOPPED";if("finalizing".equals(s))return"FINALIZING";if("running".equals(s)||"starting".equals(s)||"soaking".equals(s))return"TEST RUNNING";return safe(s).toUpperCase(Locale.ROOT);}String elapsed(long ms){if(ms<0)ms=0;long sec=ms/1000,min=sec/60;sec%=60;if(min<60)return min+"m "+sec+"s";long hr=min/60;min%=60;return hr+"h "+min+"m";}String empty(String s,String f){return s==null||s.trim().isEmpty()?f:s.trim();}String safe(String s){return s==null?"":s;}
+        LinearLayout head=new LinearLayout(this);head.setGravity(Gravity.CENTER_VERTICAL);
+        TextView back=CortexUi.plain(this,"‹",34,CortexUi.TEXT);back.setGravity(Gravity.CENTER);back.setOnClickListener(v->finish());head.addView(back,new LinearLayout.LayoutParams(dp(42),dp(48)));
+        LinearLayout tx=new LinearLayout(this);tx.setOrientation(LinearLayout.VERTICAL);head.addView(tx,new LinearLayout.LayoutParams(0,-2,1));
+        TextView title=CortexUi.plain(this,"Cortex System Status",27,CortexUi.TEXT);CortexUi.medium(title);tx.addView(title);
+        TextView sub=CortexUi.text(this,"One extensive real-device test. Green means the path is actually working; red means broken; amber means user setup/access is still required; quarantined native engines are shown explicitly.",11,CortexUi.MUTED);sub.setPadding(0,dp(3),0,0);tx.addView(sub);body.addView(head);
+
+        LinearLayout hero=CortexUi.card(this,22);hero.setPadding(dp(15),dp(15),dp(15),dp(15));
+        headline=CortexUi.plain(this,"Checking Cortex…",19,CortexUi.TEXT);CortexUi.medium(headline);hero.addView(headline);
+        summary=CortexUi.text(this,"Reading the live capability state.",11,CortexUi.MUTED);summary.setPadding(0,dp(6),0,0);hero.addView(summary);body.addView(hero,lp(0,10,0,0));
+
+        run=CortexUi.action(this,"RUN ONE EXTENSIVE SYSTEM TEST",CortexUi.LIME,true);run.setOnClickListener(v->runExtensive());body.addView(run,lp(0,12,0,0));
+        TextView matrix=CortexUi.action(this,"REFRESH LIVE STATUS",CortexUi.MUTED,false);matrix.setOnClickListener(v->refreshStatus());body.addView(matrix,lp(0,8,0,0));
+
+        body.addView(CortexUi.section(this,"Models, brain and runtime"));
+        statusBox=new LinearLayout(this);statusBox.setOrientation(LinearLayout.VERTICAL);body.addView(statusBox);
+        body.addView(CortexUi.section(this,"Extensive test result"));
+        resultBox=new LinearLayout(this);resultBox.setOrientation(LinearLayout.VERTICAL);body.addView(resultBox);
+        setContentView(root);CortexUi.fitSystemBars(this,root);
+    }
+
+    private void refreshStatus(){
+        if(destroyed||worker.isShutdown())return;
+        try{worker.execute(()->{
+            ArrayList<Row> rows=new ArrayList<>();int green=0,amber=0,red=0,quarantine=0;
+            VaultDb db=null;
+            try{
+                db=new VaultDb(getApplicationContext());
+                for(CortexCapabilityRegistry.Capability c:CortexCapabilityRegistry.all()){
+                    CortexCapabilityRegistry.State s=CortexCapabilityRegistry.evaluate(getApplicationContext(),db,c);
+                    String visual=visualStatus(c,s);
+                    rows.add(new Row(c.title,visual,s.detail));
+                    if("GREEN".equals(visual))green++;else if("RED".equals(visual))red++;else if("QUARANTINED".equals(visual))quarantine++;else amber++;
+                }
+                addRuntimeRows(rows);
+            }catch(Throwable e){rows.add(new Row("System health evaluator","RED",e.getClass().getSimpleName()+": "+safe(e.getMessage())));red++;}
+            finally{if(db!=null)try{db.close();}catch(Throwable ignored){}}
+            final int g=green,a=amber,r=red,q=quarantine;post(()->renderStatus(rows,g,a,r,q));
+        });}catch(RejectedExecutionException ignored){}
+    }
+
+    private void addRuntimeRows(ArrayList<Row> rows){
+        boolean recovery=StartupSafetyGate.active();
+        rows.add(new Row("Recovery safety gate",recovery?"GREEN":"RED",recovery?"Recovery protection is active.":"Recovery protection is unexpectedly disabled."));
+        rows.add(nativeRow("OCR native runtime",CapabilitySupervisor.Capability.OCR_NATIVE));
+        rows.add(nativeRow("ASR / Whisper native runtime",CapabilitySupervisor.Capability.ASR_NATIVE));
+        rows.add(nativeRow("Local LLM native runtime",CapabilitySupervisor.Capability.LOCAL_LLM_NATIVE));
+        boolean ext=ExternalBrainProvider.configured(this);
+        rows.add(new Row("External reasoning brain",ext?"GREEN":"AMBER",ext?ExternalBrainProvider.activeProviderId(this)+" · "+ExternalBrainProvider.activeModel(this):"No external reasoning provider is configured."));
+        rows.add(new Row("OpenRouter",OpenRouterKeyStore.has(this)?"GREEN":"AMBER",OpenRouterKeyStore.has(this)?OpenRouterModelConfig.generationModel(this):"Not configured."));
+        rows.add(new Row("Gemini",GeminiKeyStore.has(this)?"GREEN":"AMBER",GeminiKeyStore.has(this)?"Configured":"Not configured."));
+        boolean local=LocalModelManager.installed(this)&&LocalModelManager.verified(this);
+        LocalLlmRuntime.State st=LocalLlmRuntime.state(this);
+        rows.add(new Row("Local Qwen model",local?(recovery?"QUARANTINED":"GREEN"):"AMBER",local?(recovery?"Model is installed/verified but native inference is intentionally quarantined.":"Installed and verified."):"Model is not installed/verified."+(safe(st.error).isEmpty()?"":" · "+safe(st.error))));
+    }
+
+    private Row nativeRow(String name,CapabilitySupervisor.Capability c){boolean allowed=CapabilitySupervisor.allowed(this,c);return new Row(name,allowed?"GREEN":"QUARANTINED",allowed?"Capability supervisor allows this runtime.":"Intentionally isolated by the recovery capability supervisor.");}
+
+    private String visualStatus(CortexCapabilityRegistry.Capability c,CortexCapabilityRegistry.State s){
+        if(("ocr".equals(c.key)||"audio_asr".equals(c.key)||"local_qwen".equals(c.key))&&StartupSafetyGate.active())return "QUARANTINED";
+        if(CortexCapabilityRegistry.ACTIVE.equals(s.status)||CortexCapabilityRegistry.READY.equals(s.status))return "GREEN";
+        if(CortexCapabilityRegistry.FAILED.equals(s.status)||CortexCapabilityRegistry.NOT_VERIFIED.equals(s.status))return "RED";
+        return "AMBER";
+    }
+
+    private void runExtensive(){
+        if(destroyed||worker.isShutdown())return;run.setEnabled(false);run.setText("RUNNING EXTENSIVE TEST…");headline.setText("Testing every safe Cortex path…");resultBox.removeAllViews();
+        try{worker.execute(()->{
+            CortexFunctionalSelfTest.Report report=CortexFunctionalSelfTest.run(getApplicationContext());
+            post(()->{renderReport(report);run.setEnabled(true);run.setText("RUN ONE EXTENSIVE SYSTEM TEST AGAIN");refreshStatus();});
+        });}catch(RejectedExecutionException ignored){}
+    }
+
+    private void renderStatus(ArrayList<Row> rows,int green,int amber,int red,int quarantine){
+        if(destroyed)return;
+        headline.setText(red==0?"SYSTEM HEALTHY":"SYSTEM NEEDS ATTENTION");headline.setTextColor(red==0?CortexUi.GREEN:CortexUi.RED);
+        summary.setText("GREEN "+green+"   •   AMBER "+amber+"   •   RED "+red+"   •   QUARANTINED "+quarantine);
+        statusBox.removeAllViews();for(Row row:rows)addRow(statusBox,row.title,row.state,row.detail);
+    }
+
+    private void renderReport(CortexFunctionalSelfTest.Report report){
+        resultBox.removeAllViews();String state=report.fail==0?"GREEN":"RED";
+        addRow(resultBox,"ONE EXTENSIVE SYSTEM TEST",state,report.pass+" passed · "+report.warn+" warning · "+report.fail+" failed");
+        for(String line:report.lines){String upper=line.toUpperCase(Locale.ROOT);String s=upper.startsWith("FAIL")?"RED":upper.startsWith("WARN")?"AMBER":"GREEN";addRow(resultBox,line,s,"");}
+    }
+
+    private void addRow(LinearLayout parent,String title,String state,String detail){
+        LinearLayout card=CortexUi.card(this,17);card.setPadding(dp(12),dp(10),dp(12),dp(10));LinearLayout top=new LinearLayout(this);top.setGravity(Gravity.CENTER_VERTICAL);
+        TextView t=CortexUi.text(this,title,12,CortexUi.TEXT);CortexUi.medium(t);top.addView(t,new LinearLayout.LayoutParams(0,-2,1));
+        TextView chip=CortexUi.chip(this,state,statusColor(state),true);top.addView(chip,new LinearLayout.LayoutParams(-2,dp(29)));card.addView(top);
+        if(!safe(detail).isEmpty()){TextView d=CortexUi.text(this,detail,10,CortexUi.MUTED);d.setPadding(0,dp(5),0,0);d.setMaxLines(8);card.addView(d);}LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,-2);p.setMargins(0,0,0,dp(7));parent.addView(card,p);
+    }
+
+    private int statusColor(String s){if("GREEN".equals(s))return CortexUi.GREEN;if("RED".equals(s))return CortexUi.RED;if("QUARANTINED".equals(s))return CortexUi.COPPER;return CortexUi.YELLOW;}
+    private void post(Runnable r){if(destroyed||isFinishing()||isDestroyed())return;runOnUiThread(()->{if(!destroyed&&!isFinishing()&&!isDestroyed())r.run();});}
+    private LinearLayout.LayoutParams lp(int l,int t,int r,int b){LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,-2);p.setMargins(dp(l),dp(t),dp(r),dp(b));return p;}
+    private static String safe(String s){return s==null?"":s.trim();}
+    private static final class Row{final String title,state,detail;Row(String t,String s,String d){title=t;state=s;detail=d;}}
 }

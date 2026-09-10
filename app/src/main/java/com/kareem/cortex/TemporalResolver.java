@@ -7,10 +7,27 @@ import java.text.SimpleDateFormat;
 import java.util.*;
 import java.util.regex.*;
 
-/** Resolves relative due expressions against the memory capture time. */
+/** Resolves relative due expressions against the memory/event capture time. */
 public final class TemporalResolver {
     private static final String DATE="yyyy-MM-dd", DATE_TIME="yyyy-MM-dd HH:mm";
     private TemporalResolver(){}
+
+    /** Pure result used by the v70 world-state path without touching legacy action rows. */
+    public static final class Resolution {
+        public final long when;
+        public final boolean hasTime;
+        Resolution(long when, boolean hasTime){this.when=when;this.hasTime=hasTime;}
+    }
+
+    /**
+     * Pure temporal API for semantic evidence. Relative expressions are anchored to the event time,
+     * not to the time the background worker happens to process them.
+     */
+    public static Resolution resolveExpression(String expression,long anchorMs){
+        if(expression==null||expression.trim().isEmpty())return null;
+        Resolved r=resolve(expression,anchorMs);
+        return r==null?null:new Resolution(r.when,r.hasTime);
+    }
 
     public static void ensure(VaultDb db){
         SQLiteDatabase s=db.getWritableDatabase();

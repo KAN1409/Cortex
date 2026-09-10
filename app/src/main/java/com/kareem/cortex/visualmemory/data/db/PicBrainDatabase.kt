@@ -1,0 +1,13 @@
+package com.kareem.cortex.visualmemory.data.db
+
+import androidx.room.Database
+import androidx.room.RoomDatabase
+
+@Database(
+    entities = [MediaItemEntity::class, EmbeddingEntity::class],
+    version = 4,
+    exportSchema = false
+)
+abstract class PicBrainDatabase : RoomDatabase() {
+    abstract fun mediaItemDao(): MediaItemDao
+}

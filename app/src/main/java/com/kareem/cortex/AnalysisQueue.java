@@ -10,12 +10,9 @@ import java.util.concurrent.atomic.AtomicBoolean;
 /**
  * Process-wide analysis queue.
  *
- * Crash-safety rules:
- * - never analyze on an Activity/UI thread;
- * - never recurse through a backlog;
- * - never borrow an Activity-owned SQLiteOpenHelper;
- * - async OCR/ASR jobs have watchdogs so one missing callback cannot wedge the queue forever;
- * - UI change callbacks are always posted to the main thread.
+ * Recovery rule: the queue may run after SafeCoreRuntime is ready even while the emergency
+ * StartupSafetyGate remains active. Native OCR remains separately quarantined; cloud audio
+ * transcription may proceed because it does not enter the native ASR runtime.
  */
 public final class AnalysisQueue {
     private static final AtomicBoolean running=new AtomicBoolean(false);
@@ -30,27 +27,45 @@ public final class AnalysisQueue {
     public static void kick(Context context,VaultDb ignoredDb,Runnable changed){
         if(context==null)return;
         Context app=context.getApplicationContext();
+        if(!safeQueueAllowed(app))return;
         if(!running.compareAndSet(false,true))return;
         WORKER.execute(()->startRun(app,changed));
     }
 
+    private static boolean safeQueueAllowed(Context ctx){
+        return ctx!=null
+                && CapabilitySupervisor.allowed(ctx,CapabilitySupervisor.Capability.DATABASE)
+                && CapabilitySupervisor.allowed(ctx,CapabilitySupervisor.Capability.DETERMINISTIC_COGNITION);
+    }
+
     private static void startRun(Context ctx,Runnable changed){
+        if(!safeQueueAllowed(ctx)){running.set(false);return;}
         VaultDb db=null;
         try{
             db=new VaultDb(ctx);
             drain(ctx,db,changed);
         }catch(Throwable fatal){
+            CapabilitySupervisor.recordFailure(ctx,CapabilitySupervisor.Capability.DETERMINISTIC_COGNITION,fatal);
             finishRun(ctx,db,changed);
         }
     }
 
     /** Iterates synchronous work; async analyzers return and resume later on WORKER. */
     private static void drain(Context ctx,VaultDb db,Runnable changed){
+        if(!safeQueueAllowed(ctx)){finishRun(ctx,db,changed);return;}
         while(true){
             KnowledgeItem item;
             try{item=db.nextPending();}
             catch(Throwable e){finishRun(ctx,db,changed);return;}
-            if(item==null){finishRun(ctx,db,changed);return;}
+            if(item==null){CapabilitySupervisor.recordHealthy(ctx,CapabilitySupervisor.Capability.DETERMINISTIC_COGNITION);finishRun(ctx,db,changed);return;}
+
+            // Images must not wedge every other queue item while OCR native is intentionally
+            // quarantined. Leave the image retryable and continue draining safe work behind it.
+            if(("SCREENSHOT".equals(item.type)||"IMAGE".equals(item.type))
+                    && !CapabilitySupervisor.allowed(ctx,CapabilitySupervisor.Capability.OCR_NATIVE)){
+                safeFail(db,item.id,new Exception("RETRYABLE: OCR native runtime is quarantined; image retained for later analysis"),changed);
+                continue;
+            }
 
             try{db.markAnalyzing(item.id);}catch(Throwable e){finishRun(ctx,db,changed);return;}
             notifyChanged(changed);
@@ -59,6 +74,8 @@ public final class AnalysisQueue {
                 analyzeImage(ctx,db,item,changed);return;
             }
             if("AUDIO".equals(item.type)){
+                // AudioAnalyzer currently uses Gemini/Groq cloud transcription. It is safe to
+                // run while ASR_NATIVE remains quarantined.
                 analyzeAudio(ctx,db,item,changed);return;
             }
 
@@ -71,11 +88,14 @@ public final class AnalysisQueue {
                     db.applyAnalysis(item.id,r);post(db,item,r);notifyChanged(changed);
                 }
             }catch(Throwable e){safeFail(db,item.id,e,changed);}
-            // Continue in the loop: no recursive next() calls, regardless of backlog size.
         }
     }
 
     private static void analyzeImage(Context ctx,VaultDb db,KnowledgeItem item,Runnable changed){
+        if(!safeQueueAllowed(ctx)||!CapabilitySupervisor.allowed(ctx,CapabilitySupervisor.Capability.OCR_NATIVE)){
+            safeFail(db,item.id,new Exception("RETRYABLE: OCR native runtime is quarantined"),changed);
+            drain(ctx,db,changed);return;
+        }
         AtomicBoolean settled=new AtomicBoolean(false);
         ScheduledFuture<?> timeout=WATCHDOG.schedule(()->{
             if(!settled.compareAndSet(false,true))return;
@@ -92,6 +112,7 @@ public final class AnalysisQueue {
     }
 
     private static void analyzeAudio(Context ctx,VaultDb db,KnowledgeItem item,Runnable changed){
+        if(!safeQueueAllowed(ctx)){finishRun(ctx,db,changed);return;}
         AtomicBoolean settled=new AtomicBoolean(false);
         ScheduledFuture<?> timeout=WATCHDOG.schedule(()->{
             if(!settled.compareAndSet(false,true))return;
@@ -117,7 +138,6 @@ public final class AnalysisQueue {
 
     private static void finish(VaultDb db,KnowledgeItem item,AnalysisResult r,Runnable changed){db.applyAnalysis(item.id,r);post(db,item,r);notifyChanged(changed);}
     private static void post(VaultDb db,KnowledgeItem item,AnalysisResult r){try{TemporalResolver.afterAnalysis(db,item.id);}catch(Throwable ignored){}try{CoreBrainEngine.afterAnalysis(db,item.id);}catch(Throwable ignored){}try{IntentionalCognitiveBridge.afterAnalysis(db,item,r);}catch(Throwable ignored){}}
-
     private static void safeFail(VaultDb db,long id,Throwable e,Runnable changed){
         try{
             String message=e==null?"Unknown error":e.getMessage();
@@ -132,7 +152,7 @@ public final class AnalysisQueue {
     private static void finishRun(Context ctx,VaultDb db,Runnable changed){
         try{if(db!=null)db.close();}catch(Throwable ignored){}
         running.set(false);notifyChanged(changed);
-        // Close the tiny race between seeing an empty queue and a new item being inserted.
+        if(!safeQueueAllowed(ctx))return;
         WORKER.execute(()->{
             if(running.get())return;
             VaultDb probe=null;
