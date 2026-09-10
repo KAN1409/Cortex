@@ -2,6 +2,7 @@ package com.kareem.cortex;
 
 import android.app.*;
 import android.content.*;
+import android.net.Uri;
 import android.os.Bundle;
 import android.provider.Settings;
 import android.view.*;
@@ -33,7 +34,7 @@ public class SettingsActivity extends Activity {
         String processExit=ProcessExitRecorder.read(this,120000);
         actionRow(body,"Share Java crash report",crash.trim().isEmpty()?"No uncaught Java crash is currently stored":"Java exception captured locally · exports as a .txt attachment",()->shareCrash(crash));
         actionRow(body,"Refresh + share Android process exit",processExit.trim().isEmpty()?"Reads Android's last process exit on demand, then exports the full trace":"Stored exit exists · tap to refresh from Android and export the newest full trace",this::refreshAndShareProcessExit);
-        actionRow(body,"Export attention trace","Read-only Capture → situation → decision → Now snapshot · exports as a .json attachment",this::shareAttentionTrace);
+        actionRow(body,"Export attention trace","Saves the FULL JSON to Downloads/Cortex, then opens Share",this::shareAttentionTrace);
 
         LinearLayout diagnostic=CortexUi.card(this,20);diagnostic.setPadding(dp(14),dp(14),dp(14),dp(14));
         LinearLayout dtop=new LinearLayout(this);dtop.setGravity(Gravity.CENTER_VERTICAL);dtop.addView(CortexUi.glyph(this,"check",CortexUi.LIME,true),new LinearLayout.LayoutParams(dp(50),dp(50)));LinearLayout dtx=new LinearLayout(this);dtx.setOrientation(LinearLayout.VERTICAL);LinearLayout.LayoutParams dx=new LinearLayout.LayoutParams(0,-2,1);dx.setMargins(dp(12),0,0,0);dtop.addView(dtx,dx);TextView dt=CortexUi.plain(this,"Full Cortex Diagnostic",17,CortexUi.TEXT);CortexUi.medium(dt);dtx.addView(dt);TextView ds=CortexUi.text(this,"One exhaustive test for app identity, permissions, capture, storage, AI, background work, reliability and evidence.",11,CortexUi.MUTED);ds.setPadding(0,dp(4),0,0);dtx.addView(ds);diagnostic.addView(dtop);TextView run=CortexUi.action(this,"OPEN FULL DIAGNOSTIC",CortexUi.LIME,true);LinearLayout.LayoutParams rp=new LinearLayout.LayoutParams(-1,dp(46));rp.setMargins(0,dp(12),0,0);diagnostic.addView(run,rp);run.setOnClickListener(v->startActivity(new Intent(this,CortexAuditActivity.class)));body.addView(diagnostic);
@@ -42,12 +43,27 @@ public class SettingsActivity extends Activity {
     }
 
     void shareAttentionTrace(){
-        new Thread(()->{try{
-            VaultDb helper=new VaultDb(getApplicationContext());
-            String trace=AttentionTraceExporter.export(helper.getReadableDatabase());
-            helper.close();
-            runOnUiThread(()->shareAttachment("Cortex attention trace","Share Cortex attention trace","cortex-attention-trace.json",trace));
-        }catch(Throwable e){runOnUiThread(()->Toast.makeText(this,"Attention trace export failed: "+e.getClass().getSimpleName(),Toast.LENGTH_LONG).show());}}).start();
+        Toast.makeText(this,"Building full Attention Trace…",Toast.LENGTH_SHORT).show();
+        new Thread(()->{
+            VaultDb helper=null;
+            try{
+                helper=new VaultDb(getApplicationContext());
+                String trace=AttentionTraceExporter.export(helper.getReadableDatabase());
+                String fileName="cortex-attention-trace-v4-"+System.currentTimeMillis()+".json";
+                Uri saved=null;
+                try{saved=DiagnosticFileShare.saveToDownloads(getApplicationContext(),fileName,trace);}catch(Throwable ignored){}
+                final boolean persisted=saved!=null;
+                runOnUiThread(()->{
+                    if(persisted)Toast.makeText(this,"Full JSON saved to Downloads/Cortex",Toast.LENGTH_LONG).show();
+                    else Toast.makeText(this,"Public Downloads save unavailable · opening JSON share",Toast.LENGTH_LONG).show();
+                    shareAttachment("Cortex attention trace","Share Cortex attention trace",fileName,trace);
+                });
+            }catch(Throwable e){
+                runOnUiThread(()->Toast.makeText(this,"Attention trace export failed: "+e.getClass().getSimpleName(),Toast.LENGTH_LONG).show());
+            }finally{
+                if(helper!=null)try{helper.close();}catch(Throwable ignored){}
+            }
+        },"cortex-attention-trace-export").start();
     }
 
     void shareCrash(String crash){
