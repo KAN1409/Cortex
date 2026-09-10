@@ -12,13 +12,18 @@ import org.json.JSONObject;
 
 /** Raw-first notification capture. Android identity/lifecycle are evidence; Cortex meaning is downstream. */
 public class NotificationCaptureService extends NotificationListenerService {
-    @Override public void onListenerConnected(){super.onListenerConnected();if(StartupSafetyGate.active())return;try{StatusBarNotification[] xs=getActiveNotifications();if(xs!=null)for(StatusBarNotification x:xs)ingest(x,"active_snapshot");}catch(Throwable ignored){}}
-    @Override public void onNotificationPosted(StatusBarNotification sbn){if(StartupSafetyGate.active())return;ingest(sbn,"posted");}
-    @Override public void onNotificationRemoved(StatusBarNotification sbn){if(StartupSafetyGate.active())return;removed(sbn,0);}
-    @Override public void onNotificationRemoved(StatusBarNotification sbn,RankingMap rankingMap,int reason){if(StartupSafetyGate.active())return;removed(sbn,reason);}
+    private boolean captureAllowed(){
+        return CapabilitySupervisor.allowed(this,CapabilitySupervisor.Capability.DATABASE)
+                && CapabilitySupervisor.allowed(this,CapabilitySupervisor.Capability.RAW_NOTIFICATION_CAPTURE);
+    }
+
+    @Override public void onListenerConnected(){super.onListenerConnected();if(!captureAllowed())return;try{StatusBarNotification[] xs=getActiveNotifications();if(xs!=null)for(StatusBarNotification x:xs)ingest(x,"active_snapshot");}catch(Throwable ignored){}}
+    @Override public void onNotificationPosted(StatusBarNotification sbn){if(!captureAllowed())return;ingest(sbn,"posted");}
+    @Override public void onNotificationRemoved(StatusBarNotification sbn){if(!captureAllowed())return;removed(sbn,0);}
+    @Override public void onNotificationRemoved(StatusBarNotification sbn,RankingMap rankingMap,int reason){if(!captureAllowed())return;removed(sbn,reason);}
 
     private void removed(StatusBarNotification sbn,int reason){
-        if(StartupSafetyGate.active()||sbn==null)return;VaultDb db=null;
+        if(!captureAllowed()||sbn==null)return;VaultDb db=null;
         try{
             String pkg=sbn.getPackageName()==null?"":sbn.getPackageName(),app=label(pkg),why=removalReason(reason);long now=System.currentTimeMillis();
             JSONObject m=new JSONObject().put("capture_kind","android_notification").put("capture_mode","removed").put("package",pkg).put("app_label",app).put("notification_id",sbn.getId()).put("notification_key",sbn.getKey()==null?"":sbn.getKey()).put("notification_tag",sbn.getTag()==null?"":sbn.getTag()).put("tag",sbn.getTag()==null?"":sbn.getTag()).put("removal_reason_code",reason).put("removal_reason",why).put("removed_at",now);
@@ -27,11 +32,12 @@ public class NotificationCaptureService extends NotificationListenerService {
             if("waiting".equals(u.state))UniversalSemanticScheduler.kick(this);StatefulMeaningScheduler.kick(this);
             m.put("pipeline_transition",p.transition).put("technical_type",p.technicalType).put("platform_hint",p.platformHint).put("raw_observation_id",u.rawId).put("notification_stream_id",u.streamId).put("semantic_event_id",u.semanticEventId);
             PhoneContextStore.record(db,"notification_context","notification_listener",pkg,app,"","removed","",now,m);
+            CapabilitySupervisor.recordHealthy(this,CapabilitySupervisor.Capability.RAW_NOTIFICATION_CAPTURE);
         }catch(Throwable error){logFailure(error,sbn);}finally{if(db!=null)try{db.close();}catch(Throwable ignored){}}
     }
 
     private void ingest(StatusBarNotification sbn,String captureMode){VaultDb db=null;try{
-        if(StartupSafetyGate.active())return;if(sbn==null||sbn.getNotification()==null)return;if(getPackageName().equals(sbn.getPackageName()))return;if(!PrivacyPolicy.canCollect(this,"notifications"))return;
+        if(!captureAllowed())return;if(sbn==null||sbn.getNotification()==null)return;if(getPackageName().equals(sbn.getPackageName()))return;if(!PrivacyPolicy.canCollect(this,"notifications"))return;
         Notification n=sbn.getNotification();Bundle e=n.extras==null?new Bundle():n.extras;String pkg=sbn.getPackageName()==null?"":sbn.getPackageName(),app=label(pkg);String title=str(e.getCharSequence(Notification.EXTRA_TITLE)),text=str(e.getCharSequence(Notification.EXTRA_TEXT)),big=str(e.getCharSequence(Notification.EXTRA_BIG_TEXT));if(!big.isEmpty())text=big;
         JSONArray lines=textLines(e),messages=messages(e);if(text.isEmpty()&&lines.length()>0)text=joinLines(lines);if(text.isEmpty()&&messages.length()>0)text=joinMessages(messages);String visible=(title+(title.isEmpty()||text.isEmpty()?"":"\n")+text).trim();boolean ongoing=(n.flags&Notification.FLAG_ONGOING_EVENT)!=0;
 
@@ -48,10 +54,11 @@ public class NotificationCaptureService extends NotificationListenerService {
         meta.put("pipeline_transition",platform.transition).put("technical_type",platform.technicalType).put("platform_hint",platform.platformHint).put("raw_observation_id",semantic.rawId).put("notification_stream_id",semantic.streamId).put("semantic_event_id",semantic.semanticEventId).put("semantic_type",semantic.semanticType).put("semantic_state",semantic.state).put("semantic_route",semantic.route);
 
         if(platform.semanticEventId>0)PhoneContextStore.record(db,"notification_context","notification_listener",pkg,app,"","notification_"+platform.transition.toLowerCase(),visible,sbn.getPostTime(),meta);
+        CapabilitySupervisor.recordHealthy(this,CapabilitySupervisor.Capability.RAW_NOTIFICATION_CAPTURE);
     }catch(Throwable error){logFailure(error,sbn);}finally{if(db!=null)try{db.close();}catch(Throwable ignored){}}}
 
     private static String removalReason(int reason){switch(reason){case REASON_CLICK:return"click";case REASON_CANCEL:return"user_cancel";case REASON_CANCEL_ALL:return"user_cancel_all";case REASON_ERROR:return"error";case REASON_PACKAGE_CHANGED:return"package_changed";case REASON_USER_STOPPED:return"user_stopped";case REASON_PACKAGE_BANNED:return"package_banned";case REASON_APP_CANCEL:return"app_cancel";case REASON_APP_CANCEL_ALL:return"app_cancel_all";case REASON_LISTENER_CANCEL:return"listener_cancel";case REASON_LISTENER_CANCEL_ALL:return"listener_cancel_all";case REASON_GROUP_SUMMARY_CANCELED:return"group_summary_canceled";case REASON_GROUP_OPTIMIZATION:return"group_optimization";case REASON_PACKAGE_SUSPENDED:return"package_suspended";case REASON_PROFILE_TURNED_OFF:return"profile_turned_off";case REASON_UNAUTOBUNDLED:return"unautobundled";case REASON_CHANNEL_BANNED:return"channel_banned";case REASON_SNOOZED:return"snoozed";case REASON_TIMEOUT:return"timeout";case REASON_CHANNEL_REMOVED:return"channel_removed";case REASON_CLEAR_DATA:return"clear_data";case REASON_ASSISTANT_CANCEL:return"assistant_cancel";default:return reason==0?"unknown":"reason_"+reason;}}
-    private void logFailure(Throwable error,StatusBarNotification sbn){if(StartupSafetyGate.active())return;android.util.Log.e("CortexNotification","Notification ingestion failed",error);VaultDb d=null;try{d=new VaultDb(this);JSONObject meta=new JSONObject();meta.put("package",sbn==null?"":String.valueOf(sbn.getPackageName()));DiagnosticsLog.error(d,"NotificationCaptureService","notification_ingest",error,"NOTIFICATION_INGEST",0,0,0,0,0,meta);}catch(Throwable ignored){}finally{if(d!=null)try{d.close();}catch(Throwable ignored){}}}
+    private void logFailure(Throwable error,StatusBarNotification sbn){if(!captureAllowed())return;android.util.Log.e("CortexNotification","Notification ingestion failed",error);CapabilitySupervisor.recordFailure(this,CapabilitySupervisor.Capability.RAW_NOTIFICATION_CAPTURE,error);VaultDb d=null;try{d=new VaultDb(this);JSONObject meta=new JSONObject();meta.put("package",sbn==null?"":String.valueOf(sbn.getPackageName()));DiagnosticsLog.error(d,"NotificationCaptureService","notification_ingest",error,"NOTIFICATION_INGEST",0,0,0,0,0,meta);}catch(Throwable ignored){}finally{if(d!=null)try{d.close();}catch(Throwable ignored){}}}
     private static JSONArray textLines(Bundle e){JSONArray out=new JSONArray();try{CharSequence[] xs=e.getCharSequenceArray(Notification.EXTRA_TEXT_LINES);if(xs!=null)for(CharSequence x:xs)if(x!=null&&!str(x).isEmpty())out.put(str(x));}catch(Throwable ignored){}return out;}
     private static JSONArray messages(Bundle e){JSONArray out=new JSONArray();try{Parcelable[] xs=e.getParcelableArray(Notification.EXTRA_MESSAGES);if(xs!=null)for(Parcelable p:xs){if(!(p instanceof Bundle))continue;Bundle b=(Bundle)p;JSONObject m=new JSONObject();String text=str(b.getCharSequence("text")),sender=str(b.getCharSequence("sender"));m.put("text",text);m.put("sender",sender);m.put("time",b.getLong("time",0));if(!text.isEmpty()||!sender.isEmpty())out.put(m);}}catch(Throwable ignored){}return out;}
     private static String joinLines(JSONArray a){StringBuilder b=new StringBuilder();for(int i=0;i<a.length();i++){String x=a.optString(i,"");if(x.isEmpty())continue;if(b.length()>0)b.append("\n");b.append(x);if(b.length()>1600)break;}return b.toString();}
