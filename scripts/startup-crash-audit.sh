@@ -93,8 +93,9 @@ for pattern in \
   say "risk_pattern[$pattern]=$count"
 done
 
-# Persisted jobs bypass scheduler callsites. Inspect every Worker implementation and block any
-# native-capable worker that is not quarantined.
+# Persisted jobs bypass scheduler callsites. Inspect every Worker implementation. Only direct JNI /
+# native engine references count as native-capable here. Merely reading LocalLlmRuntime.state() is
+# safe and is separately protected by StartupSafetyGate inside LocalLlmRuntime.
 WORKERS=0
 while IFS= read -r f; do
   [[ -z "$f" ]] && continue
@@ -102,13 +103,16 @@ while IFS= read -r f; do
   gated=no
   grep -q 'StartupSafetyGate.active()' "$f" && gated=yes
   native=no
-  grep -Eq 'LocalLlm(Runtime|Bridge)|Llama\.|TessBaseAPI|Whisper|AudioRecord|System\.load' "$f" && native=yes
+  grep -Eq 'LocalLlmBridge|Llama\.|TessBaseAPI|Whisper|AudioRecord|System\.load' "$f" && native=yes
   printf 'WORKER\t%s\tgated=%s\tnative=%s\n' "$f" "$gated" "$native" >> "$REPORT"
   if [[ "$native" == yes && "$gated" != yes ]]; then
     record_error "native-capable persisted Worker lacks StartupSafetyGate: $f"
   fi
 done < <(grep -rlE --include='*.java' --include='*.kt' 'extends[[:space:]]+(Worker|CoroutineWorker)|:[[:space:]]*(Worker|CoroutineWorker)\(' app/src/main/java/com/kareem/cortex | sort || true)
 say "worker_files=$WORKERS"
+
+# LocalLlmRuntime itself is the recovery choke point for any indirect local-model access.
+grep -q 'if(StartupSafetyGate.active())' app/src/main/java/com/kareem/cortex/LocalLlmRuntime.java || record_error "LocalLlmRuntime is not recovery-gated"
 
 # Build-time truth: once merged manifests exist, AndroidX's initializer must be present.
 merged_found=0
