@@ -13,7 +13,17 @@ public class InputActivity extends Activity {
     boolean crashPromptChecked=false;
     int dp(int x){return CortexUi.dp(this,x);}
     @Override public void onCreate(Bundle b){super.onCreate(b);CortexUi.applyWindow(this);build();}
-    @Override protected void onPostResume(){super.onPostResume();StartupMaintenance.schedule(this);UniversalSemanticScheduler.kick(this);if(!isFinishing())build();maybeOfferCrashReport();}
+    @Override protected void onPostResume(){
+        super.onPostResume();
+        // Cold-start recovery must be visually usable before any persisted background work can run.
+        // A native SIGABRT cannot be caught by Java, so recovery blocks all startup schedulers at source.
+        if(!StartupSafetyGate.active()){
+            StartupMaintenance.schedule(this);
+            UniversalSemanticScheduler.kick(this);
+        }
+        if(!isFinishing())build();
+        maybeOfferCrashReport();
+    }
 
     void build(){
         LinearLayout root=new LinearLayout(this);root.setOrientation(LinearLayout.VERTICAL);root.setBackgroundColor(CortexUi.BG);ScrollView sv=new ScrollView(this);sv.setFillViewport(true);sv.setClipToPadding(false);LinearLayout body=new LinearLayout(this);body.setOrientation(LinearLayout.VERTICAL);body.setPadding(dp(18),dp(10),dp(18),dp(26));sv.addView(body);root.addView(sv,new LinearLayout.LayoutParams(-1,0,1));
