@@ -1,0 +1,150 @@
+package com.kareem.cortex.visualmemory.data.db
+
+import androidx.room.Dao
+import androidx.room.Query
+import androidx.room.RawQuery
+import androidx.room.Upsert
+import androidx.sqlite.db.SupportSQLiteQuery
+import kotlinx.coroutines.flow.Flow
+
+@Dao
+interface MediaItemDao {
+    @Upsert
+    suspend fun upsertAll(items: List<MediaItemEntity>)
+
+    @Upsert
+    suspend fun upsertEmbeddings(items: List<EmbeddingEntity>)
+
+    @Query("SELECT * FROM media_items")
+    suspend fun getAll(): List<MediaItemEntity>
+
+    @Query("SELECT * FROM media_embeddings WHERE modelId=:modelId AND dimensions=:dimensions ORDER BY mediaId, chunkIndex")
+    suspend fun getEmbeddings(modelId: String, dimensions: Int): List<EmbeddingEntity>
+
+    @Query("SELECT COUNT(DISTINCT mediaId) FROM media_embeddings WHERE modelId=:modelId AND dimensions=:dimensions")
+    fun observeSemanticIndexedCount(modelId: String, dimensions: Int): Flow<Int>
+
+    @Query("SELECT COUNT(*) FROM media_items WHERE isScreenshot=1 AND semanticState='FAILED'")
+    fun observeSemanticFailedCount(): Flow<Int>
+
+    @Query("""
+        SELECT * FROM media_items m
+        WHERE m.isScreenshot = 1
+          AND m.ocrState = 'DONE'
+          AND m.semanticState != 'FAILED'
+          AND m.semanticAttemptCount < :maxAttempts
+          AND TRIM(COALESCE(m.ocrNormalizedText, '')) != ''
+          AND NOT EXISTS (
+              SELECT 1 FROM media_embeddings e
+              WHERE e.mediaId = m.mediaId
+                AND e.modelId = :modelId
+                AND e.dimensions = :dimensions
+          )
+        ORDER BY COALESCE(m.dateTakenMillis, m.dateAddedSeconds * 1000) DESC
+        LIMIT :limit
+    """)
+    suspend fun getScreenshotsNeedingEmbedding(
+        modelId: String,
+        dimensions: Int,
+        limit: Int,
+        maxAttempts: Int = 3
+    ): List<MediaItemEntity>
+
+    @Query("UPDATE media_items SET semanticState='RUNNING', semanticLastAttemptAtMillis=:attemptAt WHERE mediaId=:mediaId")
+    suspend fun markSemanticRunning(mediaId: Long, attemptAt: Long)
+
+    @Query("""
+        UPDATE media_items
+        SET semanticState='DONE',
+            semanticAttemptCount=0,
+            semanticLastError=NULL,
+            semanticLastAttemptAtMillis=:attemptAt
+        WHERE mediaId=:mediaId
+    """)
+    suspend fun markSemanticDone(mediaId: Long, attemptAt: Long)
+
+    @Query("""
+        UPDATE media_items
+        SET semanticAttemptCount=semanticAttemptCount+1,
+            semanticState=CASE
+                WHEN semanticAttemptCount + 1 >= :maxAttempts THEN 'FAILED'
+                ELSE 'PENDING'
+            END,
+            semanticLastError=:error,
+            semanticLastAttemptAtMillis=:attemptAt
+        WHERE mediaId=:mediaId
+    """)
+    suspend fun markSemanticFailed(
+        mediaId: Long,
+        error: String,
+        attemptAt: Long,
+        maxAttempts: Int = 3
+    )
+
+    @Query("""
+        UPDATE media_items
+        SET semanticState='PENDING',
+            semanticAttemptCount=0,
+            semanticLastError=NULL,
+            semanticLastAttemptAtMillis=NULL
+        WHERE isScreenshot=1 AND semanticState='FAILED'
+    """)
+    suspend fun resetSemanticFailures()
+
+    @Query("DELETE FROM media_embeddings WHERE modelId=:modelId AND dimensions=:dimensions")
+    suspend fun deleteEmbeddings(modelId: String, dimensions: Int)
+
+    @Query("DELETE FROM media_embeddings WHERE mediaId=:mediaId AND modelId=:modelId AND dimensions=:dimensions")
+    suspend fun deleteEmbeddingsForMedia(mediaId: Long, modelId: String, dimensions: Int)
+
+    @RawQuery
+    suspend fun searchMediaIds(query: SupportSQLiteQuery): List<Long>
+
+    @Query("SELECT * FROM media_items ORDER BY COALESCE(dateTakenMillis, dateAddedSeconds * 1000) DESC LIMIT :limit")
+    fun observeRecent(limit: Int = 200): Flow<List<MediaItemEntity>>
+
+    @Query("SELECT * FROM media_items WHERE isScreenshot = 1 ORDER BY COALESCE(dateTakenMillis, dateAddedSeconds * 1000) DESC LIMIT :limit")
+    fun observeRecentScreenshots(limit: Int = 200): Flow<List<MediaItemEntity>>
+
+    @Query("SELECT * FROM media_items WHERE isScreenshot = 1 AND ocrState = 'DONE' ORDER BY COALESCE(dateTakenMillis, dateAddedSeconds * 1000) DESC")
+    fun observeOcrSearchCorpus(): Flow<List<MediaItemEntity>>
+
+    @Query("SELECT * FROM media_items WHERE isScreenshot = 1 AND ocrState = 'NOT_PROCESSED' ORDER BY dateAddedSeconds DESC LIMIT :limit")
+    suspend fun getScreenshotsNeedingOcr(limit: Int = 25): List<MediaItemEntity>
+
+    @Query("SELECT COUNT(*) FROM media_items")
+    fun observeCount(): Flow<Int>
+
+    @Query("SELECT COUNT(*) FROM media_items WHERE isScreenshot = 1")
+    fun observeScreenshotCount(): Flow<Int>
+
+    @Query("SELECT COUNT(*) FROM media_items WHERE isScreenshot = 1 AND ocrState = 'DONE'")
+    fun observeOcrDoneCount(): Flow<Int>
+
+    @Query("SELECT COUNT(*) FROM media_items WHERE isScreenshot = 1 AND ocrState = 'NOT_PROCESSED'")
+    fun observeOcrPendingCount(): Flow<Int>
+
+    @Query("SELECT COUNT(*) FROM media_items WHERE isScreenshot = 1 AND ocrState = 'FAILED'")
+    fun observeOcrFailedCount(): Flow<Int>
+
+    @Query("SELECT MAX(dateAddedSeconds) FROM media_items")
+    suspend fun latestDateAddedSeconds(): Long?
+
+    @Query("UPDATE media_items SET ocrText=:text, ocrNormalizedText=:normalized, ocrState='DONE', ocrEngine=:engine, ocrProcessedAtMillis=:processedAt, ocrError=NULL, semanticState='PENDING', semanticAttemptCount=0, semanticLastError=NULL, semanticLastAttemptAtMillis=NULL WHERE mediaId=:mediaId")
+    suspend fun markOcrDone(mediaId: Long, text: String, normalized: String, engine: String, processedAt: Long)
+
+    @Query("UPDATE media_items SET ocrState='FAILED', ocrEngine=:engine, ocrProcessedAtMillis=:processedAt, ocrError=:error WHERE mediaId=:mediaId")
+    suspend fun markOcrFailed(mediaId: Long, engine: String, processedAt: Long, error: String)
+
+    @Query("UPDATE media_items SET ocrState='NOT_PROCESSED', ocrText=NULL, ocrNormalizedText=NULL, ocrEngine=NULL, ocrProcessedAtMillis=NULL, ocrError=NULL, semanticState='PENDING', semanticAttemptCount=0, semanticLastError=NULL, semanticLastAttemptAtMillis=NULL WHERE isScreenshot=1")
+    suspend fun resetScreenshotOcr()
+
+    @Query("UPDATE media_items SET ocrState='NOT_PROCESSED', ocrText=NULL, ocrNormalizedText=NULL, ocrEngine=NULL, ocrProcessedAtMillis=NULL, ocrError=NULL, semanticState='PENDING', semanticAttemptCount=0, semanticLastError=NULL, semanticLastAttemptAtMillis=NULL WHERE isScreenshot=1 AND (ocrEngine IS NULL OR ocrEngine != :currentEngine)")
+    suspend fun resetOcrFromOlderEngines(currentEngine: String)
+
+    @Query("DELETE FROM media_items WHERE indexedAtMillis != :scanMarker")
+    suspend fun deleteNotSeenInScan(scanMarker: Long)
+
+    @Query("DELETE FROM media_items")
+    suspend fun deleteAll()
+}
