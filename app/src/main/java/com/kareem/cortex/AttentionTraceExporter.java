@@ -5,15 +5,16 @@ import android.database.sqlite.SQLiteDatabase;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
-/** Read-only diagnostic snapshot: Capture -> semantic -> situation -> world state -> attention -> Now. */
+/** Read-only diagnostic snapshot: Capture -> semantic -> situation -> commitments -> attention -> Now. */
 public final class AttentionTraceExporter {
-    public static final String VERSION="CORTEX_ATTENTION_TRACE_V3";
+    public static final String VERSION="CORTEX_ATTENTION_TRACE_V4";
     private AttentionTraceExporter(){}
 
     public static String export(SQLiteDatabase db) throws Exception {
+        long createdAt=System.currentTimeMillis();
         JSONObject root=new JSONObject();
         root.put("format",VERSION);
-        root.put("created_at",System.currentTimeMillis());
+        root.put("created_at",createdAt);
         root.put("app_version_name",BuildConfig.VERSION_NAME);
         root.put("app_version_code",BuildConfig.VERSION_CODE);
         root.put("db_version",CognitiveSchema.DB_VERSION);
@@ -22,16 +23,18 @@ public final class AttentionTraceExporter {
         root.put("policy_version",StatefulMeaningPolicy.VERSION);
         root.put("world_state_version",CognitiveWorldState.VERSION);
         root.put("attention_engine_version",AttentionDecisionEngine.VERSION);
+        root.put("commitment_lifecycle_version",CommitmentLifecycleStore.VERSION);
         root.put("shadow_version",CognitiveShadowStore.VERSION);
         root.put("capture",capture(db));
         root.put("situations",situations(db));
+        root.put("commitments",commitments(db,createdAt));
         root.put("attention_decisions",decisions(db));
         root.put("actual_now",now(db));
-        root.put("trace_items",traceItems(db));
+        root.put("trace_items",traceItems(db,createdAt));
         root.put("unlinked_semantic_events",unlinkedSemanticEvents(db));
         JSONObject funnel=cognitiveFunnel(db);
         root.put("cognitive_funnel",funnel);
-        root.put("summary",summary(db,funnel));
+        root.put("summary",summary(db,funnel,createdAt));
         return root.toString(2);
     }
 
@@ -80,13 +83,30 @@ public final class AttentionTraceExporter {
         int rank=0;try{while(c.moveToNext()){JSONObject o=new JSONObject();o.put("rank",++rank);o.put("attention_id",c.getLong(0));o.put("semantic_event_id",c.getLong(1));o.put("situation_id",c.getLong(2));o.put("kind",s(c,3));o.put("title",s(c,4));o.put("body",s(c,5));o.put("state",s(c,6));o.put("priority",c.getInt(7));o.put("confidence",c.getDouble(8));o.put("source_key",s(c,9));o.put("reason",s(c,10));o.put("updated_at",c.getLong(11));a.put(o);}}finally{c.close();}return a;
     }
 
+    private static JSONArray commitments(SQLiteDatabase db,long nowAt)throws Exception{
+        JSONArray a=new JSONArray();if(!table(db,"ue_commitments"))return a;
+        Cursor c=db.rawQuery("SELECT id,commitment_key,situation_id,link_key,subject,summary,state,deadline_at,deadline_has_time,deadline_expression,confidence,opened_at,last_changed_at,last_evidence_at,source_semantic_event_id,terminal_at,revision FROM ue_commitments ORDER BY last_evidence_at DESC,id DESC LIMIT 240",null);
+        try{while(c.moveToNext())a.put(commitmentJson(c,nowAt));}finally{c.close();}return a;
+    }
+
+    private static JSONObject commitmentForSituation(SQLiteDatabase db,long situationId,long nowAt)throws Exception{
+        JSONObject o=new JSONObject();o.put("available",false);if(!table(db,"ue_commitments"))return o;
+        Cursor c=db.rawQuery("SELECT id,commitment_key,situation_id,link_key,subject,summary,state,deadline_at,deadline_has_time,deadline_expression,confidence,opened_at,last_changed_at,last_evidence_at,source_semantic_event_id,terminal_at,revision FROM ue_commitments WHERE situation_id=? ORDER BY last_evidence_at DESC,id DESC LIMIT 1",new String[]{String.valueOf(situationId)});
+        try{if(c.moveToFirst()){o=commitmentJson(c,nowAt);o.put("available",true);}}finally{c.close();}return o;
+    }
+
+    private static JSONObject commitmentJson(Cursor c,long nowAt)throws Exception{
+        JSONObject o=new JSONObject();String state=s(c,6);long deadline=c.getLong(7);boolean overdue="open".equals(state)&&deadline>0&&nowAt>deadline;
+        o.put("commitment_id",c.getLong(0));o.put("commitment_key",s(c,1));o.put("situation_id",c.getLong(2));o.put("link_key",s(c,3));o.put("subject",s(c,4));o.put("summary",s(c,5));o.put("state",state);o.put("effective_state",overdue?"overdue":state);o.put("deadline_at",deadline);o.put("deadline_has_time",c.getInt(8)==1);o.put("deadline_expression",s(c,9));o.put("confidence",c.getDouble(10));o.put("opened_at",c.getLong(11));o.put("last_changed_at",c.getLong(12));o.put("last_evidence_at",c.getLong(13));o.put("source_semantic_event_id",c.getLong(14));o.put("terminal_at",c.getLong(15));o.put("revision",c.getInt(16));o.put("overdue",overdue);return o;
+    }
+
     /** Situation-centric comparison view so one real-world situation can be followed end-to-end. */
-    private static JSONArray traceItems(SQLiteDatabase db)throws Exception{
+    private static JSONArray traceItems(SQLiteDatabase db,long nowAt)throws Exception{
         JSONArray out=new JSONArray();if(!table(db,"ue_situations"))return out;
         Cursor c=db.rawQuery("SELECT id,situation_key,kind,title,summary,state,priority,confidence,last_changed_at FROM ue_situations ORDER BY last_changed_at DESC LIMIT 240",null);
         try{while(c.moveToNext()){
             long id=c.getLong(0);JSONObject o=new JSONObject();
-            o.put("situation_id",id);o.put("situation_key",s(c,1));o.put("kind",s(c,2));o.put("title",s(c,3));o.put("summary",s(c,4));o.put("state",s(c,5));o.put("priority",c.getInt(6));o.put("confidence",c.getDouble(7));o.put("last_changed_at",c.getLong(8));o.put("evidence",evidence(db,id));
+            o.put("situation_id",id);o.put("situation_key",s(c,1));o.put("kind",s(c,2));o.put("title",s(c,3));o.put("summary",s(c,4));o.put("state",s(c,5));o.put("priority",c.getInt(6));o.put("confidence",c.getDouble(7));o.put("last_changed_at",c.getLong(8));o.put("evidence",evidence(db,id));o.put("commitment",commitmentForSituation(db,id,nowAt));
 
             JSONObject production=new JSONObject();production.put("evaluated",false);production.put("surface_now",false);production.put("reason","");production.put("policy_version",StatefulMeaningPolicy.VERSION);
             if(table(db,"ue_projection_decisions")){Cursor p=db.rawQuery("SELECT eligible,reason,policy_version,semantic_event_id,created_at FROM ue_projection_decisions WHERE situation_id=? AND projection='NOW' AND policy_version=? ORDER BY id DESC LIMIT 1",new String[]{String.valueOf(id),StatefulMeaningPolicy.VERSION});try{if(p.moveToFirst()){production.put("evaluated",true);production.put("surface_now",p.getInt(0)==1);production.put("reason",s(p,1));production.put("policy_version",s(p,2));production.put("semantic_event_id",p.getLong(3));production.put("created_at",p.getLong(4));}}finally{p.close();}}
@@ -151,7 +171,7 @@ public final class AttentionTraceExporter {
         return o;
     }
 
-    private static JSONObject summary(SQLiteDatabase db,JSONObject funnel)throws Exception{
+    private static JSONObject summary(SQLiteDatabase db,JSONObject funnel,long nowAt)throws Exception{
         JSONObject o=new JSONObject();
         o.put("capture_count",count(db,"ue_raw_observations"));
         o.put("semantic_count",count(db,"ue_semantic_events"));
@@ -159,6 +179,12 @@ public final class AttentionTraceExporter {
         o.put("situation_count",count(db,"ue_situations"));
         o.put("linked_semantic_count",linkedSemanticCount(db));
         o.put("unlinked_complete_semantic_count",unlinkedCompleteSemanticCount(db));
+        o.put("commitment_count",count(db,"ue_commitments"));
+        o.put("open_commitment_count",table(db,"ue_commitments")?scalar(db,"SELECT COUNT(*) FROM ue_commitments WHERE state='open'"):0);
+        o.put("overdue_commitment_count",table(db,"ue_commitments")?scalar(db,"SELECT COUNT(*) FROM ue_commitments WHERE state='open' AND deadline_at>0 AND deadline_at<"+nowAt):0);
+        o.put("terminal_commitment_count",table(db,"ue_commitments")?scalar(db,"SELECT COUNT(*) FROM ue_commitments WHERE state<>'open'"):0);
+        o.put("commitment_transition_count",count(db,"ue_commitment_transitions"));
+        o.put("commitment_semantic_evaluated_count",count(db,"ue_commitment_semantic_evaluations"));
         o.put("production_now_eligible_count",table(db,"ue_projection_decisions")?scalar(db,"SELECT COUNT(DISTINCT situation_id) FROM ue_projection_decisions WHERE projection='NOW' AND eligible=1 AND policy_version='"+sql(StatefulMeaningPolicy.VERSION)+"'"):0);
         o.put("open_now_count",table(db,"ue_attention_items")?scalar(db,"SELECT COUNT(*) FROM ue_attention_items WHERE state='open'"):0);
         o.put("eligible_not_materialized_count",consistencyCount(db,true,false));
@@ -172,7 +198,7 @@ public final class AttentionTraceExporter {
             o.put("cognitive_topk_excluded_count",funnel.optLong("topk_excluded_count",0));
             o.put("cognitive_selected_count",funnel.optLong("cognitive_selected_count",0));
         }
-        o.put("note","Diagnostic trace only. Funnel counts identify where candidates leave the pipeline; freshness shows temporal attention state, while human-level correctness still requires reviewing reasons and evidence.");
+        o.put("note","Diagnostic trace only. Commitment state/deadlines explain durable obligations and overdue work; freshness explains temporal attention decay. Human-level correctness still requires reviewing reasons and evidence.");
         return o;
     }
 
