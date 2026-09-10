@@ -12,6 +12,8 @@ public final class StartupMaintenance {
     private StartupMaintenance(){}
 
     public static void schedule(Context context){
+        // Recovery build: do not even initialize WorkManager or SQLite from a startup caller.
+        if(StartupSafetyGate.active())return;
         if(context==null||!scheduled.compareAndSet(false,true))return;
         Context app=context.getApplicationContext();
         PhoneContextScheduler.schedule(app);
@@ -24,6 +26,7 @@ public final class StartupMaintenance {
     }
 
     private static void run(Context context){
+        if(StartupSafetyGate.active())return;
         VaultDb db=null;
         try{
             db=new VaultDb(context);
