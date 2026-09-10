@@ -67,6 +67,7 @@ jobs:
             'AttentionShadowComparatorTest':2,
             'CognitiveShadowStoreTest':2,
             'CognitiveBrainStressTest':16,
+            'ColdStartQuarantineTest':3,
           }
           total=0
           for cls,minimum in checks.items():
@@ -78,8 +79,8 @@ jobs:
               assert not bad, f'{cls}: failed/skipped '+','.join(bad)
               total += len(cases)
               print(f'{cls}: {len(cases)}/{len(cases)} PASS')
-          assert total >= 41
-          print(f'v70 cognitive suites: {total}/{total} PASS')
+          assert total >= 44
+          print(f'v70 cognitive/recovery suites: {total}/{total} PASS')
           PY
           grep -q 'CognitiveShadowStore.run' app/src/main/java/com/kareem/cortex/StatefulMeaningWorker.java
           ! grep -q 'ue_attention_items.*INSERT\|INSERT.*ue_attention_items' app/src/main/java/com/kareem/cortex/CognitiveShadowStore.java
@@ -87,6 +88,24 @@ jobs:
 
       - name: Build installable debug APK
         run: gradle :app:assembleDebug --stacktrace
+
+      - name: Verify cold-start quarantine in merged manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q 'private static final boolean ACTIVE = true' app/src/main/java/com/kareem/cortex/StartupSafetyGate.java
+          grep -q 'if(!StartupSafetyGate.active())' app/src/main/java/com/kareem/cortex/InputActivity.java
+          grep -q 'tools:node="remove"' app/src/main/AndroidManifest.xml
+          found=0
+          while IFS= read -r manifest; do
+            found=1
+            if grep -q 'androidx.work.WorkManagerInitializer' "$manifest"; then
+              echo "WorkManagerInitializer survived manifest merge: $manifest" >&2
+              exit 1
+            fi
+          done < <(find app/build/intermediates -type f -name AndroidManifest.xml -path '*merged_manifest*' -o -type f -name AndroidManifest.xml -path '*merged_manifests*')
+          test "$found" = 1
+          echo 'Cold-start quarantine: WorkManager auto-init absent from merged debug manifest'
 
       - name: Run full Android lint diagnostic
         id: lint
@@ -106,7 +125,8 @@ jobs:
           errors=[i for i in root.findall('issue') if i.attrib.get('severity')=='Error']
           brain_names={
               'AttentionDecisionEngine.java','CognitiveWorldState.java','CognitiveShadowStore.java',
-              'AttentionShadowComparator.java','StatefulMeaningWorker.java','CognitiveBrainStressTest.java'
+              'AttentionShadowComparator.java','StatefulMeaningWorker.java','CognitiveBrainStressTest.java',
+              'StartupSafetyGate.java','ColdStartQuarantineTest.java'
           }
           brain=[]
           crash=[]
@@ -118,9 +138,9 @@ jobs:
                   crash.append((i.attrib.get('id'),f,i.attrib.get('message')))
           print(f'Full-project lint debt: {len(errors)} errors')
           assert len(errors) <= 26, f'lint error count regressed: {len(errors)} > known post-fix ceiling 26'
-          assert not brain, 'cognitive v70 lint errors: '+repr(brain)
+          assert not brain, 'cognitive/recovery v70 lint errors: '+repr(brain)
           assert not crash, 'runtime/crash-risk lint errors remain: '+repr(crash)
-          print('Cognitive lint gate: PASS; no v70 brain errors or MissingPermission/NewApi crash-risk errors')
+          print('Cognitive/recovery lint gate: PASS; no v70 brain or startup-quarantine errors')
           PY
 
       - name: Repeat brain tests from scratch for determinism
@@ -143,7 +163,7 @@ jobs:
               for c in cases:
                   if c.find('failure') is not None or c.find('error') is not None or c.find('skipped') is not None:
                       bad.append(p.split('/')[-1]+':'+c.attrib.get('name','?'))
-          assert total >= 70, f'expected broad repeated suite, only {total} cases found'
+          assert total >= 73, f'expected broad repeated suite, only {total} cases found'
           assert not bad, 'repeatability failures/skips: '+','.join(bad)
           print(f'Repeatability pass: {total}/{total} tests PASS')
           PY
@@ -159,6 +179,7 @@ jobs:
             app/build/reports/lint-results-debug.html
             app/build/reports/lint-results-debug.xml
             app/build/outputs/apk/debug/
+            app/build/intermediates/merged_manifests/
             docs/CORTEX_BRAIN_BENCHMARK_V1.md
           if-no-files-found: warn
           retention-days: 14
