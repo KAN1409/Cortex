@@ -27,9 +27,9 @@ public final class CortexScreenAccessibilityService extends AccessibilityService
         public boolean usable(){return !text.isEmpty();}
     }
 
-    @Override protected void onServiceConnected(){super.onServiceConnected();live=this;PhoneContextScheduler.schedule(this);}
+    @Override protected void onServiceConnected(){super.onServiceConnected();live=this;if(!StartupSafetyGate.active())PhoneContextScheduler.schedule(this);}
     @Override public void onDestroy(){if(live==this)live=null;super.onDestroy();}
-    @Override public void onAccessibilityEvent(AccessibilityEvent event){PhoneContextCollector.onAccessibilityEvent(this,event);}
+    @Override public void onAccessibilityEvent(AccessibilityEvent event){if(StartupSafetyGate.active())return;PhoneContextCollector.onAccessibilityEvent(this,event);}
     @Override public void onInterrupt(){}
 
     /** True only while Android has an active service instance in this process. */
@@ -58,6 +58,7 @@ public final class CortexScreenAccessibilityService extends AccessibilityService
     }
 
     public static Snapshot snapshot(){
+        if(StartupSafetyGate.active())return null;
         CortexScreenAccessibilityService s=live;if(s==null)return null;AccessibilityNodeInfo root=null;
         try{
             root=s.getRootInActiveWindow();if(root==null)return null;String pkg=n(root.getPackageName()==null?null:root.getPackageName().toString());
