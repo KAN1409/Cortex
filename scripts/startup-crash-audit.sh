@@ -9,6 +9,8 @@ mkdir -p "$(dirname "$REPORT")"
 
 say(){ printf '%s\n' "$*" | tee -a "$REPORT"; }
 fail(){ say "FAIL: $*"; exit 1; }
+record_error(){ AUDIT_ERRORS=$((AUDIT_ERRORS+1)); say "ERROR: $*"; }
+AUDIT_ERRORS=0
 
 say "CORTEX_STARTUP_AUDIT_V1"
 say "commit=$(git rev-parse HEAD 2>/dev/null || echo unknown)"
@@ -39,32 +41,33 @@ test -s "$APP" || fail "CortexApp missing"
 test -s "$GATE" || fail "StartupSafetyGate missing"
 test -s "$INPUT" || fail "InputActivity missing"
 
-grep -q 'android:name=".CortexApp"' "$MANIFEST" || fail "manifest application is not CortexApp"
+grep -q 'android:name=".CortexApp"' "$MANIFEST" || record_error "manifest application is not CortexApp"
 if grep -q 'androidx.work.WorkManagerInitializer' "$MANIFEST"; then
-  fail "source manifest overrides WorkManagerInitializer; use AndroidX default provider bootstrap"
+  record_error "source manifest overrides WorkManagerInitializer; use AndroidX default provider bootstrap"
 fi
 if grep -Eq 'WorkManager[[:space:]]*\.[[:space:]]*initialize[[:space:]]*\(' "$APP"; then
-  fail "CortexApp manually initializes WorkManager"
+  record_error "CortexApp manually initializes WorkManager"
 fi
 if grep -Eq 'implements[^{]*Configuration\.Provider' "$APP"; then
-  fail "CortexApp implements a custom WorkManager provider while default initialization is required"
+  record_error "CortexApp implements a custom WorkManager provider while default initialization is required"
 fi
-grep -q 'CrashRecorder.install(this)' "$APP" || fail "CrashRecorder startup hook missing"
+grep -q 'CrashRecorder.install(this)' "$APP" || record_error "CrashRecorder startup hook missing"
 if grep -Eq 'new[[:space:]]+VaultDb|LocalLlm(Runtime|Bridge)|Llama\.|TessBaseAPI|getWritableDatabase[[:space:]]*\(|getReadableDatabase[[:space:]]*\(|ProcessExitRecorder\.' "$APP"; then
-  fail "CortexApp contains heavyweight/database/native bootstrap code"
+  record_error "CortexApp contains heavyweight/database/native bootstrap code"
 fi
 
-grep -q 'private static final boolean ACTIVE = true' "$GATE" || fail "recovery startup quarantine is not active"
-grep -q 'if(!StartupSafetyGate.active())' "$INPUT" || fail "launcher does not quarantine post-resume schedulers"
+grep -q 'private static final boolean ACTIVE = true' "$GATE" || record_error "recovery startup quarantine is not active"
+grep -q 'if(!StartupSafetyGate.active())' "$INPUT" || record_error "launcher does not quarantine post-resume schedulers"
 
-# Every app scheduler that can touch WorkManager must honor the recovery gate.
+# Every app callsite that can enqueue/cancel through WorkManager must honor the recovery gate.
 SCHEDULER_HITS=0
 while IFS= read -r f; do
+  [[ -z "$f" ]] && continue
   SCHEDULER_HITS=$((SCHEDULER_HITS+1))
   if ! grep -q 'StartupSafetyGate.active()' "$f"; then
-    fail "WorkManager scheduler lacks StartupSafetyGate: $f"
+    record_error "WorkManager callsite lacks StartupSafetyGate: $f"
   fi
-done < <(grep -rl --include='*.java' --include='*.kt' 'WorkManager.getInstance' app/src/main/java/com/kareem/cortex | sort)
+done < <(grep -rl --include='*.java' --include='*.kt' 'WorkManager.getInstance' app/src/main/java/com/kareem/cortex | sort || true)
 say "workmanager_callsite_files=$SCHEDULER_HITS"
 
 # Inventory startup-sensitive patterns across every source/config text file.
@@ -83,16 +86,18 @@ for pattern in \
   'static {'; do
   count=0
   while IFS= read -r f; do
+    [[ -z "$f" ]] && continue
     count=$((count+1))
     printf 'RISK\t%s\t%s\n' "$pattern" "$f" >> "$REPORT"
   done < <(grep -Fl "$pattern" "${TEXT_FILES[@]}" 2>/dev/null | sort || true)
   say "risk_pattern[$pattern]=$count"
 done
 
-# Persisted jobs bypass scheduler call sites. Inspect every Worker implementation and block any
+# Persisted jobs bypass scheduler callsites. Inspect every Worker implementation and block any
 # native-capable worker that is not quarantined.
 WORKERS=0
 while IFS= read -r f; do
+  [[ -z "$f" ]] && continue
   WORKERS=$((WORKERS+1))
   gated=no
   grep -q 'StartupSafetyGate.active()' "$f" && gated=yes
@@ -100,15 +105,16 @@ while IFS= read -r f; do
   grep -Eq 'LocalLlm(Runtime|Bridge)|Llama\.|TessBaseAPI|Whisper|AudioRecord|System\.load' "$f" && native=yes
   printf 'WORKER\t%s\tgated=%s\tnative=%s\n' "$f" "$gated" "$native" >> "$REPORT"
   if [[ "$native" == yes && "$gated" != yes ]]; then
-    fail "native-capable persisted Worker lacks StartupSafetyGate: $f"
+    record_error "native-capable persisted Worker lacks StartupSafetyGate: $f"
   fi
 done < <(grep -rlE --include='*.java' --include='*.kt' 'extends[[:space:]]+(Worker|CoroutineWorker)|:[[:space:]]*(Worker|CoroutineWorker)\(' app/src/main/java/com/kareem/cortex | sort || true)
 say "worker_files=$WORKERS"
 
-# Build-time truth: the merged manifest must retain AndroidX's initializer.
+# Build-time truth: once merged manifests exist, AndroidX's initializer must be present.
 merged_found=0
 initializer_found=0
 while IFS= read -r m; do
+  [[ -z "$m" ]] && continue
   merged_found=1
   if grep -q 'androidx.work.WorkManagerInitializer' "$m"; then
     initializer_found=1
@@ -119,9 +125,14 @@ while IFS= read -r m; do
 done < <(find app/build/intermediates -type f -name AndroidManifest.xml \( -path '*merged_manifest*' -o -path '*merged_manifests*' \) 2>/dev/null | sort || true)
 
 if [[ "$merged_found" == 1 && "$initializer_found" != 1 ]]; then
-  fail "WorkManagerInitializer absent from all merged manifests"
+  record_error "WorkManagerInitializer absent from all merged manifests"
 fi
 
 say "merged_manifest_checked=$merged_found"
 say "workmanager_initializer_present=$initializer_found"
+say "audit_errors=$AUDIT_ERRORS"
+if [[ "$AUDIT_ERRORS" -ne 0 ]]; then
+  say "RESULT=FAIL"
+  exit 1
+fi
 say "RESULT=PASS"
