@@ -30,7 +30,7 @@ public final class CortexPipelineStatusBar {
         s.complete=scalar(db,"SELECT COUNT(*) FROM ue_semantic_events WHERE semantic_state='complete' AND superseded_by=0");
         s.semanticWaiting=scalar(db,"SELECT COUNT(*) FROM ue_semantic_events WHERE semantic_state IN ('waiting','blocked') AND superseded_by=0");
         s.mediaQueued=scalar(db,"SELECT COUNT(*) FROM knowledge_items WHERE status IN ('queued','analyzing')");
-        s.nowSelected=scalar(db,"SELECT COUNT(*) FROM cognitive_shadow_decisions WHERE surface=1");
+        s.nowSelected=scalar(db,"SELECT COUNT(*) FROM ue_cognitive_shadow_decisions WHERE cognitive_surface=1 AND run_id=(SELECT id FROM ue_cognitive_shadow_runs WHERE completed_at>0 ORDER BY id DESC LIMIT 1)");
         s.brainMemory=scalar(db,"SELECT COUNT(*) FROM knowledge_items WHERE source='semantic_bridge'");
         s.processing=s.semanticWaiting+s.mediaQueued;return s;
     }
