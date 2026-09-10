@@ -10,6 +10,8 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.robolectric.RobolectricTestRunner;
 
+import java.util.List;
+
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
@@ -45,10 +47,34 @@ public class CognitiveShadowStoreTest {
         assertTrue(runId > 0);
         assertEquals(1, count("SELECT COUNT(*) FROM ue_cognitive_shadow_runs"));
         assertEquals(1, count("SELECT COUNT(*) FROM ue_cognitive_shadow_decisions"));
+        assertEquals(1, count("SELECT cognitive_eligible FROM ue_cognitive_shadow_decisions LIMIT 1"));
         assertEquals(projectionCount, count("SELECT COUNT(*) FROM ue_projection_decisions"));
         assertEquals(attentionCount, count("SELECT COUNT(*) FROM ue_attention_items"));
         assertEquals(semanticCount, count("SELECT COUNT(*) FROM ue_semantic_events"));
         assertTrue(CognitiveShadowStore.latestSummary(db).contains("candidates=1"));
+        assertTrue(CognitiveShadowStore.latestSummary(db).contains("cognitiveEligible=1"));
+    }
+
+    @Test public void persistedEvidenceFlowsThroughWorldStateBeforeAttentionEvaluation() {
+        long first = semantic("commitment", "waiting", "Quotation",
+                "Send quotation today", .92, 1000);
+        long situation = StatefulMeaningStore.correlate(db, first, 0, "mail",
+                "commitment", "Quotation", "Send quotation today", .92, 1000);
+
+        long second = semantic("commitment", "waiting", "Quotation",
+                "Quotation is still pending", .94, 2000);
+        long sameSituation = StatefulMeaningStore.correlate(db, second, 0, "mail",
+                "commitment", "Quotation", "Quotation is still pending", .94, 2000);
+
+        assertEquals(situation, sameSituation);
+        List<AttentionDecisionEngine.Candidate> candidates = CognitiveShadowStore.loadCandidates(db, 3000);
+        assertEquals(1, candidates.size());
+        AttentionDecisionEngine.Candidate candidate = candidates.get(0);
+        assertEquals(situation, candidate.situationId);
+        assertEquals(2, candidate.evidenceCount);
+        assertEquals(2, candidate.repeatedCount);
+        assertTrue(candidate.linkedOpenCommitment);
+        assertEquals("Quotation is still pending", candidate.summary);
     }
 
     @Test public void realPersistedRoutineWeatherIsSuppressedByCognitiveShadow() {
@@ -61,11 +87,13 @@ public class CognitiveShadowStoreTest {
 
         CognitiveShadowStore.run(db, 5);
 
-        Cursor c = db.rawQuery("SELECT legacy_surface,cognitive_surface,delta FROM ue_cognitive_shadow_decisions LIMIT 1", null);
+        Cursor c = db.rawQuery("SELECT legacy_surface,cognitive_eligible,cognitive_surface,delta,cognitive_reason FROM ue_cognitive_shadow_decisions LIMIT 1", null);
         assertTrue(c.moveToFirst());
         assertEquals(1, c.getInt(0));
         assertEquals(0, c.getInt(1));
-        assertEquals(AttentionShadowComparator.Delta.NEW_SUPPRESSES_LEGACY_NOISE.name(), c.getString(2));
+        assertEquals(0, c.getInt(2));
+        assertEquals(AttentionShadowComparator.Delta.NEW_SUPPRESSES_LEGACY_NOISE.name(), c.getString(3));
+        assertTrue(c.getString(4).contains("routine weather"));
         c.close();
     }
 
