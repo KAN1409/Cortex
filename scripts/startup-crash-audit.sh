@@ -12,7 +12,7 @@ fail(){ say "FAIL: $*"; exit 1; }
 record_error(){ AUDIT_ERRORS=$((AUDIT_ERRORS+1)); say "ERROR: $*"; }
 AUDIT_ERRORS=0
 
-say "CORTEX_STARTUP_AUDIT_V2"
+say "CORTEX_STARTUP_AUDIT_V3"
 say "commit=$(git rev-parse HEAD 2>/dev/null || echo unknown)"
 say "timestamp_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
@@ -42,8 +42,12 @@ STATEFUL_SCHEDULER=app/src/main/java/com/kareem/cortex/StatefulMeaningScheduler.
 STATEFUL_WORKER=app/src/main/java/com/kareem/cortex/StatefulMeaningWorker.java
 SEMANTIC_SCHEDULER=app/src/main/java/com/kareem/cortex/UniversalSemanticScheduler.java
 NOTIFICATION_SERVICE=app/src/main/java/com/kareem/cortex/NotificationCaptureService.java
+OCR_ANALYZER=app/src/main/java/com/kareem/cortex/OcrAnalyzer.java
+ARABIC_OCR=app/src/main/java/com/kareem/cortex/ArabicOcr.java
+WHISPER=app/src/main/java/com/kareem/cortex/CleanWhisperTranscriber.kt
+LLM_BRIDGE=app/src/main/java/com/kareem/cortex/LocalLlmBridge.kt
 
-for required in "$MANIFEST" "$APP" "$GATE" "$INPUT" "$SUPERVISOR" "$SAFE_CORE" "$SAFE_LIFECYCLE" "$STATEFUL_SCHEDULER" "$STATEFUL_WORKER" "$SEMANTIC_SCHEDULER" "$NOTIFICATION_SERVICE"; do
+for required in "$MANIFEST" "$APP" "$GATE" "$INPUT" "$SUPERVISOR" "$SAFE_CORE" "$SAFE_LIFECYCLE" "$STATEFUL_SCHEDULER" "$STATEFUL_WORKER" "$SEMANTIC_SCHEDULER" "$NOTIFICATION_SERVICE" "$OCR_ANALYZER" "$ARABIC_OCR" "$WHISPER" "$LLM_BRIDGE"; do
   test -s "$required" || fail "required startup/recovery file missing: $required"
 done
 
@@ -98,6 +102,14 @@ grep -q 'CapabilitySupervisor.Capability.DETERMINISTIC_COGNITION' "$STATEFUL_WOR
 # Local semantic refinement is NOT safe-core: it directly reaches the local model and must retain both gates.
 grep -Eq 'if[[:space:]]*\([[:space:]]*StartupSafetyGate\.active\(\)' "$SEMANTIC_SCHEDULER" || record_error "local semantic scheduler lost emergency startup gate"
 grep -q 'CapabilitySupervisor.Capability.LOCAL_LLM_NATIVE' "$SEMANTIC_SCHEDULER" || record_error "local semantic scheduler lacks LOCAL_LLM_NATIVE gate"
+
+# Native choke points themselves are guarded as a second line of defense. This protects manual
+# foreground actions as well as background callers and makes the recovery contract system-wide.
+grep -q 'CapabilitySupervisor.Capability.OCR_NATIVE' "$OCR_ANALYZER" || record_error "ML Kit OCR analyzer lacks OCR_NATIVE choke-point gate"
+grep -q 'CapabilitySupervisor.Capability.OCR_NATIVE' "$ARABIC_OCR" || record_error "Tesseract Arabic OCR lacks OCR_NATIVE choke-point gate"
+grep -q 'CapabilitySupervisor.Capability.ASR_NATIVE' "$WHISPER" || record_error "Whisper transcriber lacks ASR_NATIVE choke-point gate"
+grep -q 'StartupSafetyGate.active()' "$LLM_BRIDGE" || record_error "llama native bridge lacks direct emergency quarantine"
+grep -q 'requireNativeAllowed()' "$LLM_BRIDGE" || record_error "llama completion paths lack direct native guard"
 
 # Every WorkManager callsite must use either the emergency gate or the narrow deterministic safe-core contract.
 SCHEDULER_HITS=0
@@ -158,12 +170,12 @@ while IFS= read -r f; do
 done < <(grep -rlE --include='*.java' --include='*.kt' 'extends[[:space:]]+(Worker|CoroutineWorker)|:[[:space:]]*(Worker|CoroutineWorker)\(' app/src/main/java/com/kareem/cortex | sort || true)
 say "worker_files=$WORKERS"
 
-# LocalLlmRuntime itself remains the choke point for indirect local-model access.
+# LocalLlmRuntime remains the policy-level choke point for indirect local-model access, while
+# LocalLlmBridge is now hard-gated too for direct callers.
 grep -Eq 'if[[:space:]]*\([[:space:]]*StartupSafetyGate\.active\(\)' app/src/main/java/com/kareem/cortex/LocalLlmRuntime.java || record_error "LocalLlmRuntime is not recovery-gated"
 grep -q 'CapabilitySupervisor.Capability.LOCAL_LLM_NATIVE' app/src/main/java/com/kareem/cortex/LocalLlmRuntime.java || record_error "LocalLlmRuntime lacks local-LLM capability breaker"
 
-# Direct OCR/Whisper classes are deliberately still protected by the compile-time emergency gate at callers.
-# They must never be referenced by SafeCoreRuntime or its lifecycle hook.
+# Safe-core activation must never reference native OCR/ASR/LLM code.
 if grep -Eq 'ArabicOcr|TessBaseAPI|Whisper|CleanWhisper|LocalLlm|LocalLlmBridge|Llama\.' "$SAFE_CORE" "$SAFE_LIFECYCLE"; then
   record_error "safe-core activation path references native OCR/ASR/LLM code"
 fi
