@@ -28,7 +28,7 @@ public final class DeterministicSemanticRecovery {
                 done++;
             }
         } finally { c.close(); }
-        repairLegacyDeterministicCommitments(db,Math.max(20,Math.min(200,limit)));
+        repairLegacyDeterministicCommitments(db,5000);
         return done;
     }
 
