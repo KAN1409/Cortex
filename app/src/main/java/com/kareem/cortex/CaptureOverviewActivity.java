@@ -14,7 +14,7 @@ import java.util.*;
 public final class CaptureOverviewActivity extends Activity {
     VaultDb db;LinearLayout content;Handler ui=new Handler(Looper.getMainLooper());boolean destroyed=false;long lastSignature=Long.MIN_VALUE;int dp(int x){return CortexUi.dp(this,x);}
     @Override public void onCreate(Bundle b){super.onCreate(b);CortexUi.applyWindow(this);try{db=new VaultDb(getApplicationContext());build();}catch(Throwable t){renderRecovery(t);}}
-    @Override protected void onResume(){super.onResume();safeRefresh();ui.removeCallbacks(tick);ui.postDelayed(tick,2500);}
+    @Override protected void onResume(){super.onResume();AnalysisQueue.kick(getApplicationContext(),null,this::safeRefresh);safeRefresh();ui.removeCallbacks(tick);ui.postDelayed(tick,2500);}
     @Override protected void onPause(){ui.removeCallbacks(tick);super.onPause();}
     @Override protected void onDestroy(){destroyed=true;ui.removeCallbacksAndMessages(null);if(db!=null)try{db.close();}catch(Throwable ignored){}db=null;super.onDestroy();}
     final Runnable tick=new Runnable(){@Override public void run(){if(destroyed||isFinishing())return;try{long sig=readSignature();if(sig!=lastSignature)safeRefresh();}catch(Throwable ignored){}ui.postDelayed(this,2500);}};
