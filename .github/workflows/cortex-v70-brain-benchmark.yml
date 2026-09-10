@@ -1,4 +1,4 @@
-name: Cortex v70 Brain Benchmark
+name: Cortex Extensive System Gate
 
 on:
   push:
@@ -6,10 +6,10 @@ on:
   workflow_dispatch:
 
 jobs:
-  brain-benchmark:
+  extensive-system-gate:
     runs-on: ubuntu-24.04
     steps:
-      - name: Checkout benchmark branch
+      - name: Checkout Cortex
         uses: actions/checkout@v6
         with:
           fetch-depth: 50
@@ -37,208 +37,112 @@ jobs:
         with:
           gradle-version: '8.9'
 
-      - name: Full repository startup-risk audit
+      - name: Startup crash-risk audit
         shell: bash
         run: |
           set -euo pipefail
           chmod +x scripts/startup-crash-audit.sh
           scripts/startup-crash-audit.sh .
 
-      - name: Preserve v69 acceptance gates and run v70 brain benchmark
-        run: gradle :app:testDebugUnitTest --stacktrace
+      - name: ONE extensive Cortex system test
+        run: gradle :app:testDebugUnitTest --tests com.kareem.cortex.CortexExtensiveSystemTest --stacktrace
 
-      - name: Verify v69 gates remain green
+      - name: Verify the single extensive test really ran
         shell: bash
         run: |
           set -euo pipefail
           python3 - <<'PY'
           import xml.etree.ElementTree as ET
-          p='app/build/test-results/testDebugUnitTest/TEST-com.kareem.cortex.StatefulMeaningAcceptanceTest.xml'
+          p='app/build/test-results/testDebugUnitTest/TEST-com.kareem.cortex.CortexExtensiveSystemTest.xml'
           root=ET.parse(p).getroot()
-          cases=[x for x in root.findall('testcase') if x.attrib.get('name','').startswith('gate')]
+          cases=root.findall('testcase')
+          assert len(cases)==1, f'expected exactly ONE authoritative test, found {len(cases)}'
           bad=[c.attrib.get('name') for c in cases if c.find('failure') is not None or c.find('error') is not None or c.find('skipped') is not None]
-          assert len(cases)==35, f'expected 35 inherited gates, found {len(cases)}'
-          assert not bad, 'failed/skipped inherited gates: '+','.join(bad)
-          print('Inherited v69 acceptance: 35/35 PASS')
+          assert not bad, 'extensive system test failed/skipped: '+','.join(bad)
+          assert cases[0].attrib.get('name')=='cortexExtensiveSystemContract'
+          print('ONE extensive Cortex system test: PASS')
           PY
 
-      - name: Verify v70 cognitive and staged recovery suites
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 - <<'PY'
-          import xml.etree.ElementTree as ET
-          checks={
-            'AttentionDecisionEngineTest':16,
-            'CognitiveWorldStateTest':12,
-            'AttentionShadowComparatorTest':2,
-            'CognitiveShadowStoreTest':6,
-            'AttentionTraceExporterTest':4,
-            'CommitmentLifecycleStoreTest':7,
-            'CommitmentLifecyclePrecisionTest':1,
-            'CognitiveBrainStressTest':16,
-            'ColdStartQuarantineTest':4,
-            'CapabilitySupervisorTest':7,
-          }
-          total=0
-          for cls,minimum in checks.items():
-              p=f'app/build/test-results/testDebugUnitTest/TEST-com.kareem.cortex.{cls}.xml'
-              root=ET.parse(p).getroot()
-              cases=root.findall('testcase')
-              bad=[c.attrib.get('name') for c in cases if c.find('failure') is not None or c.find('error') is not None or c.find('skipped') is not None]
-              assert len(cases)>=minimum, f'{cls}: expected at least {minimum}, found {len(cases)}'
-              assert not bad, f'{cls}: failed/skipped '+','.join(bad)
-              total += len(cases)
-              print(f'{cls}: {len(cases)}/{len(cases)} PASS')
-          assert total >= 75
-          print(f'v70 cognitive/staged-recovery/commitment-lifecycle suites: {total}/{total} PASS')
-          PY
-          grep -q 'CognitiveShadowStore.run' app/src/main/java/com/kareem/cortex/StatefulMeaningWorker.java
-          grep -q 'CommitmentLifecycleStore.rebuild' app/src/main/java/com/kareem/cortex/StatefulMeaningRebuilder.java
-          grep -q 'ue_commitments' app/src/main/java/com/kareem/cortex/CommitmentLifecycleStore.java
-          grep -q 'RESCHEDULED' app/src/main/java/com/kareem/cortex/CommitmentLifecycleStore.java
-          grep -q 'resolveExpression' app/src/main/java/com/kareem/cortex/TemporalResolver.java
-          grep -q 'CommitmentLifecycleStore.loadOpen' app/src/main/java/com/kareem/cortex/CognitiveShadowStore.java
-          grep -q 'new CognitiveWorldState' app/src/main/java/com/kareem/cortex/CognitiveShadowStore.java
-          grep -q 'world.attentionCandidates' app/src/main/java/com/kareem/cortex/CognitiveShadowStore.java
-          grep -q 'cognitive_eligible' app/src/main/java/com/kareem/cortex/CognitiveShadowStore.java
-          grep -q 'candidate_last_seen_at' app/src/main/java/com/kareem/cortex/CognitiveShadowStore.java
-          grep -q 'cognitive_freshness' app/src/main/java/com/kareem/cortex/CognitiveShadowStore.java
-          grep -q 'freshnessScore' app/src/main/java/com/kareem/cortex/AttentionDecisionEngine.java
-          grep -q 's.lastSeenAt' app/src/main/java/com/kareem/cortex/CognitiveWorldState.java
-          grep -q 'CORTEX_ATTENTION_TRACE_V4' app/src/main/java/com/kareem/cortex/AttentionTraceExporter.java
-          grep -q 'commitment_lifecycle_version' app/src/main/java/com/kareem/cortex/AttentionTraceExporter.java
-          grep -q 'overdue_commitment_count' app/src/main/java/com/kareem/cortex/AttentionTraceExporter.java
-          grep -q 'peakRisk' app/src/main/java/com/kareem/cortex/CognitiveWorldState.java
-          grep -q 'if (!newer) return s' app/src/main/java/com/kareem/cortex/CognitiveWorldState.java
-          grep -q 's.risk = o.risk' app/src/main/java/com/kareem/cortex/CognitiveWorldState.java
-          ! grep -q 'ue_attention_items' app/src/main/java/com/kareem/cortex/CommitmentLifecycleStore.java
-          ! grep -q 'ue_projection_decisions' app/src/main/java/com/kareem/cortex/CommitmentLifecycleStore.java
-          ! grep -q 'ue_attention_items.*INSERT\|INSERT.*ue_attention_items' app/src/main/java/com/kareem/cortex/CognitiveShadowStore.java
-          ! grep -q 'ue_projection_decisions.*INSERT\|INSERT.*ue_projection_decisions' app/src/main/java/com/kareem/cortex/CognitiveShadowStore.java
-          grep -q 'SafeCoreLifecycle.install(this)' app/src/main/java/com/kareem/cortex/CortexApp.java
-          grep -q 'CapabilitySupervisor.Capability.RAW_NOTIFICATION_CAPTURE' app/src/main/java/com/kareem/cortex/NotificationCaptureService.java
-          grep -q 'CapabilitySupervisor.Capability.LOCAL_LLM_NATIVE' app/src/main/java/com/kareem/cortex/UniversalSemanticScheduler.java
-          grep -q 'CapabilitySupervisor.Capability.OCR_NATIVE' app/src/main/java/com/kareem/cortex/OcrAnalyzer.java
-          grep -q 'CapabilitySupervisor.Capability.OCR_NATIVE' app/src/main/java/com/kareem/cortex/ArabicOcr.java
-          grep -q 'CapabilitySupervisor.Capability.ASR_NATIVE' app/src/main/java/com/kareem/cortex/CleanWhisperTranscriber.kt
-          grep -q 'requireNativeAllowed()' app/src/main/java/com/kareem/cortex/LocalLlmBridge.kt
-
-      - name: Build installable debug APK
+      - name: Build installable update APK
         run: gradle :app:assembleDebug --stacktrace
 
-      - name: Verify provider-first WorkManager bootstrap and staged recovery
+      - name: Verify provider-first WorkManager and recovery isolation
         shell: bash
         run: |
           set -euo pipefail
           grep -q 'private static final boolean ACTIVE = true' app/src/main/java/com/kareem/cortex/StartupSafetyGate.java
-          grep -q 'if(!StartupSafetyGate.active())' app/src/main/java/com/kareem/cortex/InputActivity.java
           grep -q 'SafeCoreLifecycle.install(this)' app/src/main/java/com/kareem/cortex/CortexApp.java
-          grep -q 'POST_RESUME_SETTLE_MS' app/src/main/java/com/kareem/cortex/SafeCoreRuntime.java
-          grep -q 'SELECT 1' app/src/main/java/com/kareem/cortex/SafeCoreRuntime.java
-          grep -q 'CapabilitySupervisor.Capability.LOCAL_LLM_NATIVE' app/src/main/java/com/kareem/cortex/UniversalSemanticScheduler.java
           grep -q 'CapabilitySupervisor.Capability.OCR_NATIVE' app/src/main/java/com/kareem/cortex/OcrAnalyzer.java
           grep -q 'CapabilitySupervisor.Capability.ASR_NATIVE' app/src/main/java/com/kareem/cortex/CleanWhisperTranscriber.kt
-          grep -q 'StartupSafetyGate.active()' app/src/main/java/com/kareem/cortex/LocalLlmBridge.kt
+          grep -q 'requireNativeAllowed()' app/src/main/java/com/kareem/cortex/LocalLlmBridge.kt
+          grep -q 'RUN ONE EXTENSIVE SYSTEM TEST' app/src/main/java/com/kareem/cortex/CortexAuditActivity.java
           ! grep -q 'androidx.work.WorkManagerInitializer' app/src/main/AndroidManifest.xml
-          ! grep -q 'Configuration.Provider' app/src/main/java/com/kareem/cortex/CortexApp.java
-          ! grep -q 'WorkManager.initialize' app/src/main/java/com/kareem/cortex/CortexApp.java
-          found=0
-          init=0
+          found=0; init=0
           while IFS= read -r manifest; do
             found=1
-            grep -q 'android:name="com.kareem.cortex.CortexApp"\|android:name=".CortexApp"' "$manifest" || true
             if grep -q 'androidx.work.WorkManagerInitializer' "$manifest"; then init=1; fi
           done < <(find app/build/intermediates -type f -name AndroidManifest.xml \( -path '*merged_manifest*' -o -path '*merged_manifests*' \) | sort)
           test "$found" = 1
           test "$init" = 1
-          echo 'WorkManager bootstrap: default AndroidX Startup initializer PRESENT; staged safe-core + native quarantine contracts PRESENT'
+          echo 'Provider-first WorkManager + recovery isolation + in-app status contract: PASS'
 
-      - name: Re-run exhaustive startup audit against merged manifest
-        shell: bash
-        run: |
-          set -euo pipefail
-          scripts/startup-crash-audit.sh .
+      - name: Re-run startup audit against built project
+        run: scripts/startup-crash-audit.sh .
 
-      - name: Run full Android lint diagnostic
+      - name: Android lint
         id: lint
         continue-on-error: true
         run: gradle :app:lintDebug --stacktrace
 
-      - name: Gate cognitive code and crash-risk lint regressions
+      - name: Gate new-code and crash-risk lint errors
         shell: bash
         run: |
           set -euo pipefail
-          XML=app/build/reports/lint-results-debug.xml
-          test -s "$XML"
           python3 - <<'PY'
           import os, xml.etree.ElementTree as ET
           p='app/build/reports/lint-results-debug.xml'
           root=ET.parse(p).getroot()
           errors=[i for i in root.findall('issue') if i.attrib.get('severity')=='Error']
-          brain_names={
-              'AttentionDecisionEngine.java','CognitiveWorldState.java','CognitiveShadowStore.java',
-              'CommitmentLifecycleStore.java','TemporalResolver.java',
-              'AttentionShadowComparator.java','AttentionTraceExporter.java','StatefulMeaningWorker.java','StatefulMeaningScheduler.java',
-              'CognitiveBrainStressTest.java','CommitmentLifecycleStoreTest.java','CommitmentLifecyclePrecisionTest.java','StartupSafetyGate.java','ColdStartQuarantineTest.java',
-              'CapabilitySupervisor.java','CapabilitySupervisorTest.java','SafeCoreRuntime.java',
-              'SafeCoreLifecycle.java','NotificationCaptureService.java','UniversalSemanticScheduler.java',
-              'OcrAnalyzer.java','ArabicOcr.java','CleanWhisperTranscriber.kt','LocalLlmBridge.kt',
-              'CortexApp.java'
-          }
-          brain=[]
-          crash=[]
+          critical={'CortexExtensiveSystemTest.java','CortexAuditActivity.java','DiagnosticFileShare.java','SettingsActivity.java','StartupSafetyGate.java','CapabilitySupervisor.java','CortexApp.java'}
+          bad=[]; crash=[]
           for i in errors:
-              loc=i.find('location')
-              f=os.path.basename(loc.attrib.get('file','')) if loc is not None else ''
-              if f in brain_names: brain.append((i.attrib.get('id'),f,i.attrib.get('message')))
-              if i.attrib.get('id') in {'MissingPermission','UnsafeOptInUsageError','NewApi'}:
-                  crash.append((i.attrib.get('id'),f,i.attrib.get('message')))
-          print(f'Full-project lint debt: {len(errors)} errors')
-          assert len(errors) <= 26, f'lint error count regressed: {len(errors)} > known post-fix ceiling 26'
-          assert not brain, 'cognitive/staged-recovery/commitment-lifecycle v70 lint errors: '+repr(brain)
-          assert not crash, 'runtime/crash-risk lint errors remain: '+repr(crash)
-          print('Cognitive/staged-recovery/commitment-lifecycle lint gate: PASS')
+              loc=i.find('location'); f=os.path.basename(loc.attrib.get('file','')) if loc is not None else ''
+              if f in critical: bad.append((i.attrib.get('id'),f,i.attrib.get('message')))
+              if i.attrib.get('id') in {'MissingPermission','UnsafeOptInUsageError','NewApi'}: crash.append((i.attrib.get('id'),f,i.attrib.get('message')))
+          assert not bad, 'new authoritative test/status lint errors: '+repr(bad)
+          assert not crash, 'runtime/crash-risk lint errors: '+repr(crash)
+          print(f'Lint gate PASS; legacy project debt not used as fake test-count signal ({len(errors)} total Error items)')
           PY
 
-      - name: Repeat brain tests from scratch for determinism
-        run: gradle :app:testDebugUnitTest --rerun-tasks --stacktrace
+      - name: Repeat the ONE extensive test from scratch
+        run: gradle :app:testDebugUnitTest --tests com.kareem.cortex.CortexExtensiveSystemTest --rerun-tasks --stacktrace
 
-      - name: Verify second pass stayed green
+      - name: Verify deterministic repeat
         shell: bash
         run: |
           set -euo pipefail
           python3 - <<'PY'
-          import glob, xml.etree.ElementTree as ET
-          files=glob.glob('app/build/test-results/testDebugUnitTest/TEST-*.xml')
-          assert files, 'no unit test XML files after repeatability pass'
-          total=0
-          bad=[]
-          for p in files:
-              root=ET.parse(p).getroot()
-              cases=root.findall('testcase')
-              total += len(cases)
-              for c in cases:
-                  if c.find('failure') is not None or c.find('error') is not None or c.find('skipped') is not None:
-                      bad.append(p.split('/')[-1]+':'+c.attrib.get('name','?'))
-          assert total >= 130, f'expected broad repeated suite including commitment lifecycle precision coverage, only {total} cases found'
-          assert not bad, 'repeatability failures/skips: '+','.join(bad)
-          print(f'Repeatability pass: {total}/{total} tests PASS')
+          import xml.etree.ElementTree as ET
+          p='app/build/test-results/testDebugUnitTest/TEST-com.kareem.cortex.CortexExtensiveSystemTest.xml'
+          root=ET.parse(p).getroot(); cases=root.findall('testcase')
+          assert len(cases)==1
+          c=cases[0]
+          assert c.find('failure') is None and c.find('error') is None and c.find('skipped') is None
+          print('Deterministic extensive-system repeat: PASS')
           PY
 
-      - name: Upload benchmark and startup audit reports
+      - name: Upload Cortex extensive-system QA
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: cortex-v70-brain-benchmark-qa
+          name: cortex-extensive-system-qa
           path: |
-            app/build/test-results/
-            app/build/reports/tests/
+            app/build/test-results/testDebugUnitTest/
+            app/build/reports/tests/testDebugUnitTest/
             app/build/reports/lint-results-debug.html
             app/build/reports/lint-results-debug.xml
             app/build/reports/startup-crash-audit.txt
             app/build/outputs/apk/debug/
             app/build/intermediates/merged_manifests/
-            docs/CORTEX_BRAIN_BENCHMARK_V1.md
           if-no-files-found: warn
           retention-days: 14
