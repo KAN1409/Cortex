@@ -32,10 +32,13 @@ class TesseractArabicOcrEngine(
                 api.setPageSegMode(TessBaseAPI.PageSegMode.PSM_AUTO)
                 api.setImage(working)
                 val raw = api.getUTF8Text().orEmpty()
+                val confidence = runCatching { api.meanConfidence() }.getOrDefault(0)
                 val arabicRelevant = retainArabicLines(raw)
+                val accepted = acceptArabicResult(arabicRelevant, confidence)
+                val finalText = if (accepted) arabicRelevant else ""
                 OcrResult(
-                    rawText = arabicRelevant,
-                    normalizedText = normalizeOcrText(arabicRelevant)
+                    rawText = finalText,
+                    normalizedText = normalizeOcrText(finalText)
                 )
             } finally {
                 api.clear()
@@ -108,6 +111,16 @@ class TesseractArabicOcrEngine(
         .distinct()
         .joinToString("\n")
 
+    private fun acceptArabicResult(text: String, confidence: Int): Boolean {
+        if (text.isBlank() || confidence < MIN_ACCEPTED_CONFIDENCE) return false
+        val letters = text.count(Char::isLetter)
+        if (letters < MIN_ARABIC_LETTERS) return false
+        val arabicLetters = text.count(::isArabicLetter)
+        if (arabicLetters < MIN_ARABIC_LETTERS) return false
+        val arabicRatio = arabicLetters.toFloat() / letters.coerceAtLeast(1).toFloat()
+        return arabicRatio >= MIN_ARABIC_LETTER_RATIO
+    }
+
     private fun isArabicLetter(char: Char): Boolean {
         if (!char.isLetter()) return false
         return Character.UnicodeBlock.of(char) in ARABIC_BLOCKS
@@ -121,6 +134,9 @@ class TesseractArabicOcrEngine(
         private const val MAX_SCALE = 2.0f
         private const val MAX_PIXELS = 8_000_000L
         private const val MIN_MODEL_BYTES = 1_000_000L
+        private const val MIN_ACCEPTED_CONFIDENCE = 72
+        private const val MIN_ARABIC_LETTERS = 6
+        private const val MIN_ARABIC_LETTER_RATIO = 0.62f
 
         private val ARABIC_BLOCKS = setOf(
             Character.UnicodeBlock.ARABIC,
