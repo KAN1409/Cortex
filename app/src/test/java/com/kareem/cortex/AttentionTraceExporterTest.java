@@ -23,6 +23,7 @@ public class AttentionTraceExporterTest {
         db = SQLiteDatabase.create(null);
         UniversalEventStore.ensure(db);
         StatefulMeaningStore.ensure(db);
+        CommitmentLifecycleStore.ensure(db);
         CognitiveShadowStore.ensure(db);
     }
 
@@ -55,14 +56,16 @@ public class AttentionTraceExporterTest {
         long situationBefore = count("SELECT COUNT(*) FROM ue_situations");
         long projectionBefore = count("SELECT COUNT(*) FROM ue_projection_decisions");
         long attentionBefore = count("SELECT COUNT(*) FROM ue_attention_items");
+        long commitmentBefore=count("SELECT COUNT(*) FROM ue_commitments");
 
         JSONObject root = new JSONObject(AttentionTraceExporter.export(db));
         assertEquals(AttentionTraceExporter.VERSION, root.getString("format"));
-        assertEquals("CORTEX_ATTENTION_TRACE_V3", root.getString("format"));
+        assertEquals("CORTEX_ATTENTION_TRACE_V4", root.getString("format"));
         assertTrue(root.has("app_version_name"));
         assertTrue(root.has("schema_revision"));
         assertEquals(CognitiveWorldState.VERSION, root.getString("world_state_version"));
         assertEquals(AttentionDecisionEngine.VERSION, root.getString("attention_engine_version"));
+        assertEquals(CommitmentLifecycleStore.VERSION,root.getString("commitment_lifecycle_version"));
 
         JSONArray capture = root.getJSONArray("capture");
         assertEquals(1, capture.length());
@@ -75,6 +78,7 @@ public class AttentionTraceExporterTest {
         assertEquals(situation, trace.getLong("situation_id"));
         assertEquals(raw, trace.getJSONArray("evidence").getJSONObject(0).getLong("capture_id"));
         assertEquals(event, trace.getJSONArray("evidence").getJSONObject(0).getLong("semantic_event_id"));
+        assertFalse(trace.getJSONObject("commitment").getBoolean("available"));
         assertTrue(trace.getJSONObject("production_now_decision").getBoolean("evaluated"));
         assertTrue(trace.getJSONObject("production_now_decision").getBoolean("surface_now"));
         assertTrue(trace.getJSONObject("actual_now").getBoolean("present"));
@@ -101,6 +105,7 @@ public class AttentionTraceExporterTest {
         assertEquals(1, summary.getLong("capture_count"));
         assertEquals(1, summary.getLong("linked_semantic_count"));
         assertEquals(0, summary.getLong("unlinked_complete_semantic_count"));
+        assertEquals(0, summary.getLong("commitment_count"));
         assertEquals(1, summary.getLong("world_state_candidate_count"));
         assertEquals(1, summary.getLong("fresh_candidate_count"));
         assertEquals(0, summary.getLong("stale_candidate_count"));
@@ -113,6 +118,42 @@ public class AttentionTraceExporterTest {
         assertEquals(situationBefore, count("SELECT COUNT(*) FROM ue_situations"));
         assertEquals(projectionBefore, count("SELECT COUNT(*) FROM ue_projection_decisions"));
         assertEquals(attentionBefore, count("SELECT COUNT(*) FROM ue_attention_items"));
+        assertEquals(commitmentBefore,count("SELECT COUNT(*) FROM ue_commitments"));
+    }
+
+    @Test public void exportIncludesCommitmentLifecycleDeadlineAndOverdueState() throws Exception {
+        long at=System.currentTimeMillis()-2L*24L*60L*60L*1000L;
+        long raw=UniversalEventStore.appendRaw(db,"notification","mail","commitment-trace",
+                "posted","message","conversation_notification","Quotation","Send quotation today",new JSONObject(),at);
+        long stream=UniversalEventStore.upsertStream(db,"notification","commitment-trace-stream","active","hc",
+                "Quotation","Send quotation today","message","conversation_notification",at,true,new JSONObject());
+        long event=UniversalEventStore.insertSemantic(db,raw,stream,1,"commitment","waiting","Quotation",
+                "Send quotation today",.95,"complete",true,"test","trace test",at);
+        long situation=StatefulMeaningStore.correlate(db,event,0,"mail","commitment","Quotation","Send quotation today",.95,at);
+        CognitiveShadowStore.run(db,5);
+
+        JSONObject root=new JSONObject(AttentionTraceExporter.export(db));
+        JSONArray commitments=root.getJSONArray("commitments");
+        assertEquals(1,commitments.length());
+        JSONObject commitment=commitments.getJSONObject(0);
+        assertEquals(situation,commitment.getLong("situation_id"));
+        assertEquals("open",commitment.getString("state"));
+        assertEquals("overdue",commitment.getString("effective_state"));
+        assertTrue(commitment.getBoolean("overdue"));
+        assertTrue(commitment.getLong("deadline_at")>0);
+
+        JSONObject traceCommitment=root.getJSONArray("trace_items").getJSONObject(0).getJSONObject("commitment");
+        assertTrue(traceCommitment.getBoolean("available"));
+        assertEquals("open",traceCommitment.getString("state"));
+        assertTrue(traceCommitment.getBoolean("overdue"));
+        assertEquals(commitment.getLong("deadline_at"),traceCommitment.getLong("deadline_at"));
+
+        JSONObject summary=root.getJSONObject("summary");
+        assertEquals(1,summary.getLong("commitment_count"));
+        assertEquals(1,summary.getLong("open_commitment_count"));
+        assertEquals(1,summary.getLong("overdue_commitment_count"));
+        assertEquals(0,summary.getLong("terminal_commitment_count"));
+        assertTrue(summary.getLong("commitment_semantic_evaluated_count")>=1);
     }
 
     @Test public void exportMakesCognitiveRejectionReasonsVisible() throws Exception {
