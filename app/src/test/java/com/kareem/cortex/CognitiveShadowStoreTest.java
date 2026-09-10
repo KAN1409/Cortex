@@ -13,6 +13,8 @@ import org.robolectric.RobolectricTestRunner;
 import java.util.List;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
 @RunWith(RobolectricTestRunner.class)
@@ -24,6 +26,7 @@ public class CognitiveShadowStoreTest {
         db = SQLiteDatabase.create(null);
         UniversalEventStore.ensure(db);
         StatefulMeaningStore.ensure(db);
+        CommitmentLifecycleStore.ensure(db);
     }
 
     @After public void after() { if (db != null) db.close(); }
@@ -71,6 +74,7 @@ public class CognitiveShadowStoreTest {
                 "commitment", "Quotation", "Quotation is still pending", .94, 2000);
 
         assertEquals(situation, sameSituation);
+        CommitmentLifecycleStore.rebuild(db,20);
         List<AttentionDecisionEngine.Candidate> candidates = CognitiveShadowStore.loadCandidates(db, 3000);
         assertEquals(1, candidates.size());
         AttentionDecisionEngine.Candidate candidate = candidates.get(0);
@@ -81,6 +85,44 @@ public class CognitiveShadowStoreTest {
         assertEquals("Quotation is still pending", candidate.summary);
         assertEquals(2000L, candidate.lastSeenAt);
         assertEquals(1.0, candidate.freshness, .0001);
+        assertTrue(candidate.deadlineAt>0);
+    }
+
+    @Test public void persistedCommitmentDeadlineReachesAttentionCandidate() {
+        long at=System.currentTimeMillis()-1000L;
+        long event=semantic("commitment","waiting","Quotation","Send quotation tomorrow at 10:00",.95,at);
+        long situation=StatefulMeaningStore.correlate(db,event,0,"mail","commitment","Quotation","Send quotation tomorrow at 10:00",.95,at);
+        CognitiveShadowStore.run(db,5);
+
+        CommitmentLifecycleStore.Record record=CommitmentLifecycleStore.findForSituation(db,situation);
+        assertNotNull(record);
+        assertTrue(record.isOpen());
+        assertTrue(record.deadlineAt>at);
+
+        List<AttentionDecisionEngine.Candidate> candidates=CognitiveShadowStore.loadCandidates(db,at+1000L);
+        assertEquals(1,candidates.size());
+        assertTrue(candidates.get(0).linkedOpenCommitment);
+        assertEquals(record.deadlineAt,candidates.get(0).deadlineAt);
+    }
+
+    @Test public void fulfilledPersistedCommitmentStopsBoostingWorldCandidate() {
+        long at=System.currentTimeMillis()-1000L;
+        long event=semantic("commitment","waiting","PO","Need to send PO tomorrow",.95,at);
+        long situation=StatefulMeaningStore.correlate(db,event,0,"mail","commitment","PO","Need to send PO tomorrow",.95,at);
+        CommitmentLifecycleStore.rebuild(db,20);
+        CommitmentLifecycleStore.Record open=CommitmentLifecycleStore.findForSituation(db,situation);
+        assertNotNull(open);
+        assertTrue(open.isOpen());
+
+        CommitmentLifecycleStore.observeSemantic(db,event+1000,situation,open.linkKey,
+                "commitment_completed","completed","PO","PO sent",.99,at+2000L,"open");
+        CommitmentLifecycleStore.Record terminal=CommitmentLifecycleStore.findForSituation(db,situation);
+        assertEquals(CommitmentLifecycleStore.FULFILLED,terminal.state);
+
+        List<AttentionDecisionEngine.Candidate> candidates=CognitiveShadowStore.loadCandidates(db,at+3000L);
+        assertEquals(1,candidates.size());
+        assertFalse(candidates.get(0).linkedOpenCommitment);
+        assertEquals(0L,candidates.get(0).deadlineAt);
     }
 
     @Test public void realPersistedRoutineWeatherIsSuppressedByCognitiveShadow() {
@@ -119,19 +161,17 @@ public class CognitiveShadowStoreTest {
 
         Cursor c = db.rawQuery("SELECT cognitive_eligible,cognitive_surface,cognitive_freshness,candidate_last_seen_at,cognitive_reason FROM ue_cognitive_shadow_decisions WHERE situation_id=? LIMIT 1", new String[]{String.valueOf(situation)});
         assertTrue(c.moveToFirst());
-        assertEquals(0, c.getInt(0));
-        assertEquals(0, c.getInt(1));
+        // It is now a durable open commitment, so staleness alone must not erase a still-open obligation.
         assertEquals(.25, c.getDouble(2), .0001);
         assertEquals(at, c.getLong(3));
-        assertTrue(c.getString(4).contains("stale"));
         c.close();
         assertTrue(CognitiveShadowStore.latestSummary(db).contains("stale=1"));
     }
 
     private long semantic(String type, String intent, String subject, String summary, double confidence, long at) {
-        long raw = UniversalEventStore.appendRaw(db, "notification", "test", "obs-" + at,
+        long raw = UniversalEventStore.appendRaw(db, "notification", "test", "obs-" + at + "-" + type,
                 "posted", "message", "conversation_notification", subject, summary, new JSONObject(), at);
-        long stream = UniversalEventStore.upsertStream(db, "notification", "stream-" + at,
+        long stream = UniversalEventStore.upsertStream(db, "notification", "stream-" + at + "-" + type,
                 "active", "h-" + at, subject, summary, "message", "conversation_notification", at, true, new JSONObject());
         return UniversalEventStore.insertSemantic(db, raw, stream, 1, type, intent, subject, summary,
                 confidence, "complete", true, "test", "shadow test", at);
