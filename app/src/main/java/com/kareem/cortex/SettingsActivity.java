@@ -32,7 +32,7 @@ public class SettingsActivity extends Activity {
         String crash=CrashRecorder.read(this,60000);
         String processExit=ProcessExitRecorder.read(this,120000);
         actionRow(body,"Share Java crash report",crash.trim().isEmpty()?"No uncaught Java crash is currently stored":"Java exception captured locally · exports as a .txt attachment",()->shareCrash(crash));
-        actionRow(body,"Share Android process exit",processExit.trim().isEmpty()?"No Android process-exit diagnosis is stored yet":"Android exit trace captured · exports as a .txt attachment",()->shareProcessExit(processExit));
+        actionRow(body,"Refresh + share Android process exit",processExit.trim().isEmpty()?"Reads Android's last process exit on demand, then exports the full trace":"Stored exit exists · tap to refresh from Android and export the newest full trace",this::refreshAndShareProcessExit);
         actionRow(body,"Export attention trace","Read-only Capture → situation → decision → Now snapshot · exports as a .json attachment",this::shareAttentionTrace);
 
         LinearLayout diagnostic=CortexUi.card(this,20);diagnostic.setPadding(dp(14),dp(14),dp(14),dp(14));
@@ -55,9 +55,16 @@ public class SettingsActivity extends Activity {
         shareAttachment("Cortex Java crash report","Share Cortex Java crash report","cortex-java-crash.txt",crash);
     }
 
-    void shareProcessExit(String report){
-        if(report==null||report.trim().isEmpty()){Toast.makeText(this,"No Android process-exit report stored",Toast.LENGTH_LONG).show();return;}
-        shareAttachment("Cortex Android process exit","Share Cortex Android process exit","cortex-process-exit.txt",report);
+    void refreshAndShareProcessExit(){
+        Toast.makeText(this,"Reading Android process-exit trace…",Toast.LENGTH_SHORT).show();
+        new Thread(()->{
+            try{ProcessExitRecorder.captureHistoricalExit(getApplicationContext());}catch(Throwable ignored){}
+            final String report=ProcessExitRecorder.read(getApplicationContext(),120000);
+            runOnUiThread(()->{
+                if(report.trim().isEmpty()){Toast.makeText(this,"Android did not provide a process-exit trace",Toast.LENGTH_LONG).show();return;}
+                shareAttachment("Cortex Android process exit","Share Cortex Android process exit","cortex-process-exit.txt",report);
+            });
+        },"cortex-exit-trace-export").start();
     }
 
     void shareAttachment(String subject,String chooser,String fileName,String text){
