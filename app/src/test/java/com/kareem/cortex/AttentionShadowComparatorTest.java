@@ -6,6 +6,7 @@ import java.util.Arrays;
 import java.util.List;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
 
 public class AttentionShadowComparatorTest {
     private static final long NOW = 3_000_000_000L;
@@ -45,13 +46,16 @@ public class AttentionShadowComparatorTest {
         assertEquals(1, r.agreements);
         assertEquals(1, r.cognitiveRecoveries);
         assertEquals(1, r.cognitiveNoiseSuppressions);
+        assertEquals(2, r.cognitiveEligibleCount);
+        assertEquals(2, r.cognitiveSelectedCount);
+        assertEquals(0, r.topKExcludedCount);
         assertEquals(AttentionShadowComparator.Delta.AGREES_SURFACE, r.comparisons.get(0).delta);
         assertEquals(AttentionShadowComparator.Delta.NEW_SURFACES_LEGACY_MISSED, r.comparisons.get(1).delta);
         assertEquals(AttentionShadowComparator.Delta.NEW_SUPPRESSES_LEGACY_NOISE, r.comparisons.get(2).delta);
     }
 
     @Test
-    public void shadowComparisonUsesGlobalNowCapacity() {
+    public void shadowComparisonKeepsEligibilityWhenGlobalNowCapacityExcludesCandidate() {
         AttentionDecisionEngine.Candidate critical = c(
                 10, "security_alert", "Account", "Unauthorized login; act now",
                 .95, .95, .95, .95, 0, false, true, false);
@@ -66,8 +70,16 @@ public class AttentionShadowComparatorTest {
                 Arrays.asList(due, critical),
                 1);
 
+        assertEquals(2, r.cognitiveEligibleCount);
+        assertEquals(1, r.cognitiveSelectedCount);
+        assertEquals(1, r.topKExcludedCount);
         assertEquals(AttentionShadowComparator.Delta.AGREES_SURFACE, r.comparisons.get(0).delta);
         assertEquals(1, r.comparisons.get(0).cognitiveRank);
+        assertTrue(r.comparisons.get(0).cognitiveEligible);
         assertEquals(AttentionShadowComparator.Delta.NEW_SUPPRESSES_LEGACY_NOISE, r.comparisons.get(1).delta);
+        assertTrue(r.comparisons.get(1).cognitiveEligible);
+        assertEquals(0, r.comparisons.get(1).cognitiveRank);
+        assertTrue(r.comparisons.get(1).cognitiveReason.contains("outside global Now capacity"));
+        assertTrue(r.comparisons.get(1).cognitiveScore > 0.0);
     }
 }
