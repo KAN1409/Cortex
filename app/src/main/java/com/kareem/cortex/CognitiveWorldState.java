@@ -312,6 +312,7 @@ public final class CognitiveWorldState {
                     s.novelty,
                     deadline,
                     nowAt,
+                    s.lastSeenAt,
                     s.repeatedCount,
                     s.evidenceCount,
                     s.unresolved,
