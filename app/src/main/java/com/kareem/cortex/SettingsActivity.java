@@ -8,7 +8,7 @@ import android.provider.Settings;
 import android.view.*;
 import android.widget.*;
 
-/** Shallow user settings. Engineering/test internals are consolidated into one Full Diagnostic. */
+/** Shallow user settings. Engineering/test internals are consolidated into one system status surface. */
 public class SettingsActivity extends Activity {
     int dp(int x){return CortexUi.dp(this,x);}
     @Override public void onCreate(Bundle b){super.onCreate(b);CortexUi.applyWindow(this);build();}
@@ -37,7 +37,7 @@ public class SettingsActivity extends Activity {
         actionRow(body,"Export attention trace","Saves the FULL JSON to Downloads/Cortex, then opens Share",this::shareAttentionTrace);
 
         LinearLayout diagnostic=CortexUi.card(this,20);diagnostic.setPadding(dp(14),dp(14),dp(14),dp(14));
-        LinearLayout dtop=new LinearLayout(this);dtop.setGravity(Gravity.CENTER_VERTICAL);dtop.addView(CortexUi.glyph(this,"check",CortexUi.LIME,true),new LinearLayout.LayoutParams(dp(50),dp(50)));LinearLayout dtx=new LinearLayout(this);dtx.setOrientation(LinearLayout.VERTICAL);LinearLayout.LayoutParams dx=new LinearLayout.LayoutParams(0,-2,1);dx.setMargins(dp(12),0,0,0);dtop.addView(dtx,dx);TextView dt=CortexUi.plain(this,"Full Cortex Diagnostic",17,CortexUi.TEXT);CortexUi.medium(dt);dtx.addView(dt);TextView ds=CortexUi.text(this,"One exhaustive test for app identity, permissions, capture, storage, AI, background work, reliability and evidence.",11,CortexUi.MUTED);ds.setPadding(0,dp(4),0,0);dtx.addView(ds);diagnostic.addView(dtop);TextView run=CortexUi.action(this,"OPEN FULL DIAGNOSTIC",CortexUi.LIME,true);LinearLayout.LayoutParams rp=new LinearLayout.LayoutParams(-1,dp(46));rp.setMargins(0,dp(12),0,0);diagnostic.addView(run,rp);run.setOnClickListener(v->startActivity(new Intent(this,CortexAuditActivity.class)));body.addView(diagnostic);
+        LinearLayout dtop=new LinearLayout(this);dtop.setGravity(Gravity.CENTER_VERTICAL);dtop.addView(CortexUi.glyph(this,"check",CortexUi.LIME,true),new LinearLayout.LayoutParams(dp(50),dp(50)));LinearLayout dtx=new LinearLayout(this);dtx.setOrientation(LinearLayout.VERTICAL);LinearLayout.LayoutParams dx=new LinearLayout.LayoutParams(0,-2,1);dx.setMargins(dp(12),0,0,0);dtop.addView(dtx,dx);TextView dt=CortexUi.plain(this,"Cortex System Status",17,CortexUi.TEXT);CortexUi.medium(dt);dtx.addView(dt);TextView ds=CortexUi.text(this,"One authoritative extensive test plus live GREEN / AMBER / RED / QUARANTINED status for models, brain, capture, database, background work and runtime safety.",11,CortexUi.MUTED);ds.setPadding(0,dp(4),0,0);dtx.addView(ds);diagnostic.addView(dtop);TextView run=CortexUi.action(this,"OPEN SYSTEM STATUS",CortexUi.LIME,true);LinearLayout.LayoutParams rp=new LinearLayout.LayoutParams(-1,dp(46));rp.setMargins(0,dp(12),0,0);diagnostic.addView(run,rp);run.setOnClickListener(v->startActivity(new Intent(this,CortexAuditActivity.class)));body.addView(diagnostic);
         TextView advanced=CortexUi.action(this,"Advanced configuration",CortexUi.FAINT,false);LinearLayout.LayoutParams ap=new LinearLayout.LayoutParams(-1,dp(42));ap.setMargins(0,dp(12),0,0);body.addView(advanced,ap);advanced.setOnClickListener(v->startActivity(new Intent(this,PhoneContextAccessActivity.class)));
         setContentView(root);CortexUi.fitSystemBars(this,root);
     }
