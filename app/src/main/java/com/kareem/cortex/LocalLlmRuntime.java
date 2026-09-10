@@ -10,28 +10,32 @@ public final class LocalLlmRuntime {
 
     public interface Callback{void done(State state);}
 
+    private static boolean capabilityAllowed(Context c){
+        return c!=null&&CapabilitySupervisor.allowed(c,CapabilitySupervisor.Capability.LOCAL_LLM_NATIVE);
+    }
+
     public static State state(Context c){
         SharedPreferences p=c.getSharedPreferences(PREF,Context.MODE_PRIVATE);String st=p.getString(K_STATE,"not_tested");
         if("ready".equals(st)&&!LocalModelManager.SHA256.equalsIgnoreCase(p.getString(K_MODEL_SHA,"")))st="not_tested";
-        if(StartupSafetyGate.active())st="quarantined";
+        if(StartupSafetyGate.active()||!capabilityAllowed(c))st="quarantined";
         return new State(st,p.getString(K_ERROR,""),p.getString(K_TEXT,""),p.getString(K_INFO,""),p.getFloat(K_TPS,0f),p.getInt(K_TOKENS,0),p.getLong(K_DURATION,0),p.getLong(K_TESTED,0));
     }
-    public static boolean ready(Context c){return !StartupSafetyGate.active()&&"ready".equals(state(c).state)&&LocalModelManager.verified(c);}
-    public static boolean testing(Context c){return !StartupSafetyGate.active()&&"testing".equals(state(c).state);}
+    public static boolean ready(Context c){return !StartupSafetyGate.active()&&capabilityAllowed(c)&&"ready".equals(state(c).state)&&LocalModelManager.verified(c);}
+    public static boolean testing(Context c){return !StartupSafetyGate.active()&&capabilityAllowed(c)&&"testing".equals(state(c).state);}
     public static String runtimeVersion(){return StartupSafetyGate.active()?"native runtime quarantined":LocalLlmBridge.RUNTIME_VERSION;}
 
     /**
-     * Safe idempotent auto-start. Native runtime entry is completely blocked by recovery quarantine
-     * because SIGABRT/SIGSEGV cannot be caught by Java try/catch.
+     * Safe idempotent auto-start. Native runtime entry is blocked by both the startup recovery
+     * gate and the local-LLM circuit breaker because SIGABRT/SIGSEGV cannot be caught by Java.
      */
     public static void maybeAutoSelfTest(Context c,Callback cb){
-        if(StartupSafetyGate.active()){if(cb!=null)cb.done(state(c));return;}
+        if(StartupSafetyGate.active()||!capabilityAllowed(c)){if(cb!=null)cb.done(state(c));return;}
         if(!LocalModelManager.verified(c)||ready(c)||testing(c))return;
         runSelfTest(c,cb);
     }
 
     public static void runSelfTest(Context c,Callback cb){
-        if(StartupSafetyGate.active()){if(cb!=null)cb.done(state(c));return;}
+        if(StartupSafetyGate.active()||!capabilityAllowed(c)){if(cb!=null)cb.done(state(c));return;}
         Context app=c.getApplicationContext();if(!LocalModelManager.verified(app)){if(cb!=null)cb.done(state(app));return;}
         synchronized(LocalLlmRuntime.class){
             if(ready(app)){if(cb!=null)cb.done(state(app));return;}
@@ -39,10 +43,16 @@ public final class LocalLlmRuntime {
             app.getSharedPreferences(PREF,Context.MODE_PRIVATE).edit().putString(K_STATE,"testing").putString(K_ERROR,"").apply();
         }
         new Thread(()->{
-            if(StartupSafetyGate.active())return;
+            if(StartupSafetyGate.active()||!capabilityAllowed(app))return;
             long at=System.currentTimeMillis();LocalLlmBridge.SelfTestResult r;
             try{r=LocalLlmBridge.selfTest(LocalModelManager.modelFile(app).getAbsolutePath());}
-            catch(Throwable t){r=null;SharedPreferences.Editor e=app.getSharedPreferences(PREF,Context.MODE_PRIVATE).edit().putString(K_STATE,"failed").putString(K_ERROR,t.getClass().getSimpleName()+": "+safe(t.getMessage())).putLong(K_TESTED,at).putString(K_MODEL_SHA,LocalModelManager.SHA256);e.apply();if(cb!=null)cb.done(state(app));return;}
+            catch(Throwable t){
+                r=null;
+                CapabilitySupervisor.recordFailure(app,CapabilitySupervisor.Capability.LOCAL_LLM_NATIVE,t);
+                SharedPreferences.Editor e=app.getSharedPreferences(PREF,Context.MODE_PRIVATE).edit().putString(K_STATE,"failed").putString(K_ERROR,t.getClass().getSimpleName()+": "+safe(t.getMessage())).putLong(K_TESTED,at).putString(K_MODEL_SHA,LocalModelManager.SHA256);e.apply();if(cb!=null)cb.done(state(app));return;
+            }
+            if(r.getOk())CapabilitySupervisor.recordHealthy(app,CapabilitySupervisor.Capability.LOCAL_LLM_NATIVE);
+            else CapabilitySupervisor.recordFailure(app,CapabilitySupervisor.Capability.LOCAL_LLM_NATIVE,new IllegalStateException(safe(r.getError())));
             SharedPreferences.Editor e=app.getSharedPreferences(PREF,Context.MODE_PRIVATE).edit();e.putString(K_STATE,r.getOk()?"ready":"failed");e.putString(K_ERROR,safe(r.getError()));e.putString(K_TEXT,safeLong(r.getText(),1200));e.putString(K_INFO,safeLong(r.getSystemInfo(),2400));e.putFloat(K_TPS,r.getTokensPerSecond());e.putInt(K_TOKENS,r.getTokensGenerated());e.putLong(K_DURATION,r.getDurationMs());e.putLong(K_TESTED,System.currentTimeMillis());e.putString(K_MODEL_SHA,LocalModelManager.SHA256);e.apply();if(cb!=null)cb.done(state(app));
         },"cortex-local-self-test").start();
     }
