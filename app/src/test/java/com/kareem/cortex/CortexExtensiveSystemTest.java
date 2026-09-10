@@ -50,6 +50,9 @@ public class CortexExtensiveSystemTest {
             DeterministicSemanticRecovery.Classification cib=DeterministicSemanticRecovery.classify("notification","CIB","يرجى العلم أنه سوف يتم تحديث أنظمة CIB يوم الجمعة");
             assertNull("generic future announcement must never become WAITING",cib.attentionKind);
             assertNotEquals("commitment",cib.type);
+            assertTrue(AttentionNoisePolicy.suppress("WhatsApp","Snap","Thank you for contacting Snap! Please let us know how we can help you.","action_request","request"));
+            assertTrue(AttentionNoisePolicy.suppress("Truecaller","البنك الأهلي المصري","Spam · عرض بطاقات 6 شهور بدون فوائد","payment_action","payment"));
+            assertFalse(AttentionNoisePolicy.suppress("WhatsApp","Ahmed","Please send the quotation today","action_request","request"));
 
             assertTrue(SemanticMemoryBridge.sync(db,50)>=0);assertNotNull(CognitiveNowReadModel.load(db.getReadableDatabase(),8));
             CortexPipelineStatusBar.Snapshot pipeline=CortexPipelineStatusBar.read(db);assertTrue(pipeline.raw>=0);assertTrue(pipeline.processing>=0);
