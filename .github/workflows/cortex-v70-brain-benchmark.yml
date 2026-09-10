@@ -62,7 +62,7 @@ jobs:
           print('Inherited v69 acceptance: 35/35 PASS')
           PY
 
-      - name: Verify v70 cognitive and recovery suites
+      - name: Verify v70 cognitive and staged recovery suites
         shell: bash
         run: |
           set -euo pipefail
@@ -75,6 +75,7 @@ jobs:
             'CognitiveShadowStoreTest':2,
             'CognitiveBrainStressTest':16,
             'ColdStartQuarantineTest':4,
+            'CapabilitySupervisorTest':5,
           }
           total=0
           for cls,minimum in checks.items():
@@ -86,22 +87,29 @@ jobs:
               assert not bad, f'{cls}: failed/skipped '+','.join(bad)
               total += len(cases)
               print(f'{cls}: {len(cases)}/{len(cases)} PASS')
-          assert total >= 45
-          print(f'v70 cognitive/recovery suites: {total}/{total} PASS')
+          assert total >= 50
+          print(f'v70 cognitive/staged-recovery suites: {total}/{total} PASS')
           PY
           grep -q 'CognitiveShadowStore.run' app/src/main/java/com/kareem/cortex/StatefulMeaningWorker.java
           ! grep -q 'ue_attention_items.*INSERT\|INSERT.*ue_attention_items' app/src/main/java/com/kareem/cortex/CognitiveShadowStore.java
           ! grep -q 'ue_projection_decisions.*INSERT\|INSERT.*ue_projection_decisions' app/src/main/java/com/kareem/cortex/CognitiveShadowStore.java
+          grep -q 'SafeCoreLifecycle.install(this)' app/src/main/java/com/kareem/cortex/CortexApp.java
+          grep -q 'CapabilitySupervisor.Capability.RAW_NOTIFICATION_CAPTURE' app/src/main/java/com/kareem/cortex/NotificationCaptureService.java
+          grep -q 'CapabilitySupervisor.Capability.LOCAL_LLM_NATIVE' app/src/main/java/com/kareem/cortex/UniversalSemanticScheduler.java
 
       - name: Build installable debug APK
         run: gradle :app:assembleDebug --stacktrace
 
-      - name: Verify provider-first WorkManager bootstrap in merged manifest
+      - name: Verify provider-first WorkManager bootstrap and staged recovery
         shell: bash
         run: |
           set -euo pipefail
           grep -q 'private static final boolean ACTIVE = true' app/src/main/java/com/kareem/cortex/StartupSafetyGate.java
           grep -q 'if(!StartupSafetyGate.active())' app/src/main/java/com/kareem/cortex/InputActivity.java
+          grep -q 'SafeCoreLifecycle.install(this)' app/src/main/java/com/kareem/cortex/CortexApp.java
+          grep -q 'POST_RESUME_SETTLE_MS' app/src/main/java/com/kareem/cortex/SafeCoreRuntime.java
+          grep -q 'SELECT 1' app/src/main/java/com/kareem/cortex/SafeCoreRuntime.java
+          grep -q 'CapabilitySupervisor.Capability.LOCAL_LLM_NATIVE' app/src/main/java/com/kareem/cortex/UniversalSemanticScheduler.java
           ! grep -q 'androidx.work.WorkManagerInitializer' app/src/main/AndroidManifest.xml
           ! grep -q 'Configuration.Provider' app/src/main/java/com/kareem/cortex/CortexApp.java
           ! grep -q 'WorkManager.initialize' app/src/main/java/com/kareem/cortex/CortexApp.java
@@ -114,7 +122,7 @@ jobs:
           done < <(find app/build/intermediates -type f -name AndroidManifest.xml \( -path '*merged_manifest*' -o -path '*merged_manifests*' \) | sort)
           test "$found" = 1
           test "$init" = 1
-          echo 'WorkManager bootstrap: default AndroidX Startup initializer PRESENT in merged manifest'
+          echo 'WorkManager bootstrap: default AndroidX Startup initializer PRESENT; staged safe-core contract PRESENT'
 
       - name: Re-run exhaustive startup audit against merged manifest
         shell: bash
@@ -140,8 +148,11 @@ jobs:
           errors=[i for i in root.findall('issue') if i.attrib.get('severity')=='Error']
           brain_names={
               'AttentionDecisionEngine.java','CognitiveWorldState.java','CognitiveShadowStore.java',
-              'AttentionShadowComparator.java','StatefulMeaningWorker.java','CognitiveBrainStressTest.java',
-              'StartupSafetyGate.java','ColdStartQuarantineTest.java','CortexApp.java'
+              'AttentionShadowComparator.java','StatefulMeaningWorker.java','StatefulMeaningScheduler.java',
+              'CognitiveBrainStressTest.java','StartupSafetyGate.java','ColdStartQuarantineTest.java',
+              'CapabilitySupervisor.java','CapabilitySupervisorTest.java','SafeCoreRuntime.java',
+              'SafeCoreLifecycle.java','NotificationCaptureService.java','UniversalSemanticScheduler.java',
+              'CortexApp.java'
           }
           brain=[]
           crash=[]
@@ -153,9 +164,9 @@ jobs:
                   crash.append((i.attrib.get('id'),f,i.attrib.get('message')))
           print(f'Full-project lint debt: {len(errors)} errors')
           assert len(errors) <= 26, f'lint error count regressed: {len(errors)} > known post-fix ceiling 26'
-          assert not brain, 'cognitive/recovery v70 lint errors: '+repr(brain)
+          assert not brain, 'cognitive/staged-recovery v70 lint errors: '+repr(brain)
           assert not crash, 'runtime/crash-risk lint errors remain: '+repr(crash)
-          print('Cognitive/recovery lint gate: PASS; no v70 brain or startup errors')
+          print('Cognitive/staged-recovery lint gate: PASS; no brain or startup recovery errors')
           PY
 
       - name: Repeat brain tests from scratch for determinism
@@ -178,7 +189,7 @@ jobs:
               for c in cases:
                   if c.find('failure') is not None or c.find('error') is not None or c.find('skipped') is not None:
                       bad.append(p.split('/')[-1]+':'+c.attrib.get('name','?'))
-          assert total >= 74, f'expected broad repeated suite, only {total} cases found'
+          assert total >= 79, f'expected broad repeated suite including staged recovery, only {total} cases found'
           assert not bad, 'repeatability failures/skips: '+','.join(bad)
           print(f'Repeatability pass: {total}/{total} tests PASS')
           PY
