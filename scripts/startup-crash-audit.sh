@@ -112,7 +112,8 @@ done < <(grep -rlE --include='*.java' --include='*.kt' 'extends[[:space:]]+(Work
 say "worker_files=$WORKERS"
 
 # LocalLlmRuntime itself is the recovery choke point for any indirect local-model access.
-grep -q 'if(StartupSafetyGate.active())' app/src/main/java/com/kareem/cortex/LocalLlmRuntime.java || record_error "LocalLlmRuntime is not recovery-gated"
+# Accept a combined guard such as `if(StartupSafetyGate.active()||!capabilityAllowed(...))`.
+grep -Eq 'if[[:space:]]*\([[:space:]]*StartupSafetyGate\.active\(\)' app/src/main/java/com/kareem/cortex/LocalLlmRuntime.java || record_error "LocalLlmRuntime is not recovery-gated"
 
 # Build-time truth: once merged manifests exist, AndroidX's initializer must be present.
 merged_found=0
