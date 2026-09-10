@@ -13,16 +13,15 @@ import java.util.Map;
 /**
  * Persisted, read-only-to-production shadow evaluation for the v70 cognitive attention path.
  *
- * This class may create/write only its own ue_cognitive_shadow_* tables. It never writes
+ * Shadow evaluation may advance the additive v70 commitment ledger, but it never writes
  * ue_attention_items, ue_projection_decisions, derived_items, situations, or semantic events,
- * so enabling shadow evaluation cannot change Now.
+ * so enabling cognitive evaluation cannot change production Now.
  *
- * Persisted situations are reconstructed through CognitiveWorldState before evaluation. v70.18
- * also records candidate event-time/freshness so a sparse Now can be explained as meaning,
- * temporal decay, or global-capacity behavior rather than guessed from the UI.
+ * Persisted situations are reconstructed through CognitiveWorldState before evaluation. v70.19
+ * replaces synthetic per-event commitments with the persistent lifecycle/deadline ledger.
  */
 public final class CognitiveShadowStore {
-    public static final String VERSION = "cognitive_shadow_store_003";
+    public static final String VERSION = "cognitive_shadow_store_004";
 
     private CognitiveShadowStore() {}
 
@@ -72,7 +71,10 @@ public final class CognitiveShadowStore {
     public static long run(SQLiteDatabase db, int maxNowItems) {
         UniversalEventStore.ensure(db);
         StatefulMeaningStore.ensure(db);
+        CommitmentLifecycleStore.ensure(db);
         ensure(db);
+        // Make an explicit shadow run self-contained even when invoked outside StatefulMeaningWorker.
+        CommitmentLifecycleStore.rebuild(db,240);
         long started = System.currentTimeMillis();
         List<AttentionDecisionEngine.Candidate> candidates = loadCandidates(db, started);
         List<AttentionShadowComparator.LegacyDecision> legacy = loadLegacy(db, candidates);
@@ -88,7 +90,7 @@ public final class CognitiveShadowStore {
         }
 
         ContentValues run = new ContentValues();
-        run.put("engine_version", CognitiveWorldState.VERSION + "+" + AttentionDecisionEngine.VERSION + "+" + VERSION);
+        run.put("engine_version", CognitiveWorldState.VERSION + "+" + AttentionDecisionEngine.VERSION + "+" + CommitmentLifecycleStore.VERSION + "+" + VERSION);
         run.put("started_at", started);
         run.put("candidate_count", candidates.size());
         run.put("fresh_candidate_count", fresh);
@@ -129,8 +131,8 @@ public final class CognitiveShadowStore {
     }
 
     /**
-     * Rebuilds the bounded persisted world from correlated semantic evidence, then asks the
-     * world-state layer for attention candidates. Nothing here mutates production state.
+     * Rebuilds the bounded persisted world from correlated semantic evidence, attaches only OPEN
+     * persisted commitments, then asks the world-state layer for attention candidates.
      */
     static List<AttentionDecisionEngine.Candidate> loadCandidates(SQLiteDatabase db, long nowAt) {
         CognitiveWorldState world = new CognitiveWorldState();
@@ -155,7 +157,6 @@ public final class CognitiveShadowStore {
                 if (linkKey.isEmpty()) linkKey = "situation|" + situationId;
                 String state = n(c.getString(2));
                 int priority = c.getInt(3);
-                long eventId = c.getLong(4);
                 String type = n(c.getString(5));
                 String intent = n(c.getString(6));
                 String subject = n(c.getString(7));
@@ -189,15 +190,19 @@ public final class CognitiveShadowStore {
                         situationId, linkKey, type, state, subject, summary, confidence,
                         urgency, actionability, relevance, risk, novelty,
                         0L, occurredAt, material, request, severe));
-
-                if (commitment) {
-                    world.putCommitment(new CognitiveWorldState.Commitment(
-                            "semantic|" + eventId, linkKey, summary, 0L,
-                            !isResolved(state), confidence));
-                }
             }
         } finally {
             c.close();
+        }
+
+        for (CommitmentLifecycleStore.Record commitment : CommitmentLifecycleStore.loadOpen(db,240)) {
+            world.putCommitment(new CognitiveWorldState.Commitment(
+                    "commitment|" + commitment.id,
+                    commitment.linkKey,
+                    commitment.summary,
+                    commitment.deadlineAt,
+                    true,
+                    commitment.confidence));
         }
         return world.attentionCandidates(nowAt);
     }
@@ -276,9 +281,6 @@ public final class CognitiveShadowStore {
         } finally { c.close(); }
     }
 
-    private static boolean isResolved(String s) {
-        String x = norm(s); return x.equals("resolved") || x.equals("closed") || x.equals("completed") || x.equals("dismissed");
-    }
     private static boolean contains(String value, String... needles) {
         String x = norm(value); for (String n : needles) if (x.contains(norm(n))) return true; return false;
     }
