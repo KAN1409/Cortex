@@ -32,7 +32,7 @@ android {
     buildFeatures { buildConfig true }
     sourceSets { main { assets.srcDir generatedOcrAssets } }
     signingConfigs { debug { storeFile cortexDebugKeystore; storePassword 'android'; keyAlias 'androiddebugkey'; keyPassword 'android' } }
-    defaultConfig { applicationId 'com.kareem.cortex'; minSdk 26; targetSdk 35; versionCode 84; versionName '1.2.7-v70.15-safe-core-recovery' }
+    defaultConfig { applicationId 'com.kareem.cortex'; minSdk 26; targetSdk 35; versionCode 85; versionName '1.2.8-v70.16-cognitive-world-funnel' }
     buildTypes { debug { signingConfig signingConfigs.debug } }
     compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
     kotlinOptions { jvmTarget = '17' }
