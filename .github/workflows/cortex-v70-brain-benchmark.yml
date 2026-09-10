@@ -12,7 +12,7 @@ jobs:
       - name: Checkout benchmark branch
         uses: actions/checkout@v6
         with:
-          fetch-depth: 20
+          fetch-depth: 50
 
       - name: Restore local Whisper runtime AAR
         shell: bash
@@ -37,6 +37,13 @@ jobs:
         with:
           gradle-version: '8.9'
 
+      - name: Full repository startup-risk audit
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x scripts/startup-crash-audit.sh
+          scripts/startup-crash-audit.sh .
+
       - name: Preserve v69 acceptance gates and run v70 brain benchmark
         run: gradle :app:testDebugUnitTest --stacktrace
 
@@ -55,7 +62,7 @@ jobs:
           print('Inherited v69 acceptance: 35/35 PASS')
           PY
 
-      - name: Verify v70 cognitive suites
+      - name: Verify v70 cognitive and recovery suites
         shell: bash
         run: |
           set -euo pipefail
@@ -67,7 +74,7 @@ jobs:
             'AttentionShadowComparatorTest':2,
             'CognitiveShadowStoreTest':2,
             'CognitiveBrainStressTest':16,
-            'ColdStartQuarantineTest':3,
+            'ColdStartQuarantineTest':4,
           }
           total=0
           for cls,minimum in checks.items():
@@ -79,7 +86,7 @@ jobs:
               assert not bad, f'{cls}: failed/skipped '+','.join(bad)
               total += len(cases)
               print(f'{cls}: {len(cases)}/{len(cases)} PASS')
-          assert total >= 44
+          assert total >= 45
           print(f'v70 cognitive/recovery suites: {total}/{total} PASS')
           PY
           grep -q 'CognitiveShadowStore.run' app/src/main/java/com/kareem/cortex/StatefulMeaningWorker.java
@@ -89,23 +96,31 @@ jobs:
       - name: Build installable debug APK
         run: gradle :app:assembleDebug --stacktrace
 
-      - name: Verify cold-start quarantine in merged manifest
+      - name: Verify provider-first WorkManager bootstrap in merged manifest
         shell: bash
         run: |
           set -euo pipefail
           grep -q 'private static final boolean ACTIVE = true' app/src/main/java/com/kareem/cortex/StartupSafetyGate.java
           grep -q 'if(!StartupSafetyGate.active())' app/src/main/java/com/kareem/cortex/InputActivity.java
-          grep -q 'tools:node="remove"' app/src/main/AndroidManifest.xml
+          ! grep -q 'androidx.work.WorkManagerInitializer' app/src/main/AndroidManifest.xml
+          ! grep -q 'Configuration.Provider' app/src/main/java/com/kareem/cortex/CortexApp.java
+          ! grep -q 'WorkManager.initialize' app/src/main/java/com/kareem/cortex/CortexApp.java
           found=0
+          init=0
           while IFS= read -r manifest; do
             found=1
-            if grep -q 'androidx.work.WorkManagerInitializer' "$manifest"; then
-              echo "WorkManagerInitializer survived manifest merge: $manifest" >&2
-              exit 1
-            fi
-          done < <(find app/build/intermediates -type f -name AndroidManifest.xml -path '*merged_manifest*' -o -type f -name AndroidManifest.xml -path '*merged_manifests*')
+            grep -q 'android:name="com.kareem.cortex.CortexApp"\|android:name=".CortexApp"' "$manifest" || true
+            if grep -q 'androidx.work.WorkManagerInitializer' "$manifest"; then init=1; fi
+          done < <(find app/build/intermediates -type f -name AndroidManifest.xml \( -path '*merged_manifest*' -o -path '*merged_manifests*' \) | sort)
           test "$found" = 1
-          echo 'Cold-start quarantine: WorkManager auto-init absent from merged debug manifest'
+          test "$init" = 1
+          echo 'WorkManager bootstrap: default AndroidX Startup initializer PRESENT in merged manifest'
+
+      - name: Re-run exhaustive startup audit against merged manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          scripts/startup-crash-audit.sh .
 
       - name: Run full Android lint diagnostic
         id: lint
@@ -126,7 +141,7 @@ jobs:
           brain_names={
               'AttentionDecisionEngine.java','CognitiveWorldState.java','CognitiveShadowStore.java',
               'AttentionShadowComparator.java','StatefulMeaningWorker.java','CognitiveBrainStressTest.java',
-              'StartupSafetyGate.java','ColdStartQuarantineTest.java'
+              'StartupSafetyGate.java','ColdStartQuarantineTest.java','CortexApp.java'
           }
           brain=[]
           crash=[]
@@ -140,7 +155,7 @@ jobs:
           assert len(errors) <= 26, f'lint error count regressed: {len(errors)} > known post-fix ceiling 26'
           assert not brain, 'cognitive/recovery v70 lint errors: '+repr(brain)
           assert not crash, 'runtime/crash-risk lint errors remain: '+repr(crash)
-          print('Cognitive/recovery lint gate: PASS; no v70 brain or startup-quarantine errors')
+          print('Cognitive/recovery lint gate: PASS; no v70 brain or startup errors')
           PY
 
       - name: Repeat brain tests from scratch for determinism
@@ -163,12 +178,12 @@ jobs:
               for c in cases:
                   if c.find('failure') is not None or c.find('error') is not None or c.find('skipped') is not None:
                       bad.append(p.split('/')[-1]+':'+c.attrib.get('name','?'))
-          assert total >= 73, f'expected broad repeated suite, only {total} cases found'
+          assert total >= 74, f'expected broad repeated suite, only {total} cases found'
           assert not bad, 'repeatability failures/skips: '+','.join(bad)
           print(f'Repeatability pass: {total}/{total} tests PASS')
           PY
 
-      - name: Upload benchmark reports
+      - name: Upload benchmark and startup audit reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -178,6 +193,7 @@ jobs:
             app/build/reports/tests/
             app/build/reports/lint-results-debug.html
             app/build/reports/lint-results-debug.xml
+            app/build/reports/startup-crash-audit.txt
             app/build/outputs/apk/debug/
             app/build/intermediates/merged_manifests/
             docs/CORTEX_BRAIN_BENCHMARK_V1.md
