@@ -16,16 +16,15 @@ public final class StatefulMeaningWorker extends Worker {
         VaultDb db=null;
         try{
             db=new VaultDb(app);
-            DeterministicSemanticRecovery.recover(db,200);
-            StatefulMeaningRebuilder.run(db,240);
-            SemanticMemoryBridge.sync(db,300);
-            try{
-                CognitiveShadowStore.run(db.getWritableDatabase(),8);
-            }catch(Throwable ignored){
-                // Cognitive ranking must never break capture/semantic persistence.
-            }
+            DeterministicSemanticRecovery.recover(db,400);
+            StatefulMeaningRebuilder.run(db,400);
+            SemanticMemoryBridge.sync(db,400);
+            try{CognitiveShadowStore.run(db.getWritableDatabase(),8);}catch(Throwable ignored){}
             CapabilitySupervisor.recordHealthy(app,CapabilitySupervisor.Capability.DETERMINISTIC_COGNITION);
-            return StatefulMeaningRebuilder.hasBacklog(db)?Result.retry():Result.success();
+            boolean backlog=DeterministicSemanticRecovery.hasBacklog(db)
+                    || StatefulMeaningRebuilder.hasBacklog(db)
+                    || SemanticMemoryBridge.hasBacklog(db);
+            return backlog?Result.retry():Result.success();
         }catch(Throwable t){
             CapabilitySupervisor.recordFailure(app,CapabilitySupervisor.Capability.DETERMINISTIC_COGNITION,t);
             return Result.retry();
