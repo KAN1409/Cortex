@@ -17,7 +17,7 @@ public final class CaptureOverviewActivity extends Activity {
     @Override protected void onResume(){super.onResume();AnalysisQueue.kick(getApplicationContext(),null,this::safeRefresh);safeRefresh();ui.removeCallbacks(tick);ui.postDelayed(tick,2500);}
     @Override protected void onPause(){ui.removeCallbacks(tick);super.onPause();}
     @Override protected void onDestroy(){destroyed=true;ui.removeCallbacksAndMessages(null);if(db!=null)try{db.close();}catch(Throwable ignored){}db=null;super.onDestroy();}
-    final Runnable tick=new Runnable(){@Override public void run(){if(destroyed||isFinishing())return;try{long sig=readSignature();if(sig!=lastSignature)safeRefresh();}catch(Throwable ignored){}ui.postDelayed(this,2500);}};
+    final Runnable tick=new Runnable(){@Override public void run(){if(destroyed||isFinishing())return;try{AnalysisQueue.kick(getApplicationContext(),null,CaptureOverviewActivity.this::safeRefresh);long sig=readSignature();if(sig!=lastSignature)safeRefresh();}catch(Throwable ignored){}ui.postDelayed(this,2500);}};
 
     void build(){LinearLayout root=new LinearLayout(this);root.setOrientation(LinearLayout.VERTICAL);root.setBackgroundColor(CortexUi.BG);ScrollView sv=new ScrollView(this);sv.setFillViewport(true);content=new LinearLayout(this);content.setOrientation(LinearLayout.VERTICAL);content.setPadding(dp(18),dp(10),dp(18),dp(24));sv.addView(content);root.addView(sv,new LinearLayout.LayoutParams(-1,0,1));CortexUi.addBottomNav(this,root,"capture",null);setContentView(root);CortexUi.fitSystemBars(this,root);safeRefresh();}
     void safeRefresh(){if(content==null||db==null||destroyed)return;try{refresh();lastSignature=readSignature();}catch(Throwable t){renderInlineRecovery(t);}}
