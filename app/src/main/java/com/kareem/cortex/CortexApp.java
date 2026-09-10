@@ -5,10 +5,8 @@ import android.app.Application;
 /**
  * Cortex process bootstrap.
  *
- * Keep Application startup intentionally inert. WorkManager uses its default AndroidX Startup
- * ContentProvider initializer so persisted SystemJobService jobs always see an initialized
- * WorkManager before any service is created. Do not manually initialize WorkManager here and do not
- * implement Configuration.Provider unless the default initializer is deliberately removed again.
+ * Keep Application startup intentionally inert. Background scheduling is initialized by AndroidX
+ * before persisted jobs can recreate their services. Cortex does not own a second bootstrap path.
  *
  * No database, model, JNI, process-exit trace or heavyweight maintenance is started here.
  */
