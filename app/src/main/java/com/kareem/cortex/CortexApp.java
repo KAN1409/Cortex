@@ -1,20 +1,31 @@
 package com.kareem.cortex;
 
 import android.app.Application;
+import android.util.Log;
+
+import androidx.annotation.NonNull;
+import androidx.work.Configuration;
 
 /**
- * Process bootstrap must stay deliberately inert.
+ * Process bootstrap stays deliberately inert while still providing WorkManager's configuration.
  *
- * Native/process-exit inspection and SQLite compatibility work are NOT allowed from Application.onCreate().
- * A previous build performed both here; if either platform/native path is unstable on a specific device,
- * that turns a recoverable feature crash into an unrecoverable startup crash loop.
+ * The default WorkManager AndroidX Startup initializer is intentionally removed in the manifest so
+ * persisted JobScheduler jobs cannot race application bootstrap. Because SystemJobService may still
+ * be recreated by Android for persisted jobs, CortexApp must implement Configuration.Provider so
+ * WorkManager can initialize safely on demand before SystemJobService is created.
  *
- * Only the Java uncaught-exception recorder is installed at process start because it is file-only and has
- * no database, model, JNI, provider or ActivityManager trace dependency.
+ * No database, model, JNI, process-exit trace or heavyweight maintenance is started here.
  */
-public class CortexApp extends Application {
+public final class CortexApp extends Application implements Configuration.Provider {
     @Override public void onCreate(){
         super.onCreate();
         CrashRecorder.install(this);
+    }
+
+    @NonNull
+    @Override public Configuration getWorkManagerConfiguration(){
+        return new Configuration.Builder()
+                .setMinimumLoggingLevel(Log.INFO)
+                .build();
     }
 }
