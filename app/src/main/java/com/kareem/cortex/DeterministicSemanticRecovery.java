@@ -7,7 +7,7 @@ import java.util.Locale;
 
 /** Recovery-only deterministic drain for semantic events parked while native inference is quarantined. */
 public final class DeterministicSemanticRecovery {
-    public static final String VERSION = "deterministic_semantic_recovery_003";
+    public static final String VERSION = "deterministic_semantic_recovery_004";
     private DeterministicSemanticRecovery() {}
 
     public static int recover(VaultDb vault, int maxRows) {
@@ -28,7 +28,6 @@ public final class DeterministicSemanticRecovery {
                 done++;
             }
         } finally { c.close(); }
-        // Repair false WAITING items created by older recovery logic without touching model-authored semantics.
         repairLegacyDeterministicCommitments(db,Math.max(20,Math.min(200,limit)));
         return done;
     }
@@ -59,6 +58,7 @@ public final class DeterministicSemanticRecovery {
         v.put("model_route",VERSION);v.put("reason",x.reason);
         db.update("ue_semantic_events",v,"id=?",new String[]{String.valueOf(eventId)});
         db.delete("ue_attention_items","semantic_event_id=?",new String[]{String.valueOf(eventId)});
+        if(repair&& !"commitment".equals(x.type))retractSingleEvidenceFalseCommitment(db,eventId);
         if(x.attentionKind!=null){
             String atTitle=CanonicalPresentation.cleanTitle("notification",x.type,title.isEmpty()?source:title,title);
             UniversalEventStore.attention(db,eventId,0,x.attentionKind,atTitle,
@@ -66,6 +66,20 @@ public final class DeterministicSemanticRecovery {
         }
         UniversalEventStore.stage(db,0,eventId,"UNDERSTANDING","complete",VERSION,
                 repair?"Repaired deterministic semantic classification":"Recovered safely without native semantic runtime","");
+    }
+
+    /** Safe repair only: delete a false commitment if this event is its sole evidence revision. */
+    private static void retractSingleEvidenceFalseCommitment(SQLiteDatabase db,long eventId){
+        try{
+            CommitmentLifecycleStore.ensure(db);
+            Cursor c=db.rawQuery("SELECT id,revision FROM ue_commitments WHERE source_semantic_event_id=? LIMIT 1",new String[]{String.valueOf(eventId)});
+            long commitmentId=0;int revision=0;if(c.moveToFirst()){commitmentId=c.getLong(0);revision=c.getInt(1);}c.close();
+            db.delete("ue_commitment_semantic_evaluations","semantic_event_id=?",new String[]{String.valueOf(eventId)});
+            if(commitmentId>0&&revision<=1){
+                db.delete("ue_commitment_transitions","commitment_id=?",new String[]{String.valueOf(commitmentId)});
+                db.delete("ue_commitments","id=?",new String[]{String.valueOf(commitmentId)});
+            }
+        }catch(Throwable ignored){}
     }
 
     public static boolean hasBacklog(VaultDb vault) {
@@ -87,8 +101,6 @@ public final class DeterministicSemanticRecovery {
         if(has(text,"we decided","decided that","agreed that","final decision","قررنا","اتفقنا","تم الاتفاق","القرار"))
             return new Classification("decision","decision","DECISION",76,.87,"explicit decision detected deterministically");
 
-        // Commitment must describe a real actor commitment, not a generic future announcement.
-        // Phrases such as "systems will be updated" / "سوف يتم تحديث الأنظمة" are information.
         boolean personalCommitment=has(text,"i will","i'll ","i promise","promise to","by tomorrow i","هبعت","هعمل","هكلم","هراجع","هخلص","هرد","هجهز");
         boolean conversationalGroupCommitment=tech.contains("conversation")&&has(text,"we will","we'll ","هنعمل","هنبعت","هنراجع","هنخلص");
         if(personalCommitment||conversationalGroupCommitment)
