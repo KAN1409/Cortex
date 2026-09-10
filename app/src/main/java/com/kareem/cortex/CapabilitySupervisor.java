@@ -7,13 +7,13 @@ import java.util.Locale;
 /**
  * Central reliability boundary for Cortex capabilities.
  *
- * Recovery now has two independent layers:
+ * Recovery has two independent layers:
  * 1) StartupSafetyGate stays active to protect every legacy/native startup path.
  * 2) SafeCoreRuntime may re-enable only explicitly classified Java/SQLite capabilities after
  *    the launcher is stable and a database health probe succeeds.
  */
 public final class CapabilitySupervisor {
-    public static final String VERSION = "capability_supervisor_002";
+    public static final String VERSION = "capability_supervisor_003";
     private static final String PREF = "cortex_capability_supervisor";
     private static final int DEFAULT_FAILURE_LIMIT = 2;
 
@@ -31,8 +31,8 @@ public final class CapabilitySupervisor {
 
     public enum State {
         READY,
-        QUARANTINED,
-        DEGRADED
+        DEGRADED,
+        QUARANTINED
     }
 
     public static final class Status {
@@ -50,8 +50,9 @@ public final class CapabilitySupervisor {
             this.reason = reason == null ? "" : reason.trim();
         }
 
+        /** DEGRADED is intentionally still runnable so a second attempt can succeed or trip the breaker. */
         public boolean allowed() {
-            return state == State.READY;
+            return state != State.QUARANTINED;
         }
     }
 
