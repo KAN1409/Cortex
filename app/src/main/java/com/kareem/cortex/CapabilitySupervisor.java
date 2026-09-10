@@ -13,9 +13,10 @@ import java.util.Locale;
  *    the launcher is stable and a database health probe succeeds.
  */
 public final class CapabilitySupervisor {
-    public static final String VERSION = "capability_supervisor_003";
+    public static final String VERSION = "capability_supervisor_004";
     private static final String PREF = "cortex_capability_supervisor";
     private static final int DEFAULT_FAILURE_LIMIT = 2;
+    static final long BREAKER_PROBE_DELAY_MS = 30_000L;
 
     public enum Capability {
         CORE_UI,
@@ -50,7 +51,7 @@ public final class CapabilitySupervisor {
             this.reason = reason == null ? "" : reason.trim();
         }
 
-        /** DEGRADED is intentionally still runnable so a second attempt can succeed or trip the breaker. */
+        /** DEGRADED is intentionally runnable for normal retry and half-open health probes. */
         public boolean allowed() {
             return state != State.QUARANTINED;
         }
@@ -74,7 +75,7 @@ public final class CapabilitySupervisor {
         }
 
         // The emergency recovery build keeps all native/proactive execution disabled even after
-        // the deterministic safe core comes back online.
+        // the deterministic safe core comes back online. Native breakers never half-open here.
         if (StartupSafetyGate.active() && !SafeCoreRuntime.safeCapability(capability)) {
             return new Status(capability, State.QUARANTINED, 0, 0L,
                     "native/proactive capability remains in recovery quarantine");
@@ -94,6 +95,11 @@ public final class CapabilitySupervisor {
         String reason = p.getString(key + ".reason", "");
         boolean forced = p.getBoolean(key + ".quarantined", false);
         if (forced || failures >= DEFAULT_FAILURE_LIMIT) {
+            long age = lastFailureAt <= 0L ? 0L : Math.max(0L, System.currentTimeMillis() - lastFailureAt);
+            if (SafeCoreRuntime.safeCapability(capability) && lastFailureAt > 0L && age >= BREAKER_PROBE_DELAY_MS) {
+                return new Status(capability, State.DEGRADED, failures, lastFailureAt,
+                        "half-open recovery probe allowed after breaker cooldown");
+            }
             return new Status(capability, State.QUARANTINED, failures, lastFailureAt,
                     reason.isEmpty() ? "capability circuit breaker open" : reason);
         }
@@ -120,7 +126,7 @@ public final class CapabilitySupervisor {
                 .apply();
     }
 
-    /** A verified successful probe closes only the selected capability's breaker. */
+    /** A verified successful attempt closes only the selected capability's breaker. */
     public static void recordHealthy(Context context, Capability capability) {
         if (context == null || capability == null || capability == Capability.CORE_UI) return;
         SharedPreferences p = context.getApplicationContext().getSharedPreferences(PREF, Context.MODE_PRIVATE);
