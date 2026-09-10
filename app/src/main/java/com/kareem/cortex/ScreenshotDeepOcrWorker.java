@@ -11,7 +11,7 @@ public class ScreenshotDeepOcrWorker extends Worker {
     private static final int BATCH=3;
     public ScreenshotDeepOcrWorker(@NonNull Context c,@NonNull WorkerParameters p){super(c,p);}
 
-    @NonNull @Override public Result doWork(){Context ctx=getApplicationContext();VaultDb db=new VaultDb(ctx);OcrPassStore.ensure(db);int done=0;try{
+    @NonNull @Override public Result doWork(){if(StartupSafetyGate.active())return Result.success();Context ctx=getApplicationContext();VaultDb db=new VaultDb(ctx);OcrPassStore.ensure(db);int done=0;try{
         while(done<BATCH&&!isStopped()){
             KnowledgeItem k=next(db);if(k==null)break;
             try{MultiPassOcrAnalyzer.Result r=MultiPassOcrAnalyzer.analyze(ctx,k);OcrPassStore.replace(db,k.id,r.passes);db.applyAnalysis(k.id,r.analysis);try{CoreBrainEngine.afterAnalysis(db,k.id);}catch(Throwable ignored){}done++;}
