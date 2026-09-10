@@ -22,10 +22,10 @@ public final class CortexAuditScheduler {
     }
 
     public static long start(Context c){
+        if(StartupSafetyGate.active()||c==null)return -1;
         long tap=SystemClock.elapsedRealtime();Context app=c.getApplicationContext();VaultDb db=new VaultDb(app);
         CortexAuditStore.Run existing=CortexAuditStore.active(db);if(existing!=null){long id=existing.id;db.close();return id;}
         CortexAuditStore.Run r=CortexAuditStore.start(app,db);long id=r.id;long now=System.currentTimeMillis();db.getWritableDatabase().execSQL("UPDATE cortex_audit_runs SET target_end_at=?,summary=? WHERE id=?",new Object[]{now+30L*60L*1000L,"Immediate Cortex full application audit",id});db.getWritableDatabase().execSQL("UPDATE cortex_audit_events SET detail=? WHERE run_id=? AND event='started'",new Object[]{"Button tap accepted. Functional intelligence + universal-event invariants + immediate full-app audit queued.",id});
-        // Part of the same one-tap diagnostic: immutable evidence, coalescing, semantic provenance, projections, memory guard, replay and synthetic E2E.
         UniversalPipelineDiagnostics.apply(app,db,id);
         WorkManager wm=WorkManager.getInstance(app);Data d=new Data.Builder().putLong("run_id",id).build();OneTimeWorkRequest functional=new OneTimeWorkRequest.Builder(CortexFunctionalAuditWorker.class).setInputData(d).setBackoffCriteria(BackoffPolicy.LINEAR,30,TimeUnit.SECONDS).addTag("cortex-functional-audit").build();OneTimeWorkRequest first=new OneTimeWorkRequest.Builder(CortexAuditWorker.class).setInputData(d).setBackoffCriteria(BackoffPolicy.LINEAR,30,TimeUnit.SECONDS).addTag("cortex-full-audit").build();OneTimeWorkRequest fin=new OneTimeWorkRequest.Builder(CortexAuditFinalizeWorker.class).setInputData(d).addTag("cortex-full-audit").build();wm.beginUniqueWork(initial(id),ExistingWorkPolicy.REPLACE,functional).then(first).then(fin).enqueue();
         long ms=SystemClock.elapsedRealtime()-tap;try{CortexAuditStore.log(db,id,"info","audit_ui","work_scheduled","Start button acknowledged; universal-event invariants + functional test + full-app audit + final summary queued in "+ms+" ms",new JSONObject().put("ui_schedule_latency_ms",ms).put("mode","immediate").put("universal_pipeline_checks",true));}catch(Exception ignored){}db.close();return id;
@@ -33,6 +33,7 @@ public final class CortexAuditScheduler {
 
     /** Explicit non-destructive 30-minute soak with real background samples. */
     public static long startSoak(Context c){
+        if(StartupSafetyGate.active()||c==null)return -1;
         Context app=c.getApplicationContext();VaultDb db=new VaultDb(app);
         try{
             CortexAuditStore.Run existing=CortexAuditStore.active(db);if(existing!=null)return existing.id;
@@ -57,8 +58,8 @@ public final class CortexAuditScheduler {
         if(db==null)return null;CortexAuditStore.ensure(db);Cursor c=db.getReadableDatabase().rawQuery("SELECT r.id,r.started_at,r.target_end_at,r.completed_at,r.status,r.phase,r.summary FROM cortex_audit_runs r WHERE EXISTS(SELECT 1 FROM cortex_audit_events e WHERE e.run_id=r.id AND e.event='stability_soak_started') ORDER BY r.id DESC LIMIT 1",null);SoakState s=null;if(c.moveToFirst())s=new SoakState(c.getLong(0),c.getLong(1),c.getLong(2),c.getLong(3),c.getString(4),c.getString(5),c.getString(6));c.close();return s;
     }
 
-    public static void stop(Context c,long runId){Context app=c.getApplicationContext();WorkManager wm=WorkManager.getInstance(app);wm.cancelUniqueWork(initial(runId));wm.cancelUniqueWork(soak(runId));wm.cancelUniqueWork(finish(runId));VaultDb db=new VaultDb(app);CortexAuditStore.updateRun(db,runId,"canceled","Stopped by user","Audit/soak stopped",-1,"Cortex diagnostic run stopped by user. Existing results remain in Debug Export.","");CortexAuditStore.log(db,runId,"warning","audit_ui","stopped","User stopped the Cortex diagnostic run. Collected evidence was kept.",null);db.close();}
+    public static void stop(Context c,long runId){if(StartupSafetyGate.active()||c==null)return;Context app=c.getApplicationContext();WorkManager wm=WorkManager.getInstance(app);wm.cancelUniqueWork(initial(runId));wm.cancelUniqueWork(soak(runId));wm.cancelUniqueWork(finish(runId));VaultDb db=new VaultDb(app);CortexAuditStore.updateRun(db,runId,"canceled","Stopped by user","Audit/soak stopped",-1,"Cortex diagnostic run stopped by user. Existing results remain in Debug Export.","");CortexAuditStore.log(db,runId,"warning","audit_ui","stopped","User stopped the Cortex diagnostic run. Collected evidence was kept.",null);db.close();}
 
-    public static void finalizeNow(Context c,long runId){Context app=c.getApplicationContext();Data d=new Data.Builder().putLong("run_id",runId).build();WorkManager.getInstance(app).enqueueUniqueWork(finish(runId),ExistingWorkPolicy.REPLACE,new OneTimeWorkRequest.Builder(CortexAuditFinalizeWorker.class).setInputData(d).addTag("cortex-full-audit").build());}
+    public static void finalizeNow(Context c,long runId){if(StartupSafetyGate.active()||c==null)return;Context app=c.getApplicationContext();Data d=new Data.Builder().putLong("run_id",runId).build();WorkManager.getInstance(app).enqueueUniqueWork(finish(runId),ExistingWorkPolicy.REPLACE,new OneTimeWorkRequest.Builder(CortexAuditFinalizeWorker.class).setInputData(d).addTag("cortex-full-audit").build());}
     private static String safe(String s){return s==null?"":s;}
 }
