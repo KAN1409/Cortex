@@ -49,16 +49,36 @@ public class CapabilitySupervisorTest {
         assertFalse(CapabilitySupervisor.allowed(context, CapabilitySupervisor.Capability.PROACTIVE_ACTIONS));
     }
 
-    @Test public void nativeBreakerStateCannotOpenTheSafeCoreByAccident() {
+    @Test public void oneSafeCoreFailureIsDegradedButStillRunnable() {
         SafeCoreRuntime.forceReadyForTests();
-        CapabilitySupervisor.recordFailure(context, CapabilitySupervisor.Capability.LOCAL_LLM_NATIVE,
-                new IllegalStateException("native probe failed"));
-        CapabilitySupervisor.recordFailure(context, CapabilitySupervisor.Capability.LOCAL_LLM_NATIVE,
-                new IllegalStateException("native probe failed again"));
+        CapabilitySupervisor.Capability cap=CapabilitySupervisor.Capability.DETERMINISTIC_COGNITION;
+        CapabilitySupervisor.recordFailure(context,cap,new IllegalStateException("transient failure"));
+        CapabilitySupervisor.Status status=CapabilitySupervisor.status(context,cap);
+        assertEquals(CapabilitySupervisor.State.DEGRADED,status.state);
+        assertEquals(1,status.consecutiveFailures);
+        assertTrue(status.allowed());
+        assertTrue(CapabilitySupervisor.allowed(context,cap));
+    }
+
+    @Test public void secondConsecutiveFailureOpensOnlySelectedSafeCoreBreaker() {
+        SafeCoreRuntime.forceReadyForTests();
+        CapabilitySupervisor.Capability cap=CapabilitySupervisor.Capability.DETERMINISTIC_COGNITION;
+        CapabilitySupervisor.recordFailure(context,cap,new IllegalStateException("first failure"));
+        CapabilitySupervisor.recordFailure(context,cap,new IllegalStateException("second failure"));
+        assertEquals(CapabilitySupervisor.State.QUARANTINED,CapabilitySupervisor.status(context,cap).state);
+        assertFalse(CapabilitySupervisor.allowed(context,cap));
+        assertTrue(CapabilitySupervisor.allowed(context,CapabilitySupervisor.Capability.DATABASE));
+        assertTrue(CapabilitySupervisor.allowed(context,CapabilitySupervisor.Capability.RAW_NOTIFICATION_CAPTURE));
+    }
+
+    @Test public void nativeCapabilitiesRemainQuarantinedEvenWhenSafeCoreIsReady() {
+        SafeCoreRuntime.forceReadyForTests();
+        CapabilitySupervisor.recordHealthy(context,CapabilitySupervisor.Capability.LOCAL_LLM_NATIVE);
         assertEquals(CapabilitySupervisor.State.QUARANTINED,
-                CapabilitySupervisor.status(context, CapabilitySupervisor.Capability.LOCAL_LLM_NATIVE).state);
-        assertTrue(CapabilitySupervisor.allowed(context, CapabilitySupervisor.Capability.DATABASE));
-        assertTrue(CapabilitySupervisor.allowed(context, CapabilitySupervisor.Capability.DETERMINISTIC_COGNITION));
+                CapabilitySupervisor.status(context,CapabilitySupervisor.Capability.LOCAL_LLM_NATIVE).state);
+        assertFalse(CapabilitySupervisor.allowed(context,CapabilitySupervisor.Capability.OCR_NATIVE));
+        assertFalse(CapabilitySupervisor.allowed(context,CapabilitySupervisor.Capability.ASR_NATIVE));
+        assertTrue(CapabilitySupervisor.allowed(context,CapabilitySupervisor.Capability.DATABASE));
     }
 
     @Test public void capabilityKeysAreStableAndIndependent() {
