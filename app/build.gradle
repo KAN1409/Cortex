@@ -53,7 +53,6 @@ dependencies {
     implementation 'dev.rikka.shizuku:api:13.1.5'
     implementation 'dev.rikka.shizuku:provider:13.1.5'
     implementation 'com.google.mlkit:genai-prompt:1.0.0-beta2'
-    implementation files('libs/whisper-android-cortex-prompt-1.0.0.aar')
 
     testImplementation 'junit:junit:4.13.2'
     testImplementation 'org.robolectric:robolectric:4.14.1'
