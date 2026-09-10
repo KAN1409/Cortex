@@ -71,6 +71,26 @@ public class CapabilitySupervisorTest {
         assertTrue(CapabilitySupervisor.allowed(context,CapabilitySupervisor.Capability.RAW_NOTIFICATION_CAPTURE));
     }
 
+    @Test public void safeCoreBreakerBecomesHalfOpenAfterCooldownAndCanRecover() {
+        SafeCoreRuntime.forceReadyForTests();
+        CapabilitySupervisor.Capability cap=CapabilitySupervisor.Capability.BACKGROUND_SCHEDULING;
+        CapabilitySupervisor.recordFailure(context,cap,new IllegalStateException("first failure"));
+        CapabilitySupervisor.recordFailure(context,cap,new IllegalStateException("second failure"));
+        assertFalse(CapabilitySupervisor.allowed(context,cap));
+
+        String key=CapabilitySupervisor.key(cap);
+        context.getSharedPreferences("cortex_capability_supervisor",Context.MODE_PRIVATE).edit()
+                .putLong(key+".last_failure_at",System.currentTimeMillis()-CapabilitySupervisor.BREAKER_PROBE_DELAY_MS-1000L)
+                .commit();
+        CapabilitySupervisor.Status halfOpen=CapabilitySupervisor.status(context,cap);
+        assertEquals(CapabilitySupervisor.State.DEGRADED,halfOpen.state);
+        assertTrue(halfOpen.allowed());
+
+        CapabilitySupervisor.recordHealthy(context,cap);
+        assertEquals(CapabilitySupervisor.State.READY,CapabilitySupervisor.status(context,cap).state);
+        assertTrue(CapabilitySupervisor.allowed(context,cap));
+    }
+
     @Test public void nativeCapabilitiesRemainQuarantinedEvenWhenSafeCoreIsReady() {
         SafeCoreRuntime.forceReadyForTests();
         CapabilitySupervisor.recordHealthy(context,CapabilitySupervisor.Capability.LOCAL_LLM_NATIVE);
