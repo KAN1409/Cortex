@@ -9,9 +9,12 @@ public final class UniversalSemanticScheduler {
     private UniversalSemanticScheduler(){}
     public static void kick(Context c){
         if(StartupSafetyGate.active()||c==null)return;
+        Context app=c.getApplicationContext();
+        if(!CapabilitySupervisor.allowed(app,CapabilitySupervisor.Capability.BACKGROUND_SCHEDULING))return;
+        if(!CapabilitySupervisor.allowed(app,CapabilitySupervisor.Capability.DETERMINISTIC_COGNITION))return;
         Constraints constraints=new Constraints.Builder().setRequiresBatteryNotLow(true).build();
         OneTimeWorkRequest req=new OneTimeWorkRequest.Builder(UniversalSemanticWorker.class).setConstraints(constraints).setBackoffCriteria(BackoffPolicy.EXPONENTIAL,15,TimeUnit.SECONDS).addTag("cortex-universal-semantic").build();
-        WorkManager.getInstance(c.getApplicationContext()).enqueueUniqueWork("cortex-universal-semantic",ExistingWorkPolicy.KEEP,req);
-        StatefulMeaningScheduler.kick(c);
+        WorkManager.getInstance(app).enqueueUniqueWork("cortex-universal-semantic",ExistingWorkPolicy.KEEP,req);
+        StatefulMeaningScheduler.kick(app);
     }
 }
