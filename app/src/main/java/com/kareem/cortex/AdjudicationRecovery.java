@@ -18,7 +18,7 @@ public final class AdjudicationRecovery {
     private AdjudicationRecovery(){}
 
     public static int run(Context context,VaultDb db){
-        if(context==null||db==null)return 0;CognitiveStore.ensure(db);RelevanceDecisionStatusStore.ensure(db);long now=System.currentTimeMillis(),cutoff=now-STALE_MS;ArrayList<Target> retry=new ArrayList<>();SQLiteDatabase sql=db.getWritableDatabase();
+        if(StartupSafetyGate.active()||context==null||db==null)return 0;CognitiveStore.ensure(db);RelevanceDecisionStatusStore.ensure(db);long now=System.currentTimeMillis(),cutoff=now-STALE_MS;ArrayList<Target> retry=new ArrayList<>();SQLiteDatabase sql=db.getWritableDatabase();
         Cursor c=sql.query("ai_jobs",new String[]{"id","input_json","updated_at"},"kind='relevance_adjudication' AND state IN ('queued','running') AND updated_at<?",new String[]{String.valueOf(cutoff)},null,null,"updated_at ASC","100");
         while(c.moveToNext()){
             long jobId=c.getLong(0),lastUpdated=c.getLong(2),staleAge=Math.max(0,now-lastUpdated);String input=c.getString(1)==null?"":c.getString(1);long threadId=0,signalId=0;try{JSONObject o=new JSONObject(input);threadId=o.optLong("thread_id",0);signalId=o.optLong("latest_signal_id",0);}catch(Exception ignored){}
@@ -33,7 +33,7 @@ public final class AdjudicationRecovery {
     }
 
     public static void schedule(Context context){
-        if(context==null)return;try{PeriodicWorkRequest request=new PeriodicWorkRequest.Builder(AdjudicationRecoveryWorker.class,15,TimeUnit.MINUTES).build();WorkManager.getInstance(context.getApplicationContext()).enqueueUniquePeriodicWork(UNIQUE_WORK,ExistingPeriodicWorkPolicy.KEEP,request);}catch(Throwable ignored){}
+        if(StartupSafetyGate.active()||context==null)return;try{PeriodicWorkRequest request=new PeriodicWorkRequest.Builder(AdjudicationRecoveryWorker.class,15,TimeUnit.MINUTES).build();WorkManager.getInstance(context.getApplicationContext()).enqueueUniquePeriodicWork(UNIQUE_WORK,ExistingPeriodicWorkPolicy.KEEP,request);}catch(Throwable ignored){}
     }
 
     private static long latestSignalId(SQLiteDatabase sql,long threadId){Cursor c=sql.rawQuery("SELECT id FROM raw_signals WHERE thread_id=? ORDER BY occurred_at DESC,id DESC LIMIT 1",new String[]{String.valueOf(threadId)});long id=c.moveToFirst()?c.getLong(0):0;c.close();return id;}
