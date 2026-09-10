@@ -17,6 +17,7 @@ import static org.junit.Assert.assertTrue;
 
 @RunWith(RobolectricTestRunner.class)
 public class CognitiveShadowStoreTest {
+    private static final long DAY = 24L * 60L * 60L * 1000L;
     private SQLiteDatabase db;
 
     @Before public void before() {
@@ -28,11 +29,12 @@ public class CognitiveShadowStoreTest {
     @After public void after() { if (db != null) db.close(); }
 
     @Test public void shadowRunPersistsComparisonWithoutMutatingProductionNowTables() {
+        long at = System.currentTimeMillis() - 1000L;
         long event = semantic("security_alert", "security", "Google security alert",
-                "Compromised password; change it now", .96, 1000);
+                "Compromised password; change it now", .96, at);
         long situation = StatefulMeaningStore.correlate(db, event, 0, "google",
                 "security_alert", "Google security alert",
-                "Compromised password; change it now", .96, 1000);
+                "Compromised password; change it now", .96, at);
         StatefulMeaningPolicy.ProjectionDecision legacy = StatefulMeaningPolicy.projection(
                 "security_alert", "security", .96, "OPENED", 1,
                 "Google security alert", "Compromised password; change it now");
@@ -52,6 +54,8 @@ public class CognitiveShadowStoreTest {
         assertEquals(attentionCount, count("SELECT COUNT(*) FROM ue_attention_items"));
         assertEquals(semanticCount, count("SELECT COUNT(*) FROM ue_semantic_events"));
         assertTrue(CognitiveShadowStore.latestSummary(db).contains("candidates=1"));
+        assertTrue(CognitiveShadowStore.latestSummary(db).contains("fresh=1"));
+        assertTrue(CognitiveShadowStore.latestSummary(db).contains("stale=0"));
         assertTrue(CognitiveShadowStore.latestSummary(db).contains("cognitiveEligible=1"));
     }
 
@@ -75,26 +79,53 @@ public class CognitiveShadowStoreTest {
         assertEquals(2, candidate.repeatedCount);
         assertTrue(candidate.linkedOpenCommitment);
         assertEquals("Quotation is still pending", candidate.summary);
+        assertEquals(2000L, candidate.lastSeenAt);
+        assertEquals(1.0, candidate.freshness, .0001);
     }
 
     @Test public void realPersistedRoutineWeatherIsSuppressedByCognitiveShadow() {
-        long event = semantic("weather_event", "weather", "New Cairo", "24° and clear", .97, 2000);
+        long at = System.currentTimeMillis() - 1000L;
+        long event = semantic("weather_event", "weather", "New Cairo", "24° and clear", .97, at);
         long situation = StatefulMeaningStore.correlate(db, event, 0, "weather",
-                "weather_event", "New Cairo", "24° and clear", .97, 2000);
-        // Simulate noisy legacy attention from the pre-cognitive path.
+                "weather_event", "New Cairo", "24° and clear", .97, at);
         UniversalEventStore.attention(db, event, situation, "ACTION", "New Cairo",
                 "24° and clear", 80, .97, "weather", "legacy noisy attention");
 
         CognitiveShadowStore.run(db, 5);
 
-        Cursor c = db.rawQuery("SELECT legacy_surface,cognitive_eligible,cognitive_surface,delta,cognitive_reason FROM ue_cognitive_shadow_decisions LIMIT 1", null);
+        Cursor c = db.rawQuery("SELECT legacy_surface,cognitive_eligible,cognitive_surface,delta,cognitive_reason,cognitive_freshness FROM ue_cognitive_shadow_decisions LIMIT 1", null);
         assertTrue(c.moveToFirst());
         assertEquals(1, c.getInt(0));
         assertEquals(0, c.getInt(1));
         assertEquals(0, c.getInt(2));
         assertEquals(AttentionShadowComparator.Delta.NEW_SUPPRESSES_LEGACY_NOISE.name(), c.getString(3));
         assertTrue(c.getString(4).contains("routine weather"));
+        assertTrue(c.getDouble(5) >= .80);
         c.close();
+    }
+
+    @Test public void stalePersistedRequestIsMeasuredAndSuppressedByTemporalAttention() {
+        long at = System.currentTimeMillis() - 10L * DAY;
+        long event = semantic("action_request", "request", "Old request",
+                "Please send the old file", .96, at);
+        long situation = StatefulMeaningStore.correlate(db, event, 0, "mail",
+                "action_request", "Old request", "Please send the old file", .96, at);
+        StatefulMeaningPolicy.ProjectionDecision legacy = StatefulMeaningPolicy.projection(
+                "action_request", "request", .96, "OPENED", 1,
+                "Old request", "Please send the old file");
+        StatefulMeaningStore.recordProjectionDecision(db, event, situation, legacy);
+
+        CognitiveShadowStore.run(db, 5);
+
+        Cursor c = db.rawQuery("SELECT cognitive_eligible,cognitive_surface,cognitive_freshness,candidate_last_seen_at,cognitive_reason FROM ue_cognitive_shadow_decisions WHERE situation_id=? LIMIT 1", new String[]{String.valueOf(situation)});
+        assertTrue(c.moveToFirst());
+        assertEquals(0, c.getInt(0));
+        assertEquals(0, c.getInt(1));
+        assertEquals(.25, c.getDouble(2), .0001);
+        assertEquals(at, c.getLong(3));
+        assertTrue(c.getString(4).contains("stale"));
+        c.close();
+        assertTrue(CognitiveShadowStore.latestSummary(db).contains("stale=1"));
     }
 
     private long semantic(String type, String intent, String subject, String summary, double confidence, long at) {
