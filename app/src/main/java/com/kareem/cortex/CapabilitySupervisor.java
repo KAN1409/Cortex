@@ -7,13 +7,13 @@ import java.util.Locale;
 /**
  * Central reliability boundary for Cortex capabilities.
  *
- * Phase A is intentionally behavior-preserving: the existing emergency StartupSafetyGate
- * remains authoritative for startup-reachable data/background work. This supervisor adds
- * per-capability state and circuit-breaker semantics so later recovery can re-enable the
- * deterministic core without implicitly enabling native OCR/ASR/LLM runtimes.
+ * Recovery now has two independent layers:
+ * 1) StartupSafetyGate stays active to protect every legacy/native startup path.
+ * 2) SafeCoreRuntime may re-enable only explicitly classified Java/SQLite capabilities after
+ *    the launcher is stable and a database health probe succeeds.
  */
 public final class CapabilitySupervisor {
-    public static final String VERSION = "capability_supervisor_001";
+    public static final String VERSION = "capability_supervisor_002";
     private static final String PREF = "cortex_capability_supervisor";
     private static final int DEFAULT_FAILURE_LIMIT = 2;
 
@@ -57,14 +57,7 @@ public final class CapabilitySupervisor {
 
     private CapabilitySupervisor() {}
 
-    /**
-     * Current recovery contract. CORE_UI stays usable. Everything that could touch Cortex
-     * persistence/background/native execution stays blocked while the emergency gate is active.
-     */
     public static boolean allowed(Context context, Capability capability) {
-        if (capability == null) return false;
-        if (capability == Capability.CORE_UI) return true;
-        if (StartupSafetyGate.active()) return false;
         return status(context, capability).allowed();
     }
 
@@ -75,11 +68,22 @@ public final class CapabilitySupervisor {
         if (capability == Capability.CORE_UI) {
             return new Status(capability, State.READY, 0, 0L, "core UI is recovery-safe");
         }
-        if (StartupSafetyGate.active()) {
-            return new Status(capability, State.QUARANTINED, 0, 0L, "global startup recovery quarantine");
-        }
         if (context == null) {
             return new Status(capability, State.QUARANTINED, 0, 0L, "context unavailable");
+        }
+
+        // The emergency recovery build keeps all native/proactive execution disabled even after
+        // the deterministic safe core comes back online.
+        if (StartupSafetyGate.active() && !SafeCoreRuntime.safeCapability(capability)) {
+            return new Status(capability, State.QUARANTINED, 0, 0L,
+                    "native/proactive capability remains in recovery quarantine");
+        }
+
+        // Safe Java/SQLite capabilities may run only after the launcher settle window and the
+        // explicit database health probe complete successfully.
+        if (StartupSafetyGate.active() && SafeCoreRuntime.safeCapability(capability) && !SafeCoreRuntime.ready()) {
+            return new Status(capability, State.QUARANTINED, 0, 0L,
+                    "safe core not ready: " + SafeCoreRuntime.phase().name().toLowerCase(Locale.ROOT));
         }
 
         SharedPreferences p = context.getApplicationContext().getSharedPreferences(PREF, Context.MODE_PRIVATE);
