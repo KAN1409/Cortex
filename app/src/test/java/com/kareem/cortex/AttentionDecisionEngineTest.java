@@ -12,6 +12,7 @@ import static org.junit.Assert.assertTrue;
 public class AttentionDecisionEngineTest {
     private static final long NOW = 1_000_000_000L;
     private static final long HOUR = 60L * 60L * 1000L;
+    private static final long DAY = 24L * HOUR;
 
     private AttentionDecisionEngine.Candidate c(
             long id,
@@ -37,6 +38,17 @@ public class AttentionDecisionEngineTest {
                 id, type, state, subject, summary, confidence, urgency,
                 actionability, relevance, risk, novelty, deadlineAt, NOW,
                 repeated, evidence, unresolved, commitment, material, request, severeImpact);
+    }
+
+    private AttentionDecisionEngine.Candidate aged(
+            long id, String type, String subject, String summary,
+            double urgency, double actionability, double relevance, double risk,
+            long deadlineAt, long lastSeenAt, boolean commitment, boolean request) {
+        return new AttentionDecisionEngine.Candidate(
+                id, type, "OPEN", subject, summary, .95,
+                urgency, actionability, relevance, risk, .80,
+                deadlineAt, NOW, lastSeenAt,
+                1, 2, true, commitment, true, request, false);
     }
 
     @Test
@@ -189,5 +201,51 @@ public class AttentionDecisionEngineTest {
         assertEquals(2, ranked.size());
         assertEquals(20L, ranked.get(0).candidate.situationId);
         assertEquals(21L, ranked.get(1).candidate.situationId);
+    }
+
+    @Test
+    public void freshnessDropsMonotonicallyWithAge() {
+        assertEquals(1.0, AttentionDecisionEngine.freshnessScore(NOW - HOUR, NOW), .0001);
+        assertEquals(.80, AttentionDecisionEngine.freshnessScore(NOW - DAY, NOW), .0001);
+        assertEquals(.40, AttentionDecisionEngine.freshnessScore(NOW - 7 * DAY, NOW), .0001);
+        assertEquals(.25, AttentionDecisionEngine.freshnessScore(NOW - 10 * DAY, NOW), .0001);
+        assertEquals(.15, AttentionDecisionEngine.freshnessScore(NOW - 30 * DAY, NOW), .0001);
+    }
+
+    @Test
+    public void staleExplicitRequestDecaysOutOfNowWithoutDurableCommitment() {
+        AttentionDecisionEngine.Candidate stale = aged(
+                30, "action_request", "Old request", "Please send the old file",
+                .90, .90, .90, .05,
+                0, NOW - 10 * DAY, false, true);
+
+        AttentionDecisionEngine.Decision d = AttentionDecisionEngine.evaluate(stale);
+        assertEquals(.25, stale.freshness, .0001);
+        assertFalse(d.surfaceNow);
+        assertTrue(d.reason.contains("stale"));
+    }
+
+    @Test
+    public void staleEvidenceCanStillSurfaceWhenOpenCommitmentIsDue() {
+        AttentionDecisionEngine.Candidate durable = aged(
+                31, "commitment", "Quotation", "Quotation is still due",
+                .35, .75, .90, .10,
+                NOW + HOUR, NOW - 10 * DAY, true, false);
+
+        AttentionDecisionEngine.Decision d = AttentionDecisionEngine.evaluate(durable);
+        assertTrue(d.surfaceNow);
+        assertTrue(d.reason.contains("commitment"));
+    }
+
+    @Test
+    public void staleSecurityEvidenceWithoutRefreshStopsInterrupting() {
+        AttentionDecisionEngine.Candidate stale = aged(
+                32, "security_alert", "Account", "Compromised password warning",
+                .95, .95, .95, .95,
+                0, NOW - 10 * DAY, false, false);
+
+        AttentionDecisionEngine.Decision d = AttentionDecisionEngine.evaluate(stale);
+        assertFalse(d.surfaceNow);
+        assertTrue(d.reason.contains("stale"));
     }
 }
