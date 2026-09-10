@@ -9,7 +9,7 @@ public final class ScreenshotDeepOcrScheduler {
     private ScreenshotDeepOcrScheduler(){}
     static Constraints constraints(){return new Constraints.Builder().setRequiresCharging(true).setRequiresStorageNotLow(true).build();}
     static OneTimeWorkRequest one(){return new OneTimeWorkRequest.Builder(ScreenshotDeepOcrWorker.class).setConstraints(constraints()).setBackoffCriteria(BackoffPolicy.LINEAR,30,TimeUnit.SECONDS).addTag(UNIQUE).build();}
-    public static void kick(Context c){WorkManager.getInstance(c.getApplicationContext()).enqueueUniqueWork(UNIQUE,ExistingWorkPolicy.KEEP,one());}
-    static void continueChain(Context c){WorkManager.getInstance(c.getApplicationContext()).enqueueUniqueWork(UNIQUE,ExistingWorkPolicy.APPEND_OR_REPLACE,one());}
-    public static void enablePeriodic(Context c){PeriodicWorkRequest p=new PeriodicWorkRequest.Builder(ScreenshotDeepOcrWorker.class,12,TimeUnit.HOURS).setConstraints(constraints()).addTag(UNIQUE+"-periodic").build();WorkManager.getInstance(c.getApplicationContext()).enqueueUniquePeriodicWork(UNIQUE+"-periodic",ExistingPeriodicWorkPolicy.KEEP,p);}
+    public static void kick(Context c){if(StartupSafetyGate.active()||c==null)return;WorkManager.getInstance(c.getApplicationContext()).enqueueUniqueWork(UNIQUE,ExistingWorkPolicy.KEEP,one());}
+    static void continueChain(Context c){if(StartupSafetyGate.active()||c==null)return;WorkManager.getInstance(c.getApplicationContext()).enqueueUniqueWork(UNIQUE,ExistingWorkPolicy.APPEND_OR_REPLACE,one());}
+    public static void enablePeriodic(Context c){if(StartupSafetyGate.active()||c==null)return;PeriodicWorkRequest p=new PeriodicWorkRequest.Builder(ScreenshotDeepOcrWorker.class,12,TimeUnit.HOURS).setConstraints(constraints()).addTag(UNIQUE+"-periodic").build();WorkManager.getInstance(c.getApplicationContext()).enqueueUniquePeriodicWork(UNIQUE+"-periodic",ExistingPeriodicWorkPolicy.KEEP,p);}
 }
