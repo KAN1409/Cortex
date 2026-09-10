@@ -5,7 +5,7 @@ import androidx.annotation.NonNull;
 import androidx.work.Worker;
 import androidx.work.WorkerParameters;
 
-/** One bounded idempotent drain for stateful meaning projections plus non-invasive v70 shadow evaluation. */
+/** One bounded idempotent drain for safe semantics, stateful projections, Brain memory and v70 Now cognition. */
 public final class StatefulMeaningWorker extends Worker {
     public StatefulMeaningWorker(@NonNull Context c,@NonNull WorkerParameters p){super(c,p);}
 
@@ -16,22 +16,14 @@ public final class StatefulMeaningWorker extends Worker {
         VaultDb db=null;
         try{
             db=new VaultDb(app);
-
-            // Recovery builds intentionally keep the native semantic runtime quarantined. Do not
-            // leave ordinary captured notifications parked forever in semantic_state='waiting'.
-            // First classify the bounded waiting backlog deterministically; stronger models can
-            // replay the immutable raw evidence later without losing provenance.
-            DeterministicSemanticRecovery.recover(db,120);
-
-            StatefulMeaningRebuilder.run(db,160);
-
-            // v70 remains shadow-only. It records the cognitive answer without changing Now.
+            DeterministicSemanticRecovery.recover(db,200);
+            StatefulMeaningRebuilder.run(db,240);
+            SemanticMemoryBridge.sync(db,300);
             try{
-                CognitiveShadowStore.run(db.getWritableDatabase(),5);
+                CognitiveShadowStore.run(db.getWritableDatabase(),8);
             }catch(Throwable ignored){
-                // Shadow cognition must never break the established deterministic drain.
+                // Cognitive ranking must never break capture/semantic persistence.
             }
-
             CapabilitySupervisor.recordHealthy(app,CapabilitySupervisor.Capability.DETERMINISTIC_COGNITION);
             return StatefulMeaningRebuilder.hasBacklog(db)?Result.retry():Result.success();
         }catch(Throwable t){
