@@ -5,8 +5,10 @@ import android.database.Cursor;
 import android.database.sqlite.SQLiteDatabase;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 
 /**
  * Persisted, read-only-to-production shadow evaluation for the v70 cognitive attention path.
@@ -15,12 +17,12 @@ import java.util.Locale;
  * ue_attention_items, ue_projection_decisions, derived_items, situations, or semantic events,
  * so enabling shadow evaluation cannot change Now.
  *
- * v70.16 intentionally reconstructs persisted situations through CognitiveWorldState before
- * AttentionDecisionEngine. That makes the real device path match the architecture exercised by
- * the pure world-state tests instead of bypassing it with direct SQL -> Candidate construction.
+ * Persisted situations are reconstructed through CognitiveWorldState before evaluation. v70.18
+ * also records candidate event-time/freshness so a sparse Now can be explained as meaning,
+ * temporal decay, or global-capacity behavior rather than guessed from the UI.
  */
 public final class CognitiveShadowStore {
-    public static final String VERSION = "cognitive_shadow_store_002";
+    public static final String VERSION = "cognitive_shadow_store_003";
 
     private CognitiveShadowStore() {}
 
@@ -31,6 +33,8 @@ public final class CognitiveShadowStore {
                 "started_at INTEGER NOT NULL," +
                 "completed_at INTEGER NOT NULL DEFAULT 0," +
                 "candidate_count INTEGER NOT NULL DEFAULT 0," +
+                "fresh_candidate_count INTEGER NOT NULL DEFAULT 0," +
+                "stale_candidate_count INTEGER NOT NULL DEFAULT 0," +
                 "legacy_now_count INTEGER NOT NULL DEFAULT 0," +
                 "cognitive_now_count INTEGER NOT NULL DEFAULT 0," +
                 "cognitive_eligible_count INTEGER NOT NULL DEFAULT 0," +
@@ -47,6 +51,8 @@ public final class CognitiveShadowStore {
                 "cognitive_surface INTEGER NOT NULL," +
                 "cognitive_rank INTEGER NOT NULL DEFAULT 0," +
                 "cognitive_score REAL NOT NULL DEFAULT 0," +
+                "candidate_last_seen_at INTEGER NOT NULL DEFAULT 0," +
+                "cognitive_freshness REAL NOT NULL DEFAULT 1," +
                 "delta TEXT NOT NULL," +
                 "legacy_reason TEXT," +
                 "cognitive_reason TEXT," +
@@ -54,7 +60,11 @@ public final class CognitiveShadowStore {
                 "UNIQUE(run_id,situation_id))");
         addColumn(db,"ue_cognitive_shadow_runs","cognitive_eligible_count","INTEGER NOT NULL DEFAULT 0");
         addColumn(db,"ue_cognitive_shadow_runs","topk_excluded_count","INTEGER NOT NULL DEFAULT 0");
+        addColumn(db,"ue_cognitive_shadow_runs","fresh_candidate_count","INTEGER NOT NULL DEFAULT 0");
+        addColumn(db,"ue_cognitive_shadow_runs","stale_candidate_count","INTEGER NOT NULL DEFAULT 0");
         addColumn(db,"ue_cognitive_shadow_decisions","cognitive_eligible","INTEGER NOT NULL DEFAULT 0");
+        addColumn(db,"ue_cognitive_shadow_decisions","candidate_last_seen_at","INTEGER NOT NULL DEFAULT 0");
+        addColumn(db,"ue_cognitive_shadow_decisions","cognitive_freshness","REAL NOT NULL DEFAULT 1");
         db.execSQL("CREATE INDEX IF NOT EXISTS idx_ue_shadow_run ON ue_cognitive_shadow_decisions(run_id,cognitive_rank,situation_id)");
     }
 
@@ -69,10 +79,20 @@ public final class CognitiveShadowStore {
         AttentionShadowComparator.Report report = AttentionShadowComparator.compare(
                 legacy, candidates, Math.max(1, maxNowItems));
 
+        int fresh = 0, stale = 0;
+        Map<Long, AttentionDecisionEngine.Candidate> candidateBySituation = new HashMap<>();
+        for (AttentionDecisionEngine.Candidate candidate : candidates) {
+            candidateBySituation.put(candidate.situationId, candidate);
+            if (candidate.freshness >= 0.80) fresh++;
+            if (candidate.freshness < 0.50) stale++;
+        }
+
         ContentValues run = new ContentValues();
         run.put("engine_version", CognitiveWorldState.VERSION + "+" + AttentionDecisionEngine.VERSION + "+" + VERSION);
         run.put("started_at", started);
         run.put("candidate_count", candidates.size());
+        run.put("fresh_candidate_count", fresh);
+        run.put("stale_candidate_count", stale);
         run.put("legacy_now_count", countLegacySurface(legacy));
         run.put("cognitive_now_count", report.cognitiveSelectedCount);
         run.put("cognitive_eligible_count", report.cognitiveEligibleCount);
@@ -83,18 +103,21 @@ public final class CognitiveShadowStore {
         long runId = db.insertOrThrow("ue_cognitive_shadow_runs", null, run);
 
         long now = System.currentTimeMillis();
-        for (AttentionShadowComparator.Comparison c : report.comparisons) {
+        for (AttentionShadowComparator.Comparison comparison : report.comparisons) {
+            AttentionDecisionEngine.Candidate candidate = candidateBySituation.get(comparison.situationId);
             ContentValues v = new ContentValues();
             v.put("run_id", runId);
-            v.put("situation_id", c.situationId);
-            v.put("legacy_surface", c.legacySurface ? 1 : 0);
-            v.put("cognitive_eligible", c.cognitiveEligible ? 1 : 0);
-            v.put("cognitive_surface", c.cognitiveSurface ? 1 : 0);
-            v.put("cognitive_rank", c.cognitiveRank);
-            v.put("cognitive_score", c.cognitiveScore);
-            v.put("delta", c.delta.name());
-            v.put("legacy_reason", c.legacyReason);
-            v.put("cognitive_reason", c.cognitiveReason);
+            v.put("situation_id", comparison.situationId);
+            v.put("legacy_surface", comparison.legacySurface ? 1 : 0);
+            v.put("cognitive_eligible", comparison.cognitiveEligible ? 1 : 0);
+            v.put("cognitive_surface", comparison.cognitiveSurface ? 1 : 0);
+            v.put("cognitive_rank", comparison.cognitiveRank);
+            v.put("cognitive_score", comparison.cognitiveScore);
+            v.put("candidate_last_seen_at", candidate == null ? 0L : candidate.lastSeenAt);
+            v.put("cognitive_freshness", candidate == null ? 1.0 : candidate.freshness);
+            v.put("delta", comparison.delta.name());
+            v.put("legacy_reason", comparison.legacyReason);
+            v.put("cognitive_reason", comparison.cognitiveReason);
             v.put("created_at", now);
             db.insertOrThrow("ue_cognitive_shadow_decisions", null, v);
         }
@@ -212,16 +235,18 @@ public final class CognitiveShadowStore {
 
     public static String latestSummary(SQLiteDatabase db) {
         ensure(db);
-        Cursor c = db.rawQuery("SELECT candidate_count,legacy_now_count,cognitive_eligible_count,cognitive_now_count,topk_excluded_count,agreements,recoveries,noise_suppressions FROM ue_cognitive_shadow_runs WHERE completed_at>0 ORDER BY id DESC LIMIT 1", null);
+        Cursor c = db.rawQuery("SELECT candidate_count,fresh_candidate_count,stale_candidate_count,legacy_now_count,cognitive_eligible_count,cognitive_now_count,topk_excluded_count,agreements,recoveries,noise_suppressions FROM ue_cognitive_shadow_runs WHERE completed_at>0 ORDER BY id DESC LIMIT 1", null);
         if (!c.moveToFirst()) { c.close(); return "no shadow run"; }
         String s = "candidates=" + c.getInt(0) +
-                " legacyNow=" + c.getInt(1) +
-                " cognitiveEligible=" + c.getInt(2) +
-                " cognitiveNow=" + c.getInt(3) +
-                " topKExcluded=" + c.getInt(4) +
-                " agree=" + c.getInt(5) +
-                " recover=" + c.getInt(6) +
-                " suppress=" + c.getInt(7);
+                " fresh=" + c.getInt(1) +
+                " stale=" + c.getInt(2) +
+                " legacyNow=" + c.getInt(3) +
+                " cognitiveEligible=" + c.getInt(4) +
+                " cognitiveNow=" + c.getInt(5) +
+                " topKExcluded=" + c.getInt(6) +
+                " agree=" + c.getInt(7) +
+                " recover=" + c.getInt(8) +
+                " suppress=" + c.getInt(9);
         c.close();
         return s;
     }
