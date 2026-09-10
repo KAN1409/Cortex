@@ -69,10 +69,10 @@ jobs:
           python3 - <<'PY'
           import xml.etree.ElementTree as ET
           checks={
-            'AttentionDecisionEngineTest':12,
+            'AttentionDecisionEngineTest':16,
             'CognitiveWorldStateTest':12,
             'AttentionShadowComparatorTest':2,
-            'CognitiveShadowStoreTest':3,
+            'CognitiveShadowStoreTest':4,
             'AttentionTraceExporterTest':3,
             'CognitiveBrainStressTest':16,
             'ColdStartQuarantineTest':4,
@@ -88,13 +88,17 @@ jobs:
               assert not bad, f'{cls}: failed/skipped '+','.join(bad)
               total += len(cases)
               print(f'{cls}: {len(cases)}/{len(cases)} PASS')
-          assert total >= 59
-          print(f'v70 cognitive/staged-recovery/temporal-world suites: {total}/{total} PASS')
+          assert total >= 64
+          print(f'v70 cognitive/staged-recovery/temporal-attention suites: {total}/{total} PASS')
           PY
           grep -q 'CognitiveShadowStore.run' app/src/main/java/com/kareem/cortex/StatefulMeaningWorker.java
           grep -q 'new CognitiveWorldState' app/src/main/java/com/kareem/cortex/CognitiveShadowStore.java
           grep -q 'world.attentionCandidates' app/src/main/java/com/kareem/cortex/CognitiveShadowStore.java
           grep -q 'cognitive_eligible' app/src/main/java/com/kareem/cortex/CognitiveShadowStore.java
+          grep -q 'candidate_last_seen_at' app/src/main/java/com/kareem/cortex/CognitiveShadowStore.java
+          grep -q 'cognitive_freshness' app/src/main/java/com/kareem/cortex/CognitiveShadowStore.java
+          grep -q 'freshnessScore' app/src/main/java/com/kareem/cortex/AttentionDecisionEngine.java
+          grep -q 's.lastSeenAt' app/src/main/java/com/kareem/cortex/CognitiveWorldState.java
           grep -q 'cognitive_funnel' app/src/main/java/com/kareem/cortex/AttentionTraceExporter.java
           grep -q 'peakRisk' app/src/main/java/com/kareem/cortex/CognitiveWorldState.java
           grep -q 'if (!newer) return s' app/src/main/java/com/kareem/cortex/CognitiveWorldState.java
@@ -205,7 +209,7 @@ jobs:
               for c in cases:
                   if c.find('failure') is not None or c.find('error') is not None or c.find('skipped') is not None:
                       bad.append(p.split('/')[-1]+':'+c.attrib.get('name','?'))
-          assert total >= 86, f'expected broad repeated suite including temporal world-state coverage, only {total} cases found'
+          assert total >= 91, f'expected broad repeated suite including temporal attention coverage, only {total} cases found'
           assert not bad, 'repeatability failures/skips: '+','.join(bad)
           print(f'Repeatability pass: {total}/{total} tests PASS')
           PY
