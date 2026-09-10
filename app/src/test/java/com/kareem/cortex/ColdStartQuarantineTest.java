@@ -4,13 +4,14 @@ import static org.junit.Assert.*;
 
 import android.content.Context;
 import androidx.test.core.app.ApplicationProvider;
+import androidx.work.Configuration;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.robolectric.Robolectric;
 import org.robolectric.RobolectricTestRunner;
 import org.robolectric.android.controller.ActivityController;
 
-/** Regression contract for the v70.10 recovery build: startup must not touch background/native work. */
+/** Regression contract for recovery startup and WorkManager bootstrap safety. */
 @RunWith(RobolectricTestRunner.class)
 public class ColdStartQuarantineTest {
     @Test public void quarantineIsCompileTimeActive() {
@@ -19,7 +20,13 @@ public class ColdStartQuarantineTest {
         assertEquals("native runtime quarantined", LocalLlmRuntime.runtimeVersion());
     }
 
-    @Test public void allStartupSchedulersAreSafeWhenWorkManagerIsNotInitialized() {
+    @Test public void cortexAppProvidesWorkManagerConfigurationForPersistedSystemJobs() {
+        assertTrue(Configuration.Provider.class.isAssignableFrom(CortexApp.class));
+        Configuration configuration=new CortexApp().getWorkManagerConfiguration();
+        assertNotNull(configuration);
+    }
+
+    @Test public void allStartupSchedulersAreSafeUnderQuarantine() {
         Context c=ApplicationProvider.getApplicationContext();
         StartupMaintenance.schedule(c);
         PhoneContextScheduler.schedule(c);
