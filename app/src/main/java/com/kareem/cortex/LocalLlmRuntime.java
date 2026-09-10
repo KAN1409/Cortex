@@ -13,23 +13,25 @@ public final class LocalLlmRuntime {
     public static State state(Context c){
         SharedPreferences p=c.getSharedPreferences(PREF,Context.MODE_PRIVATE);String st=p.getString(K_STATE,"not_tested");
         if("ready".equals(st)&&!LocalModelManager.SHA256.equalsIgnoreCase(p.getString(K_MODEL_SHA,"")))st="not_tested";
+        if(StartupSafetyGate.active())st="quarantined";
         return new State(st,p.getString(K_ERROR,""),p.getString(K_TEXT,""),p.getString(K_INFO,""),p.getFloat(K_TPS,0f),p.getInt(K_TOKENS,0),p.getLong(K_DURATION,0),p.getLong(K_TESTED,0));
     }
-    public static boolean ready(Context c){return "ready".equals(state(c).state)&&LocalModelManager.verified(c);}
-    public static boolean testing(Context c){return "testing".equals(state(c).state);}
-    public static String runtimeVersion(){return LocalLlmBridge.RUNTIME_VERSION;}
+    public static boolean ready(Context c){return !StartupSafetyGate.active()&&"ready".equals(state(c).state)&&LocalModelManager.verified(c);}
+    public static boolean testing(Context c){return !StartupSafetyGate.active()&&"testing".equals(state(c).state);}
+    public static String runtimeVersion(){return StartupSafetyGate.active()?"native runtime quarantined":LocalLlmBridge.RUNTIME_VERSION;}
 
     /**
-     * Safe idempotent auto-start. The old one-shot flag could permanently strand a verified model
-     * in not_tested after a process death. State=testing is now the only concurrency gate, so a
-     * future worker/app start can recover automatically.
+     * Safe idempotent auto-start. Native runtime entry is completely blocked by recovery quarantine
+     * because SIGABRT/SIGSEGV cannot be caught by Java try/catch.
      */
     public static void maybeAutoSelfTest(Context c,Callback cb){
+        if(StartupSafetyGate.active()){if(cb!=null)cb.done(state(c));return;}
         if(!LocalModelManager.verified(c)||ready(c)||testing(c))return;
         runSelfTest(c,cb);
     }
 
     public static void runSelfTest(Context c,Callback cb){
+        if(StartupSafetyGate.active()){if(cb!=null)cb.done(state(c));return;}
         Context app=c.getApplicationContext();if(!LocalModelManager.verified(app)){if(cb!=null)cb.done(state(app));return;}
         synchronized(LocalLlmRuntime.class){
             if(ready(app)){if(cb!=null)cb.done(state(app));return;}
@@ -37,6 +39,7 @@ public final class LocalLlmRuntime {
             app.getSharedPreferences(PREF,Context.MODE_PRIVATE).edit().putString(K_STATE,"testing").putString(K_ERROR,"").apply();
         }
         new Thread(()->{
+            if(StartupSafetyGate.active())return;
             long at=System.currentTimeMillis();LocalLlmBridge.SelfTestResult r;
             try{r=LocalLlmBridge.selfTest(LocalModelManager.modelFile(app).getAbsolutePath());}
             catch(Throwable t){r=null;SharedPreferences.Editor e=app.getSharedPreferences(PREF,Context.MODE_PRIVATE).edit().putString(K_STATE,"failed").putString(K_ERROR,t.getClass().getSimpleName()+": "+safe(t.getMessage())).putLong(K_TESTED,at).putString(K_MODEL_SHA,LocalModelManager.SHA256);e.apply();if(cb!=null)cb.done(state(app));return;}
@@ -51,6 +54,6 @@ public final class LocalLlmRuntime {
     public static final class State{
         public final String state,error,selfTestText,systemInfo;public final float tokensPerSecond;public final int tokensGenerated;public final long durationMs,testedAt;
         State(String s,String e,String t,String i,float tps,int tok,long d,long at){state=s;error=e;selfTestText=t;systemInfo=i;tokensPerSecond=tps;tokensGenerated=tok;durationMs=d;testedAt=at;}
-        public String label(){if("ready".equals(state))return"Installed • Verified • Local inference ready";if("testing".equals(state))return"Loading model + running local self-test";if("failed".equals(state))return"Runtime self-test failed";return"Runtime installed in APK • self-test pending";}
+        public String label(){if("quarantined".equals(state))return"Native local inference temporarily quarantined for startup recovery";if("ready".equals(state))return"Installed • Verified • Local inference ready";if("testing".equals(state))return"Loading model + running local self-test";if("failed".equals(state))return"Runtime self-test failed";return"Runtime installed in APK • self-test pending";}
     }
 }
