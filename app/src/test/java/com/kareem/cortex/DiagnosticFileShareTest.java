@@ -39,4 +39,10 @@ public class DiagnosticFileShareTest {
         assertTrue(summary.contains("status=6"));
         assertFalse(summary.contains("very long native trace line 9999"));
     }
+
+    @Test public void jsonDiagnosticsUseApplicationJsonMimeType() {
+        assertEquals("application/json",DiagnosticFileShare.mimeType("cortex-attention-trace.json"));
+        assertEquals("application/json",DiagnosticFileShare.mimeType("TRACE.JSON"));
+        assertEquals("text/plain",DiagnosticFileShare.mimeType("cortex-java-crash.txt"));
+    }
 }
