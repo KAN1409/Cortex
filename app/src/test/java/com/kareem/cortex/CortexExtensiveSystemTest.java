@@ -32,6 +32,7 @@ public class CortexExtensiveSystemTest {
             quick.close();
 
             CognitiveStore.ensure(db);
+            StatefulMeaningStore.ensure(db.getWritableDatabase());
             CommitmentLifecycleStore.ensure(db.getWritableDatabase());
             CognitiveShadowStore.ensure(db.getWritableDatabase());
 
@@ -51,9 +52,6 @@ public class CortexExtensiveSystemTest {
                         CortexCapabilityRegistry.NOT_VERIFIED, state.status);
             }
 
-            // Recovery semantics: the native model can stay quarantined without turning Capture
-            // into a dead-end queue. Obvious obligations are still actionable and ordinary text is
-            // retained as understood informational context.
             DeterministicSemanticRecovery.Classification request =
                     DeterministicSemanticRecovery.classify("conversation_notification", "Ahmed", "Please send the quotation today");
             assertEquals("ACTION", request.attentionKind);
@@ -67,6 +65,10 @@ public class CortexExtensiveSystemTest {
             assertNull(ordinary.attentionKind);
             assertEquals("conversation_message", ordinary.type);
             assertTrue(ordinary.confidence >= .75);
+
+            // End-to-end read path must remain executable even when there is no fixture data.
+            assertTrue(SemanticMemoryBridge.sync(db, 50) >= 0);
+            assertNotNull(CognitiveNowReadModel.load(db.getReadableDatabase(), 8));
 
             String trace = AttentionTraceExporter.export(db.getReadableDatabase());
             assertTrue(trace.contains("CORTEX_ATTENTION_TRACE_V4"));
