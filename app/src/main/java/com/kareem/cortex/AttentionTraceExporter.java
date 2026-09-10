@@ -5,9 +5,9 @@ import android.database.sqlite.SQLiteDatabase;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
-/** Read-only diagnostic snapshot: Capture -> semantic -> situation -> attention -> Now. */
+/** Read-only diagnostic snapshot: Capture -> semantic -> situation -> world state -> attention -> Now. */
 public final class AttentionTraceExporter {
-    public static final String VERSION="CORTEX_ATTENTION_TRACE_V1";
+    public static final String VERSION="CORTEX_ATTENTION_TRACE_V2";
     private AttentionTraceExporter(){}
 
     public static String export(SQLiteDatabase db) throws Exception {
@@ -20,6 +20,8 @@ public final class AttentionTraceExporter {
         root.put("schema_revision",CognitiveSchema.REVISION);
         root.put("processor_version",UniversalEventStore.PROCESSOR_VERSION);
         root.put("policy_version",StatefulMeaningPolicy.VERSION);
+        root.put("world_state_version",CognitiveWorldState.VERSION);
+        root.put("attention_engine_version",AttentionDecisionEngine.VERSION);
         root.put("shadow_version",CognitiveShadowStore.VERSION);
         root.put("capture",capture(db));
         root.put("situations",situations(db));
@@ -27,7 +29,9 @@ public final class AttentionTraceExporter {
         root.put("actual_now",now(db));
         root.put("trace_items",traceItems(db));
         root.put("unlinked_semantic_events",unlinkedSemanticEvents(db));
-        root.put("summary",summary(db));
+        JSONObject funnel=cognitiveFunnel(db);
+        root.put("cognitive_funnel",funnel);
+        root.put("summary",summary(db,funnel));
         return root.toString(2);
     }
 
@@ -60,7 +64,11 @@ public final class AttentionTraceExporter {
     private static JSONArray decisions(SQLiteDatabase db)throws Exception{
         JSONArray a=new JSONArray();
         if(table(db,"ue_projection_decisions")){Cursor c=db.rawQuery("SELECT situation_id,semantic_event_id,projection,eligible,reason,policy_version,created_at FROM ue_projection_decisions ORDER BY id DESC LIMIT 500",null);try{while(c.moveToNext()){JSONObject o=new JSONObject();o.put("engine","production");o.put("situation_id",c.getLong(0));o.put("semantic_event_id",c.getLong(1));o.put("projection",s(c,2));o.put("eligible",c.getInt(3)==1);o.put("reason",s(c,4));o.put("policy_version",s(c,5));o.put("created_at",c.getLong(6));a.put(o);}}finally{c.close();}}
-        if(table(db,"ue_cognitive_shadow_decisions")&&table(db,"ue_cognitive_shadow_runs")){Cursor c=db.rawQuery("SELECT situation_id,legacy_surface,cognitive_surface,cognitive_rank,cognitive_score,delta,legacy_reason,cognitive_reason,created_at FROM ue_cognitive_shadow_decisions WHERE run_id=(SELECT MAX(id) FROM ue_cognitive_shadow_runs WHERE completed_at>0) ORDER BY cognitive_rank,situation_id",null);try{while(c.moveToNext()){JSONObject o=new JSONObject();o.put("engine","v70_shadow");o.put("situation_id",c.getLong(0));o.put("legacy_surface",c.getInt(1)==1);o.put("cognitive_surface",c.getInt(2)==1);o.put("cognitive_rank",c.getInt(3));o.put("cognitive_score",c.getDouble(4));o.put("delta",s(c,5));o.put("legacy_reason",s(c,6));o.put("cognitive_reason",s(c,7));o.put("created_at",c.getLong(8));a.put(o);}}finally{c.close();}}
+        if(table(db,"ue_cognitive_shadow_decisions")&&table(db,"ue_cognitive_shadow_runs")){
+            String eligible=column(db,"ue_cognitive_shadow_decisions","cognitive_eligible")?"cognitive_eligible":"cognitive_surface";
+            Cursor c=db.rawQuery("SELECT situation_id,legacy_surface,"+eligible+",cognitive_surface,cognitive_rank,cognitive_score,delta,legacy_reason,cognitive_reason,created_at FROM ue_cognitive_shadow_decisions WHERE run_id=(SELECT MAX(id) FROM ue_cognitive_shadow_runs WHERE completed_at>0) ORDER BY CASE WHEN cognitive_rank=0 THEN 999999 ELSE cognitive_rank END,situation_id",null);
+            try{while(c.moveToNext()){JSONObject o=new JSONObject();o.put("engine","v70_shadow");o.put("situation_id",c.getLong(0));o.put("legacy_surface",c.getInt(1)==1);o.put("cognitive_eligible",c.getInt(2)==1);o.put("cognitive_surface",c.getInt(3)==1);o.put("cognitive_rank",c.getInt(4));o.put("cognitive_score",c.getDouble(5));o.put("delta",s(c,6));o.put("legacy_reason",s(c,7));o.put("cognitive_reason",s(c,8));o.put("created_at",c.getLong(9));a.put(o);}}finally{c.close();}
+        }
         return a;
     }
 
@@ -87,7 +95,11 @@ public final class AttentionTraceExporter {
             o.put("actual_now",actual);
 
             JSONObject shadow=new JSONObject();shadow.put("available",false);
-            if(table(db,"ue_cognitive_shadow_decisions")&&table(db,"ue_cognitive_shadow_runs")){Cursor sh=db.rawQuery("SELECT d.legacy_surface,d.cognitive_surface,d.cognitive_rank,d.cognitive_score,d.delta,d.legacy_reason,d.cognitive_reason,d.created_at FROM ue_cognitive_shadow_decisions d WHERE d.run_id=(SELECT MAX(id) FROM ue_cognitive_shadow_runs WHERE completed_at>0) AND d.situation_id=? LIMIT 1",new String[]{String.valueOf(id)});try{if(sh.moveToFirst()){shadow.put("available",true);shadow.put("legacy_surface",sh.getInt(0)==1);shadow.put("cognitive_surface",sh.getInt(1)==1);shadow.put("cognitive_rank",sh.getInt(2));shadow.put("cognitive_score",sh.getDouble(3));shadow.put("delta",s(sh,4));shadow.put("legacy_reason",s(sh,5));shadow.put("cognitive_reason",s(sh,6));shadow.put("created_at",sh.getLong(7));}}finally{sh.close();}}
+            if(table(db,"ue_cognitive_shadow_decisions")&&table(db,"ue_cognitive_shadow_runs")){
+                String eligible=column(db,"ue_cognitive_shadow_decisions","cognitive_eligible")?"cognitive_eligible":"cognitive_surface";
+                Cursor sh=db.rawQuery("SELECT d.legacy_surface,d."+eligible+",d.cognitive_surface,d.cognitive_rank,d.cognitive_score,d.delta,d.legacy_reason,d.cognitive_reason,d.created_at FROM ue_cognitive_shadow_decisions d WHERE d.run_id=(SELECT MAX(id) FROM ue_cognitive_shadow_runs WHERE completed_at>0) AND d.situation_id=? LIMIT 1",new String[]{String.valueOf(id)});
+                try{if(sh.moveToFirst()){shadow.put("available",true);shadow.put("legacy_surface",sh.getInt(0)==1);shadow.put("cognitive_eligible",sh.getInt(1)==1);shadow.put("cognitive_surface",sh.getInt(2)==1);shadow.put("cognitive_rank",sh.getInt(3));shadow.put("cognitive_score",sh.getDouble(4));shadow.put("delta",s(sh,5));shadow.put("legacy_reason",s(sh,6));shadow.put("cognitive_reason",s(sh,7));shadow.put("created_at",sh.getLong(8));}}finally{sh.close();}
+            }
             o.put("shadow_attention",shadow);
 
             String consistency="CONSISTENT";
@@ -105,10 +117,39 @@ public final class AttentionTraceExporter {
         try{while(c.moveToNext()){JSONObject o=new JSONObject();o.put("semantic_event_id",c.getLong(0));o.put("capture_id",c.getLong(1));o.put("occurred_at",c.getLong(2));o.put("semantic_type",s(c,3));o.put("subject",s(c,4));o.put("summary",s(c,5));o.put("confidence",c.getDouble(6));o.put("semantic_state",s(c,7));a.put(o);}}finally{c.close();}return a;
     }
 
-    private static JSONObject summary(SQLiteDatabase db)throws Exception{
+    /** Exact stage counts for the latest shadow run; rejection reasons make sparse Now auditable. */
+    private static JSONObject cognitiveFunnel(SQLiteDatabase db)throws Exception{
+        JSONObject o=new JSONObject();o.put("available",false);
+        if(!table(db,"ue_cognitive_shadow_runs")||!table(db,"ue_cognitive_shadow_decisions"))return o;
+        long runId=scalar(db,"SELECT COALESCE(MAX(id),0) FROM ue_cognitive_shadow_runs WHERE completed_at>0");
+        if(runId<=0)return o;
+        o.put("available",true);o.put("run_id",runId);
+
+        Cursor r=db.rawQuery("SELECT engine_version,started_at,completed_at,candidate_count,legacy_now_count,cognitive_now_count FROM ue_cognitive_shadow_runs WHERE id=? LIMIT 1",new String[]{String.valueOf(runId)});
+        long candidates=0,selected=0;
+        try{if(r.moveToFirst()){o.put("engine_version",s(r,0));o.put("started_at",r.getLong(1));o.put("completed_at",r.getLong(2));candidates=r.getLong(3);o.put("candidate_count",candidates);o.put("legacy_now_count",r.getLong(4));selected=r.getLong(5);o.put("cognitive_selected_count",selected);}}finally{r.close();}
+
+        String eligibleColumn=column(db,"ue_cognitive_shadow_decisions","cognitive_eligible")?"cognitive_eligible":"cognitive_surface";
+        long eligible=scalar(db,"SELECT COUNT(*) FROM ue_cognitive_shadow_decisions WHERE run_id="+runId+" AND "+eligibleColumn+"=1");
+        long rejected=Math.max(0,candidates-eligible);
+        long topKExcluded=scalar(db,"SELECT COUNT(*) FROM ue_cognitive_shadow_decisions WHERE run_id="+runId+" AND "+eligibleColumn+"=1 AND cognitive_surface=0");
+        o.put("cognitive_eligible_count",eligible);
+        o.put("cognitive_rejected_count",rejected);
+        o.put("topk_excluded_count",topKExcluded);
+        o.put("cognitive_selected_count",selected);
+
+        JSONArray reasons=new JSONArray();
+        Cursor q=db.rawQuery("SELECT cognitive_reason,COUNT(*) FROM ue_cognitive_shadow_decisions WHERE run_id=? AND "+eligibleColumn+"=0 GROUP BY cognitive_reason ORDER BY COUNT(*) DESC,cognitive_reason ASC LIMIT 16",new String[]{String.valueOf(runId)});
+        try{while(q.moveToNext()){JSONObject x=new JSONObject();x.put("reason",s(q,0));x.put("count",q.getLong(1));reasons.put(x);}}finally{q.close();}
+        o.put("rejection_reasons",reasons);
+        return o;
+    }
+
+    private static JSONObject summary(SQLiteDatabase db,JSONObject funnel)throws Exception{
         JSONObject o=new JSONObject();
         o.put("capture_count",count(db,"ue_raw_observations"));
         o.put("semantic_count",count(db,"ue_semantic_events"));
+        o.put("complete_semantic_count",table(db,"ue_semantic_events")?scalar(db,"SELECT COUNT(*) FROM ue_semantic_events WHERE superseded_by=0 AND semantic_state='complete'"):0);
         o.put("situation_count",count(db,"ue_situations"));
         o.put("linked_semantic_count",linkedSemanticCount(db));
         o.put("unlinked_complete_semantic_count",unlinkedCompleteSemanticCount(db));
@@ -116,7 +157,14 @@ public final class AttentionTraceExporter {
         o.put("open_now_count",table(db,"ue_attention_items")?scalar(db,"SELECT COUNT(*) FROM ue_attention_items WHERE state='open'"):0);
         o.put("eligible_not_materialized_count",consistencyCount(db,true,false));
         o.put("materialized_without_current_eligibility_count",consistencyCount(db,false,true));
-        o.put("note","Diagnostic trace only. Counts describe pipeline consistency, not whether Cortex made the right human-level attention choice.");
+        if(funnel!=null&&funnel.optBoolean("available")){
+            o.put("world_state_candidate_count",funnel.optLong("candidate_count",0));
+            o.put("cognitive_eligible_count",funnel.optLong("cognitive_eligible_count",0));
+            o.put("cognitive_rejected_count",funnel.optLong("cognitive_rejected_count",0));
+            o.put("cognitive_topk_excluded_count",funnel.optLong("topk_excluded_count",0));
+            o.put("cognitive_selected_count",funnel.optLong("cognitive_selected_count",0));
+        }
+        o.put("note","Diagnostic trace only. Funnel counts identify where candidates leave the pipeline; human-level correctness still requires reviewing the reasons and evidence.");
         return o;
     }
 
@@ -126,6 +174,7 @@ public final class AttentionTraceExporter {
     private static long count(SQLiteDatabase db,String t){return table(db,t)?scalar(db,"SELECT COUNT(*) FROM "+t):0;}
     private static long scalar(SQLiteDatabase db,String q){Cursor c=db.rawQuery(q,null);try{return c.moveToFirst()?c.getLong(0):0;}finally{c.close();}}
     private static boolean table(SQLiteDatabase db,String n){Cursor c=db.rawQuery("SELECT 1 FROM sqlite_master WHERE type='table' AND name=? LIMIT 1",new String[]{n});try{return c.moveToFirst();}finally{c.close();}}
+    private static boolean column(SQLiteDatabase db,String table,String name){if(!table(db,table))return false;Cursor c=db.rawQuery("PRAGMA table_info("+table+")",null);try{while(c.moveToNext()){int i=c.getColumnIndex("name");if(i>=0&&name.equals(c.getString(i)))return true;}return false;}finally{c.close();}}
     private static String s(Cursor c,int i){String x=c.getString(i);return x==null?"":x;}
     private static String sql(String x){return x==null?"":x.replace("'","''");}
 }
