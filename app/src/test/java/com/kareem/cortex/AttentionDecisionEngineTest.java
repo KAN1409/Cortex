@@ -10,7 +10,7 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 public class AttentionDecisionEngineTest {
-    private static final long NOW = 1_000_000_000L;
+    private static final long NOW = 10_000_000_000L;
     private static final long HOUR = 60L * 60L * 1000L;
     private static final long DAY = 24L * HOUR;
 
