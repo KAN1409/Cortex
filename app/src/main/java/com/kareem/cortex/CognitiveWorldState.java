@@ -15,9 +15,12 @@ import java.util.Map;
  * It does not decide what the UI should show. Its job is to maintain the current truth
  * of a situation across time and attach durable context (commitments / personal links)
  * before attention is evaluated.
+ *
+ * v70.17 separates CURRENT truth from PEAK historical evidence. Attention reads current
+ * urgency/risk/actionability; diagnostics can still see the strongest historical signal.
  */
 public final class CognitiveWorldState {
-    public static final String VERSION = "cognitive_world_state_001";
+    public static final String VERSION = "cognitive_world_state_002";
 
     private final Map<Long, Situation> situations = new LinkedHashMap<>();
     private final Map<String, Commitment> commitments = new LinkedHashMap<>();
@@ -127,12 +130,22 @@ public final class CognitiveWorldState {
         public String state;
         public String subject;
         public String summary;
+
+        /** Aggregate confidence across evidence; all other attention signals below are current. */
         public double confidence;
         public double urgency;
         public double actionability;
         public double personalRelevance;
         public double risk;
         public double novelty;
+
+        /** Historical peaks are retained for diagnostics/history but never directly rank Now. */
+        public double peakUrgency;
+        public double peakActionability;
+        public double peakPersonalRelevance;
+        public double peakRisk;
+        public double peakNovelty;
+
         public long deadlineAt;
         public long firstSeenAt;
         public long lastSeenAt;
@@ -156,6 +169,11 @@ public final class CognitiveWorldState {
             personalRelevance = o.personalRelevance;
             risk = o.risk;
             novelty = o.novelty;
+            peakUrgency = o.urgency;
+            peakActionability = o.actionability;
+            peakPersonalRelevance = o.personalRelevance;
+            peakRisk = o.risk;
+            peakNovelty = o.novelty;
             deadlineAt = o.deadlineAt;
             firstSeenAt = o.occurredAt;
             lastSeenAt = o.occurredAt;
@@ -168,7 +186,13 @@ public final class CognitiveWorldState {
         }
     }
 
-    /** Apply one already-correlated observation to the current situation truth. */
+    /**
+     * Applies one correlated observation.
+     *
+     * Evidence/history is accumulated regardless of arrival order, but CURRENT world truth may
+     * only move forward in event time. This prevents a late-arriving old observation from
+     * resurrecting stale urgency/risk or overwriting a newer resolution/de-escalation.
+     */
     public synchronized Situation observe(Observation o) {
         if (o == null) throw new IllegalArgumentException("observation == null");
         Situation s = situations.get(o.situationId);
@@ -180,27 +204,56 @@ public final class CognitiveWorldState {
 
         s.evidenceCount++;
         s.repeatedCount++;
+        s.confidence = weighted(s.confidence, o.confidence, s.evidenceCount);
+        s.peakUrgency = Math.max(s.peakUrgency, o.urgency);
+        s.peakActionability = Math.max(s.peakActionability, o.actionability);
+        s.peakPersonalRelevance = Math.max(s.peakPersonalRelevance, o.personalRelevance);
+        s.peakRisk = Math.max(s.peakRisk, o.risk);
+        s.peakNovelty = Math.max(s.peakNovelty, o.novelty);
+
+        if (s.firstSeenAt <= 0 || (o.occurredAt > 0 && o.occurredAt < s.firstSeenAt)) {
+            s.firstSeenAt = o.occurredAt;
+        }
+
+        boolean newer;
+        if (o.occurredAt <= 0) newer = s.lastSeenAt <= 0;
+        else newer = s.lastSeenAt <= 0 || o.occurredAt >= s.lastSeenAt;
+        if (!newer) return s;
+
+        String previousState = s.state;
+        boolean stateChanged = !o.state.isEmpty() && !norm(o.state).equals(norm(previousState));
+
         if (!o.linkKey.isEmpty()) s.linkKey = o.linkKey;
         if (!o.type.isEmpty()) s.type = o.type;
         if (!o.state.isEmpty()) s.state = o.state;
         if (!o.subject.isEmpty()) s.subject = o.subject;
         if (!o.summary.isEmpty()) s.summary = o.summary;
 
-        // Current world truth favors the newest evidence while keeping conservative
-        // maxima for safety/action signals that may have been established earlier.
-        s.confidence = weighted(s.confidence, o.confidence, s.evidenceCount);
-        s.urgency = Math.max(s.urgency, o.urgency);
-        s.actionability = Math.max(s.actionability, o.actionability);
-        s.personalRelevance = Math.max(s.personalRelevance, o.personalRelevance);
-        s.risk = Math.max(s.risk, o.risk);
-        s.novelty = o.materialChange ? Math.max(s.novelty, o.novelty) : Math.min(s.novelty, o.novelty);
-        s.deadlineAt = earlierPositive(s.deadlineAt, o.deadlineAt);
-        if (s.firstSeenAt <= 0 || (o.occurredAt > 0 && o.occurredAt < s.firstSeenAt)) s.firstSeenAt = o.occurredAt;
-        if (o.occurredAt > s.lastSeenAt) s.lastSeenAt = o.occurredAt;
+        // CURRENT signals follow the newest evidence. Historical maxima remain available above.
+        s.urgency = o.urgency;
+        s.actionability = o.actionability;
+        s.personalRelevance = o.personalRelevance;
+        s.risk = o.risk;
+        s.novelty = o.novelty;
+
+        // A new explicit deadline replaces an older one (for example a rescheduled commitment).
+        // Missing deadline evidence does not erase a known active deadline.
+        if (o.deadlineAt > 0) s.deadlineAt = o.deadlineAt;
+        if (isResolvedState(s.state)) s.deadlineAt = 0L;
+
+        if (o.occurredAt > 0) s.lastSeenAt = o.occurredAt;
         s.unresolved = !isResolvedState(s.state);
         s.materialChange = o.materialChange;
-        s.explicitRequest = s.explicitRequest || o.explicitRequest;
-        s.severeContextImpact = s.severeContextImpact || o.severeContextImpact;
+
+        // Supporting evidence keeps an already-established request/severe-context flag. A material
+        // or lifecycle transition is allowed to replace it, so de-escalation can actually clear it.
+        if (o.materialChange || stateChanged) {
+            s.explicitRequest = o.explicitRequest;
+            s.severeContextImpact = o.severeContextImpact;
+        } else {
+            s.explicitRequest = s.explicitRequest || o.explicitRequest;
+            s.severeContextImpact = s.severeContextImpact || o.severeContextImpact;
+        }
         return s;
     }
 
