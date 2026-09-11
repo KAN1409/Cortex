@@ -3,6 +3,7 @@ package com.kareem.cortex;
 import android.content.Context;
 import android.os.Handler;
 import android.os.Looper;
+import com.kareem.cortex.visualmemory.VisualMemoryRuntime;
 import org.json.JSONObject;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -33,6 +34,7 @@ public final class StartupMaintenance {
             StatefulMeaningStore.ensure(db.getWritableDatabase());
             RelevanceDecisionStatusStore.ensure(db);
             PhoneContextStore.ensure(db);
+            KnowledgeV2Schema.ensure(db.getWritableDatabase());
             if(PhoneUsageAccess.has(context))PhoneUsageAccess.syncRecent(context,db,System.currentTimeMillis()-2L*60L*60L*1000L);
             importLastCrash(context,db);
             AdjudicationRecovery.run(context,db);
@@ -44,6 +46,12 @@ public final class StartupMaintenance {
             EnvironmentPreflight.run(context);
             AdjudicationRecovery.schedule(context);
             if(StatefulMeaningRebuilder.hasBacklog(db))StatefulMeaningScheduler.kick(context);
+
+            // Completion pipeline: all of this is idempotent/unique work. It repairs semantic
+            // failures, accounts for every OCR-complete screenshot, and rebuilds Knowledge V2
+            // after quality-policy changes without delaying app startup.
+            VisualMemoryRuntime.enqueueCompletionMaintenance(context);
+            KnowledgeV2Scheduler.enqueue(context);
         }catch(Throwable ignored){
         }finally{
             if(db!=null)try{db.close();}catch(Throwable ignored){}
