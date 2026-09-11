@@ -1,6 +1,7 @@
 package com.kareem.cortex.visualmemory.data.ocr
 
 import android.net.Uri
+import com.kareem.cortex.visualmemory.SelfReferenceDetector
 import com.kareem.cortex.visualmemory.data.db.MediaItemDao
 
 class ScreenshotOcrProcessor(
@@ -16,6 +17,15 @@ class ScreenshotOcrProcessor(
             runCatching { engine.recognize(Uri.parse(item.contentUri)) }
                 .onSuccess {
                     dao.markOcrDone(item.mediaId, it.rawText, it.normalizedText, engine.id, now)
+                    val provenance = SelfReferenceDetector.evaluate(item, it.rawText)
+                    dao.updateProvenance(
+                        mediaId = item.mediaId,
+                        origin = provenance.origin,
+                        score = provenance.selfReferenceScore,
+                        depth = provenance.derivationDepth,
+                        eligible = provenance.knowledgeEligible,
+                        reason = provenance.reason
+                    )
                     success++
                 }
                 .onFailure {

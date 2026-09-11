@@ -184,6 +184,7 @@ public final class VisualMemoryActivity extends Activity {
         LinearLayout chips=new LinearLayout(this);chips.setOrientation(LinearLayout.HORIZONTAL);
         chips.addView(CortexUi.chip(this,"OCR",item.getOcrState().equals("DONE")?CortexUi.GREEN:CortexUi.MUTED,false),chipParams());
         chips.addView(CortexUi.chip(this,"Semantic",item.getSemanticState().equals("DONE")?CortexUi.LIME:CortexUi.ORANGE,false),chipParams());
+        if(!item.getKnowledgeEligible())chips.addView(CortexUi.chip(this,"Self • no learning",CortexUi.YELLOW,true),chipParams());
         LinearLayout.LayoutParams cp=new LinearLayout.LayoutParams(-1,dp(34));cp.setMargins(0,dp(9),0,0);card.addView(chips,cp);
         CortexUi.pressable(this,card,CortexUi.velvet(this,20));
         card.setOnClickListener(v->openDetail(item));
@@ -196,6 +197,7 @@ public final class VisualMemoryActivity extends Activity {
         Intent i=new Intent(this,VisualMemoryDetailActivity.class);
         i.putExtra("uri",item.getContentUri());i.putExtra("name",item.getDisplayName());i.putExtra("time",item.getCapturedAtMillis());
         i.putExtra("ocr",item.getOcrText());i.putExtra("ocr_state",item.getOcrState());i.putExtra("semantic_state",item.getSemanticState());i.putExtra("semantic_error",item.getSemanticLastError());
+        i.putExtra("origin",item.getOrigin());i.putExtra("self_score",item.getSelfReferenceScore());i.putExtra("derivation_depth",item.getDerivationDepth());i.putExtra("knowledge_eligible",item.getKnowledgeEligible());i.putExtra("provenance_reason",item.getProvenanceReason());
         startActivity(i);
     }
 

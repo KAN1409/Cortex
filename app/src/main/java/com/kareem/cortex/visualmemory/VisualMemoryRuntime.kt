@@ -37,7 +37,12 @@ data class VisualMemoryItem(
     val ocrText: String,
     val ocrState: String,
     val semanticState: String,
-    val semanticLastError: String
+    val semanticLastError: String,
+    val origin: String,
+    val selfReferenceScore: Float,
+    val derivationDepth: Int,
+    val knowledgeEligible: Boolean,
+    val provenanceReason: String
 )
 
 object VisualMemoryRuntime {
@@ -157,6 +162,11 @@ object VisualMemoryRuntime {
         ocrText = item.ocrText.orEmpty(),
         ocrState = item.ocrState,
         semanticState = item.semanticState,
-        semanticLastError = item.semanticLastError.orEmpty()
+        semanticLastError = item.semanticLastError.orEmpty(),
+        origin = item.origin,
+        selfReferenceScore = item.selfReferenceScore,
+        derivationDepth = item.derivationDepth,
+        knowledgeEligible = item.knowledgeEligible,
+        provenanceReason = item.provenanceReason.orEmpty()
     )
 }

@@ -130,6 +130,24 @@ interface MediaItemDao {
     @Query("SELECT MAX(dateAddedSeconds) FROM media_items")
     suspend fun latestDateAddedSeconds(): Long?
 
+    @Query("""
+        UPDATE media_items
+        SET origin=:origin,
+            selfReferenceScore=:score,
+            derivationDepth=:depth,
+            knowledgeEligible=:eligible,
+            provenanceReason=:reason
+        WHERE mediaId=:mediaId
+    """)
+    suspend fun updateProvenance(
+        mediaId: Long,
+        origin: String,
+        score: Float,
+        depth: Int,
+        eligible: Boolean,
+        reason: String?
+    )
+
     @Query("UPDATE media_items SET ocrText=:text, ocrNormalizedText=:normalized, ocrState='DONE', ocrEngine=:engine, ocrProcessedAtMillis=:processedAt, ocrError=NULL, semanticState='PENDING', semanticAttemptCount=0, semanticLastError=NULL, semanticLastAttemptAtMillis=NULL WHERE mediaId=:mediaId")
     suspend fun markOcrDone(mediaId: Long, text: String, normalized: String, engine: String, processedAt: Long)
 
