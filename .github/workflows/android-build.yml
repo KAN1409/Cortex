@@ -2,7 +2,7 @@ name: Android Debug APK
 
 on:
   push:
-    branches: [ main, v71/visual-memory-u1, v72/visual-memory-u2-provenance, v73/nav-picbrain, v74/u2-structured-knowledge, v80/cortex-major-unified ]
+    branches: [ main, v71/visual-memory-u1, v72/visual-memory-u2-provenance, v73/nav-picbrain, v74/u2-structured-knowledge, v80/cortex-major-unified, v81/nexus-inside-cortex ]
   pull_request:
     branches: [ main ]
   workflow_dispatch:
@@ -38,6 +38,6 @@ jobs:
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
         with:
-          name: Cortex-v80-2.0.1-now-quality
+          name: Cortex-v81-2.1.0-nexus-inside-cortex
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
