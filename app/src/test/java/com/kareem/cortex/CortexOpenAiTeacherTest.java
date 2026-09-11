@@ -5,7 +5,12 @@ import static org.junit.Assert.*;
 import org.json.JSONArray;
 import org.json.JSONObject;
 import org.junit.Test;
+import org.junit.runner.RunWith;
+import org.robolectric.RobolectricTestRunner;
+import org.robolectric.annotation.Config;
 
+@RunWith(RobolectricTestRunner.class)
+@Config(sdk = 35)
 public class CortexOpenAiTeacherTest {
 
     @Test public void requestUsesBoundedGpt56SolPolicySchema()throws Exception{
