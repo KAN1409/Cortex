@@ -1,6 +1,7 @@
 package com.kareem.cortex;
 
 import android.database.Cursor;
+import android.database.sqlite.SQLiteDatabase;
 import java.util.*;
 import java.util.regex.*;
 
@@ -17,12 +18,56 @@ public final class SecondBrainEngine {
     }
 
     /** Screenshot OCR is evidence, not a task, and imported contacts are never implicit tasks. */
-    public static ArrayList<BrainOpenLoop> openLoops(VaultDb db,int limit){ArrayList<BrainOpenLoop> out=new ArrayList<>();String sql="SELECT a.id,a.item_id,a.action_text,a.due_text,k.title,k.category,a.created_at FROM actions a JOIN knowledge_items k ON k.id=a.item_id LEFT JOIN smart_inbox si ON si.item_id=k.id WHERE a.status='open' AND NOT (k.type='CONTACT' AND k.source='contacts_sync') AND (k.type NOT IN ('SCREENSHOT','IMAGE') OR COALESCE(si.manual_bucket,0)=1) ORDER BY CASE WHEN a.due_text IS NULL OR a.due_text='' THEN 1 ELSE 0 END,a.created_at DESC LIMIT ?";Cursor c=db.getReadableDatabase().rawQuery(sql,new String[]{String.valueOf(limit)});while(c.moveToNext())out.add(new BrainOpenLoop(c.getLong(0),c.getLong(1),nz(c.getString(2)),nz(c.getString(3)),nz(c.getString(4)),nz(c.getString(5)),c.getLong(6)));c.close();return out;}
+    public static ArrayList<BrainOpenLoop> openLoops(VaultDb db,int limit){ArrayList<BrainOpenLoop> out=new ArrayList<>();String sql="SELECT a.id,a.item_id,a.action_text,a.due_text,k.title,k.category,a.created_at FROM actions a JOIN knowledge_items k ON k.id=a.item_id LEFT JOIN smart_inbox si ON si.item_id=k.id WHERE a.status='open' AND NOT (k.type='CONTACT' AND k.source='contacts_sync') AND (k.type NOT IN ('SCREENSHOT','IMAGE') OR COALESCE(si.manual_bucket,0)=1 OR k.source='knowledge_v2') ORDER BY CASE WHEN a.due_text IS NULL OR a.due_text='' THEN 1 ELSE 0 END,a.created_at DESC LIMIT ?";Cursor c=db.getReadableDatabase().rawQuery(sql,new String[]{String.valueOf(limit)});while(c.moveToNext()){String action=nz(c.getString(2));if(action.isEmpty()||noisyAction(action))continue;out.add(new BrainOpenLoop(c.getLong(0),c.getLong(1),action,nz(c.getString(3)),nz(c.getString(4)),nz(c.getString(5)),c.getLong(6)));}c.close();return out;}
 
     public static ArrayList<String> decisions(VaultDb db,ArrayList<SemanticHit> sources,int limit){ArrayList<String> out=new ArrayList<>();Set<String> seen=new LinkedHashSet<>();for(int i=0;i<sources.size();i++){SemanticHit h=sources.get(i);String body=allText(h.item);for(String s:sentences(body)){String low=LocalSemanticEmbedder.norm(s);if(hasAny(low,"decided","agreed","approved","selected","chosen","final","قررنا","اتفقنا","تم اعتماد","اعتمدنا","المعتمد","اختيارنا","القرار")){String x=s.trim();if(x.length()>280)x=x.substring(0,280)+"…";String key=LocalSemanticEmbedder.norm(x);if(seen.add(key)){out.add(x+" [M"+(i+1)+"]");if(out.size()>=limit)return out;}}}}return out;}
-    public static ArrayList<BrainNode> graph(VaultDb db,int limit){HashMap<String,MutableNode> nodes=new HashMap<>();ArrayList<KnowledgeItem> items=db.lexicalSearch("",500);Pattern personEn=Pattern.compile("(?i)\\b(?:dr|eng|mr|mrs|ms|prof)\\.?\\s+([A-Z][A-Za-z'-]+(?:\\s+[A-Z][A-Za-z'-]+){0,3})");Pattern personAr=Pattern.compile("(?:دكتور|د\\.|م\\.|مهندس|أستاذ|استاذ)\\s+([\\p{IsArabic}]{2,}(?:\\s+[\\p{IsArabic}]{2,}){0,3})");Pattern projectEn=Pattern.compile("(?i)\\b(?:project|job|site)\\s*[:#-]?\\s*([A-Za-z0-9][A-Za-z0-9 _-]{2,45})");Pattern projectAr=Pattern.compile("(?:مشروع|موقع)\\s*[:#-]?\\s*([\\p{IsArabic}A-Za-z0-9][\\p{IsArabic}A-Za-z0-9 _-]{2,45})");for(KnowledgeItem k:items){String t=allText(k);scan(nodes,personEn,t,"PERSON",k);scan(nodes,personAr,t,"PERSON",k);scan(nodes,projectEn,t,"PROJECT",k);scan(nodes,projectAr,t,"PROJECT",k);for(String tag:nz(k.tags).split(",")){String x=tag.trim();if(x.length()>2&&x.length()<48)addNode(nodes,"TOPIC",x,k);}}ArrayList<BrainNode> out=new ArrayList<>();for(MutableNode n:nodes.values())if(n.count>=2||!"TOPIC".equals(n.type))out.add(new BrainNode(n.type,n.label,n.count,n.itemId,n.latest));out.sort((a,b)->{int x=Integer.compare(b.mentions,a.mentions);return x!=0?x:Long.compare(b.latestAt,a.latestAt);});if(out.size()>limit)return new ArrayList<>(out.subList(0,limit));return out;}
+
+    /**
+     * Brain graph uses the canonical entity registry first. Regex scanning is now only a fallback
+     * for older databases, preventing URL/OCR fragments from becoming people or projects again.
+     */
+    public static ArrayList<BrainNode> graph(VaultDb db,int limit){
+        ArrayList<BrainNode> resolved=resolvedGraph(db,limit);
+        if(!resolved.isEmpty())return resolved;
+        return legacyGraph(db,limit);
+    }
+
+    private static ArrayList<BrainNode> resolvedGraph(VaultDb db,int limit){
+        ArrayList<BrainNode> out=new ArrayList<>();SQLiteDatabase s=db.getReadableDatabase();
+        try{
+            CognitiveSchema.ensure(s);KnowledgeV2Schema.ensure(s);EntityQualityMaintenance.run(db);
+            String sql="SELECT n.id,n.kind,n.canonical_name,"+
+                    "((SELECT COUNT(*) FROM kv2_entity_mentions em WHERE em.resolved_entity_id=n.id)+"+
+                    " (SELECT COUNT(*) FROM source_links sl WHERE sl.to_type='entity' AND sl.to_id=n.id AND sl.from_type='memory')) AS mentions,"+
+                    "MAX(n.updated_at,COALESCE((SELECT MAX(e.observed_at) FROM kv2_entity_mentions em JOIN kv2_evidence e ON e.id=em.evidence_id WHERE em.resolved_entity_id=n.id),0)) AS latest "+
+                    "FROM entity_nodes n WHERE n.status='active' AND upper(n.kind) IN ('PERSON','PROJECT','ORGANIZATION','ORG','PRODUCT','PLACE') "+
+                    "ORDER BY mentions DESC,latest DESC LIMIT ?";
+            Cursor c=s.rawQuery(sql,new String[]{String.valueOf(Math.max(limit*3,40))});
+            while(c.moveToNext()){
+                long entityId=c.getLong(0);String kind=nz(c.getString(1)).toUpperCase(Locale.ROOT),label=EntityQualityPolicy.cleanEntityValue(kind,nz(c.getString(2)));int mentions=Math.max(1,c.getInt(3));long latest=c.getLong(4);
+                if(!EntityQualityPolicy.plausibleEntity(kind,label))continue;
+                long itemId=latestMemoryForEntity(s,entityId);
+                out.add(new BrainNode("ORG".equals(kind)?"ORGANIZATION":kind,label,mentions,itemId,latest));
+                if(out.size()>=limit)break;
+            }c.close();
+        }catch(Throwable ignored){out.clear();}
+        return out;
+    }
+
+    private static long latestMemoryForEntity(SQLiteDatabase s,long entityId){
+        Cursor c=s.rawQuery("SELECT sl.from_id FROM source_links sl JOIN knowledge_items k ON k.id=sl.from_id WHERE sl.from_type='memory' AND sl.to_type='entity' AND sl.to_id=? ORDER BY k.updated_at DESC LIMIT 1",new String[]{String.valueOf(entityId)});
+        long id=c.moveToFirst()?c.getLong(0):0;c.close();
+        if(id>0)return id;
+        Cursor e=s.rawQuery("SELECT e.id FROM kv2_entity_mentions em JOIN kv2_evidence e ON e.id=em.evidence_id WHERE em.resolved_entity_id=? ORDER BY e.observed_at DESC LIMIT 1",new String[]{String.valueOf(entityId)});
+        long evidence=e.moveToFirst()?e.getLong(0):0;e.close();if(evidence<=0)return 0;
+        Cursor k=s.rawQuery("SELECT id FROM knowledge_items WHERE source='knowledge_v2' AND metadata_json LIKE ? ORDER BY updated_at DESC LIMIT 1",new String[]{"%\"evidence_id\":"+evidence+"%"});id=k.moveToFirst()?k.getLong(0):0;k.close();return id;
+    }
+
+    private static ArrayList<BrainNode> legacyGraph(VaultDb db,int limit){HashMap<String,MutableNode> nodes=new HashMap<>();ArrayList<KnowledgeItem> items=db.lexicalSearch("",500);Pattern personEn=Pattern.compile("(?i)\\b(?:dr|eng|mr|mrs|ms|prof)\\.?\\s+([A-Z][A-Za-z'-]+(?:\\s+[A-Z][A-Za-z'-]+){0,3})");Pattern personAr=Pattern.compile("(?:دكتور|د\\.|م\\.|مهندس|أستاذ|استاذ)\\s+([\\p{IsArabic}]{2,}(?:\\s+[\\p{IsArabic}]{2,}){0,3})");Pattern projectEn=Pattern.compile("(?i)\\b(?:project|job|site)\\s*[:#-]?\\s*([A-Za-z0-9][A-Za-z0-9 _-]{2,45})");Pattern projectAr=Pattern.compile("(?:مشروع|موقع)\\s*[:#-]?\\s*([\\p{IsArabic}A-Za-z0-9][\\p{IsArabic}A-Za-z0-9 _-]{2,45})");for(KnowledgeItem k:items){String t=allText(k);scan(nodes,personEn,t,"PERSON",k);scan(nodes,personAr,t,"PERSON",k);scan(nodes,projectEn,t,"PROJECT",k);scan(nodes,projectAr,t,"PROJECT",k);for(String tag:nz(k.tags).split(",")){String x=tag.trim();if(x.length()>2&&x.length()<48)addNode(nodes,"TOPIC",x,k);}}ArrayList<BrainNode> out=new ArrayList<>();for(MutableNode n:nodes.values())if((n.count>=2||!"TOPIC".equals(n.type))&&(!"PERSON".equals(n.type)&&!"PROJECT".equals(n.type)||EntityQualityPolicy.plausibleEntity(n.type,n.label)))out.add(new BrainNode(n.type,n.label,n.count,n.itemId,n.latest));out.sort((a,b)->{int x=Integer.compare(b.mentions,a.mentions);return x!=0?x:Long.compare(b.latestAt,a.latestAt);});if(out.size()>limit)return new ArrayList<>(out.subList(0,limit));return out;}
+
     public static ArrayList<KnowledgeItem> context(VaultDb db,BrainNode node,int limit){ArrayList<SemanticHit> hits=SemanticIndex.search(db,node.label,limit);ArrayList<KnowledgeItem> out=new ArrayList<>();for(SemanticHit h:hits)out.add(h.item);return out;}
     private static void scan(HashMap<String,MutableNode> nodes,Pattern p,String text,String type,KnowledgeItem k){Matcher m=p.matcher(text);while(m.find()){String label=m.group(1).trim().replaceAll("\\s+"," ");if(label.length()>1)addNode(nodes,type,label,k);}}
-    private static void addNode(HashMap<String,MutableNode> nodes,String type,String label,KnowledgeItem k){String clean=label.replaceAll("[.,;:!?؟]+$","").trim();if(clean.isEmpty())return;String key=type+"|"+LocalSemanticEmbedder.norm(clean);MutableNode n=nodes.get(key);if(n==null){n=new MutableNode();n.type=type;n.label=clean;nodes.put(key,n);}n.count++;if(k.createdAt>=n.latest){n.latest=k.createdAt;n.itemId=k.id;}}
+    private static void addNode(HashMap<String,MutableNode> nodes,String type,String label,KnowledgeItem k){String clean=EntityQualityPolicy.cleanEntityValue(type,label.replaceAll("[.,;:!?؟]+$","").trim());if(clean.isEmpty()||(("PERSON".equals(type)||"PROJECT".equals(type))&&!EntityQualityPolicy.plausibleEntity(type,clean)))return;String key=type+"|"+LocalSemanticEmbedder.norm(clean);MutableNode n=nodes.get(key);if(n==null){n=new MutableNode();n.type=type;n.label=clean;nodes.put(key,n);}n.count++;if(k.createdAt>=n.latest){n.latest=k.createdAt;n.itemId=k.id;}}
+    private static boolean noisyAction(String s){String x=LocalSemanticEmbedder.norm(s);return x.contains("automations failed")||x.contains("stacktrace")||x.contains("cortex is processing")||x.matches("https? .*?");}
     private static String bestBody(SemanticHit h){if(!empty(h.snippet)&&h.snippet.length()>35)return h.snippet;if(!empty(h.item.summary))return h.item.summary;return allText(h.item);}private static String allText(KnowledgeItem k){return nz(k.title)+". "+nz(k.summary)+". "+nz(k.extractedText)+". "+nz(k.rawText);}private static List<String> sentences(String s){return Arrays.asList(nz(s).replace('\n',' ').split("(?<=[.!?؟])\\s+|\\s+[•▪◦]\\s+"));}private static Set<String> words(String s){LinkedHashSet<String> out=new LinkedHashSet<>();for(String w:LocalSemanticEmbedder.norm(s).split("[^\\p{L}\\p{Nd}]+"))if(w.length()>2)out.add(w);return out;}private static boolean relevant(String q,String text){Set<String> a=words(q),b=words(text);for(String w:a)if(b.contains(w))return true;return a.isEmpty();}private static boolean sourceContains(ArrayList<SemanticHit> hits,long id){for(SemanticHit h:hits)if(h.item.id==id)return true;return false;}private static int sourceNumber(ArrayList<SemanticHit> hits,long id){for(int i=0;i<hits.size();i++)if(hits.get(i).item.id==id)return i+1;return 1;}private static double confidence(ArrayList<SemanticHit> h){if(h.isEmpty())return 0;double top=Math.min(1,h.get(0).score);double second=h.size()>1?Math.min(1,h.get(1).score):top*.7;return Math.min(.98,Math.max(.2,top*.7+second*.3));}private static String bulletAnswer(String intro,ArrayList<String> xs){StringBuilder s=new StringBuilder(intro).append(":\n");for(int i=0;i<Math.min(8,xs.size());i++)s.append("• ").append(xs.get(i)).append('\n');return s.toString().trim();}private static boolean hasAny(String text,String... keys){String n=LocalSemanticEmbedder.norm(text);for(String k:keys)if(n.contains(LocalSemanticEmbedder.norm(k)))return true;return false;}private static boolean empty(String s){return s==null||s.trim().isEmpty();}private static String nz(String s){return s==null?"":s;}private static class Candidate{String text;double score;int source;Candidate(String t,double s,int i){text=t;score=s;source=i;}}private static class MutableNode{String type,label;int count;long itemId,latest;}
 }
