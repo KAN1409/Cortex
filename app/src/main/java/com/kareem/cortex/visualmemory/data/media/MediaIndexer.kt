@@ -4,6 +4,7 @@ import android.content.ContentUris
 import android.content.Context
 import android.database.Cursor
 import android.provider.MediaStore
+import com.kareem.cortex.visualmemory.ScreenshotCaptureProvenance
 import com.kareem.cortex.visualmemory.data.db.MediaItemDao
 import com.kareem.cortex.visualmemory.data.db.MediaItemEntity
 import kotlinx.coroutines.Dispatchers
@@ -81,6 +82,12 @@ class MediaIndexer(
         val modified = getLong(getColumnIndexOrThrow(MediaStore.Images.Media.DATE_MODIFIED))
         val previous = existing[id]
         val preserveOcr = previous != null && previous.dateModifiedSeconds == modified
+        val takenMillis = if (isNull(takenCol)) null else getLong(takenCol)
+        val provenance = if (previous != null && preserveOcr) {
+            null
+        } else {
+            ScreenshotCaptureProvenance.classify(context, takenMillis ?: getLong(getColumnIndexOrThrow(MediaStore.Images.Media.DATE_ADDED)) * 1000L)
+        }
         return MediaItemEntity(
             mediaId = id,
             contentUri = ContentUris.withAppendedId(collection, id).toString(),
@@ -92,7 +99,7 @@ class MediaIndexer(
             height = getInt(getColumnIndexOrThrow(MediaStore.Images.Media.HEIGHT)),
             dateAddedSeconds = getLong(getColumnIndexOrThrow(MediaStore.Images.Media.DATE_ADDED)),
             dateModifiedSeconds = modified,
-            dateTakenMillis = if (isNull(takenCol)) null else getLong(takenCol),
+            dateTakenMillis = takenMillis,
             sizeBytes = getLong(getColumnIndexOrThrow(MediaStore.Images.Media.SIZE)),
             isScreenshot = ScreenshotDetector.isScreenshot(name, path, bucket),
             indexedAtMillis = indexedAtMillis,
@@ -105,7 +112,12 @@ class MediaIndexer(
             semanticState = if (preserveOcr) previous?.semanticState ?: "PENDING" else "PENDING",
             semanticAttemptCount = if (preserveOcr) previous?.semanticAttemptCount ?: 0 else 0,
             semanticLastError = if (preserveOcr) previous?.semanticLastError else null,
-            semanticLastAttemptAtMillis = if (preserveOcr) previous?.semanticLastAttemptAtMillis else null
+            semanticLastAttemptAtMillis = if (preserveOcr) previous?.semanticLastAttemptAtMillis else null,
+            origin = if (preserveOcr) previous?.origin ?: "UNKNOWN" else provenance?.origin ?: "UNKNOWN",
+            selfReferenceScore = if (preserveOcr) previous?.selfReferenceScore ?: 0f else provenance?.selfReferenceScore ?: 0f,
+            derivationDepth = if (preserveOcr) previous?.derivationDepth ?: 0 else provenance?.derivationDepth ?: 0,
+            knowledgeEligible = if (preserveOcr) previous?.knowledgeEligible ?: true else provenance?.knowledgeEligible ?: true,
+            provenanceReason = if (preserveOcr) previous?.provenanceReason else provenance?.reason
         )
     }
 }
