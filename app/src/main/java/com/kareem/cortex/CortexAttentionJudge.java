@@ -55,9 +55,14 @@ public final class CortexAttentionJudge {
     private CortexAttentionJudge() {}
 
     public static Judgment evaluate(Context context, AttentionDecisionEngine.Candidate c, RuntimeContext runtime) {
+        return evaluateWithPolicy(context, c, runtime, null);
+    }
+
+    static Judgment evaluateWithPolicy(Context context, AttentionDecisionEngine.Candidate c,
+                                       RuntimeContext runtime, JSONObject policyOverride) {
         if (c == null) throw new IllegalArgumentException("candidate == null");
         RuntimeContext rt = runtime == null ? RuntimeContext.neutral() : runtime;
-        JSONObject policy = CortexPersonalPolicy.current(context);
+        JSONObject policy = policyOverride == null ? CortexPersonalPolicy.current(context) : policyOverride;
         String policyVersion = policy.optString("version", "local");
         double threshold = clamp01(policy.optDouble("attentionThreshold", 0.72));
 
