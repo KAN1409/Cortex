@@ -17,11 +17,12 @@ public final class KnowledgeV2EnrichmentWorker extends Worker {
     public KnowledgeV2EnrichmentWorker(@NonNull Context context,@NonNull WorkerParameters params){super(context,params);}
 
     @NonNull @Override public Result doWork(){
-        if(StartupSafetyGate.active())return Result.success();
+        if(StartupSafetyGate.active())return Result.retry();
         VaultDb db=new VaultDb(getApplicationContext());
         try{
             SQLiteDatabase s=db.getWritableDatabase();
             KnowledgeV2Schema.ensure(s);
+            cleanupKnowledgeUiNoise(s);
             seedQueue(s);
             while(!isStopped()){
                 long evidenceId=next(s);
@@ -34,6 +35,19 @@ public final class KnowledgeV2EnrichmentWorker extends Worker {
         }catch(Throwable t){
             return Result.retry();
         }finally{try{db.close();}catch(Throwable ignored){}}
+    }
+
+    private static void cleanupKnowledgeUiNoise(SQLiteDatabase s){
+        // Raw scalar types are facts, not emergent life categories.
+        s.execSQL("UPDATE kv2_categories SET state='hidden' WHERE upper(canonical_name) IN ('URL','DATE','MONEY','PHONE','EMAIL','HASHTAG')");
+        // Earlier v80 previews could resolve scalar/technical mentions into entity_nodes. Keep the
+        // evidence/facts, but remove those nodes from the active identity graph.
+        Cursor c=s.rawQuery("SELECT id,kind,canonical_name FROM entity_nodes WHERE status='active' AND metadata_json LIKE '%knowledge_v2%'",null);
+        ArrayList<Long> hide=new ArrayList<>();
+        while(c.moveToNext())if(!EntityQualityPolicy.plausibleEntity(c.getString(1),c.getString(2)))hide.add(c.getLong(0));
+        c.close();
+        ContentValues v=new ContentValues();v.put("status","filtered");v.put("updated_at",System.currentTimeMillis());
+        for(long id:hide)s.update("entity_nodes",v,"id=?",new String[]{String.valueOf(id)});
     }
 
     private static void seedQueue(SQLiteDatabase s){
@@ -60,7 +74,7 @@ public final class KnowledgeV2EnrichmentWorker extends Worker {
                 new String[]{String.valueOf(evidenceId)});
         while(m.moveToNext()){
             long mentionId=m.getLong(0);String kind=n(m.getString(1)).toUpperCase(Locale.ROOT),name=n(m.getString(2)),norm=n(m.getString(3));
-            if(name.isEmpty()||norm.isEmpty())continue;
+            if(name.isEmpty()||norm.isEmpty()||!EntityQualityPolicy.plausibleEntity(kind,name))continue;
             long entityId=resolveEntity(s,kind,name,norm,now);
             if(entityId<=0)continue;
             entities.add(entityId);
@@ -77,22 +91,21 @@ public final class KnowledgeV2EnrichmentWorker extends Worker {
         Cursor u=s.rawQuery("SELECT category,tags,summary FROM kv2_understanding WHERE evidence_id=? LIMIT 1",new String[]{String.valueOf(evidenceId)});
         if(u.moveToFirst()){
             String category=n(u.getString(0)),tags=n(u.getString(1));
-            if(!category.isEmpty())assignCategory(s,"EVIDENCE",evidenceId,category,.92,"extractor category",now);
-            for(String tag:tags.split(",")){String x=tag.trim();if(x.length()>=3&&x.length()<=64)assignCategory(s,"EVIDENCE",evidenceId,x,.68,"emergent tag",now);}
+            if(meaningfulCategory(category))assignCategory(s,"EVIDENCE",evidenceId,category,.92,"extractor category",now);
+            for(String tag:tags.split(",")){String x=tag.trim();if(meaningfulCategory(x))assignCategory(s,"EVIDENCE",evidenceId,x,.68,"emergent tag",now);}
         }u.close();
 
-        Cursor facts=s.rawQuery("SELECT f.id,f.object_type,f.object_value FROM kv2_facts f JOIN kv2_fact_evidence l ON l.fact_id=f.id WHERE l.evidence_id=?",new String[]{String.valueOf(evidenceId)});
+        Cursor facts=s.rawQuery("SELECT f.id,f.object_type,f.object_value FROM kv2_facts f JOIN kv2_fact_evidence l ON l.fact_id=f.id WHERE l.evidence_id=? AND f.state='active'",new String[]{String.valueOf(evidenceId)});
         while(facts.moveToNext()){
             long factId=facts.getLong(0);String type=n(facts.getString(1));
-            if(!type.isEmpty())assignCategory(s,"FACT",factId,type,.72,"fact type",now);
             for(long entityId:entities)edge(s,"fact",factId,"entity",entityId,"ABOUT",.62,now);
-            if("MONEY".equalsIgnoreCase(type))assignCategory(s,"FACT",factId,"Money",.95,"money entity",now);
-            if("DATE".equalsIgnoreCase(type))assignCategory(s,"FACT",factId,"Dates & deadlines",.88,"date entity",now);
-            if("URL".equalsIgnoreCase(type))assignCategory(s,"FACT",factId,"Links & references",.84,"url entity",now);
-            if("PHONE".equalsIgnoreCase(type)||"EMAIL".equalsIgnoreCase(type))assignCategory(s,"FACT",factId,"Contacts",.86,"contact entity",now);
+            if("MONEY".equalsIgnoreCase(type))assignCategory(s,"FACT",factId,"Money & purchases",.95,"money fact",now);
+            if("DATE".equalsIgnoreCase(type))assignCategory(s,"FACT",factId,"Dates & deadlines",.88,"date fact",now);
+            if("URL".equalsIgnoreCase(type))assignCategory(s,"FACT",factId,"Links & references",.84,"link fact",now);
+            if("PHONE".equalsIgnoreCase(type)||"EMAIL".equalsIgnoreCase(type))assignCategory(s,"FACT",factId,"Contacts",.86,"contact fact",now);
         }facts.close();
 
-        Cursor events=s.rawQuery("SELECT ev.id,ev.event_type,ev.title,ev.body,ev.confidence FROM kv2_events ev JOIN kv2_event_evidence ee ON ee.event_id=ev.id WHERE ee.evidence_id=?",
+        Cursor events=s.rawQuery("SELECT ev.id,ev.event_type,ev.title,ev.body,ev.confidence FROM kv2_events ev JOIN kv2_event_evidence ee ON ee.event_id=ev.id WHERE ee.evidence_id=? AND ev.status<>'dismissed'",
                 new String[]{String.valueOf(evidenceId)});
         while(events.moveToNext()){
             long eventId=events.getLong(0);String title=n(events.getString(2)),body=n(events.getString(3));double conf=events.getDouble(4);
@@ -111,7 +124,15 @@ public final class KnowledgeV2EnrichmentWorker extends Worker {
         }events.close();
     }
 
+    private static boolean meaningfulCategory(String raw){
+        String x=n(raw);if(x.length()<3||x.length()>64)return false;String u=x.toUpperCase(Locale.ROOT);
+        if(Arrays.asList("URL","DATE","MONEY","PHONE","EMAIL","HASHTAG").contains(u))return false;
+        if(x.contains("://")||x.startsWith("www.")||x.toLowerCase(Locale.ROOT).contains("failed in "))return false;
+        return true;
+    }
+
     private static long resolveEntity(SQLiteDatabase s,String kind,String name,String norm,long now) throws Exception {
+        if(!EntityQualityPolicy.plausibleEntity(kind,name))return 0;
         Cursor a=s.rawQuery("SELECT n.id FROM entity_aliases a JOIN entity_nodes n ON n.id=a.entity_id WHERE a.normalized_alias=? AND n.status='active' ORDER BY a.confidence DESC LIMIT 1",new String[]{norm});
         long id=a.moveToFirst()?a.getLong(0):0;a.close();
         if(id>0)return id;
@@ -128,15 +149,15 @@ public final class KnowledgeV2EnrichmentWorker extends Worker {
     }
 
     private static void assignCategory(SQLiteDatabase s,String type,long id,String name,double score,String reason,long now){
-        String clean=name.replaceAll("\\s+"," ").trim();if(clean.length()<2)return;
+        String clean=name.replaceAll("\\s+"," ").trim();if(!meaningfulCategory(clean))return;
         long categoryId=category(s,clean,now);if(categoryId<=0)return;
-        ContentValues v=new ContentValues();v.put("knowledge_type",type);v.put("knowledge_id",id);v.put("category_id",categoryId);v.put("score",score);v.put("reason",reason);v.put("model_version","dynamic_category_v1");v.put("created_at",now);
+        ContentValues v=new ContentValues();v.put("knowledge_type",type);v.put("knowledge_id",id);v.put("category_id",categoryId);v.put("score",score);v.put("reason",reason);v.put("model_version","dynamic_category_v2");v.put("created_at",now);
         s.insertWithOnConflict("kv2_category_memberships",null,v,SQLiteDatabase.CONFLICT_REPLACE);
     }
 
     private static long category(SQLiteDatabase s,String name,long now){
         Cursor c=s.query("kv2_categories",new String[]{"id"},"lower(canonical_name)=lower(?)",new String[]{name},null,null,null,"1");long id=c.moveToFirst()?c.getLong(0):0;c.close();
-        if(id>0){ContentValues u=new ContentValues();u.put("last_active_at",now);s.update("kv2_categories",u,"id=?",new String[]{String.valueOf(id)});return id;}
+        if(id>0){ContentValues u=new ContentValues();u.put("last_active_at",now);u.put("state","active");s.update("kv2_categories",u,"id=?",new String[]{String.valueOf(id)});return id;}
         ContentValues v=new ContentValues();v.put("canonical_name",name);v.put("parent_id",0);v.put("description","Emergent category learned from Cortex evidence");v.put("origin","emergent");v.put("confidence",.72);v.put("state","active");v.put("created_at",now);v.put("last_active_at",now);
         id=s.insertWithOnConflict("kv2_categories",null,v,SQLiteDatabase.CONFLICT_IGNORE);return id;
     }
