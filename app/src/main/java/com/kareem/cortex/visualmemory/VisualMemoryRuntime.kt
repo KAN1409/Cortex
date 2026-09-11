@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.work.ExistingWorkPolicy
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
+import com.kareem.cortex.KnowledgeV2Store
 import com.kareem.cortex.visualmemory.data.db.MediaItemEntity
 import com.kareem.cortex.visualmemory.VisualEvidenceBackfillWorker
 import com.kareem.cortex.visualmemory.data.media.MediaIndexer
@@ -27,7 +28,12 @@ data class VisualMemoryStats(
     val ocrFailed: Int,
     val semanticIndexed: Int,
     val semanticFailed: Int,
-    val modelInstalled: Boolean
+    val modelInstalled: Boolean,
+    val knowledgePending: Int,
+    val knowledgeRunning: Int,
+    val knowledgeDone: Int,
+    val knowledgeBlocked: Int,
+    val knowledgeFailed: Int
 )
 
 data class VisualMemoryItem(
@@ -43,7 +49,8 @@ data class VisualMemoryItem(
     val selfReferenceScore: Float,
     val derivationDepth: Int,
     val knowledgeEligible: Boolean,
-    val provenanceReason: String
+    val provenanceReason: String,
+    val knowledgeState: String
 )
 
 object VisualMemoryRuntime {
@@ -126,6 +133,7 @@ object VisualMemoryRuntime {
             EmbeddingGemmaEmbedder.MODEL_ID,
             EmbeddingGemmaEmbedder.TARGET_DIMENSIONS
         ).map { it.mediaId }.distinct().size
+        val knowledgeCounts = KnowledgeV2Store.visualProcessingCounts(app)
         VisualMemoryStats(
             pictures = all.size,
             screenshots = screenshots.size,
@@ -134,18 +142,25 @@ object VisualMemoryRuntime {
             ocrFailed = screenshots.count { it.ocrState == "FAILED" },
             semanticIndexed = semanticIndexed,
             semanticFailed = screenshots.count { it.semanticState == "FAILED" },
-            modelInstalled = SemanticModelStore(app).isInstalled()
+            modelInstalled = SemanticModelStore(app).isInstalled(),
+            knowledgePending = knowledgeCounts[0],
+            knowledgeRunning = knowledgeCounts[1],
+            knowledgeDone = knowledgeCounts[2],
+            knowledgeBlocked = knowledgeCounts[3],
+            knowledgeFailed = knowledgeCounts[4]
         )
     }
 
     @JvmStatic
     fun recent(context: Context, limit: Int): List<VisualMemoryItem> = runBlocking(Dispatchers.IO) {
-        VisualMemoryStore.database(context.applicationContext).mediaItemDao().getAll()
+        val app = context.applicationContext
+        val knowledgeStates = KnowledgeV2Store.visualProcessingStates(app)
+        VisualMemoryStore.database(app).mediaItemDao().getAll()
             .asSequence()
             .filter { it.isScreenshot }
             .sortedByDescending { it.dateTakenMillis ?: it.dateAddedSeconds * 1000L }
             .take(limit)
-            .map(::toDto)
+            .map { toDto(it, knowledgeStates[it.mediaId].orEmpty()) }
             .toList()
     }
 
@@ -159,13 +174,14 @@ object VisualMemoryRuntime {
         } else null
         try {
             val repository = if (semantic != null) HybridSearchRepository(dao, semantic) else HybridSearchRepository(dao)
-            repository.search(query, corpus, limit).map(::toDto)
+            val knowledgeStates = KnowledgeV2Store.visualProcessingStates(app)
+            repository.search(query, corpus, limit).map { toDto(it, knowledgeStates[it.mediaId].orEmpty()) }
         } finally {
             semantic?.close()
         }
     }
 
-    private fun toDto(item: MediaItemEntity): VisualMemoryItem = VisualMemoryItem(
+    private fun toDto(item: MediaItemEntity, knowledgeState: String): VisualMemoryItem = VisualMemoryItem(
         mediaId = item.mediaId,
         contentUri = item.contentUri,
         displayName = item.displayName.orEmpty(),
@@ -178,6 +194,7 @@ object VisualMemoryRuntime {
         selfReferenceScore = item.selfReferenceScore,
         derivationDepth = item.derivationDepth,
         knowledgeEligible = item.knowledgeEligible,
-        provenanceReason = item.provenanceReason.orEmpty()
+        provenanceReason = item.provenanceReason.orEmpty(),
+        knowledgeState = knowledgeState
     )
 }
