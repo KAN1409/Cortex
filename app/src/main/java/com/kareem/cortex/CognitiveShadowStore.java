@@ -199,7 +199,8 @@ public final class CognitiveShadowStore {
 
                 ActionSpecificityGate.Result specificity = ActionSpecificityGate.evaluate(
                         type, intent, subject, summary, request, commitment);
-                if ((request || "ACTION".equalsIgnoreCase(type) || intent.toLowerCase(Locale.ROOT).contains("action"))
+                if (provenance.authority != CortexProvenanceGate.Authority.USER_AUTHORED
+                        && (request || "ACTION".equalsIgnoreCase(type) || intent.toLowerCase(Locale.ROOT).contains("action"))
                         && !specificity.eligible) {
                     continue;
                 }
