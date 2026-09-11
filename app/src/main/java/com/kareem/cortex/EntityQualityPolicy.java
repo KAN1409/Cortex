@@ -53,7 +53,10 @@ public final class EntityQualityPolicy {
     private static boolean technicalNoise(String raw){
         String x=n(raw),l=x.toLowerCase(Locale.ROOT);
         if(l.contains("://")||l.startsWith("www.")||l.startsWith("http")||l.contains("@"))return true;
-        if(l.matches("[a-z][a-z0-9_]*(?:\\.[a-z0-9_]+){2,}"))return true;
+        // Host names, short-link tokens and OCR fragments such as paige.prompts / 3zq.co/abc
+        // belong to structured URL/reference facts, never to the identity graph.
+        if(l.matches("[a-z0-9-]+(?:\\.[a-z0-9-]+)+(?:/.*)?"))return true;
+        if(l.contains("/")&&l.contains("."))return true;
         if(l.contains("automations:failed")||l.contains("failed in ")||l.contains("exception")||l.contains("stacktrace"))return true;
         if(l.endsWith(".com")||l.endsWith(".net")||l.endsWith(".org")||l.endsWith(".ae")||l.endsWith(".co"))return true;
         return false;
