@@ -38,7 +38,7 @@ public final class VisualMemoryDetailActivity extends Activity {
         ScrollView sv=new ScrollView(this);sv.setFillViewport(true);
         LinearLayout body=new LinearLayout(this);body.setOrientation(LinearLayout.VERTICAL);body.setPadding(dp(18),dp(10),dp(18),dp(28));
         sv.addView(body);root.addView(sv,new LinearLayout.LayoutParams(-1,0,1));
-        CortexUi.addBottomNav(this,root,"capture",null);setContentView(root);
+        CortexUi.addBottomNav(this,root,"picbrain",null);setContentView(root);
 
         LinearLayout head=new LinearLayout(this);head.setGravity(Gravity.CENTER_VERTICAL);
         TextView back=CortexUi.plain(this,"‹",34,CortexUi.TEXT);back.setGravity(Gravity.CENTER);back.setOnClickListener(v->finish());head.addView(back,new LinearLayout.LayoutParams(dp(42),dp(48)));
