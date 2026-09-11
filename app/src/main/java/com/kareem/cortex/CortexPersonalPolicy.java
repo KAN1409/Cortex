@@ -26,7 +26,15 @@ public final class CortexPersonalPolicy {
                 JSONObject o=new JSONObject(raw);
                 long generated=o.optLong("generatedAt",0);
                 long ttl=Math.max(60_000L,o.optLong("ttlMs",DEFAULT_TTL));
-                if(generated>0&&System.currentTimeMillis()-generated<=ttl)return o;
+                if(generated>0&&System.currentTimeMillis()-generated<=ttl){
+                    CortexPolicyLifecycle.rollbackIfExpired(c,o);
+                    return o;
+                }
+                JSONObject previous=CortexPolicyLifecycle.previous(c);
+                if(previous.length()>0){
+                    saveWithoutLifecycle(c,previous);
+                    return previous;
+                }
             }
         }catch(Throwable ignored){}
         return bootstrap();
@@ -47,6 +55,10 @@ public final class CortexPersonalPolicy {
     }
 
     public static void save(Context c,JSONObject policy){
+        saveWithoutLifecycle(c,policy);
+    }
+
+    static void saveWithoutLifecycle(Context c,JSONObject policy){
         if(policy==null)return;
         try{
             JSONObject normalized=new JSONObject(policy.toString());
