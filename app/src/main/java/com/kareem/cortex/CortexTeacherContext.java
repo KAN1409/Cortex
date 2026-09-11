@@ -226,7 +226,7 @@ public final class CortexTeacherContext {
             o.put("understood", count(s, "SELECT COUNT(*) FROM ue_semantic_events WHERE semantic_state='complete' AND superseded_by=0"));
             o.put("activeSituations", count(s, "SELECT COUNT(*) FROM ue_situations WHERE LOWER(COALESCE(state,'')) NOT IN ('resolved','closed','completed','dismissed')"));
             o.put("openAttention", count(s, "SELECT COUNT(*) FROM ue_attention_items WHERE state='open'"));
-            o.put("instruction", "Teach ATTENTION policy from state/outcomes. Request evidence by reference only when a case is ambiguous.");
+            o.put("instruction", "Teach bounded JUDGMENT policy from grounded state/outcomes. Request evidence by reference only when a case is ambiguous. Never classify, suppress, rank, or execute items outside CortexAttentionJudge.");
         } catch (Throwable ignored) {}
         return o;
     }
