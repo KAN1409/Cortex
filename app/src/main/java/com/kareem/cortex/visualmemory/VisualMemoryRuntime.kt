@@ -27,13 +27,16 @@ data class VisualMemoryStats(
     val ocrPending: Int,
     val ocrFailed: Int,
     val semanticIndexed: Int,
+    val semanticPending: Int,
     val semanticFailed: Int,
+    val semanticSkipped: Int,
     val modelInstalled: Boolean,
     val knowledgePending: Int,
     val knowledgeRunning: Int,
     val knowledgeDone: Int,
     val knowledgeBlocked: Int,
-    val knowledgeFailed: Int
+    val knowledgeFailed: Int,
+    val knowledgeSkipped: Int
 )
 
 data class VisualMemoryItem(
@@ -69,6 +72,7 @@ object VisualMemoryRuntime {
                 val dao = VisualMemoryStore.database(app).mediaItemDao()
                 val syncResult = MediaIndexer(app, dao).reconcile()
                 enqueueOcr(app)
+                enqueueCompletionMaintenance(app)
                 "Indexed " + syncResult.indexed + " images"
             }.onSuccess { callback?.success(it) }
                 .onFailure { callback?.failure(it.message ?: it::class.java.simpleName) }
@@ -111,13 +115,40 @@ object VisualMemoryRuntime {
         }
     }
 
+    /**
+     * Completion-mode maintenance is intentionally idempotent. Opening Cortex/PicBrain no longer
+     * requires a manual "Start semantic index" ritual: failed semantic rows are recovered and all
+     * OCR-complete screenshots are accounted for in Knowledge V2.
+     */
+    @JvmStatic
+    fun enqueueCompletionMaintenance(context: Context) {
+        val app = context.applicationContext
+        enqueueKnowledgeBackfill(app)
+        scope.launch {
+            runCatching {
+                val store = SemanticModelStore(app)
+                if (!store.isInstalled()) return@runCatching
+                val dao = VisualMemoryStore.database(app).mediaItemDao()
+                val hasFailures = dao.getAll().any { it.isScreenshot && it.semanticState == "FAILED" }
+                if (hasFailures) dao.resetSemanticFailures()
+                val request = OneTimeWorkRequestBuilder<EmbeddingWorker>().build()
+                WorkManager.getInstance(app).enqueueUniqueWork(
+                    EmbeddingWorker.UNIQUE_WORK_NAME,
+                    if (hasFailures) ExistingWorkPolicy.REPLACE else ExistingWorkPolicy.KEEP,
+                    request
+                )
+            }
+        }
+    }
+
     @JvmStatic
     fun downloadSemanticModel(context: Context, callback: Callback?) {
         val app = context.applicationContext
         scope.launch {
             runCatching {
                 SemanticModelStore(app).downloadOfficial()
-                "EmbeddingGemma installed"
+                enqueueSemantic(app, true)
+                "EmbeddingGemma installed and indexing queued"
             }.onSuccess { callback?.success(it) }
                 .onFailure { callback?.failure(it.message ?: it::class.java.simpleName) }
         }
@@ -129,10 +160,21 @@ object VisualMemoryRuntime {
         val dao = VisualMemoryStore.database(app).mediaItemDao()
         val all = dao.getAll()
         val screenshots = all.filter { it.isScreenshot }
-        val semanticIndexed = dao.getEmbeddings(
+        val screenshotIds = screenshots.map { it.mediaId }.toHashSet()
+        val embeddedIds = dao.getEmbeddings(
             EmbeddingGemmaEmbedder.MODEL_ID,
             EmbeddingGemmaEmbedder.TARGET_DIMENSIONS
-        ).map { it.mediaId }.distinct().size
+        ).asSequence().map { it.mediaId }.filter { it in screenshotIds }.toSet()
+        val semanticSkipped = screenshots.count {
+            it.ocrState == "DONE" && it.ocrNormalizedText.orEmpty().trim().isEmpty()
+        }
+        val semanticFailed = screenshots.count { it.semanticState == "FAILED" }
+        val semanticPending = screenshots.count {
+            it.ocrState == "DONE" &&
+                it.mediaId !in embeddedIds &&
+                it.semanticState != "FAILED" &&
+                it.ocrNormalizedText.orEmpty().isNotBlank()
+        }
         val knowledgeCounts = KnowledgeV2Store.visualProcessingCounts(app)
         VisualMemoryStats(
             pictures = all.size,
@@ -140,14 +182,17 @@ object VisualMemoryRuntime {
             ocrReady = screenshots.count { it.ocrState == "DONE" },
             ocrPending = screenshots.count { it.ocrState == "NOT_PROCESSED" },
             ocrFailed = screenshots.count { it.ocrState == "FAILED" },
-            semanticIndexed = semanticIndexed,
-            semanticFailed = screenshots.count { it.semanticState == "FAILED" },
+            semanticIndexed = embeddedIds.size,
+            semanticPending = semanticPending,
+            semanticFailed = semanticFailed,
+            semanticSkipped = semanticSkipped,
             modelInstalled = SemanticModelStore(app).isInstalled(),
             knowledgePending = knowledgeCounts[0],
             knowledgeRunning = knowledgeCounts[1],
             knowledgeDone = knowledgeCounts[2],
             knowledgeBlocked = knowledgeCounts[3],
-            knowledgeFailed = knowledgeCounts[4]
+            knowledgeFailed = knowledgeCounts[4],
+            knowledgeSkipped = knowledgeCounts.getOrElse(5) { 0 }
         )
     }
 
