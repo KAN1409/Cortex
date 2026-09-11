@@ -29,12 +29,15 @@ jobs:
         with:
           gradle-version: '8.9'
 
+      - name: Run unit tests
+        run: gradle :app:testDebugUnitTest --stacktrace
+
       - name: Build debug APK
         run: gradle :app:assembleDebug --stacktrace
 
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
         with:
-          name: Cortex-v80-major-unified
+          name: Cortex-v80.1-runtime-recovery
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
