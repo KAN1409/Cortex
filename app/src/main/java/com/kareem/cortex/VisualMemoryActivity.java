@@ -197,6 +197,7 @@ public final class VisualMemoryActivity extends Activity {
         Intent i=new Intent(this,VisualMemoryDetailActivity.class);
         i.putExtra("uri",item.getContentUri());i.putExtra("name",item.getDisplayName());i.putExtra("time",item.getCapturedAtMillis());
         i.putExtra("ocr",item.getOcrText());i.putExtra("ocr_state",item.getOcrState());i.putExtra("semantic_state",item.getSemanticState());i.putExtra("semantic_error",item.getSemanticLastError());
+        i.putExtra("media_id",item.getMediaId());
         i.putExtra("origin",item.getOrigin());i.putExtra("self_score",item.getSelfReferenceScore());i.putExtra("derivation_depth",item.getDerivationDepth());i.putExtra("knowledge_eligible",item.getKnowledgeEligible());i.putExtra("provenance_reason",item.getProvenanceReason());
         startActivity(i);
     }
