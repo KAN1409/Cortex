@@ -8,7 +8,7 @@ import com.kareem.cortex.visualmemory.data.db.MediaItemEntity;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
-/** Safe additive bridge into Knowledge V2. Does not create facts yet. */
+/** Safe additive bridge into Knowledge V2. Raw screenshot evidence remains the source of truth. */
 public final class KnowledgeV2Store {
     public static final String STAGE_EXTRACTION="KNOWLEDGE_EXTRACTION";
     private KnowledgeV2Store(){}
@@ -37,21 +37,29 @@ public final class KnowledgeV2Store {
             long captured=item.getDateTakenMillis()!=null?item.getDateTakenMillis():item.getDateAddedSeconds()*1000L;
             v.put("captured_at",captured);
             v.put("observed_at",now);
-            v.put("created_at",now);
             v.put("updated_at",now);
-            sql.insertWithOnConflict("kv2_evidence",null,v,SQLiteDatabase.CONFLICT_IGNORE);
+            ContentValues insert=new ContentValues(v);insert.put("created_at",now);
+            sql.insertWithOnConflict("kv2_evidence",null,insert,SQLiteDatabase.CONFLICT_IGNORE);
+            // Existing evidence remains the same identity but receives current OCR/provenance state.
+            sql.update("kv2_evidence",v,"source_key=?",new String[]{sourceKey});
 
             Cursor c=sql.query("kv2_evidence",new String[]{"id"},"source_key=?",new String[]{sourceKey},null,null,null,"1");
             long evidenceId=c.moveToFirst()?c.getLong(0):0;c.close();
             if(evidenceId<=0)return 0;
 
+            String state;
+            String error=null;
+            if(!item.getKnowledgeEligible()||item.getSelfReferenceScore()>=0.72f){state="BLOCKED";error="Blocked by provenance/self-reference policy";}
+            else if(raw.isEmpty()){state="SKIPPED";error="No OCR text to extract";}
+            else state="PENDING";
+
             ContentValues p=new ContentValues();
             p.put("evidence_id",evidenceId);
             p.put("stage",STAGE_EXTRACTION);
             p.put("pipeline_version",KnowledgeV2Schema.PIPELINE_VERSION);
-            p.put("state",item.getKnowledgeEligible()&&item.getSelfReferenceScore()<0.72f?"PENDING":"BLOCKED");
+            p.put("state",state);
             p.put("attempt_count",0);
-            p.put("last_error",item.getKnowledgeEligible()?"":"Blocked by provenance/self-reference policy");
+            p.put("last_error",error);
             p.put("updated_at",now);
             sql.insertWithOnConflict("kv2_processing",null,p,SQLiteDatabase.CONFLICT_IGNORE);
             return evidenceId;
@@ -73,21 +81,22 @@ public final class KnowledgeV2Store {
         }finally{db.close();}
     }
 
+    /** pending,running,done,blocked,failed,skipped */
     public static int[] visualProcessingCounts(Context context){
         VaultDb db=new VaultDb(context.getApplicationContext());
         try{
             SQLiteDatabase sql=db.getReadableDatabase();KnowledgeV2Schema.ensure(sql);
-            int pending=0,running=0,done=0,blocked=0,failed=0;
+            int pending=0,running=0,done=0,blocked=0,failed=0,skipped=0;
             Cursor c=sql.rawQuery(
                     "SELECT p.state,COUNT(*) FROM kv2_evidence e JOIN kv2_processing p ON p.evidence_id=e.id "+
                     "WHERE e.source_type='PICBRAIN_SCREENSHOT' AND p.stage=? AND p.pipeline_version=? GROUP BY p.state",
                     new String[]{STAGE_EXTRACTION,String.valueOf(KnowledgeV2Schema.PIPELINE_VERSION)});
             while(c.moveToNext()){
                 String s=c.getString(0)==null?"":c.getString(0);int n=c.getInt(1);
-                if("PENDING".equals(s))pending=n;else if("RUNNING".equals(s))running=n;else if("DONE".equals(s))done=n;else if("BLOCKED".equals(s))blocked=n;else if("FAILED".equals(s))failed=n;
+                if("PENDING".equals(s))pending=n;else if("RUNNING".equals(s))running=n;else if("DONE".equals(s))done=n;else if("BLOCKED".equals(s))blocked=n;else if("FAILED".equals(s))failed=n;else if("SKIPPED".equals(s))skipped=n;
             }
             c.close();
-            return new int[]{pending,running,done,blocked,failed};
+            return new int[]{pending,running,done,blocked,failed,skipped};
         }finally{db.close();}
     }
 
