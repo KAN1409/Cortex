@@ -209,6 +209,41 @@ public class CortexIntelligenceArchitectureTest {
         assertEquals(2, ranked.size());
     }
 
+    @Test public void provenanceFirewallBlocksSelfGeneratedPicBrainArtifacts() {
+        CortexProvenanceGate.Result a=CortexProvenanceGate.evaluate(
+                "screenshot","picbrain","derived","","22:42:30 call event 18:26:32 Notification hints are evidence;",
+                "22:42:30 call event 18:26:32 Notification hints are evidence;",
+                "ACTION","action");
+        assertEquals(CortexProvenanceGate.Authority.CORTEX_INTERNAL,a.authority);
+        assertFalse(a.attentionEligible);
+
+        CortexProvenanceGate.Result b=CortexProvenanceGate.evaluate(
+                "semantic","knowledge_v2","derived","","Check important info.","Check important info.",
+                "ACTION","action");
+        assertEquals(CortexProvenanceGate.Authority.CORTEX_INTERNAL,b.authority);
+        assertFalse(b.attentionEligible);
+    }
+
+    @Test public void actionSpecificityRejectsGenericImperativeButKeepsGroundedRequest() {
+        ActionSpecificityGate.Result generic=ActionSpecificityGate.evaluate(
+                "ACTION","action","Check important info.","",false,false);
+        assertFalse(generic.eligible);
+
+        ActionSpecificityGate.Result grounded=ActionSpecificityGate.evaluate(
+                "REQUEST","reply","Ahmed","Reply to Ahmed about PR 0262 before 2 PM",
+                true,false);
+        assertTrue(grounded.eligible);
+        assertTrue(grounded.specificity>.40);
+    }
+
+    @Test public void provenanceFirewallPreservesDirectUserAuthoredEvidence() {
+        CortexProvenanceGate.Result user=CortexProvenanceGate.evaluate(
+                "manual","quick_capture","created","","Check important info.","Check important info.",
+                "ACTION","action");
+        assertEquals(CortexProvenanceGate.Authority.USER_AUTHORED,user.authority);
+        assertTrue(user.attentionEligible);
+    }
+
     private static String rawHash(SQLiteDatabase s, long id) {
         Cursor c = s.rawQuery("SELECT immutable_hash FROM ue_raw_observations WHERE id=?",
                 new String[]{String.valueOf(id)});
