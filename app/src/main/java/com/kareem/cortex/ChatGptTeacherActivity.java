@@ -78,6 +78,16 @@ public final class ChatGptTeacherActivity extends Activity {
         body.addView(launch,yp);
         launch.setOnClickListener(v->launchChatGpt());
 
+        TextView paste=CortexUi.action(this,"PASTE POLICY FROM CLIPBOARD",CortexUi.TEXT,false);
+        LinearLayout.LayoutParams pp=new LinearLayout.LayoutParams(-1,dp(46));
+        pp.setMargins(0,dp(10),0,0);
+        body.addView(paste,pp);
+        paste.setOnClickListener(v->{
+            CortexChatGptAppTeacher.ImportResult r=CortexChatGptAppTeacher.importClipboardIfReady(this);
+            status.setText(statusText(r));
+            Toast.makeText(this,r.ok?"ChatGPT policy imported":"Import failed: "+r.error,Toast.LENGTH_LONG).show();
+        });
+
         body.addView(CortexUi.section(this,"Status"));
         status=CortexUi.text(this,statusText(null),12,CortexUi.TEXT);
         status.setPadding(0,dp(4),0,dp(8));
@@ -124,8 +134,11 @@ public final class ChatGptTeacherActivity extends Activity {
         if(CortexChatGptAppTeacher.launchedAt(this)>0)
             b.append("\nLast launch: ").append(new java.text.SimpleDateFormat("dd MMM · HH:mm:ss",
                     java.util.Locale.getDefault()).format(new java.util.Date(CortexChatGptAppTeacher.launchedAt(this))));
-        if(latest!=null&&!latest.ok&&!latest.error.isEmpty()&&!"Waiting for ChatGPT policy".equals(latest.error))
-            b.append("\nClipboard status: ").append(latest.error);
+        if(latest!=null){
+            if(latest.ok)b.append("\nLast import: SUCCESS · ").append(latest.version);
+            else if(!latest.error.isEmpty()&&!"Waiting for ChatGPT policy".equals(latest.error))
+                b.append("\nClipboard status: ").append(latest.error);
+        }
         return b.toString();
     }
 }
