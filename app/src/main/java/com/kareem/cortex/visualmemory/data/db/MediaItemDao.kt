@@ -31,7 +31,7 @@ interface MediaItemDao {
         SELECT * FROM media_items m
         WHERE m.isScreenshot = 1
           AND m.ocrState = 'DONE'
-          AND m.semanticState != 'FAILED'
+          AND m.semanticState NOT IN ('FAILED','SKIPPED')
           AND m.semanticAttemptCount < :maxAttempts
           AND TRIM(COALESCE(m.ocrNormalizedText, '')) != ''
           AND NOT EXISTS (
@@ -47,7 +47,7 @@ interface MediaItemDao {
         modelId: String,
         dimensions: Int,
         limit: Int,
-        maxAttempts: Int = 3
+        maxAttempts: Int = 5
     ): List<MediaItemEntity>
 
     @Query("UPDATE media_items SET semanticState='RUNNING', semanticLastAttemptAtMillis=:attemptAt WHERE mediaId=:mediaId")
@@ -65,6 +65,15 @@ interface MediaItemDao {
 
     @Query("""
         UPDATE media_items
+        SET semanticState='SKIPPED',
+            semanticLastError=:reason,
+            semanticLastAttemptAtMillis=:attemptAt
+        WHERE mediaId=:mediaId
+    """)
+    suspend fun markSemanticSkipped(mediaId: Long, reason: String, attemptAt: Long)
+
+    @Query("""
+        UPDATE media_items
         SET semanticAttemptCount=semanticAttemptCount+1,
             semanticState=CASE
                 WHEN semanticAttemptCount + 1 >= :maxAttempts THEN 'FAILED'
@@ -78,7 +87,7 @@ interface MediaItemDao {
         mediaId: Long,
         error: String,
         attemptAt: Long,
-        maxAttempts: Int = 3
+        maxAttempts: Int = 5
     )
 
     @Query("""
@@ -90,6 +99,16 @@ interface MediaItemDao {
         WHERE isScreenshot=1 AND semanticState='FAILED'
     """)
     suspend fun resetSemanticFailures()
+
+    @Query("""
+        UPDATE media_items
+        SET semanticState='PENDING',
+            semanticAttemptCount=0,
+            semanticLastError=NULL,
+            semanticLastAttemptAtMillis=NULL
+        WHERE isScreenshot=1 AND semanticState='SKIPPED' AND TRIM(COALESCE(ocrNormalizedText,''))!=''
+    """)
+    suspend fun resetRecoverableSemanticSkips()
 
     @Query("DELETE FROM media_embeddings WHERE modelId=:modelId AND dimensions=:dimensions")
     suspend fun deleteEmbeddings(modelId: String, dimensions: Int)
