@@ -17,7 +17,6 @@ public final class NowActivity extends PremiumHomeActivity {
         LinearLayout titles=new LinearLayout(this);titles.setOrientation(LinearLayout.VERTICAL);head.addView(titles,new LinearLayout.LayoutParams(0,-2,1));
         TextView title=CortexUi.plain(this,"Now",30,CortexUi.TEXT);CortexUi.medium(title);titles.addView(title);
         TextView sub=CortexUi.text(this,"What deserves your attention right now.",11,CortexUi.MUTED);sub.setPadding(0,dp(3),0,0);titles.addView(sub);
-        TextView nexus=CortexUi.chip(this,"NEXUS",CortexUi.LIME,true);nexus.setOnClickListener(v->{try{startActivity(new Intent(this,NexusActivity.class));}catch(Throwable ignored){}});LinearLayout.LayoutParams np=new LinearLayout.LayoutParams(-2,dp(36));np.setMargins(0,0,dp(7),0);head.addView(nexus,np);
         TextView settings=CortexUi.chip(this,"Settings",CortexUi.MUTED,false);settings.setOnClickListener(v->{try{startActivity(new Intent(this,SettingsActivity.class));}catch(Throwable ignored){}});head.addView(settings,new LinearLayout.LayoutParams(-2,dp(36)));
         content.addView(head);
 
@@ -40,32 +39,38 @@ public final class NowActivity extends PremiumHomeActivity {
         addUnique(merged,seen,s.decisions,5);
         addUnique(merged,seen,s.worthKnowing,6);
         merged.removeIf(x->NowQualityPolicy.suppress(x.kind,x.source,x.title,x.body)
-                ||AttentionNoisePolicy.suppress(x.source,x.title,x.body,x.kind,""));
-        merged.sort((a,b)->{int z=Integer.compare(b.importance,a.importance);return z!=0?z:Long.compare(b.updatedAt,a.updatedAt);});
+                ||AttentionNoisePolicy.suppress(x.source,x.title,x.body,x.kind,"")
+                ||CortexPersonalPolicy.suppress(this,x)
+                ||CortexPersonalPolicy.belowThreshold(this,x));
+        merged.sort((a,b)->{int z=Double.compare(CortexPersonalPolicy.score(this,b),CortexPersonalPolicy.score(this,a));return z!=0?z:Long.compare(b.updatedAt,a.updatedAt);});
 
-        int shown=0;
+        int shown=0,maxNow=CortexPersonalPolicy.maxNowItems(this);
         for(String kind:new String[]{"ACTION","WAITING","DECISION","INSIGHT","IDEA","OPPORTUNITY","HYPOTHESIS"}){
-            int count=0;for(PrimeBriefStore.Item x:merged)if(kind.equalsIgnoreCase(x.kind))count++;if(count==0)continue;
+            if(shown>=maxNow)break;
+            int count=0;for(PrimeBriefStore.Item x:merged)if(sameDisplayGroup(kind,x.kind))count++;if(count==0)continue;
             String heading="ACTION".equals(kind)?"Needs you":"WAITING".equals(kind)?"Waiting for someone / follow-up":"DECISION".equals(kind)?"Decisions":"Worth knowing now";
             if(("IDEA".equals(kind)||"OPPORTUNITY".equals(kind)||"HYPOTHESIS".equals(kind))&&containsHeadingAlready(heading,kind,merged))continue;
             content.addView(CortexUi.section(this,heading));
             int cap="ACTION".equals(kind)?6:("WAITING".equals(kind)?4:4),local=0;
             for(PrimeBriefStore.Item x:merged){
-                if(!sameDisplayGroup(kind,x.kind))continue;
+                if(shown>=maxNow)break;if(!sameDisplayGroup(kind,x.kind))continue;
                 derivedRow(x);shown++;if(++local>=cap)break;
             }
             if(sameDisplayGroup(kind,"INSIGHT"))break;
         }
 
-        if(!s.changes.isEmpty()){
-            content.addView(CortexUi.section(this,"What changed"));
-            for(int i=0;i<Math.min(4,s.changes.size());i++){PrimeBriefStore.Item x=s.changes.get(i);String key=key(x);if(seen.add(key)){derivedRow(x);shown++;}}
+        if(shown<maxNow&&!s.changes.isEmpty()){
+            ArrayList<PrimeBriefStore.Item> changes=new ArrayList<>();
+            for(PrimeBriefStore.Item x:s.changes)if(!NowQualityPolicy.suppress(x.kind,x.source,x.title,x.body)&&!AttentionNoisePolicy.suppress(x.source,x.title,x.body,x.kind,"")&&!CortexPersonalPolicy.suppress(this,x)&&!CortexPersonalPolicy.belowThreshold(this,x))changes.add(x);
+            changes.sort((a,b)->Double.compare(CortexPersonalPolicy.score(this,b),CortexPersonalPolicy.score(this,a)));
+            if(!changes.isEmpty())content.addView(CortexUi.section(this,"What changed"));
+            for(PrimeBriefStore.Item x:changes){if(shown>=maxNow)break;String key=key(x);if(seen.add(key)){derivedRow(x);shown++;}}
         }
 
         if(shown==0){
             LinearLayout card=CortexUi.card(this,24);card.setPadding(dp(18),dp(24),dp(18),dp(24));
             TextView h=CortexUi.plain(this,"Nothing needs you right now",19,CortexUi.TEXT);CortexUi.medium(h);card.addView(h);
-            TextView b=CortexUi.text(this,"Cortex is capturing, understanding and rebuilding its live world model. The status bar above shows whether anything is still processing.",12,CortexUi.MUTED);b.setPadding(0,dp(7),0,0);card.addView(b);
+            TextView b=CortexUi.text(this,"Cortex is still observing and learning, but it will stay quiet until something crosses your attention threshold.",12,CortexUi.MUTED);b.setPadding(0,dp(7),0,0);card.addView(b);
             LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,-2);p.setMargins(0,dp(14),0,0);content.addView(card,p);
         }
     }
