@@ -28,6 +28,11 @@ public final class VisualMemoryDetailActivity extends Activity {
         String ocrState=i.getStringExtra("ocr_state");
         String semanticState=i.getStringExtra("semantic_state");
         String semanticError=i.getStringExtra("semantic_error");
+        String origin=i.getStringExtra("origin");
+        float selfScore=i.getFloatExtra("self_score",0f);
+        int derivationDepth=i.getIntExtra("derivation_depth",0);
+        boolean knowledgeEligible=i.getBooleanExtra("knowledge_eligible",true);
+        String provenanceReason=i.getStringExtra("provenance_reason");
 
         LinearLayout root=new LinearLayout(this);root.setOrientation(LinearLayout.VERTICAL);root.setBackgroundColor(CortexUi.BG);
         ScrollView sv=new ScrollView(this);sv.setFillViewport(true);
@@ -48,6 +53,7 @@ public final class VisualMemoryDetailActivity extends Activity {
 
         body.addView(info("OCR STATUS",safe(ocrState),CortexUi.GREEN));
         body.addView(info("SEMANTIC STATUS",safe(semanticState)+(safe(semanticError).isEmpty()?"":"\n\nLast error: "+semanticError),CortexUi.LIME));
+        body.addView(info("PROVENANCE",(knowledgeEligible?"Eligible for knowledge":"Blocked from new knowledge")+"\nOrigin: "+safe(origin)+"\nSelf-reference: "+Math.round(selfScore*100)+"%\nDerivation depth: "+derivationDepth+(safe(provenanceReason).isEmpty()?"":"\nReason: "+provenanceReason),knowledgeEligible?CortexUi.GREEN:CortexUi.YELLOW));
         body.addView(info("TRANSCRIPTION",safe(ocr).isEmpty()?"No OCR text available yet.":ocr,CortexUi.TEXT));
 
         TextView original=CortexUi.action(this,"Open original image",CortexUi.ORANGE,false);
