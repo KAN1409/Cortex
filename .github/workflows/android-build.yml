@@ -2,7 +2,7 @@ name: Android Debug APK
 
 on:
   push:
-    branches: [ main, v71/visual-memory-u1 ]
+    branches: [ main, v71/visual-memory-u1, v72/visual-memory-u2-provenance ]
   pull_request:
     branches: [ main ]
   workflow_dispatch:
