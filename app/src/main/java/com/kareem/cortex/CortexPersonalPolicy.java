@@ -1,0 +1,44 @@
+package com.kareem.cortex;
+
+import android.content.Context;
+import android.content.SharedPreferences;
+import org.json.JSONArray;
+import org.json.JSONObject;
+import java.util.Locale;
+
+/**
+ * Compact policy distilled by ChatGPT and applied locally by Cortex.
+ * Raw evidence never changes; this policy only affects user-facing relevance and ranking.
+ */
+public final class CortexPersonalPolicy {
+    private static final String PREF="cortex_personal_policy";
+    private static final String KEY="policy_json";
+    private CortexPersonalPolicy(){}
+
+    private static SharedPreferences p(Context c){return c.getApplicationContext().getSharedPreferences(PREF,Context.MODE_PRIVATE);}
+    public static JSONObject current(Context c){
+        try{String raw=p(c).getString(KEY,"");if(raw!=null&&!raw.trim().isEmpty())return new JSONObject(raw);}catch(Throwable ignored){}
+        try{JSONObject o=new JSONObject();o.put("version","local-bootstrap-1");o.put("generatedAt",System.currentTimeMillis());o.put("ttlMs",7L*24L*60L*60L*1000L);o.put("attentionThreshold",.72);o.put("maxNowItems",7);o.put("suppressPhrases",new JSONArray().put("cortex is processing").put("ask brain to interpret the intent").put("notification hints are evidence").put("resolved downstream").put("understanding..."));o.put("boosts",new JSONArray());return o;}catch(Exception e){return new JSONObject();}
+    }
+    public static void save(Context c,JSONObject policy){if(policy==null)return;p(c).edit().putString(KEY,policy.toString()).apply();}
+    public static void clear(Context c){p(c).edit().remove(KEY).apply();}
+    public static String version(Context c){return current(c).optString("version","none");}
+    public static int maxNowItems(Context c){return Math.max(1,Math.min(12,current(c).optInt("maxNowItems",7)));}
+    public static double attentionThreshold(Context c){return Math.max(0,Math.min(1,current(c).optDouble("attentionThreshold",.72)));}
+
+    public static boolean suppress(Context c,PrimeBriefStore.Item item){
+        if(item==null)return true;String hay=norm((item.source==null?"":item.source)+" "+(item.title==null?"":item.title)+" "+(item.body==null?"":item.body));if(hay.isEmpty())return true;
+        JSONArray a=current(c).optJSONArray("suppressPhrases");if(a!=null)for(int i=0;i<a.length();i++){String q=norm(a.optString(i,""));if(q.length()>=2&&hay.contains(q))return true;}
+        return false;
+    }
+
+    /** Returns a display-ranking score; positive/negative learned boosts are bounded. */
+    public static double score(Context c,PrimeBriefStore.Item item){
+        if(item==null)return -999;double base=Math.max(0,Math.min(100,item.importance))/100.0;String hay=norm((item.source==null?"":item.source)+" "+(item.title==null?"":item.title)+" "+(item.body==null?"":item.body));
+        JSONArray a=current(c).optJSONArray("boosts");double delta=0;if(a!=null)for(int i=0;i<a.length();i++){JSONObject b=a.optJSONObject(i);if(b==null)continue;String q=norm(b.optString("match",""));if(q.length()<2||!hay.contains(q))continue;delta+=Math.max(-1,Math.min(1,b.optDouble("weight",0)));}
+        return Math.max(0,Math.min(1.5,base+Math.max(-.75,Math.min(.75,delta))));
+    }
+
+    public static boolean belowThreshold(Context c,PrimeBriefStore.Item item){return score(c,item)<attentionThreshold(c);}
+    private static String norm(String s){return s==null?"":s.toLowerCase(Locale.ROOT).replaceAll("\\s+"," ").trim();}
+}
