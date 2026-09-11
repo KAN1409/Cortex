@@ -32,7 +32,7 @@ public final class CortexPipelineStatusBar {
         s.mediaQueued=scalar(db,"SELECT COUNT(*) FROM knowledge_items WHERE status IN ('queued','analyzing')");
         s.nowSelected=scalar(db,"SELECT COUNT(*) FROM ue_cognitive_shadow_decisions WHERE cognitive_surface=1 AND run_id=(SELECT id FROM ue_cognitive_shadow_runs WHERE completed_at>0 ORDER BY id DESC LIMIT 1)");
         s.brainMemory=scalar(db,"SELECT COUNT(*) FROM knowledge_items WHERE source='semantic_bridge'");
-        try{PrimeBriefStore.Snapshot p=CortexJudgedBriefProjection.load(a.getApplicationContext(),vault);s.visibleNow=p.actions.size()+p.waiting.size()+p.decisions.size();}catch(Throwable ignored){}s.maxNow=CortexPersonalPolicy.maxNowItems(a);s.policyVersion=CortexPersonalPolicy.version(a);s.processing=s.semanticWaiting+s.mediaQueued;return s;
+        s.maxNow=CortexPersonalPolicy.maxNowItems(a);s.policyVersion=CortexPersonalPolicy.version(a);try{PrimeBriefStore.Snapshot p=CortexJudgedBriefProjection.load(a.getApplicationContext(),vault);s.visibleNow=Math.min(s.maxNow,p.actions.size()+p.waiting.size()+p.decisions.size());}catch(Throwable ignored){}s.processing=s.semanticWaiting+s.mediaQueued;return s;
     }
 
     private static long scalar(SQLiteDatabase db,String sql){Cursor c=null;try{c=db.rawQuery(sql,null);return c.moveToFirst()?c.getLong(0):0;}catch(Throwable ignored){return 0;}finally{if(c!=null)c.close();}}
