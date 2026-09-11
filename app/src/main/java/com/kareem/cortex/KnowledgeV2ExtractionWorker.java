@@ -21,6 +21,7 @@ public final class KnowledgeV2ExtractionWorker extends Worker {
         try{
             SQLiteDatabase sql=db.getWritableDatabase();
             KnowledgeV2Schema.ensure(sql);
+            KnowledgeV2Maintenance.prepare(sql);
             while(!isStopped()){
                 Evidence e=nextPending(sql);
                 if(e==null)break;
@@ -46,6 +47,7 @@ public final class KnowledgeV2ExtractionWorker extends Worker {
                 "JOIN kv2_processing p ON p.evidence_id=e.id "+
                 "WHERE p.stage=? AND p.pipeline_version=? AND p.state='PENDING' "+
                 "AND e.knowledge_eligible=1 AND e.self_reference_score<0.72 "+
+                "AND TRIM(COALESCE(e.raw_text,''))<>'' "+
                 "ORDER BY e.observed_at ASC LIMIT 1",
                 new String[]{KnowledgeV2Store.STAGE_EXTRACTION,String.valueOf(KnowledgeV2Schema.PIPELINE_VERSION)});
         Evidence out=null;
@@ -64,7 +66,7 @@ public final class KnowledgeV2ExtractionWorker extends Worker {
             u.put("evidence_id",e.id);
             u.put("title",n(r.title));
             u.put("summary",n(r.summary));
-            u.put("category",n(r.category));
+            u.put("category",KnowledgeV2Maintenance.canonicalCategory(n(r.category)));
             u.put("tags",n(r.tags));
             u.put("engine",n(r.engine));
             u.put("extraction_version",KnowledgeV2Schema.PIPELINE_VERSION);
@@ -77,7 +79,7 @@ public final class KnowledgeV2ExtractionWorker extends Worker {
 
             for(AnalysisResult.Entity ent:r.entities){
                 String kind=n(ent.kind).toUpperCase(Locale.ROOT);
-                String value=n(ent.value);
+                String value=EntityQualityPolicy.cleanEntityValue(kind,n(ent.value));
                 if(value.isEmpty())continue;
 
                 boolean identityKind="PERSON".equals(kind)||"PROJECT".equals(kind)||"ORGANIZATION".equals(kind)||"ORG".equals(kind)||"PRODUCT".equals(kind)||"PLACE".equals(kind);
@@ -100,8 +102,8 @@ public final class KnowledgeV2ExtractionWorker extends Worker {
                     sql.insert("kv2_entity_mentions",null,mention);
                 }
 
-                String predicate="MENTIONS_"+kind;
-                String fp=Fingerprint.text("kv2-fact|"+e.id+"|"+predicate+"|"+norm(value));
+                String predicate=predicateFor(kind);
+                String fp=Fingerprint.text("kv2-v"+KnowledgeV2Schema.PIPELINE_VERSION+"-fact|"+e.id+"|"+predicate+"|"+norm(value));
                 long factId=upsertFact(sql,e,predicate,kind,value,ent.confidence,fp,now);
                 linkFact(sql,factId,e.id,Math.max(.5,ent.confidence),now);
             }
@@ -109,8 +111,9 @@ public final class KnowledgeV2ExtractionWorker extends Worker {
             for(AnalysisResult.Action action:r.actions){
                 String text=n(action.text);
                 if(text.isEmpty())continue;
-                String fp=Fingerprint.text("kv2-event|"+e.id+"|action|"+norm(text)+"|"+norm(action.dueText));
-                long eventId=upsertEvent(sql,e,text,n(action.dueText),fp,now);
+                String due=n(action.dueText);
+                String fp=Fingerprint.text("kv2-v"+KnowledgeV2Schema.PIPELINE_VERSION+"-event|"+e.id+"|action|"+norm(text)+"|"+norm(due));
+                long eventId=upsertEvent(sql,e,text,due,fp,now);
                 linkEvent(sql,eventId,e.id,.80,now);
             }
 
@@ -118,6 +121,16 @@ public final class KnowledgeV2ExtractionWorker extends Worker {
         }finally{
             sql.endTransaction();
         }
+    }
+
+    private static String predicateFor(String kind){
+        if("URL".equals(kind))return "REFERENCES_URL";
+        if("DATE".equals(kind))return "MENTIONS_DATE";
+        if("MONEY".equals(kind))return "MENTIONS_AMOUNT";
+        if("PHONE".equals(kind))return "MENTIONS_PHONE";
+        if("EMAIL".equals(kind))return "MENTIONS_EMAIL";
+        if("HASHTAG".equals(kind))return "MENTIONS_HASHTAG";
+        return "MENTIONS_"+kind;
     }
 
     private static long upsertFact(SQLiteDatabase sql,Evidence e,String predicate,String objectType,String value,double confidence,String fingerprint,long now){
@@ -135,7 +148,7 @@ public final class KnowledgeV2ExtractionWorker extends Worker {
         v.put("extraction_version",KnowledgeV2Schema.PIPELINE_VERSION);
         v.put("fingerprint",fingerprint);
         JSONObject meta=new JSONObject();
-        try{meta.put("derivation_depth",e.derivationDepth+1);meta.put("source","local_analyzer");}catch(Exception ignored){}
+        try{meta.put("derivation_depth",e.derivationDepth+1);meta.put("source","local_analyzer");meta.put("pipeline_version",KnowledgeV2Schema.PIPELINE_VERSION);}catch(Exception ignored){}
         v.put("metadata_json",meta.toString());
         v.put("created_at",now);
         v.put("updated_at",now);
@@ -157,7 +170,7 @@ public final class KnowledgeV2ExtractionWorker extends Worker {
         v.put("confidence",0.80);
         v.put("fingerprint",fingerprint);
         JSONObject meta=new JSONObject();
-        try{meta.put("due_text",due);meta.put("derivation_depth",e.derivationDepth+1);}catch(Exception ignored){}
+        try{meta.put("due_text",due);meta.put("derivation_depth",e.derivationDepth+1);meta.put("pipeline_version",KnowledgeV2Schema.PIPELINE_VERSION);}catch(Exception ignored){}
         v.put("metadata_json",meta.toString());
         v.put("created_at",now);
         v.put("updated_at",now);
