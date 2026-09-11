@@ -5,6 +5,7 @@ import androidx.work.ExistingWorkPolicy
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import com.kareem.cortex.visualmemory.data.db.MediaItemEntity
+import com.kareem.cortex.visualmemory.VisualEvidenceBackfillWorker
 import com.kareem.cortex.visualmemory.data.media.MediaIndexer
 import com.kareem.cortex.visualmemory.data.ocr.OcrWorker
 import com.kareem.cortex.visualmemory.data.search.EmbeddingGemmaSemanticEngine
@@ -65,6 +66,16 @@ object VisualMemoryRuntime {
             }.onSuccess { callback?.success(it) }
                 .onFailure { callback?.failure(it.message ?: it::class.java.simpleName) }
         }
+    }
+
+    @JvmStatic
+    fun enqueueKnowledgeBackfill(context: Context) {
+        val request = OneTimeWorkRequestBuilder<VisualEvidenceBackfillWorker>().build()
+        WorkManager.getInstance(context.applicationContext).enqueueUniqueWork(
+            VisualEvidenceBackfillWorker.UNIQUE_WORK_NAME,
+            ExistingWorkPolicy.KEEP,
+            request
+        )
     }
 
     @JvmStatic
