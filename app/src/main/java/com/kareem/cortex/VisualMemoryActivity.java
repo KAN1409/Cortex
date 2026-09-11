@@ -100,7 +100,7 @@ public final class VisualMemoryActivity extends Activity {
         knowledgeRow.addView(refresh,new LinearLayout.LayoutParams(0,dp(44),1));
         LinearLayout.LayoutParams kp=new LinearLayout.LayoutParams(0,dp(44),1);kp.setMargins(dp(7),0,0,0);knowledgeRow.addView(knowledge,kp);
         body.addView(knowledgeRow,margins(0,0,0,0));
-        refresh.setOnClickListener(v->load(search.getText().toString()));
+        refresh.setOnClickListener(v->{VisualMemoryRuntime.enqueueCompletionMaintenance(this);load(search.getText().toString());});
         knowledge.setOnClickListener(v->{try{startActivity(new Intent(this,KnowledgeExplorerActivity.class));}catch(Throwable ignored){}});
 
         body.addView(CortexUi.section(this,"Visual evidence"));
@@ -112,7 +112,7 @@ public final class VisualMemoryActivity extends Activity {
     LinearLayout.LayoutParams margins(int l,int t,int r,int b){LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,-2);p.setMargins(dp(l),dp(t),dp(r),dp(b));return p;}
 
     void loadAndMaybeSync(){
-        VisualMemoryRuntime.enqueueKnowledgeBackfill(this);
+        VisualMemoryRuntime.enqueueCompletionMaintenance(this);
         load("");
         io.execute(()->{
             try{
@@ -127,7 +127,7 @@ public final class VisualMemoryActivity extends Activity {
         state.setText("Scanning MediaStore read-only…");
         sync.setEnabled(false);
         VisualMemoryRuntime.sync(this,new VisualMemoryRuntime.Callback(){
-            public void success(String message){post(()->{sync.setEnabled(true);state.setText(message+" • OCR queued automatically.");load(search.getText().toString());});}
+            public void success(String message){post(()->{sync.setEnabled(true);state.setText(message+" • recovery/indexing queued automatically.");load(search.getText().toString());});}
             public void failure(String message){post(()->{sync.setEnabled(true);state.setText("Sync failed safely: "+message);});}
         });
     }
@@ -140,8 +140,8 @@ public final class VisualMemoryActivity extends Activity {
                 public void failure(String message){post(()->{semantic.setEnabled(true);state.setText("Model download failed: "+message);});}
             });
         }else{
-            VisualMemoryRuntime.enqueueSemantic(this,false);
-            state.setText("Semantic indexing started. It will continue in the background.");
+            VisualMemoryRuntime.enqueueSemantic(this,true);
+            state.setText("Semantic repair/indexing queued. Failed items will be retried safely.");
         }
     }
 
@@ -167,8 +167,10 @@ public final class VisualMemoryActivity extends Activity {
         clearBitmaps();list.removeAllViews();refresh.setEnabled(true);
         modelInstalled=s.getModelInstalled();
         stats.setText("Pictures "+s.getPictures()+"  •  Screenshots "+s.getScreenshots()+"  •  OCR "+s.getOcrReady()+"/"+s.getScreenshots()+"  •  Semantic "+s.getSemanticIndexed()+"/"+s.getOcrReady());
-        state.setText("Knowledge "+s.getKnowledgeDone()+" done  •  "+s.getKnowledgePending()+" pending  •  "+s.getKnowledgeRunning()+" running  •  "+s.getKnowledgeBlocked()+" blocked  •  "+s.getKnowledgeFailed()+" failed\nOCR failed "+s.getOcrFailed()+"  •  Semantic failed "+s.getSemanticFailed()+"  •  "+(modelInstalled?"EmbeddingGemma ready":"Semantic model not installed"));
-        semantic.setText(modelInstalled?"Start semantic index":"Download semantic model");
+        state.setText(
+                "Knowledge "+s.getKnowledgeDone()+" done  •  "+s.getKnowledgePending()+" pending  •  "+s.getKnowledgeRunning()+" running  •  "+s.getKnowledgeBlocked()+" blocked  •  "+s.getKnowledgeSkipped()+" no-text  •  "+s.getKnowledgeFailed()+" failed\n"+
+                "OCR failed "+s.getOcrFailed()+"  •  Semantic "+s.getSemanticPending()+" pending  •  "+s.getSemanticSkipped()+" no-text  •  "+s.getSemanticFailed()+" failed  •  "+(modelInstalled?"EmbeddingGemma ready":"Semantic model not installed"));
+        semantic.setText(modelInstalled?"Repair semantic index":"Download semantic model");
         if(items==null||items.isEmpty()){
             TextView empty=CortexUi.text(this,q==null||q.trim().isEmpty()?"No screenshots indexed yet. Tap Sync.":"No confident matches.",12,CortexUi.MUTED);
             empty.setPadding(0,dp(8),0,dp(20));list.addView(empty);return;
@@ -189,11 +191,12 @@ public final class VisualMemoryActivity extends Activity {
         card.addView(row);
         LinearLayout chips=new LinearLayout(this);chips.setOrientation(LinearLayout.HORIZONTAL);
         chips.addView(CortexUi.chip(this,"OCR",item.getOcrState().equals("DONE")?CortexUi.GREEN:CortexUi.MUTED,false),chipParams());
-        chips.addView(CortexUi.chip(this,"Semantic",item.getSemanticState().equals("DONE")?CortexUi.LIME:CortexUi.ORANGE,false),chipParams());
+        chips.addView(CortexUi.chip(this,"Semantic",item.getSemanticState().equals("DONE")?CortexUi.LIME:(item.getSemanticState().equals("FAILED")?CortexUi.RED:CortexUi.ORANGE),false),chipParams());
         String ks=item.getKnowledgeState();
         if(ks!=null&&!ks.trim().isEmpty()){
-            int kc="DONE".equals(ks)?CortexUi.LIME:("BLOCKED".equals(ks)?CortexUi.YELLOW:("FAILED".equals(ks)?CortexUi.RED:CortexUi.ORANGE));
-            chips.addView(CortexUi.chip(this,"Knowledge "+ks,kc,true),chipParams());
+            int kc="DONE".equals(ks)?CortexUi.LIME:("BLOCKED".equals(ks)?CortexUi.YELLOW:("SKIPPED".equals(ks)?CortexUi.MUTED:("FAILED".equals(ks)?CortexUi.RED:CortexUi.ORANGE)));
+            String kl="SKIPPED".equals(ks)?"Knowledge NO TEXT":"Knowledge "+ks;
+            chips.addView(CortexUi.chip(this,kl,kc,true),chipParams());
         }
         if(!item.getKnowledgeEligible())chips.addView(CortexUi.chip(this,"Self • no learning",CortexUi.YELLOW,true),chipParams());
         LinearLayout.LayoutParams cp=new LinearLayout.LayoutParams(-1,dp(34));cp.setMargins(0,dp(9),0,0);card.addView(chips,cp);
