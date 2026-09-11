@@ -85,22 +85,24 @@ public final class CortexAttentionJudge {
         double deadline = deadlineScore(c.deadlineAt, c.nowAt);
 
         double score = 0;
-        score += urgency * weight(policy, "urgency", .19);
+        score += urgency * weight(policy, "urgency", .19, "priority");
         score += actionability * weight(policy, "actionability", .21);
         score += c.personalRelevance * weight(policy, "personalRelevance", .18);
-        score += risk * weight(policy, "risk", .16);
+        score += risk * weight(policy, "risk", .16, "securityRisk");
         score += novelty * weight(policy, "novelty", .07);
-        score += deadline * weight(policy, "deadline", .09);
+        score += deadline * weight(policy, "deadline", .09, "timeSensitivity");
         score += rt.contextMatch * weight(policy, "contextMatch", .10);
 
-        if (c.explicitRequest) score += .12 * Math.max(.40, freshness);
-        if (c.linkedOpenCommitment) score += .14;
+        if (c.explicitRequest) score += weight(policy, "explicitRequest", .12) * Math.max(.40, freshness);
+        if (c.linkedOpenCommitment) score += weight(policy, "openCommitment", .14);
         if (c.materialChange) score += .07 * freshness;
         if (c.severeContextImpact) score += .14;
         if (c.evidenceCount >= 2) score += Math.min(.05, (c.evidenceCount - 1) * .01) * Math.max(.5, freshness);
 
         String text = normalize(c.type + " " + c.subject + " " + c.summary);
+        score += freshness * weight(policy, "recency", 0);
         score += textBoost(policy, text);
+        score += semanticFeatureBoost(policy, c, text, risk, urgency, deadline);
 
         boolean hardRisk = risk >= .85 && urgency >= .60;
         boolean hardRequest = c.explicitRequest && actionability >= .65 && c.personalRelevance >= .45;
@@ -147,10 +149,18 @@ public final class CortexAttentionJudge {
         return Collections.unmodifiableList(out);
     }
 
-    private static double weight(JSONObject policy, String key, double fallback) {
+    private static double weight(JSONObject policy, String key, double fallback, String... aliases) {
         JSONObject weights = policy.optJSONObject("featureWeights");
         if (weights == null) return fallback;
-        return bounded(weights.optDouble(key, fallback), 0, .45);
+        if (weights.has(key)) return bounded(weights.optDouble(key, fallback), 0, .45);
+        if (aliases != null) {
+            for (String alias : aliases) {
+                if (alias != null && weights.has(alias)) {
+                    return bounded(weights.optDouble(alias, fallback), 0, .45);
+                }
+            }
+        }
+        return fallback;
     }
 
     private static double textBoost(JSONObject policy, String haystack) {
@@ -165,6 +175,75 @@ public final class CortexAttentionJudge {
             delta += bounded(boost.optDouble("weight", 0), -.40, .40);
         }
         return bounded(delta, -.55, .55);
+    }
+
+    private static double semanticFeatureBoost(JSONObject policy, AttentionDecisionEngine.Candidate c,
+                                               String text, double risk, double urgency, double deadline) {
+        JSONArray boosts = policy.optJSONArray("boosts");
+        if (boosts == null) return 0;
+
+        double delta = 0;
+        for (int i = 0; i < boosts.length(); i++) {
+            JSONObject boost = boosts.optJSONObject(i);
+            if (boost == null) continue;
+
+            String feature = normalize(boost.optString("feature", ""));
+            if (feature.isEmpty()) {
+                String match = normalize(boost.optString("match", ""));
+                if (isSemanticFeatureName(match)) feature = match;
+            }
+            if (feature.isEmpty()) continue;
+
+            double w = bounded(boost.optDouble("weight", 0), -.40, .40);
+            boolean active;
+            switch (feature) {
+                case "securityrisk":
+                    active = risk >= .55 || containsAny(text, "security", "password", "compromised", "breach", "unauthorized", "تنبيه أمني", "كلمة مرور", "تسريب");
+                    break;
+                case "explicitrequest":
+                    active = c.explicitRequest;
+                    break;
+                case "timesensitivity":
+                    active = deadline >= .45 || urgency >= .60;
+                    break;
+                case "opencommitment":
+                    active = c.linkedOpenCommitment;
+                    break;
+                case "duplicate":
+                    active = c.repeatedCount >= 2;
+                    break;
+                case "promotional":
+                    active = containsAny(text, "promotion", "promo", "sale", "offer", "discount", "deal", "خصم", "عرض");
+                    break;
+                case "spam":
+                    active = containsAny(text, "spam", "junk", "unsolicited", "رسالة مزعجة");
+                    break;
+                case "socialambient":
+                    active = !c.explicitRequest && !c.linkedOpenCommitment &&
+                            containsAny(text, "liked", "reaction", "story", "followed", "follows you", "instagram", "snapchat");
+                    break;
+                case "lowinformation":
+                    active = (c.subject == null || c.subject.trim().length() < 3) &&
+                            (c.summary == null || c.summary.trim().length() < 24);
+                    break;
+                default:
+                    active = false;
+            }
+            if (active) delta += w;
+        }
+        return bounded(delta, -.55, .55);
+    }
+
+    private static boolean isSemanticFeatureName(String s) {
+        return "securityrisk".equals(s) || "explicitrequest".equals(s) || "timesensitivity".equals(s) ||
+                "opencommitment".equals(s) || "duplicate".equals(s) || "promotional".equals(s) ||
+                "spam".equals(s) || "socialambient".equals(s) || "lowinformation".equals(s);
+    }
+
+    private static boolean containsAny(String s, String... xs) {
+        if (s == null || xs == null) return false;
+        for (String x : xs) if (x != null && s.contains(x)) return true;
+        return false;
     }
 
     private static double deadlineScore(long deadlineAt, long nowAt) {
