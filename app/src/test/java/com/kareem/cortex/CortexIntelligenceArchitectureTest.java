@@ -112,6 +112,42 @@ public class CortexIntelligenceArchitectureTest {
         assertEquals(before, rawHash(s, rawId));
     }
 
+    @Test public void teacherPolicyCannotActAsSecondUiJudge() {
+        PrimeBriefStore.Item item = new PrimeBriefStore.Item(
+                1L, "ACTION", "teacher-targeted", "compatibility item", "legacy",
+                "open", .95, 5, 0, 0, System.currentTimeMillis());
+        JSONObject teacherPolicy = new JSONObject();
+        try {
+            teacherPolicy.put("version", "teacher-boundary-test");
+            teacherPolicy.put("attentionThreshold", .99);
+            teacherPolicy.put("suppressPhrases", new org.json.JSONArray().put("teacher-targeted"));
+            teacherPolicy.put("boosts", new org.json.JSONArray().put(
+                    new JSONObject().put("match", "teacher-targeted").put("weight", 1.0)));
+        } catch (Exception e) {
+            fail(e.getMessage());
+        }
+        CortexPersonalPolicy.save(context, teacherPolicy);
+
+        assertFalse(CortexPersonalPolicy.suppress(context, item));
+        assertFalse(CortexPersonalPolicy.belowThreshold(context, item));
+        assertEquals(.05, CortexPersonalPolicy.score(context, item), .0001);
+    }
+
+    @Test public void selectiveReasoningGateEscalatesOnlyWhenJustified() {
+        long now = System.currentTimeMillis();
+        AttentionDecisionEngine.Candidate easy = new AttentionDecisionEngine.Candidate(
+                11, "message", "open", "FYI", "ordinary update", .96,
+                .20, .20, .30, .10, .20, 0, now, now, 1, 1,
+                true, false, false, false, false);
+        assertFalse(CortexReasoningGate.assess(easy, false, false).escalate);
+
+        AttentionDecisionEngine.Candidate ambiguousHighValue = new AttentionDecisionEngine.Candidate(
+                12, "commitment", "open", "Approval", "ambiguous but important", .74,
+                .80, .85, .90, .30, .60, now + 2L*60L*60L*1000L, now, now, 1, 2,
+                true, true, true, true, false);
+        assertTrue(CortexReasoningGate.assess(ambiguousHighValue, false, false).escalate);
+    }
+
     private static String rawHash(SQLiteDatabase s, long id) {
         Cursor c = s.rawQuery("SELECT immutable_hash FROM ue_raw_observations WHERE id=?",
                 new String[]{String.valueOf(id)});
