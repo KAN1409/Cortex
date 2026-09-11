@@ -56,7 +56,7 @@ public final class VisualMemoryActivity extends Activity {
         body.setPadding(dp(18),dp(10),dp(18),dp(28));
         sv.addView(body);
         root.addView(sv,new LinearLayout.LayoutParams(-1,0,1));
-        CortexUi.addBottomNav(this,root,"capture",null);
+        CortexUi.addBottomNav(this,root,"picbrain",null);
         setContentView(root);
 
         LinearLayout head=new LinearLayout(this);
