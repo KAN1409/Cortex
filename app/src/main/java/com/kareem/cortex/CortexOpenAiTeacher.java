@@ -12,8 +12,8 @@ import java.net.URL;
 import java.nio.charset.StandardCharsets;
 
 public final class CortexOpenAiTeacher {
-    public static final String VERSION="cortex_openai_teacher_001";
-    public static final String MODEL="openai/gpt-5.6-sol";
+    public static final String VERSION="cortex_free_teacher_002";
+    public static final String MODEL="openrouter/free";
     private static final String ENDPOINT="https://openrouter.ai/api/v1/chat/completions";
     private CortexOpenAiTeacher(){}
 
@@ -159,7 +159,7 @@ public final class CortexOpenAiTeacher {
             c.setRequestProperty("Content-Type","application/json");
             c.setRequestProperty("Accept","application/json");
             c.setRequestProperty("Authorization","Bearer "+key);
-            c.setRequestProperty("X-Title","Cortex Teacher");
+            c.setRequestProperty("X-Title","Cortex Free Teacher");
             try(OutputStream out=c.getOutputStream()){
                 out.write(req.toString().getBytes(StandardCharsets.UTF_8));
             }
