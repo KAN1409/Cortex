@@ -36,6 +36,18 @@ public final class KnowledgeV2Schema {
         db.execSQL("CREATE INDEX IF NOT EXISTS idx_kv2_evidence_time ON kv2_evidence(observed_at DESC)");
         db.execSQL("CREATE INDEX IF NOT EXISTS idx_kv2_evidence_source ON kv2_evidence(source_type,source_media_id)");
 
+        db.execSQL("CREATE TABLE IF NOT EXISTS kv2_understanding("+
+                "evidence_id INTEGER PRIMARY KEY,"+
+                "title TEXT,"+
+                "summary TEXT,"+
+                "category TEXT,"+
+                "tags TEXT,"+
+                "engine TEXT,"+
+                "extraction_version INTEGER NOT NULL,"+
+                "confidence REAL DEFAULT 0,"+
+                "created_at INTEGER NOT NULL,"+
+                "updated_at INTEGER NOT NULL)");
+
         db.execSQL("CREATE TABLE IF NOT EXISTS kv2_facts("+
                 "id INTEGER PRIMARY KEY AUTOINCREMENT,"+
                 "subject_type TEXT NOT NULL,"+
