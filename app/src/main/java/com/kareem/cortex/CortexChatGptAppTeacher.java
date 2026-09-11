@@ -140,6 +140,14 @@ public final class CortexChatGptAppTeacher {
             JSONObject policy=extractPolicy(raw);
             validate(policy);
             if(policy.optLong("generatedAt",0)<=0)policy.put("generatedAt",System.currentTimeMillis());
+
+            // Counterfactual shadow evaluation runs on the exact same grounded candidate set
+            // before the proposed policy becomes active. Diagnostics never block local autonomy.
+            try{
+                JSONObject impact=CortexTeacherImpact.compare(context.getApplicationContext(),policy);
+                CortexTeacherImpact.save(context.getApplicationContext(),impact);
+            }catch(Throwable ignored){}
+
             CortexPersonalPolicy.save(context.getApplicationContext(),policy);
             context.getSharedPreferences(PREF,Context.MODE_PRIVATE).edit()
                     .putBoolean(KEY_PENDING,false)
