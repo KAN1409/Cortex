@@ -5,8 +5,11 @@ import android.database.Cursor;
 import androidx.test.core.app.ApplicationProvider;
 import org.junit.After;
 import org.junit.Test;
+import org.junit.runner.RunWith;
+import org.robolectric.RobolectricTestRunner;
 import static org.junit.Assert.*;
 
+@RunWith(RobolectricTestRunner.class)
 public class KnowledgeV2SchemaTest {
     private VaultDb db;
 
