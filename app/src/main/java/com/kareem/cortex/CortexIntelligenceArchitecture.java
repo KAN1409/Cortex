@@ -6,12 +6,12 @@ import org.json.JSONObject;
 /**
  * Authoritative Cortex intelligence architecture.
  *
- * The important rule is ownership: every kind of intelligence has one owner. Higher layers may
- * consume lower-layer state, but they must not silently rewrite it. ChatGPT is a teacher of
- * relevance/judgment policy, never a second source of truth for evidence or knowledge.
+ * Every kind of intelligence has one owner. Higher layers may consume lower-layer state, but they
+ * must not silently rewrite it. ChatGPT is a teacher of final judgment policy, never a second
+ * source of truth for evidence or knowledge.
  */
 public final class CortexIntelligenceArchitecture {
-    public static final String VERSION = "cortex_intelligence_layers_001";
+    public static final String VERSION = "cortex_intelligence_layers_002";
 
     public enum Layer {
         EVIDENCE(10, "Evidence", "UniversalEventStore / raw source stores", false,
@@ -24,13 +24,15 @@ public final class CortexIntelligenceArchitecture {
                 "Current people/project/situation/commitment state across time."),
         PERSONAL_MODEL(50, "Personal model", "NEXUS + feedback learning", false,
                 "Interests, important relationships, goals, patterns and interruption preferences."),
-        ATTENTION(60, "Attention and judgment", "AttentionDecisionEngine + CortexAttentionJudge", true,
-                "One owner decides what deserves attention now and when to defer it."),
-        REASONING(70, "Reasoning and planning", "internal Brain / reasoning routes", false,
-                "Escalated reasoning for uncertain or high-value situations; never a primary inbox."),
-        ACTION(80, "Action and approval", "proposal + action dispatcher", false,
+        TRIAGE(60, "Candidate triage", "AttentionDecisionEngine + quality gates", false,
+                "Cheap local pruning and feature scoring; broad enough to preserve uncertain valuable cases."),
+        REASONING(70, "Selective reasoning", "internal Brain / reasoning routes", false,
+                "Only ambiguous or high-value candidates receive deeper reasoning and planning."),
+        JUDGMENT(80, "Final judgment", "CortexAttentionJudge", true,
+                "Single owner decides whether, when and how strongly Cortex should interrupt or surface."),
+        ACTION(90, "Action and approval", "proposal + action dispatcher", false,
                 "Prepare deterministic actions and require approval where appropriate."),
-        EXPERIENCE(90, "Experience and learning", "Now / contextual resurfacing / feedback", false,
+        EXPERIENCE(100, "Experience and learning", "Now / contextual resurfacing / feedback", false,
                 "Render one materialized result, capture outcomes, and feed learning upstream.");
 
         public final int order;
@@ -59,8 +61,9 @@ public final class CortexIntelligenceArchitecture {
         JSONObject root = new JSONObject();
         try {
             root.put("version", VERSION);
-            root.put("flow", "Evidence > Perception > Knowledge > WorldState > PersonalModel > Attention > Reasoning > Action > Experience");
-            root.put("teacherRole", "Tune attention policy from grounded state and outcomes; do not become a source of truth.");
+            root.put("flow", "Evidence > Perception > Knowledge > WorldState > PersonalModel > Triage > SelectiveReasoning > Judgment > Action > Experience");
+            root.put("teacherRole", "Teach bounded JUDGMENT policy from grounded state and outcomes; do not become a source of truth or per-event dependency.");
+            root.put("reasoningRule", "Reason only on uncertainty/high value. Easy cases stay local and deterministic.");
             root.put("hardRules", new JSONArray()
                     .put("Never mutate or strengthen raw evidence")
                     .put("Never create canonical facts without grounded evidence")
