@@ -37,6 +37,7 @@ public final class VisualMemoryDetailActivity extends Activity {
         boolean knowledgeEligible=i.getBooleanExtra("knowledge_eligible",true);
         String provenanceReason=i.getStringExtra("provenance_reason");
         long mediaId=i.getLongExtra("media_id",0L);
+        String knowledgeState=i.getStringExtra("knowledge_state");
 
         LinearLayout root=new LinearLayout(this);root.setOrientation(LinearLayout.VERTICAL);root.setBackgroundColor(CortexUi.BG);
         ScrollView sv=new ScrollView(this);sv.setFillViewport(true);
@@ -58,6 +59,7 @@ public final class VisualMemoryDetailActivity extends Activity {
         body.addView(info("OCR STATUS",safe(ocrState),CortexUi.GREEN));
         body.addView(info("SEMANTIC STATUS",safe(semanticState)+(safe(semanticError).isEmpty()?"":"\n\nLast error: "+semanticError),CortexUi.LIME));
         body.addView(info("PROVENANCE",(knowledgeEligible?"Eligible for knowledge":"Blocked from new knowledge")+"\nOrigin: "+safe(origin)+"\nSelf-reference: "+Math.round(selfScore*100)+"%\nDerivation depth: "+derivationDepth+(safe(provenanceReason).isEmpty()?"":"\nReason: "+provenanceReason),knowledgeEligible?CortexUi.GREEN:CortexUi.YELLOW));
+        if(!safe(knowledgeState).isEmpty())body.addView(info("KNOWLEDGE V2 STATUS",safe(knowledgeState),"DONE".equals(safe(knowledgeState))?CortexUi.LIME:("BLOCKED".equals(safe(knowledgeState))?CortexUi.YELLOW:CortexUi.ORANGE)));
         LinearLayout understood=CortexUi.card(this,18);understood.setPadding(dp(14),dp(12),dp(14),dp(14));
         TextView understoodLabel=CortexUi.plain(this,"CORTEX UNDERSTOOD",10,CortexUi.LIME);CortexUi.medium(understoodLabel);understood.addView(understoodLabel);
         TextView understoodBody=CortexUi.text(this,knowledgeEligible?"Building structured information from this screenshot…":"Not promoted: this screenshot is Cortex-derived evidence.",12,CortexUi.TEXT);understoodBody.setPadding(0,dp(7),0,0);understood.addView(understoodBody);
