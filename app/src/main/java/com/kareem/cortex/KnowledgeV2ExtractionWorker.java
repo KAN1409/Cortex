@@ -16,7 +16,7 @@ public final class KnowledgeV2ExtractionWorker extends Worker {
     public KnowledgeV2ExtractionWorker(@NonNull Context context,@NonNull WorkerParameters params){super(context,params);}
 
     @NonNull @Override public Result doWork(){
-        if(StartupSafetyGate.active())return Result.success();
+        if(StartupSafetyGate.active())return Result.retry();
         VaultDb db=new VaultDb(getApplicationContext());
         try{
             SQLiteDatabase sql=db.getWritableDatabase();
@@ -80,16 +80,25 @@ public final class KnowledgeV2ExtractionWorker extends Worker {
                 String value=n(ent.value);
                 if(value.isEmpty())continue;
 
-                ContentValues mention=new ContentValues();
-                mention.put("evidence_id",e.id);
-                mention.put("mention_kind",kind);
-                mention.put("mention_text",value);
-                mention.put("normalized_text",norm(value));
-                mention.put("resolved_entity_id",0);
-                mention.put("resolution_confidence",0);
-                mention.put("resolution_method","");
-                mention.put("created_at",now);
-                sql.insert("kv2_entity_mentions",null,mention);
+                boolean identityKind="PERSON".equals(kind)||"PROJECT".equals(kind)||"ORGANIZATION".equals(kind)||"ORG".equals(kind)||"PRODUCT".equals(kind)||"PLACE".equals(kind);
+                boolean graphWorthy=identityKind&&EntityQualityPolicy.plausibleEntity(kind,value);
+                // A malformed inferred identity is noise, not a fact and not an entity.
+                if(identityKind&&!graphWorthy)continue;
+
+                // Only durable identities enter the entity-resolution graph. URLs, money, dates,
+                // phones, e-mails and hashtags remain useful structured facts with provenance.
+                if(graphWorthy){
+                    ContentValues mention=new ContentValues();
+                    mention.put("evidence_id",e.id);
+                    mention.put("mention_kind",kind);
+                    mention.put("mention_text",value);
+                    mention.put("normalized_text",norm(value));
+                    mention.put("resolved_entity_id",0);
+                    mention.put("resolution_confidence",0);
+                    mention.put("resolution_method","");
+                    mention.put("created_at",now);
+                    sql.insert("kv2_entity_mentions",null,mention);
+                }
 
                 String predicate="MENTIONS_"+kind;
                 String fp=Fingerprint.text("kv2-fact|"+e.id+"|"+predicate+"|"+norm(value));
@@ -171,7 +180,6 @@ public final class KnowledgeV2ExtractionWorker extends Worker {
     }
 
     private static void markRunning(SQLiteDatabase sql,long evidenceId){
-        ContentValues v=new ContentValues();v.put("state","RUNNING");v.put("attempt_count","attempt_count+1");v.put("started_at",System.currentTimeMillis());v.put("updated_at",System.currentTimeMillis());
         sql.execSQL("UPDATE kv2_processing SET state='RUNNING',attempt_count=attempt_count+1,started_at=?,updated_at=? WHERE evidence_id=? AND stage=? AND pipeline_version=?",
                 new Object[]{System.currentTimeMillis(),System.currentTimeMillis(),evidenceId,KnowledgeV2Store.STAGE_EXTRACTION,KnowledgeV2Schema.PIPELINE_VERSION});
     }
@@ -186,12 +194,6 @@ public final class KnowledgeV2ExtractionWorker extends Worker {
         if(msg.isEmpty()&&t!=null)msg=t.getClass().getSimpleName();
         sql.execSQL("UPDATE kv2_processing SET state=CASE WHEN attempt_count>=3 THEN 'FAILED' ELSE 'PENDING' END,last_error=?,updated_at=? WHERE evidence_id=? AND stage=? AND pipeline_version=?",
                 new Object[]{msg,System.currentTimeMillis(),evidenceId,KnowledgeV2Store.STAGE_EXTRACTION,KnowledgeV2Schema.PIPELINE_VERSION});
-    }
-
-    private static boolean hasPending(SQLiteDatabase sql){
-        Cursor c=sql.rawQuery("SELECT 1 FROM kv2_processing WHERE stage=? AND pipeline_version=? AND state='PENDING' LIMIT 1",
-                new String[]{KnowledgeV2Store.STAGE_EXTRACTION,String.valueOf(KnowledgeV2Schema.PIPELINE_VERSION)});
-        boolean yes=c.moveToFirst();c.close();return yes;
     }
 
     private static String norm(String s){return n(s).toLowerCase(Locale.ROOT).replaceAll("\\s+"," ").trim();}
