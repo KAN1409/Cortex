@@ -2,6 +2,7 @@ package com.kareem.cortex.visualmemory.data.ocr
 
 import android.net.Uri
 import com.kareem.cortex.visualmemory.SelfReferenceDetector
+import com.kareem.cortex.visualmemory.VisualKnowledgeBridge
 import com.kareem.cortex.visualmemory.data.db.MediaItemDao
 
 class ScreenshotOcrProcessor(
@@ -26,6 +27,16 @@ class ScreenshotOcrProcessor(
                         eligible = provenance.knowledgeEligible,
                         reason = provenance.reason
                     )
+                    val promotedItem = item.copy(
+                        origin = provenance.origin,
+                        selfReferenceScore = provenance.selfReferenceScore,
+                        derivationDepth = provenance.derivationDepth,
+                        knowledgeEligible = provenance.knowledgeEligible,
+                        provenanceReason = provenance.reason
+                    )
+                    if (provenance.knowledgeEligible) {
+                        runCatching { VisualKnowledgeBridge.promote(context, promotedItem, it.rawText) }
+                    }
                     success++
                 }
                 .onFailure {
