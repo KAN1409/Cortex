@@ -14,9 +14,11 @@ public final class KnowledgeV2Scheduler {
         Context app=context.getApplicationContext();
         OneTimeWorkRequest extraction=new OneTimeWorkRequest.Builder(KnowledgeV2ExtractionWorker.class).build();
         OneTimeWorkRequest enrichment=new OneTimeWorkRequest.Builder(KnowledgeV2EnrichmentWorker.class).build();
+        OneTimeWorkRequest quality=new OneTimeWorkRequest.Builder(KnowledgeV2QualityWorker.class).build();
         WorkManager.getInstance(app)
                 .beginUniqueWork(UNIQUE_CHAIN,ExistingWorkPolicy.KEEP,extraction)
                 .then(enrichment)
+                .then(quality)
                 .enqueue();
     }
 }
