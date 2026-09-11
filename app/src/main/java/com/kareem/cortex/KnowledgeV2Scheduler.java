@@ -6,7 +6,7 @@ import androidx.work.OneTimeWorkRequest;
 import androidx.work.WorkManager;
 
 public final class KnowledgeV2Scheduler {
-    public static final String UNIQUE_CHAIN="cortex-kv2-full-pipeline";
+    public static final String UNIQUE_CHAIN="cortex-kv2-full-pipeline-v"+KnowledgeV2Schema.PIPELINE_VERSION;
     private KnowledgeV2Scheduler(){}
 
     public static void enqueue(Context context){
