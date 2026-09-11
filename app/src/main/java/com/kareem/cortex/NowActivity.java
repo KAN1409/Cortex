@@ -38,6 +38,8 @@ public final class NowActivity extends PremiumHomeActivity {
         addUnique(merged,seen,s.waiting,6);
         addUnique(merged,seen,s.decisions,5);
         addUnique(merged,seen,s.worthKnowing,6);
+        merged.removeIf(x->NowQualityPolicy.suppress(x.kind,x.source,x.title,x.body)
+                ||AttentionNoisePolicy.suppress(x.source,x.title,x.body,x.kind,""));
         merged.sort((a,b)->{int z=Integer.compare(b.importance,a.importance);return z!=0?z:Long.compare(b.updatedAt,a.updatedAt);});
 
         int shown=0;
