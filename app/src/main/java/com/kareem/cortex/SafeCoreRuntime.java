@@ -12,7 +12,7 @@ import java.util.concurrent.atomic.AtomicReference;
 
 /** Staged recovery bridge between a visually stable launcher and the full Cortex runtime. */
 public final class SafeCoreRuntime {
-    public static final String VERSION = "safe_core_runtime_005_nexus";
+    public static final String VERSION = "safe_core_runtime_006_chatgpt_bridge";
     private static final long POST_RESUME_SETTLE_MS = 1200L;
 
     public enum Phase { COLD_START, UI_STABLE_PROBING, CORE_READY, CORE_FAILED }
@@ -41,9 +41,6 @@ public final class SafeCoreRuntime {
             CapabilitySupervisor.recordHealthy(app,CapabilitySupervisor.Capability.DATABASE);
             PHASE.set(Phase.CORE_READY);
 
-            // Release only the cold-start boundary. Native components still have independent
-            // circuit breakers and are entered lazily; this avoids bringing every JNI runtime up
-            // at once while also preventing recovery mode from becoming permanent.
             StartupSafetyGate.releaseAfterSafeCore();
 
             try{StartupMaintenance.schedule(app);}catch(Throwable t){CapabilitySupervisor.recordFailure(app,CapabilitySupervisor.Capability.BACKGROUND_SCHEDULING,t);}
@@ -58,6 +55,7 @@ public final class SafeCoreRuntime {
             }catch(Throwable t){CapabilitySupervisor.recordFailure(app,CapabilitySupervisor.Capability.BACKGROUND_SCHEDULING,t);}
             try{ProactiveScheduler.enableDaily(app);}catch(Throwable t){CapabilitySupervisor.recordFailure(app,CapabilitySupervisor.Capability.BACKGROUND_SCHEDULING,t);}
             try{NexusScheduler.enable(app);}catch(Throwable t){CapabilitySupervisor.recordFailure(app,CapabilitySupervisor.Capability.BACKGROUND_SCHEDULING,t);}
+            try{CortexChatGptBridgeScheduler.enable(app);}catch(Throwable t){CapabilitySupervisor.recordFailure(app,CapabilitySupervisor.Capability.BACKGROUND_SCHEDULING,t);}
 
             try{NotificationListenerService.requestRebind(new ComponentName(app,NotificationCaptureService.class));}catch(Throwable ignored){}
         }catch(Throwable t){
@@ -65,11 +63,6 @@ public final class SafeCoreRuntime {
         }finally{if(db!=null)try{db.close();}catch(Throwable ignored){}}
     }
 
-    /**
-     * Failed strong-vision rows from an older/current install get one bounded automatic retry per
-     * visual pipeline version. If they fail again they remain visible as real failures instead of
-     * entering an infinite/costly cloud retry loop.
-     */
     private static void recoverVisualFailuresOnce(Context app){
         SharedPreferences p=app.getSharedPreferences("cortex_completion_recovery",Context.MODE_PRIVATE);
         String key="visual_failed_recovery_pipeline";
