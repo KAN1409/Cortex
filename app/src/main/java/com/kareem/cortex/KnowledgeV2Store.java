@@ -5,6 +5,8 @@ import android.content.Context;
 import android.database.Cursor;
 import android.database.sqlite.SQLiteDatabase;
 import com.kareem.cortex.visualmemory.data.db.MediaItemEntity;
+import java.util.LinkedHashMap;
+import java.util.Map;
 
 /** Safe additive bridge into Knowledge V2. Does not create facts yet. */
 public final class KnowledgeV2Store {
@@ -53,6 +55,39 @@ public final class KnowledgeV2Store {
             p.put("updated_at",now);
             sql.insertWithOnConflict("kv2_processing",null,p,SQLiteDatabase.CONFLICT_IGNORE);
             return evidenceId;
+        }finally{db.close();}
+    }
+
+    public static Map<Long,String> visualProcessingStates(Context context){
+        LinkedHashMap<Long,String> out=new LinkedHashMap<>();
+        VaultDb db=new VaultDb(context.getApplicationContext());
+        try{
+            SQLiteDatabase sql=db.getReadableDatabase();KnowledgeV2Schema.ensure(sql);
+            Cursor c=sql.rawQuery(
+                    "SELECT e.source_media_id,p.state FROM kv2_evidence e JOIN kv2_processing p ON p.evidence_id=e.id "+
+                    "WHERE e.source_type='PICBRAIN_SCREENSHOT' AND p.stage=? AND p.pipeline_version=?",
+                    new String[]{STAGE_EXTRACTION,String.valueOf(KnowledgeV2Schema.PIPELINE_VERSION)});
+            while(c.moveToNext())out.put(c.getLong(0),c.getString(1)==null?"":c.getString(1));
+            c.close();
+            return out;
+        }finally{db.close();}
+    }
+
+    public static int[] visualProcessingCounts(Context context){
+        VaultDb db=new VaultDb(context.getApplicationContext());
+        try{
+            SQLiteDatabase sql=db.getReadableDatabase();KnowledgeV2Schema.ensure(sql);
+            int pending=0,running=0,done=0,blocked=0,failed=0;
+            Cursor c=sql.rawQuery(
+                    "SELECT p.state,COUNT(*) FROM kv2_evidence e JOIN kv2_processing p ON p.evidence_id=e.id "+
+                    "WHERE e.source_type='PICBRAIN_SCREENSHOT' AND p.stage=? AND p.pipeline_version=? GROUP BY p.state",
+                    new String[]{STAGE_EXTRACTION,String.valueOf(KnowledgeV2Schema.PIPELINE_VERSION)});
+            while(c.moveToNext()){
+                String s=c.getString(0)==null?"":c.getString(0);int n=c.getInt(1);
+                if("PENDING".equals(s))pending=n;else if("RUNNING".equals(s))running=n;else if("DONE".equals(s))done=n;else if("BLOCKED".equals(s))blocked=n;else if("FAILED".equals(s))failed=n;
+            }
+            c.close();
+            return new int[]{pending,running,done,blocked,failed};
         }finally{db.close();}
     }
 
