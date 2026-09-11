@@ -66,7 +66,11 @@ public final class CortexChatGptAppTeacher {
                     +"maxNowItems: 1..12\n"
                     +"interruptionPenaltyScale: 0..0.55\n"
                     +"featureWeights values: 0..0.45\n"
+                    +"Preferred featureWeights keys: urgency, actionability, personalRelevance, risk, novelty, deadline, contextMatch, explicitRequest, openCommitment, recency.\n"
+                    +"Aliases also understood: priority -> urgency, securityRisk -> risk, timeSensitivity -> deadline.\n"
                     +"boost weight: -1..1\n"
+                    +"For semantic feature boosts use {\"feature\":\"securityRisk|explicitRequest|timeSensitivity|openCommitment|duplicate|promotional|spam|socialAmbient|lowInformation\",\"weight\":...}.\n"
+                    +"For bounded text boosts use {\"match\":\"literal phrase\",\"weight\":...}.\n"
                     +"boosts max 40\n\n"
                     +"NORMALIZED CORTEX CONTEXT PACK\n"
                     +contextText;
