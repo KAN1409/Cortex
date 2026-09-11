@@ -1,11 +1,11 @@
 package com.kareem.cortex;
 
-import android.content.ContentValues;
 import android.content.Context;
 import android.database.Cursor;
 import android.database.sqlite.SQLiteDatabase;
 import androidx.annotation.NonNull;
 import androidx.work.*;
+import org.json.JSONObject;
 
 public final class KnowledgeV2ProjectionWorker extends Worker {
     public static final String UNIQUE_WORK_NAME="cortex-kv2-projection";
@@ -16,7 +16,8 @@ public final class KnowledgeV2ProjectionWorker extends Worker {
         if(StartupSafetyGate.active())return Result.success();
         VaultDb db=new VaultDb(getApplicationContext());
         try{
-            SQLiteDatabase s=db.getWritableDatabase();KnowledgeV2Schema.ensure(s);
+            SQLiteDatabase s=db.getWritableDatabase();
+            KnowledgeV2Schema.ensure(s);
             Cursor c=s.rawQuery(
                 "SELECT e.id,e.source_uri,e.raw_text,e.captured_at,u.title,u.summary,u.category,u.tags "+
                 "FROM kv2_evidence e JOIN kv2_understanding u ON u.evidence_id=e.id "+
@@ -25,10 +26,24 @@ public final class KnowledgeV2ProjectionWorker extends Worker {
                 "ORDER BY e.updated_at ASC",
                 new String[]{KnowledgeV2EnrichmentWorker.STAGE,String.valueOf(KnowledgeV2Schema.PIPELINE_VERSION)});
             while(c.moveToNext()&&!isStopped()){
-                long evidenceId=c.getLong(0);String uri=n(c.getString(1)),raw=n(c.getString(2)),title=n(c.getString(4)),summary=n(c.getString(5)),category=n(c.getString(6)),tags=n(c.getString(7));
+                long evidenceId=c.getLong(0);
+                String uri=n(c.getString(1)),raw=n(c.getString(2)),title=n(c.getString(4)),summary=n(c.getString(5)),category=n(c.getString(6)),tags=n(c.getString(7));
                 String fp=Fingerprint.text("kv2-projection|"+evidenceId);
-                long inserted=db.insert("SCREENSHOT_MEMORY","knowledge_v2",title.isEmpty()?"Visual memory":title,raw,category,tags,uri,fp,
-                        "{"canonical":"knowledge_v2","evidence_id":"+evidenceId+","projection":true}");
+                JSONObject meta=new JSONObject();
+                meta.put("canonical","knowledge_v2");
+                meta.put("evidence_id",evidenceId);
+                meta.put("projection",true);
+                long inserted=db.insert(
+                        "SCREENSHOT_MEMORY",
+                        "knowledge_v2",
+                        title.isEmpty()?"Visual memory":title,
+                        raw,
+                        category,
+                        tags,
+                        uri,
+                        fp,
+                        meta.toString()
+                );
                 long itemId=Math.abs(inserted);
                 if(inserted>0){
                     AnalysisResult r=LocalAnalyzer.analyze(raw,"text/plain");
