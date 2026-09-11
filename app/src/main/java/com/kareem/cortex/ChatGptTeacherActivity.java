@@ -7,6 +7,7 @@ import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
+import org.json.JSONObject;
 
 public final class ChatGptTeacherActivity extends Activity {
     private TextView status;
@@ -94,6 +95,11 @@ public final class ChatGptTeacherActivity extends Activity {
         status.setTextIsSelectable(true);
         body.addView(status);
 
+        body.addView(CortexUi.section(this,"Teacher impact"));
+        TextView impact=CortexUi.text(this,CortexTeacherImpact.summary(this),12,CortexUi.MUTED);
+        impact.setPadding(0,dp(4),0,dp(8));
+        body.addView(impact);
+
         body.addView(CortexUi.section(this,"Safety boundary"));
         TextView rules=CortexUi.text(this,
                 "ChatGPT never writes directly into Cortex. It returns a proposed Policy Pack only. "+
@@ -138,6 +144,14 @@ public final class ChatGptTeacherActivity extends Activity {
             if(latest.ok)b.append("\nLast import: SUCCESS · ").append(latest.version);
             else if(!latest.error.isEmpty()&&!"Waiting for ChatGPT policy".equals(latest.error))
                 b.append("\nClipboard status: ").append(latest.error);
+        }
+        JSONObject impact=CortexTeacherImpact.latest(this);
+        if(impact.length()>0){
+            b.append("\nShadow: Now ")
+                    .append(impact.optInt("beforeNow",0)).append(" → ")
+                    .append(impact.optInt("afterNow",0))
+                    .append(" · +").append(impact.optInt("promoted",0))
+                    .append(" / -").append(impact.optInt("deferred",0));
         }
         return b.toString();
     }
