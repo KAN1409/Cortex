@@ -17,11 +17,11 @@ class VisualEvidenceBackfillWorker(
             val items = dao.getAll()
                 .asSequence()
                 .filter { it.isScreenshot && it.ocrState == "DONE" }
-                .filter { !it.ocrText.isNullOrBlank() }
                 .toList()
 
             for (item in items) {
                 if (isStopped) break
+                // Blank OCR is still accounted for as SKIPPED instead of disappearing from totals.
                 KnowledgeV2Store.registerVisualEvidence(
                     applicationContext,
                     item,
