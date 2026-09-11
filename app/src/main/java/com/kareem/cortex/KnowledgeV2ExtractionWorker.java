@@ -12,7 +12,6 @@ import java.util.Locale;
 
 public final class KnowledgeV2ExtractionWorker extends Worker {
     public static final String UNIQUE_WORK_NAME="cortex-kv2-extraction";
-    private static final int BATCH_SIZE=24;
 
     public KnowledgeV2ExtractionWorker(@NonNull Context context,@NonNull WorkerParameters params){super(context,params);}
 
@@ -22,8 +21,7 @@ public final class KnowledgeV2ExtractionWorker extends Worker {
         try{
             SQLiteDatabase sql=db.getWritableDatabase();
             KnowledgeV2Schema.ensure(sql);
-            int processed=0;
-            while(processed<BATCH_SIZE&&!isStopped()){
+            while(!isStopped()){
                 Evidence e=nextPending(sql);
                 if(e==null)break;
                 try{
@@ -33,9 +31,7 @@ public final class KnowledgeV2ExtractionWorker extends Worker {
                 }catch(Throwable t){
                     markFailed(sql,e.id,t);
                 }
-                processed++;
             }
-            if(hasPending(sql)) KnowledgeV2Scheduler.enqueue(getApplicationContext());
             return Result.success();
         }catch(Throwable t){
             return Result.retry();
