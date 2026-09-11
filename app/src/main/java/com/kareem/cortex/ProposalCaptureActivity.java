@@ -18,5 +18,8 @@ public final class ProposalCaptureActivity extends SatinCaptureActivity {
 
     void captureTile(LinearLayout row,String title,String sub,String icon,int color,Runnable action,int left){LinearLayout tile=CortexUi.card(this,20);tile.setGravity(Gravity.CENTER_VERTICAL);tile.setPadding(dp(12),dp(10),dp(12),dp(10));CortexUi.pressable(this,tile,CortexUi.velvet(this,20));tile.addView(CortexUi.glyph(this,icon,color,true),new LinearLayout.LayoutParams(dp(42),dp(42)));TextView t=CortexUi.plain(this,title,15,CortexUi.TEXT);CortexUi.medium(t);t.setPadding(0,dp(7),0,0);tile.addView(t);TextView s=CortexUi.plain(this,sub,10,CortexUi.MUTED);s.setPadding(0,dp(3),0,0);tile.addView(s);tile.setOnClickListener(v->action.run());LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,-1,1);p.setMargins(dp(left),0,0,0);row.addView(tile,p);}
 
-    @Override void showResult(long id){try{Intent i=new Intent(this,ProposalCaptureResultActivity.class);i.putExtra("item_id",id);startActivity(i);finish();}catch(Throwable e){Toast.makeText(this,"Captured successfully. Open Brief to see it.",Toast.LENGTH_LONG).show();try{startActivity(new Intent(this,PremiumHomeActivity.class));}catch(Throwable ignored){}finish();}}
+    @Override void showResult(long id){
+        try{NexusScheduler.kick(this);}catch(Throwable ignored){}
+        try{Intent i=new Intent(this,ProposalCaptureResultActivity.class);i.putExtra("item_id",id);startActivity(i);finish();}catch(Throwable e){Toast.makeText(this,"Captured successfully. Open Brief to see it.",Toast.LENGTH_LONG).show();try{startActivity(new Intent(this,PremiumHomeActivity.class));}catch(Throwable ignored){}finish();}
+    }
 }
