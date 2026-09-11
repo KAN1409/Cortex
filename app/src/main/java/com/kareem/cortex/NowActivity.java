@@ -5,7 +5,12 @@ import android.view.Gravity;
 import android.widget.*;
 import java.util.*;
 
-/** Top-level Now destination: one ranked view across cognitive situations and durable Cortex items. */
+/**
+ * Top-level Now destination.
+ *
+ * v84 rule: Now consumes only the already-judged projection. It must never merge legacy
+ * cognitive_surface decisions or re-judge items with CortexPersonalPolicy helpers.
+ */
 public final class NowActivity extends PremiumHomeActivity {
     @Override void build(){
         LinearLayout root=new LinearLayout(this);root.setOrientation(LinearLayout.VERTICAL);root.setBackgroundColor(CortexUi.BG);
@@ -25,68 +30,74 @@ public final class NowActivity extends PremiumHomeActivity {
     }
 
     @Override void render(PrimeBriefStore.Snapshot s){
-        if(destroyed||content==null)return;while(content.getChildCount()>1)content.removeViewAt(1);
-        LinearLayout status=CortexPipelineStatusBar.build(this,db);LinearLayout.LayoutParams sp=new LinearLayout.LayoutParams(-1,-2);sp.setMargins(0,dp(10),0,dp(4));content.addView(status,sp);
+        if(destroyed||content==null)return;
+        while(content.getChildCount()>1)content.removeViewAt(1);
 
-        List<PrimeBriefStore.Item> cognitive;
-        try{cognitive=CognitiveNowReadModel.load(db.getReadableDatabase(),10);}catch(Throwable ignored){cognitive=Collections.emptyList();}
+        LinearLayout status=CortexPipelineStatusBar.build(this,db);
+        LinearLayout.LayoutParams sp=new LinearLayout.LayoutParams(-1,-2);
+        sp.setMargins(0,dp(10),0,dp(4));
+        content.addView(status,sp);
 
-        ArrayList<PrimeBriefStore.Item> merged=new ArrayList<>();
+        ArrayList<PrimeBriefStore.Item> judged=new ArrayList<>();
         LinkedHashSet<String> seen=new LinkedHashSet<>();
-        addUnique(merged,seen,cognitive,12);
-        addUnique(merged,seen,s.actions,8);
-        addUnique(merged,seen,s.waiting,6);
-        addUnique(merged,seen,s.decisions,5);
-        addUnique(merged,seen,s.worthKnowing,6);
-        merged.removeIf(x->NowQualityPolicy.suppress(x.kind,x.source,x.title,x.body)
-                ||AttentionNoisePolicy.suppress(x.source,x.title,x.body,x.kind,"")
-                ||CortexPersonalPolicy.suppress(this,x)
-                ||CortexPersonalPolicy.belowThreshold(this,x));
-        merged.sort((a,b)->{int z=Double.compare(CortexPersonalPolicy.score(this,b),CortexPersonalPolicy.score(this,a));return z!=0?z:Long.compare(b.updatedAt,a.updatedAt);});
 
-        int shown=0,maxNow=CortexPersonalPolicy.maxNowItems(this);
-        for(String kind:new String[]{"ACTION","WAITING","DECISION","INSIGHT","IDEA","OPPORTUNITY","HYPOTHESIS"}){
+        // CortexJudgedBriefProjection already passed these sections through CortexAttentionJudge.
+        addUnique(judged,seen,s.actions,12);
+        addUnique(judged,seen,s.waiting,12);
+        addUnique(judged,seen,s.decisions,12);
+
+        // Final defensive quality gate only; this is not another attention decision.
+        judged.removeIf(x->NowQualityPolicy.suppress(x.kind,x.source,x.title,x.body)
+                ||AttentionNoisePolicy.suppress(x.source,x.title,x.body,x.kind,""));
+
+        int maxNow=CortexPersonalPolicy.maxNowItems(this);
+        int shown=0;
+
+        for(String kind:new String[]{"ACTION","WAITING","DECISION"}){
             if(shown>=maxNow)break;
-            int count=0;for(PrimeBriefStore.Item x:merged)if(sameDisplayGroup(kind,x.kind))count++;if(count==0)continue;
-            String heading="ACTION".equals(kind)?"Needs you":"WAITING".equals(kind)?"Waiting for someone / follow-up":"DECISION".equals(kind)?"Decisions":"Worth knowing now";
-            if(("IDEA".equals(kind)||"OPPORTUNITY".equals(kind)||"HYPOTHESIS".equals(kind))&&containsHeadingAlready(heading,kind,merged))continue;
-            content.addView(CortexUi.section(this,heading));
-            int cap="ACTION".equals(kind)?6:("WAITING".equals(kind)?4:4),local=0;
-            for(PrimeBriefStore.Item x:merged){
-                if(shown>=maxNow)break;if(!sameDisplayGroup(kind,x.kind))continue;
-                derivedRow(x);shown++;if(++local>=cap)break;
-            }
-            if(sameDisplayGroup(kind,"INSIGHT"))break;
-        }
+            int count=0;
+            for(PrimeBriefStore.Item x:judged)if(kind.equalsIgnoreCase(x.kind))count++;
+            if(count==0)continue;
 
-        if(shown<maxNow&&!s.changes.isEmpty()){
-            ArrayList<PrimeBriefStore.Item> changes=new ArrayList<>();
-            for(PrimeBriefStore.Item x:s.changes)if(!NowQualityPolicy.suppress(x.kind,x.source,x.title,x.body)&&!AttentionNoisePolicy.suppress(x.source,x.title,x.body,x.kind,"")&&!CortexPersonalPolicy.suppress(this,x)&&!CortexPersonalPolicy.belowThreshold(this,x))changes.add(x);
-            changes.sort((a,b)->Double.compare(CortexPersonalPolicy.score(this,b),CortexPersonalPolicy.score(this,a)));
-            if(!changes.isEmpty())content.addView(CortexUi.section(this,"What changed"));
-            for(PrimeBriefStore.Item x:changes){if(shown>=maxNow)break;String key=key(x);if(seen.add(key)){derivedRow(x);shown++;}}
+            String heading="ACTION".equals(kind)?"Needs you":
+                    ("WAITING".equals(kind)?"Waiting for someone / follow-up":"Decisions");
+            content.addView(CortexUi.section(this,heading));
+
+            for(PrimeBriefStore.Item x:judged){
+                if(shown>=maxNow)break;
+                if(!kind.equalsIgnoreCase(x.kind))continue;
+                derivedRow(x);
+                shown++;
+            }
         }
 
         if(shown==0){
             LinearLayout card=CortexUi.card(this,24);card.setPadding(dp(18),dp(24),dp(18),dp(24));
             TextView h=CortexUi.plain(this,"Nothing needs you right now",19,CortexUi.TEXT);CortexUi.medium(h);card.addView(h);
-            TextView b=CortexUi.text(this,"Cortex is still observing and learning, but it will stay quiet until something crosses your attention threshold.",12,CortexUi.MUTED);b.setPadding(0,dp(7),0,0);card.addView(b);
+            TextView b=CortexUi.text(this,
+                    "Cortex is observing, but CortexAttentionJudge did not find anything that crosses your current attention policy.",
+                    12,CortexUi.MUTED);
+            b.setPadding(0,dp(7),0,0);card.addView(b);
             LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,-2);p.setMargins(0,dp(14),0,0);content.addView(card,p);
         }
     }
 
     private static void addUnique(ArrayList<PrimeBriefStore.Item> out,Set<String> seen,List<PrimeBriefStore.Item> xs,int cap){
-        if(xs==null)return;int n=0;for(PrimeBriefStore.Item x:xs){if(x==null)continue;String k=key(x);if(seen.add(k)){out.add(x);if(++n>=cap)break;}}
+        if(xs==null)return;
+        int n=0;
+        for(PrimeBriefStore.Item x:xs){
+            if(x==null)continue;
+            String k=key(x);
+            if(seen.add(k)){
+                out.add(x);
+                if(++n>=cap)break;
+            }
+        }
     }
+
     private static String key(PrimeBriefStore.Item x){
-        String text=LocalSemanticEmbedder.norm((x.kind==null?"":x.kind)+" "+(x.title==null?"":x.title)+" "+(x.body==null?"":x.body));
         if(x.threadId>0)return (x.kind==null?"":x.kind)+"|thread:"+x.threadId;
+        String text=LocalSemanticEmbedder.norm((x.kind==null?"":x.kind)+" "+(x.title==null?"":x.title)+" "+(x.body==null?"":x.body));
         return text.length()>220?text.substring(0,220):text;
     }
-    private static boolean sameDisplayGroup(String requested,String actual){
-        if(requested.equalsIgnoreCase(actual))return true;
-        if("INSIGHT".equals(requested))return "IDEA".equalsIgnoreCase(actual)||"OPPORTUNITY".equalsIgnoreCase(actual)||"HYPOTHESIS".equalsIgnoreCase(actual);
-        return false;
-    }
-    private static boolean containsHeadingAlready(String heading,String kind,List<PrimeBriefStore.Item> xs){return "Worth knowing now".equals(heading)&&!("INSIGHT".equals(kind));}
 }
