@@ -28,5 +28,10 @@ data class MediaItemEntity(
     val semanticState: String = "PENDING",
     val semanticAttemptCount: Int = 0,
     val semanticLastError: String? = null,
-    val semanticLastAttemptAtMillis: Long? = null
+    val semanticLastAttemptAtMillis: Long? = null,
+    val origin: String = "UNKNOWN",
+    val selfReferenceScore: Float = 0f,
+    val derivationDepth: Int = 0,
+    val knowledgeEligible: Boolean = true,
+    val provenanceReason: String? = null
 )
