@@ -153,6 +153,9 @@ public final class ChatGptTeacherActivity extends Activity {
         StringBuilder b=new StringBuilder();
         b.append("Policy: ").append(CortexPersonalPolicy.version(this));
         b.append("\nPending ChatGPT request: ").append(CortexChatGptAppTeacher.pending(this)?"YES":"NO");
+        b.append("\nLifecycle: ").append(CortexPolicyLifecycle.state(this));
+        String lifecycleReason=CortexPolicyLifecycle.reason(this);
+        if(!lifecycleReason.isEmpty())b.append(" · ").append(lifecycleReason);
         if(CortexChatGptAppTeacher.launchedAt(this)>0)
             b.append("\nLast launch: ").append(new java.text.SimpleDateFormat("dd MMM · HH:mm:ss",
                     java.util.Locale.getDefault()).format(new java.util.Date(CortexChatGptAppTeacher.launchedAt(this))));
