@@ -42,6 +42,19 @@ public class NexusInsideCortexTest {
         assertEquals(0,NexusEngine.readyActionCount(db));
     }
 
+    @Test public void cortexUsageHistoryFeedsNexusInterestsWithoutDuplicateObserver(){
+        PhoneContextStore.ensure(db);
+        PhoneContextStore.record(db,"app_usage","usage_stats","com.whatsapp","WhatsApp","","foreground","",System.currentTimeMillis()-1000,null);
+        PhoneContextStore.record(db,"app_usage","usage_stats","com.whatsapp","WhatsApp","","background","",System.currentTimeMillis()-500,null);
+
+        NexusEngine.refresh(db);
+
+        boolean found=false;
+        for(NexusEngine.Interest x:NexusEngine.interests(db,20))if("Communication".equals(x.label)){found=true;break;}
+        assertTrue(found);
+        assertTrue(NexusEngine.observationCount(db)>=1);
+    }
+
     @Test public void existingCortexActionEntersApprovalLifecycleAndFeedback(){
         addSignal("calendar","Appointment tomorrow reminder",85,10);
         long id=CognitiveStore.addDerived(db,"ACTION","Confirm appointment","Confirm tomorrow appointment","open",.91,90,"test-nexus-action","{}");
