@@ -12,7 +12,7 @@ import java.util.concurrent.atomic.AtomicReference;
 
 /** Staged recovery bridge between a visually stable launcher and the full Cortex runtime. */
 public final class SafeCoreRuntime {
-    public static final String VERSION = "safe_core_runtime_004";
+    public static final String VERSION = "safe_core_runtime_005_nexus";
     private static final long POST_RESUME_SETTLE_MS = 1200L;
 
     public enum Phase { COLD_START, UI_STABLE_PROBING, CORE_READY, CORE_FAILED }
@@ -57,6 +57,7 @@ public final class SafeCoreRuntime {
                 }
             }catch(Throwable t){CapabilitySupervisor.recordFailure(app,CapabilitySupervisor.Capability.BACKGROUND_SCHEDULING,t);}
             try{ProactiveScheduler.enableDaily(app);}catch(Throwable t){CapabilitySupervisor.recordFailure(app,CapabilitySupervisor.Capability.BACKGROUND_SCHEDULING,t);}
+            try{NexusScheduler.enable(app);}catch(Throwable t){CapabilitySupervisor.recordFailure(app,CapabilitySupervisor.Capability.BACKGROUND_SCHEDULING,t);}
 
             try{NotificationListenerService.requestRebind(new ComponentName(app,NotificationCaptureService.class));}catch(Throwable ignored){}
         }catch(Throwable t){
