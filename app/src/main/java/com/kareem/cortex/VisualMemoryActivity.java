@@ -162,7 +162,7 @@ public final class VisualMemoryActivity extends Activity {
         clearBitmaps();list.removeAllViews();refresh.setEnabled(true);
         modelInstalled=s.getModelInstalled();
         stats.setText("Pictures "+s.getPictures()+"  •  Screenshots "+s.getScreenshots()+"  •  OCR "+s.getOcrReady()+"/"+s.getScreenshots()+"  •  Semantic "+s.getSemanticIndexed()+"/"+s.getOcrReady());
-        state.setText("OCR failed "+s.getOcrFailed()+"  •  Semantic failed "+s.getSemanticFailed()+"  •  "+(modelInstalled?"EmbeddingGemma ready":"Semantic model not installed"));
+        state.setText("Knowledge "+s.getKnowledgeDone()+" done  •  "+s.getKnowledgePending()+" pending  •  "+s.getKnowledgeRunning()+" running  •  "+s.getKnowledgeBlocked()+" blocked  •  "+s.getKnowledgeFailed()+" failed\nOCR failed "+s.getOcrFailed()+"  •  Semantic failed "+s.getSemanticFailed()+"  •  "+(modelInstalled?"EmbeddingGemma ready":"Semantic model not installed"));
         semantic.setText(modelInstalled?"Start semantic index":"Download semantic model");
         if(items==null||items.isEmpty()){
             TextView empty=CortexUi.text(this,q==null||q.trim().isEmpty()?"No screenshots indexed yet. Tap Sync.":"No confident matches.",12,CortexUi.MUTED);
@@ -185,6 +185,11 @@ public final class VisualMemoryActivity extends Activity {
         LinearLayout chips=new LinearLayout(this);chips.setOrientation(LinearLayout.HORIZONTAL);
         chips.addView(CortexUi.chip(this,"OCR",item.getOcrState().equals("DONE")?CortexUi.GREEN:CortexUi.MUTED,false),chipParams());
         chips.addView(CortexUi.chip(this,"Semantic",item.getSemanticState().equals("DONE")?CortexUi.LIME:CortexUi.ORANGE,false),chipParams());
+        String ks=item.getKnowledgeState();
+        if(ks!=null&&!ks.trim().isEmpty()){
+            int kc="DONE".equals(ks)?CortexUi.LIME:("BLOCKED".equals(ks)?CortexUi.YELLOW:("FAILED".equals(ks)?CortexUi.RED:CortexUi.ORANGE));
+            chips.addView(CortexUi.chip(this,"Knowledge "+ks,kc,true),chipParams());
+        }
         if(!item.getKnowledgeEligible())chips.addView(CortexUi.chip(this,"Self • no learning",CortexUi.YELLOW,true),chipParams());
         LinearLayout.LayoutParams cp=new LinearLayout.LayoutParams(-1,dp(34));cp.setMargins(0,dp(9),0,0);card.addView(chips,cp);
         CortexUi.pressable(this,card,CortexUi.velvet(this,20));
@@ -198,7 +203,7 @@ public final class VisualMemoryActivity extends Activity {
         Intent i=new Intent(this,VisualMemoryDetailActivity.class);
         i.putExtra("uri",item.getContentUri());i.putExtra("name",item.getDisplayName());i.putExtra("time",item.getCapturedAtMillis());
         i.putExtra("ocr",item.getOcrText());i.putExtra("ocr_state",item.getOcrState());i.putExtra("semantic_state",item.getSemanticState());i.putExtra("semantic_error",item.getSemanticLastError());
-        i.putExtra("media_id",item.getMediaId());
+        i.putExtra("media_id",item.getMediaId());i.putExtra("knowledge_state",item.getKnowledgeState());
         i.putExtra("origin",item.getOrigin());i.putExtra("self_score",item.getSelfReferenceScore());i.putExtra("derivation_depth",item.getDerivationDepth());i.putExtra("knowledge_eligible",item.getKnowledgeEligible());i.putExtra("provenance_reason",item.getProvenanceReason());
         startActivity(i);
     }
