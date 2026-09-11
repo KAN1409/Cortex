@@ -17,6 +17,7 @@ public final class NowActivity extends PremiumHomeActivity {
         LinearLayout titles=new LinearLayout(this);titles.setOrientation(LinearLayout.VERTICAL);head.addView(titles,new LinearLayout.LayoutParams(0,-2,1));
         TextView title=CortexUi.plain(this,"Now",30,CortexUi.TEXT);CortexUi.medium(title);titles.addView(title);
         TextView sub=CortexUi.text(this,"What deserves your attention right now.",11,CortexUi.MUTED);sub.setPadding(0,dp(3),0,0);titles.addView(sub);
+        TextView nexus=CortexUi.chip(this,"NEXUS",CortexUi.LIME,true);nexus.setOnClickListener(v->{try{startActivity(new Intent(this,NexusActivity.class));}catch(Throwable ignored){}});LinearLayout.LayoutParams np=new LinearLayout.LayoutParams(-2,dp(36));np.setMargins(0,0,dp(7),0);head.addView(nexus,np);
         TextView settings=CortexUi.chip(this,"Settings",CortexUi.MUTED,false);settings.setOnClickListener(v->{try{startActivity(new Intent(this,SettingsActivity.class));}catch(Throwable ignored){}});head.addView(settings,new LinearLayout.LayoutParams(-2,dp(36)));
         content.addView(head);
 
