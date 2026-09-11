@@ -38,11 +38,13 @@ public class CortexIntelligenceArchitectureTest {
         context.deleteDatabase("cortex.db");
     }
 
-    @Test public void teacherCanTuneAttentionButCannotOwnTruthLayers() {
+    @Test public void teacherCanTuneFinalJudgmentButCannotOwnTruthOrExecutionLayers() {
         assertFalse(CortexIntelligenceArchitecture.canTeacherWrite(CortexIntelligenceArchitecture.Layer.EVIDENCE));
         assertFalse(CortexIntelligenceArchitecture.canTeacherWrite(CortexIntelligenceArchitecture.Layer.KNOWLEDGE));
         assertFalse(CortexIntelligenceArchitecture.canTeacherWrite(CortexIntelligenceArchitecture.Layer.WORLD_STATE));
-        assertTrue(CortexIntelligenceArchitecture.canTeacherWrite(CortexIntelligenceArchitecture.Layer.ATTENTION));
+        assertFalse(CortexIntelligenceArchitecture.canTeacherWrite(CortexIntelligenceArchitecture.Layer.TRIAGE));
+        assertFalse(CortexIntelligenceArchitecture.canTeacherWrite(CortexIntelligenceArchitecture.Layer.REASONING));
+        assertTrue(CortexIntelligenceArchitecture.canTeacherWrite(CortexIntelligenceArchitecture.Layer.JUDGMENT));
         assertFalse(CortexIntelligenceArchitecture.canTeacherWrite(CortexIntelligenceArchitecture.Layer.ACTION));
     }
 
@@ -65,7 +67,7 @@ public class CortexIntelligenceArchitectureTest {
         assertTrue(important.surfaceNow);
     }
 
-    @Test public void teacherContextPrefersCanonicalAttentionAndPolicyCannotRewriteEvidence() throws Exception {
+    @Test public void teacherContextPrefersCanonicalTriageAndPolicyCannotRewriteEvidence() throws Exception {
         SQLiteDatabase s = db.getWritableDatabase();
         long rawId = UniversalEventStore.appendRaw(s, "notification", "whatsapp", "n1",
                 "posted", "", "", "Original title", "Original body", new JSONObject(), System.currentTimeMillis());
@@ -95,7 +97,7 @@ public class CortexIntelligenceArchitectureTest {
 
         JSONObject pack = CortexTeacherContext.build(context, db);
         assertEquals(2, pack.getInt("schemaVersion"));
-        assertEquals("ATTENTION", pack.getJSONArray("priorityCandidates").getJSONObject(0).getString("layer"));
+        assertEquals("TRIAGE", pack.getJSONArray("priorityCandidates").getJSONObject(0).getString("layer"));
         assertTrue(pack.getJSONArray("priorityCandidates").getJSONObject(0).getBoolean("canonical"));
         assertFalse(pack.getJSONObject("system").getBoolean("compatibilityFallback"));
         assertEquals(CortexIntelligenceArchitecture.VERSION,
