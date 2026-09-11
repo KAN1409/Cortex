@@ -95,11 +95,12 @@ public class CortexIntelligenceArchitectureTest {
         CognitiveStore.addDerived(db, "ACTION", "Legacy noise", "compatibility only", "open",
                 .95, 99, "legacy-test", "{}");
 
-        JSONObject pack = CortexTeacherContext.build(context, db);
+        JSONObject pack = CortexChatGptBridge.buildContextPack(context, db);
         assertEquals(2, pack.getInt("schemaVersion"));
         assertEquals("TRIAGE", pack.getJSONArray("priorityCandidates").getJSONObject(0).getString("layer"));
         assertTrue(pack.getJSONArray("priorityCandidates").getJSONObject(0).getBoolean("canonical"));
         assertFalse(pack.getJSONObject("system").getBoolean("compatibilityFallback"));
+        assertEquals("JUDGMENT", pack.getJSONObject("system").getString("teacherPolicyLayer"));
         assertEquals(CortexIntelligenceArchitecture.VERSION,
                 pack.getJSONObject("architecture").getString("version"));
 
