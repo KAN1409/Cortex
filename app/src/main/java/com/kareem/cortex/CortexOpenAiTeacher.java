@@ -105,7 +105,7 @@ public final class CortexOpenAiTeacher {
                 .put("response_format",new JSONObject().put("type","json_schema").put("json_schema",schema));
     }
 
-    private static JSONObject num(double min,double max){
+    private static JSONObject num(double min,double max)throws Exception{
         return new JSONObject().put("type","number").put("minimum",min).put("maximum",max);
     }
 
