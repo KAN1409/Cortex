@@ -31,7 +31,7 @@ class EmbeddingWorker(
         }
 
         val dao = VisualMemoryStore.database(applicationContext).mediaItemDao()
-        val embedder = EmbeddingGemmaEmbedder(applicationContext)
+        var embedder = EmbeddingGemmaEmbedder(applicationContext)
 
         return try {
             val screenshots = dao.getScreenshotsNeedingEmbedding(
@@ -59,16 +59,18 @@ class EmbeddingWorker(
                 val source = sanitizeForEmbedding(item.ocrNormalizedText.orEmpty())
                 if (source.isBlank()) {
                     skipped++
-                    dao.markSemanticFailed(
-                        item.mediaId,
-                        "Blank OCR text after semantic sanitization",
-                        now,
-                        MAX_ATTEMPTS
-                    )
+                    dao.markSemanticSkipped(item.mediaId, "No OCR text suitable for semantic indexing", now)
                     continue
                 }
 
-                val result: kotlin.Result<EmbeddedDocument> = embedWithFreshGraphRetries(embedder, source)
+                var result: kotlin.Result<EmbeddedDocument> = embedWithShrinkingRetries(embedder, source)
+                if (result.isFailure && shouldRecreateRuntime(result.exceptionOrNull())) {
+                    // A failed native MediaPipe graph can poison later requests. Recreate once and
+                    // retry the same safely-shrunk document instead of condemning the screenshot.
+                    runCatching { embedder.close() }
+                    embedder = EmbeddingGemmaEmbedder(applicationContext)
+                    result = embedWithShrinkingRetries(embedder, source)
+                }
 
                 result.onSuccess { embedded ->
                     dao.deleteEmbeddingsForMedia(
@@ -140,11 +142,11 @@ class EmbeddingWorker(
         } catch (error: Throwable) {
             Result.failure(workDataOf(KEY_LAST_ERROR to describe(error).take(MAX_ERROR_CHARS)))
         } finally {
-            embedder.close()
+            runCatching { embedder.close() }
         }
     }
 
-    private suspend fun embedWithFreshGraphRetries(
+    private suspend fun embedWithShrinkingRetries(
         embedder: EmbeddingGemmaEmbedder,
         original: String
     ): kotlin.Result<EmbeddedDocument> {
@@ -154,16 +156,14 @@ class EmbeddingWorker(
         while (limit >= MIN_DOCUMENT_CHARS) {
             val candidate = original.take(limit).trim()
             if (candidate.isBlank()) break
-
             try {
                 return kotlin.Result.success(
                     EmbeddedDocument(candidate, embedder.embedDocument(candidate))
                 )
             } catch (error: Throwable) {
                 lastError = error
-                if (!isSequenceTooLong(error)) {
-                    return kotlin.Result.failure(error)
-                }
+                // Sequence-length errors are the common case, but shrinking is also harmless for
+                // malformed/native tensor input. It gives each screenshot several bounded chances.
                 limit = nextSmallerLimit(limit)
             }
         }
@@ -181,18 +181,27 @@ class EmbeddingWorker(
             current > 80 -> 80
             current > 48 -> 48
             current > 32 -> 32
+            current > 16 -> 16
+            current > 8 -> 8
+            current > 4 -> 4
             current > MIN_DOCUMENT_CHARS -> MIN_DOCUMENT_CHARS
             else -> 0
         }
     }
 
-    private fun isSequenceTooLong(error: Throwable): Boolean {
+    private fun shouldRecreateRuntime(error: Throwable?): Boolean {
+        if (error == null) return false
         val message = generateSequence(error) { it.cause }
-            .mapNotNull { it.message }
-            .joinToString(" ")
+            .joinToString(" ") { "${it::class.java.simpleName}:${it.message.orEmpty()}" }
             .lowercase()
-        return "max_seq_len" in message ||
-            "input text is too long" in message ||
+        return "mediapipe" in message ||
+            "calculatorgraph" in message ||
+            "invalid_argument" in message ||
+            "tensor" in message ||
+            "packet" in message ||
+            "graph" in message ||
+            "native" in message ||
+            "max_seq_len" in message ||
             "token_ids.size" in message
     }
 
@@ -247,10 +256,10 @@ class EmbeddingWorker(
         const val KEY_SKIP_DIAGNOSTIC = "skip_diagnostic"
 
         private const val BATCH_SIZE = 16
-        private const val MAX_ATTEMPTS = 3
+        private const val MAX_ATTEMPTS = 5
         private const val SAFE_INITIAL_CHARS = 220
         private const val MAX_SANITIZED_CHARS = 700
-        private const val MIN_DOCUMENT_CHARS = 24
+        private const val MIN_DOCUMENT_CHARS = 1
         private const val MAX_ERROR_CHARS = 1200
         private val WHITESPACE = Regex("\\s+")
     }
