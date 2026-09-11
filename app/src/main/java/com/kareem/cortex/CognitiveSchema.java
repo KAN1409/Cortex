@@ -7,15 +7,15 @@ import org.json.JSONObject;
 
 /** Unified Cortex cognitive schema. Legacy tables remain intact and v8 adds additive schema-integrity repair. */
 public final class CognitiveSchema {
-    public static final int DB_VERSION = 8;
-    public static final String REVISION = "cognitive_005_schema_integrity";
+    public static final int DB_VERSION = 9;
+    public static final String REVISION = "cognitive_006_knowledge_v2";
     private static volatile boolean ready;
 
     private CognitiveSchema(){}
 
     public static void ensure(SQLiteDatabase db){
         synchronized(CognitiveSchema.class){
-            createMeta(db);createRawSignals(db);createThreads(db);createDerivedItems(db);createEntityGraph(db);createSourceLinks(db);createFeedback(db);createAiJobs(db);createModelRuns(db);createDiagnostics(db);createRelevanceEvaluations(db);UniversalEventStore.ensure(db);migrateLegacyEntities(db);backfillDerivedRouting(db);backfillFeedbackRouting(db);db.execSQL("INSERT OR REPLACE INTO schema_meta(key,value,updated_at) VALUES('cognitive_schema','"+REVISION+"',strftime('%s','now')*1000)");ready=true;
+            createMeta(db);createRawSignals(db);createThreads(db);createDerivedItems(db);createEntityGraph(db);createSourceLinks(db);createFeedback(db);createAiJobs(db);createModelRuns(db);createDiagnostics(db);createRelevanceEvaluations(db);UniversalEventStore.ensure(db);KnowledgeV2Schema.ensure(db);migrateLegacyEntities(db);backfillDerivedRouting(db);backfillFeedbackRouting(db);db.execSQL("INSERT OR REPLACE INTO schema_meta(key,value,updated_at) VALUES('cognitive_schema','"+REVISION+"',strftime('%s','now')*1000)");ready=true;
         }
     }
 
