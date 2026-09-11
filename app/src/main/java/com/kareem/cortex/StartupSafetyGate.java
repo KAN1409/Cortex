@@ -1,19 +1,32 @@
 package com.kareem.cortex;
 
+import java.util.concurrent.atomic.AtomicBoolean;
+
 /**
- * Emergency cold-start quarantine.
+ * Cold-start quarantine.
  *
- * While active, startup-reachable code must not initialize WorkManager, open the Cortex database,
- * or enter OCR/ASR/LLM native runtimes. This is deliberately a compile-time constant so recovery
- * behavior cannot depend on preferences or database state that may itself be damaged.
+ * The gate starts closed on every process launch so provider/startup-reachable code cannot open
+ * Cortex databases, schedule WorkManager chains, or enter native runtimes before the launcher is
+ * stable. SafeCoreRuntime is the only production path allowed to release it, and only after the
+ * delayed SQLite health probe succeeds. Per-capability circuit breakers remain responsible for
+ * isolating a native component again if its own health probe or real execution fails.
  */
 public final class StartupSafetyGate {
-    public static final String VERSION = "startup_quarantine_001";
-    private static final boolean ACTIVE = true;
+    public static final String VERSION = "startup_quarantine_002";
+    private static final AtomicBoolean ACTIVE = new AtomicBoolean(true);
 
     private StartupSafetyGate() {}
 
     public static boolean active() {
-        return ACTIVE;
+        return ACTIVE.get();
+    }
+
+    /** Called only after the launcher settle window and verified database health probe. */
+    static void releaseAfterSafeCore() {
+        ACTIVE.set(false);
+    }
+
+    static void resetForTests() {
+        ACTIVE.set(true);
     }
 }
