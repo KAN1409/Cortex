@@ -34,10 +34,23 @@ public final class CortexJudgedBriefProjection {
         // local-first read path rather than making Cortex dependent on the teacher/bridge.
         if (candidates == null || candidates.isEmpty()) return base;
 
+        CortexAttentionJudge.RuntimeContext runtime = CortexAttentionJudge.RuntimeContext.neutral();
+
+        // Persist bounded decision traces for observability. This stores scores/reasons only,
+        // never hidden reasoning or source content beyond a short subject label.
+        try {
+            for (AttentionDecisionEngine.Candidate candidate : candidates) {
+                CortexAttentionJudge.Judgment trace = CortexAttentionJudge.evaluate(
+                        context.getApplicationContext(), candidate, runtime);
+                CortexJudgmentTraceStore.record(db.getWritableDatabase(), trace);
+            }
+            CortexJudgmentTraceStore.prune(db.getWritableDatabase());
+        } catch (Throwable ignored) {}
+
         List<CortexAttentionJudge.Judgment> judgments = CortexAttentionJudge.rankForNow(
                 context.getApplicationContext(),
                 candidates,
-                CortexAttentionJudge.RuntimeContext.neutral(),
+                runtime,
                 CortexPersonalPolicy.maxNowItems(context));
 
         Set<Long> selectedSituations = new HashSet<>();
