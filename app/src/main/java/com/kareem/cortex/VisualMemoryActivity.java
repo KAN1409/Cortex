@@ -94,9 +94,14 @@ public final class VisualMemoryActivity extends Activity {
         search.setOnEditorActionListener((v,action,event)->{load(search.getText().toString());return true;});
         body.addView(search,margins(0,12,0,0));
 
+        LinearLayout knowledgeRow=new LinearLayout(this);knowledgeRow.setOrientation(LinearLayout.HORIZONTAL);
         refresh=CortexUi.action(this,"Refresh visual memory",CortexUi.MUTED,false);
-        body.addView(refresh,new LinearLayout.LayoutParams(-1,dp(44)));
+        TextView knowledge=CortexUi.action(this,"Open knowledge",CortexUi.LIME,false);
+        knowledgeRow.addView(refresh,new LinearLayout.LayoutParams(0,dp(44),1));
+        LinearLayout.LayoutParams kp=new LinearLayout.LayoutParams(0,dp(44),1);kp.setMargins(dp(7),0,0,0);knowledgeRow.addView(knowledge,kp);
+        body.addView(knowledgeRow,margins(0,0,0,0));
         refresh.setOnClickListener(v->load(search.getText().toString()));
+        knowledge.setOnClickListener(v->{try{startActivity(new Intent(this,KnowledgeExplorerActivity.class));}catch(Throwable ignored){}});
 
         body.addView(CortexUi.section(this,"Visual evidence"));
         list=new LinearLayout(this);list.setOrientation(LinearLayout.VERTICAL);body.addView(list);
