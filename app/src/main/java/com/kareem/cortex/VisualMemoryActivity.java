@@ -107,6 +107,7 @@ public final class VisualMemoryActivity extends Activity {
     LinearLayout.LayoutParams margins(int l,int t,int r,int b){LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,-2);p.setMargins(dp(l),dp(t),dp(r),dp(b));return p;}
 
     void loadAndMaybeSync(){
+        VisualMemoryRuntime.enqueueKnowledgeBackfill(this);
         load("");
         io.execute(()->{
             try{
