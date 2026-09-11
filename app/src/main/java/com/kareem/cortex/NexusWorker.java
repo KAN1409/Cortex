@@ -11,7 +11,7 @@ public final class NexusWorker extends Worker {
     @NonNull @Override public Result doWork(){
         if(StartupSafetyGate.active())return Result.retry();
         VaultDb db=new VaultDb(getApplicationContext());
-        try{NexusEngine.refresh(db);return Result.success();}
+        try{NexusEngine.refresh(db);try{CortexChatGptBridgeScheduler.kick(getApplicationContext());}catch(Throwable ignored){}return Result.success();}
         catch(Throwable t){return Result.retry();}
         finally{try{db.close();}catch(Throwable ignored){}}
     }
