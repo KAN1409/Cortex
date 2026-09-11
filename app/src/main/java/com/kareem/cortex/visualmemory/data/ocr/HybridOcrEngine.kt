@@ -2,10 +2,12 @@ package com.kareem.cortex.visualmemory.data.ocr
 
 import android.content.Context
 import android.net.Uri
+import com.kareem.cortex.CapabilitySupervisor
 
 class HybridOcrEngine(context: Context) : OcrEngine {
     override val id: String = ID
 
+    private val appContext = context.applicationContext
     private val latin = MlKitOcrEngine(context)
     private val arabic = TesseractArabicOcrEngine(context)
 
@@ -26,12 +28,24 @@ class HybridOcrEngine(context: Context) : OcrEngine {
         if (latinResult.isFailure && arabicResult.isFailure) {
             val latinError = latinResult.exceptionOrNull()?.message.orEmpty()
             val arabicError = arabicResult.exceptionOrNull()?.message.orEmpty()
-            error("Both OCR engines failed. Latin: $latinError; Arabic: $arabicError")
+            val error = IllegalStateException("Both OCR engines failed. Latin: $latinError; Arabic: $arabicError")
+            CapabilitySupervisor.recordFailure(
+                appContext,
+                CapabilitySupervisor.Capability.OCR_NATIVE,
+                error
+            )
+            throw error
         }
 
         val merged = mergeDistinctText(
             latinText,
             arabicResult.getOrNull()?.rawText.orEmpty()
+        )
+        // A real OCR pass completed successfully. This is stronger evidence than an asset-exists
+        // check and safely closes any stale per-capability recovery breaker from an older build.
+        CapabilitySupervisor.recordHealthy(
+            appContext,
+            CapabilitySupervisor.Capability.OCR_NATIVE
         )
         return OcrResult(
             rawText = merged,
