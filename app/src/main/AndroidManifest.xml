@@ -59,6 +59,7 @@
         <activity android:name=".VisualIntelligenceActivity" android:exported="false" />
         <activity android:name=".VisualMemoryActivity" android:exported="false" />
         <activity android:name=".VisualMemoryDetailActivity" android:exported="false" />
+        <activity android:name=".KnowledgeExplorerActivity" android:exported="false" />
         <activity android:name=".OcrTestActivity" android:exported="false" />
         <activity android:name=".AsrSettingsActivity" android:exported="false" android:label="Cortex ASR Setup" />
         <activity android:name=".CortexAsrLabActivity" android:exported="false" android:label="Cortex ASR Lab" />
