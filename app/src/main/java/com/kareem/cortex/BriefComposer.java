@@ -1,12 +1,16 @@
 package com.kareem.cortex;
 
+import android.content.Context;
 import java.text.SimpleDateFormat;
 import java.util.*;
 
 /** Human brief generated from real PRIME state only; never injects fake tasks or decisions. */
 public final class BriefComposer {
     private BriefComposer(){}
-    public static String compose(VaultDb db,boolean weekly){PrimeBriefStore.Snapshot s=PrimeBriefStore.load(db);StringBuilder b=new StringBuilder();String label=weekly?"Weekly Cortex Brief":"Daily Cortex Brief";b.append(label).append(" · ").append(new SimpleDateFormat("dd MMM yyyy",Locale.getDefault()).format(new Date())).append("\n\n");
+    /** Legacy non-UI compatibility path. User-facing callers must supply Context for final Judgment. */
+    @Deprecated
+    public static String compose(VaultDb db,boolean weekly){return compose(null,db,weekly);}
+    public static String compose(Context context,VaultDb db,boolean weekly){PrimeBriefStore.Snapshot s=CortexJudgedBriefProjection.load(context,db);StringBuilder b=new StringBuilder();String label=weekly?"Weekly Cortex Brief":"Daily Cortex Brief";b.append(label).append(" · ").append(new SimpleDateFormat("dd MMM yyyy",Locale.getDefault()).format(new Date())).append("\n\n");
         if(s.empty()){b.append("Nothing in the current grounded Cortex state needs a brief right now.");return b.toString();}
         section(b,"Needs you",s.actions,weekly?10:6);section(b,"Waiting",s.waiting,weekly?8:5);section(b,"Decisions",s.decisions,weekly?8:5);section(b,"Worth knowing",s.worthKnowing,weekly?8:5);section(b,"Changed & evolving",s.changes,weekly?8:5);
         if(!s.reviews.isEmpty()){b.append("\nNeeds your review\n");for(int i=0;i<Math.min(weekly?8:4,s.reviews.size());i++){ReviewQueueStore.Item x=s.reviews.get(i);b.append("• ").append(clean(x.title)).append(" — possible ").append(clean(x.candidateKind).toLowerCase(Locale.ROOT)).append('\n');}}
