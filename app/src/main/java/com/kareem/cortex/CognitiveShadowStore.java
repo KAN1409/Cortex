@@ -141,10 +141,12 @@ public final class CognitiveShadowStore {
                 "COALESCE(e.summary,''),COALESCE(e.confidence,0),COALESCE(e.occurred_at,ss.updated_at)," +
                 "COALESCE((SELECT st.kind FROM ue_situation_transitions st " +
                 " WHERE st.situation_id=ss.situation_id AND st.semantic_event_id=e.id " +
-                " ORDER BY st.id DESC LIMIT 1),'SUPPORTING_EVIDENCE') " +
+                " ORDER BY st.id DESC LIMIT 1),'SUPPORTING_EVIDENCE')," +
+                "COALESCE(r.source_type,''),COALESCE(r.source_key,''),COALESCE(r.event_type,''),COALESCE(r.technical_type,'') " +
                 "FROM ue_situation_state_v2 ss " +
                 "JOIN ue_situation_members_v2 m ON m.situation_id=ss.situation_id " +
                 "JOIN ue_semantic_events e ON e.id=m.semantic_event_id " +
+                "JOIN ue_raw_observations r ON r.id=e.raw_observation_id " +
                 "LEFT JOIN ue_situations u ON u.id=ss.situation_id " +
                 "WHERE ss.situation_id IN (SELECT situation_id FROM ue_situation_state_v2 ORDER BY updated_at DESC LIMIT 240) " +
                 "AND e.superseded_by=0 AND e.semantic_state='complete' " +
@@ -164,6 +166,10 @@ public final class CognitiveShadowStore {
                 double confidence = clamp01(c.getDouble(9));
                 long occurredAt = c.getLong(10);
                 String transition = n(c.getString(11));
+                String sourceType = n(c.getString(12));
+                String sourceKey = n(c.getString(13));
+                String eventType = n(c.getString(14));
+                String technicalType = n(c.getString(15));
                 String all = norm(type + " " + intent + " " + subject + " " + summary);
 
                 boolean request = contains(type, "request", "action_required", "required_response") ||
@@ -177,6 +183,11 @@ public final class CognitiveShadowStore {
                 boolean missed = call && contains(all, "missed", "فائت", "لم يتم الرد");
                 boolean material = StatefulMeaningPolicy.materialTransition(transition);
 
+                CortexProvenanceGate.Result provenance = CortexProvenanceGate.evaluate(
+                        sourceType, sourceKey, eventType, technicalType,
+                        subject, summary, type, intent);
+                if (!provenance.attentionEligible) continue;
+
                 double urgency = clamp01(priority / 100.0);
                 double actionability = request ? .88 : (security ? .85 : (commitment ? .68 : (missed ? .28 : .12)));
                 double relevance = security ? .85 : (commitment ? .78 : (request ? .75 : .45));
@@ -185,6 +196,14 @@ public final class CognitiveShadowStore {
                 if (severe) urgency = Math.max(urgency, .78);
                 if (security) urgency = Math.max(urgency, .82);
                 if (request) urgency = Math.max(urgency, .62);
+
+                ActionSpecificityGate.Result specificity = ActionSpecificityGate.evaluate(
+                        type, intent, subject, summary, request, commitment);
+                if ((request || "ACTION".equalsIgnoreCase(type) || intent.toLowerCase(Locale.ROOT).contains("action"))
+                        && !specificity.eligible) {
+                    continue;
+                }
+                actionability = clamp01(actionability * Math.max(.35, specificity.specificity));
 
                 world.observe(new CognitiveWorldState.Observation(
                         situationId, linkKey, type, state, subject, summary, confidence,
