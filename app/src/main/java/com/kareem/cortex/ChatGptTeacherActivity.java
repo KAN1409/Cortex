@@ -100,6 +100,22 @@ public final class ChatGptTeacherActivity extends Activity {
         impact.setPadding(0,dp(4),0,dp(8));
         body.addView(impact);
 
+        body.addView(CortexUi.section(this,"Policy promotion"));
+        TextView promotion=CortexUi.text(this,CortexPolicyPromotion.status(this),12,CortexUi.MUTED);
+        promotion.setPadding(0,dp(4),0,dp(8));
+        body.addView(promotion);
+
+        TextView rollback=CortexUi.action(this,"ROLL BACK TO PREVIOUS POLICY",CortexUi.MUTED,false);
+        LinearLayout.LayoutParams rbp=new LinearLayout.LayoutParams(-1,dp(44));
+        rbp.setMargins(0,dp(4),0,0);
+        body.addView(rollback,rbp);
+        rollback.setEnabled(CortexPolicyPromotion.canRollback(this));
+        rollback.setOnClickListener(v->{
+            boolean ok=CortexPolicyPromotion.rollback(this,"manual rollback from teacher screen");
+            Toast.makeText(this,ok?"Previous policy restored":"No previous policy available",Toast.LENGTH_LONG).show();
+            status.setText(statusText(null));
+        });
+
         body.addView(CortexUi.section(this,"Safety boundary"));
         TextView rules=CortexUi.text(this,
                 "ChatGPT never writes directly into Cortex. It returns a proposed Policy Pack only. "+
@@ -153,6 +169,7 @@ public final class ChatGptTeacherActivity extends Activity {
                     .append(" · +").append(impact.optInt("promoted",0))
                     .append(" / -").append(impact.optInt("deferred",0));
         }
+        b.append("\nPromotion: ").append(CortexPolicyPromotion.status(this).replace("\n"," · "));
         return b.toString();
     }
 }
