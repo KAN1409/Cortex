@@ -10,10 +10,13 @@ type ContextPack = {
   schemaVersion: number;
   deviceId: string;
   generatedAt: number;
-  priorityCandidates: Array<Record<string, unknown>>;
-  interests: Array<Record<string, unknown>>;
+  architecture: Record<string, unknown>;
+  activeSituations: Array<Record<string, unknown>>;
   situations: Array<Record<string, unknown>>;
-  feedback: Record<string, unknown>;
+  personalModel: { interests?: Array<Record<string, unknown>>; [key: string]: unknown };
+  priorityCandidates: Array<Record<string, unknown>>;
+  uncertainCases: Array<Record<string, unknown>>;
+  recentOutcomes: Array<Record<string, unknown>>;
   system: Record<string, unknown>;
 };
 type PolicyBoost = { match: string; weight: number };
@@ -23,7 +26,8 @@ type PolicyPack = {
   ttlMs: number;
   attentionThreshold: number;
   maxNowItems: number;
-  suppressPhrases: string[];
+  interruptionPenaltyScale: number;
+  featureWeights: Record<string, number>;
   boosts: PolicyBoost[];
   teacherNotes: string;
 };
@@ -44,13 +48,8 @@ const defaultPolicy = (): PolicyPack => ({
   ttlMs: 7 * 24 * 60 * 60 * 1000,
   attentionThreshold: 0.72,
   maxNowItems: 7,
-  suppressPhrases: [
-    "cortex is processing",
-    "ask brain to interpret the intent",
-    "notification hints are evidence",
-    "resolved downstream",
-    "understanding..."
-  ],
+  interruptionPenaltyScale: 0.24,
+  featureWeights: {},
   boosts: [],
   teacherNotes: "Bootstrap policy. Prefer explicit requests, security, deadlines, active situations and meaningful state changes."
 });
@@ -76,10 +75,12 @@ function text(v: unknown): string {
 }
 function flattenRecords(pack: ContextPack | null): Array<Record<string, unknown>> {
   if (!pack) return [];
+  const interests = Array.isArray(pack.personalModel?.interests) ? pack.personalModel.interests : [];
   return [
     ...pack.priorityCandidates.map((x) => ({ ...x, _kind: "priority_candidate" })),
-    ...pack.interests.map((x) => ({ ...x, _kind: "interest" })),
-    ...pack.situations.map((x) => ({ ...x, _kind: "situation" }))
+    ...interests.map((x) => ({ ...x, _kind: "interest" })),
+    ...pack.activeSituations.map((x) => ({ ...x, _kind: "situation" })),
+    ...pack.uncertainCases.map((x) => ({ ...x, _kind: "uncertain_case" }))
   ];
 }
 function stableId(row: Record<string, unknown>, index: number): string {
@@ -121,7 +122,8 @@ const policyInput = {
   ttlMs: z.number().int().min(60_000).max(30 * 24 * 60 * 60 * 1000).default(7 * 24 * 60 * 60 * 1000),
   attentionThreshold: z.number().min(0).max(1).default(0.72),
   maxNowItems: z.number().int().min(1).max(12).default(7),
-  suppressPhrases: z.array(z.string().min(2).max(160)).max(100).default([]),
+  interruptionPenaltyScale: z.number().min(0).max(0.55).default(0.24),
+  featureWeights: z.record(z.string(), z.number().min(0).max(0.45)).default({}),
   boosts: z.array(boostSchema).max(100).default([]),
   teacherNotes: z.string().max(4000).default("")
 };
@@ -131,7 +133,7 @@ function createCortexServer() {
     { name: "cortex-personal-intelligence", version: "0.1.0" },
     {
       instructions:
-        "Cortex is Karim's private personal-intelligence store. Read current situations and priority candidates before judging importance. Prefer updating a compact policy over micromanaging individual notifications. Never invent evidence or strengthen a claim beyond the stored context."
+        "Cortex is Karim's private personal-intelligence store. Cortex owns evidence, knowledge, world state and execution. Read grounded situations, personal model, candidates and outcomes before teaching policy. You may tune bounded FINAL JUDGMENT parameters only. Never mutate evidence, create canonical facts, directly suppress UI items, or execute actions."
     }
   );
 
@@ -192,9 +194,10 @@ function createCortexServer() {
       outputSchema: {
         generatedAt: z.number(),
         priorityCandidates: z.array(z.record(z.string(), z.unknown())),
-        interests: z.array(z.record(z.string(), z.unknown())),
-        situations: z.array(z.record(z.string(), z.unknown())),
-        feedback: z.record(z.string(), z.unknown()),
+        personalModel: z.record(z.string(), z.unknown()),
+        activeSituations: z.array(z.record(z.string(), z.unknown())),
+        uncertainCases: z.array(z.record(z.string(), z.unknown())),
+        recentOutcomes: z.array(z.record(z.string(), z.unknown())),
         policy: z.record(z.string(), z.unknown())
       },
       annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false }
@@ -205,9 +208,10 @@ function createCortexServer() {
       const out = {
         generatedAt: c?.generatedAt ?? 0,
         priorityCandidates: c?.priorityCandidates ?? [],
-        interests: c?.interests ?? [],
-        situations: c?.situations ?? [],
-        feedback: c?.feedback ?? {},
+        personalModel: c?.personalModel ?? {},
+        activeSituations: c?.activeSituations ?? c?.situations ?? [],
+        uncertainCases: c?.uncertainCases ?? [],
+        recentOutcomes: c?.recentOutcomes ?? [],
         policy: state.policy as unknown as Record<string, unknown>
       };
       return {
@@ -234,7 +238,8 @@ function createCortexServer() {
         ttlMs: input.ttlMs,
         attentionThreshold: input.attentionThreshold,
         maxNowItems: input.maxNowItems,
-        suppressPhrases: [...new Set(input.suppressPhrases.map((x) => x.trim()).filter(Boolean))],
+        interruptionPenaltyScale: input.interruptionPenaltyScale,
+        featureWeights: { ...input.featureWeights },
         boosts: input.boosts.map((x) => ({ match: x.match.trim(), weight: x.weight })).filter((x) => x.match),
         teacherNotes: input.teacherNotes.trim()
       };
@@ -272,7 +277,9 @@ const httpServer = createServer(async (req, res) => {
   if (req.method === "POST" && url.pathname === "/device/context") {
     try {
       const body = await readJson(req) as ContextPack;
-      if (!body || typeof body !== "object" || !Array.isArray(body.priorityCandidates)) {
+      if (!body || typeof body !== "object" || body.schemaVersion !== 2 ||
+          !Array.isArray(body.priorityCandidates) || !Array.isArray(body.activeSituations) ||
+          !body.personalModel || !Array.isArray(body.recentOutcomes)) {
         return json(res, 400, { error: "invalid_context_pack" });
       }
       const state = loadState();
