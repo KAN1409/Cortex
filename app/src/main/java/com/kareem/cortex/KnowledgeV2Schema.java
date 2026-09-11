@@ -10,8 +10,8 @@ import android.database.sqlite.SQLiteDatabase;
  * raw evidence is preserved; derived facts/events never replace the evidence that produced them.
  */
 public final class KnowledgeV2Schema {
-    public static final String REVISION="knowledge_v2_001";
-    public static final int PIPELINE_VERSION=1;
+    public static final String REVISION="knowledge_v2_002";
+    public static final int PIPELINE_VERSION=2;
 
     private KnowledgeV2Schema(){}
 
