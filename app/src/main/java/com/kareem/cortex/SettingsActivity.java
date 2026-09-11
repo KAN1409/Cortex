@@ -25,6 +25,7 @@ public class SettingsActivity extends Activity {
         body.addView(CortexUi.section(this,"AI & models"));
         row(body,"Reasoning model",OpenRouterKeyStore.has(this)?"Configured · "+OpenRouterModelConfig.generationModel(this):"Configure the current external reasoning provider",OpenRouterSettingsActivity.class);
         row(body,"Gemini / local device AI",GeminiKeyStore.has(this)?"Gemini configured · local Gemini Nano is probed separately":"Vision fallback and local-device AI status",GeminiSettingsActivity.class);
+        row(body,"ChatGPT Teacher",CortexChatGptBridgeConfig.enabled(this)?"Bounded judgment teacher enabled · tap to sync or review":"Configure private teacher relay · optional, never required for Cortex",ChatGptTeacherActivity.class);
         body.addView(CortexUi.section(this,"Learning & knowledge"));
         row(body,"Corrections & learning","Teach Cortex from mistakes and review learned corrections",CorrectionLearningActivity.class);
         row(body,"Data, privacy & integrations","Backup, restore, storage, privacy, calendar and contacts",FeatureHubActivity.class);
