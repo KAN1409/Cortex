@@ -14,7 +14,7 @@ import java.util.*;
  * Observe -> Remember -> Model interests -> Discover -> Rank -> Prepare action -> Approval -> Learn.
  */
 public final class NexusEngine {
-    public static final String VERSION="nexus_inside_cortex_001";
+    public static final String VERSION="nexus_inside_cortex_002_usage";
     private static final long DAY=86_400_000L;
     private static final long INTEREST_WINDOW=30L*DAY;
     private static final long DEFER_MS=24L*60L*60L*1000L;
@@ -52,6 +52,7 @@ public final class NexusEngine {
         long now=System.currentTimeMillis();
         LinkedHashMap<String,Score> scores=new LinkedHashMap<>();
         collectRawSignals(s,scores,now);
+        collectPhoneContext(s,scores,now);
         collectKnowledge(s,scores,now);
         collectKnowledgeCategories(s,scores,now);
         writeInterests(s,scores,now);
@@ -74,6 +75,18 @@ public final class NexusEngine {
             String text=(source+" "+title+" "+body).toLowerCase(Locale.ROOT);
             double weight=(0.45+Math.max(0,Math.min(100,importance))/120.0)*recency(now,at);
             addThemes(out,text,weight,at,now);
+        }c.close();
+    }
+
+    /** Reuses Cortex Usage Access history instead of running NEXUS's old duplicate UsageStats observer. */
+    private static void collectPhoneContext(SQLiteDatabase s,Map<String,Score> out,long now){
+        if(!table(s,"phone_context_events"))return;long since=Math.max(now-INTEREST_WINDOW,now-14L*DAY);
+        Cursor c=s.rawQuery("SELECT COALESCE(package_name,''),COALESCE(app_label,''),COALESCE(event_type,''),occurred_at FROM phone_context_events WHERE kind='app_usage' AND occurred_at>=? ORDER BY occurred_at DESC LIMIT 2400",new String[]{String.valueOf(since)});
+        while(c.moveToNext()){
+            String pkg=n(c.getString(0)),label=n(c.getString(1)),event=n(c.getString(2));long at=c.getLong(3);
+            if(!"foreground".equalsIgnoreCase(event))continue;
+            String text=(pkg+" "+label).toLowerCase(Locale.ROOT);
+            addThemes(out,text,.34*recency(now,at),at,now);
         }c.close();
     }
 
@@ -133,7 +146,7 @@ public final class NexusEngine {
 
     private static void writeDiscoveries(SQLiteDatabase s,long now){
         Cursor c=s.rawQuery("SELECT id,label,affinity,momentum,confidence,evidence_count FROM nx_interests ORDER BY (affinity*confidence+momentum*.35) DESC LIMIT 8",null);int made=0;
-        while(c.moveToNext()&&made<5){String interestId=c.getString(0),label=c.getString(1);double affinity=c.getDouble(2),momentum=c.getDouble(3),confidence=c.getDouble(4);int evidence=c.getInt(5);if(evidence<2||affinity<.22)continue;
+        while(c.moveToNext()&&made<5){String label=c.getString(1);double affinity=c.getDouble(2),momentum=c.getDouble(3),confidence=c.getDouble(4);int evidence=c.getInt(5);if(evidence<2||affinity<.22)continue;
             String id="discovery_"+slug(label);String oldState=string(s,"SELECT state FROM nx_discoveries WHERE id=?",new String[]{id});if("dismissed".equals(oldState))continue;
             double score=clamp(affinity*.52+momentum*.25+confidence*.23);String summary=momentum>=.55?"This theme is active across your recent Cortex context.":"This theme keeps recurring across your Cortex context.";String why=evidence+" grounded signal"+(evidence==1?"":"s")+" contributed.";
             ContentValues v=new ContentValues();v.put("id",id);v.put("type","DISCOVERY");v.put("title",label);v.put("summary",summary);v.put("why_this",why);v.put("score",score);v.put("state","open");v.put("created_at",existingCreatedAt(s,id,now));v.put("updated_at",now);s.insertWithOnConflict("nx_discoveries",null,v,SQLiteDatabase.CONFLICT_REPLACE);made++;
@@ -155,7 +168,7 @@ public final class NexusEngine {
     public static ArrayList<Discovery> discoveries(VaultDb db,int limit){SQLiteDatabase s=db.getReadableDatabase();ensure(s);ArrayList<Discovery> out=new ArrayList<>();Cursor c=s.rawQuery("SELECT id,type,title,summary,why_this,score,state,created_at,updated_at FROM nx_discoveries WHERE state='open' ORDER BY score DESC,updated_at DESC LIMIT ?",new String[]{String.valueOf(Math.max(1,limit))});while(c.moveToNext())out.add(new Discovery(c.getString(0),c.getString(1),c.getString(2),c.getString(3),c.getString(4),c.getDouble(5),c.getString(6),c.getLong(7),c.getLong(8)));c.close();return out;}
     public static ArrayList<PreparedAction> actions(VaultDb db,int limit){SQLiteDatabase s=db.getReadableDatabase();ensure(s);ArrayList<PreparedAction> out=new ArrayList<>();Cursor c=s.rawQuery("SELECT d.id,d.kind,d.title,d.body,n.state,d.source_key,d.confidence,d.importance,d.updated_at FROM nx_action_state n JOIN derived_items d ON d.id=n.derived_id WHERE d.state='open' AND n.state IN ('READY_FOR_APPROVAL','APPROVED','EXECUTING','DRAFT') ORDER BY CASE n.state WHEN 'READY_FOR_APPROVAL' THEN 0 WHEN 'APPROVED' THEN 1 WHEN 'EXECUTING' THEN 2 ELSE 3 END,d.importance DESC,d.updated_at DESC LIMIT ?",new String[]{String.valueOf(Math.max(1,limit))});while(c.moveToNext())out.add(new PreparedAction(c.getLong(0),c.getString(1),c.getString(2),c.getString(3),c.getString(4),c.getString(5),c.getDouble(6),c.getInt(7),c.getLong(8)));c.close();return out;}
 
-    public static int observationCount(VaultDb db){SQLiteDatabase s=db.getReadableDatabase();long since=System.currentTimeMillis()-INTEREST_WINDOW;int raw=count(s,"SELECT COUNT(*) FROM raw_signals WHERE occurred_at>=?",new String[]{String.valueOf(since)});int evidence=table(s,"kv2_evidence")?count(s,"SELECT COUNT(*) FROM kv2_evidence WHERE observed_at>=?",new String[]{String.valueOf(since)}):0;return raw+evidence;}
+    public static int observationCount(VaultDb db){SQLiteDatabase s=db.getReadableDatabase();long since=System.currentTimeMillis()-INTEREST_WINDOW;int raw=count(s,"SELECT COUNT(*) FROM raw_signals WHERE occurred_at>=?",new String[]{String.valueOf(since)});int evidence=table(s,"kv2_evidence")?count(s,"SELECT COUNT(*) FROM kv2_evidence WHERE observed_at>=?",new String[]{String.valueOf(since)}):0;int usage=table(s,"phone_context_events")?count(s,"SELECT COUNT(*) FROM phone_context_events WHERE kind='app_usage' AND event_type='foreground' AND occurred_at>=?",new String[]{String.valueOf(Math.max(since,System.currentTimeMillis()-14L*DAY))}):0;return raw+evidence+usage;}
     public static int readyActionCount(VaultDb db){return count(db.getReadableDatabase(),"SELECT COUNT(*) FROM nx_action_state n JOIN derived_items d ON d.id=n.derived_id WHERE d.state='open' AND n.state='READY_FOR_APPROVAL'",null);}
 
     public static void dismissDiscovery(VaultDb db,String id){SQLiteDatabase s=db.getWritableDatabase();ensure(s);ContentValues v=new ContentValues();v.put("state","dismissed");v.put("updated_at",System.currentTimeMillis());s.update("nx_discoveries",v,"id=?",new String[]{id});}
