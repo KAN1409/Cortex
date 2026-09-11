@@ -21,7 +21,10 @@ public final class NexusScheduler {
         wm.enqueueUniquePeriodicWork(PERIODIC,ExistingPeriodicWorkPolicy.KEEP,periodic);
     }
 
+    /** Coalesces bursts of notifications/captures into one NEXUS refresh instead of restart-spamming WorkManager. */
     public static void kick(Context context){
-        if(context==null||StartupSafetyGate.active())return;WorkManager.getInstance(context.getApplicationContext()).enqueueUniqueWork(NOW,ExistingWorkPolicy.REPLACE,new OneTimeWorkRequest.Builder(NexusWorker.class).build());
+        if(context==null||StartupSafetyGate.active())return;
+        WorkManager.getInstance(context.getApplicationContext()).enqueueUniqueWork(
+                NOW,ExistingWorkPolicy.KEEP,new OneTimeWorkRequest.Builder(NexusWorker.class).build());
     }
 }
