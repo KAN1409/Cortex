@@ -98,6 +98,56 @@ public class CortexChatGptAppTeacherTest {
         assertTrue(CortexTeacherImpact.summary(context).contains("5 → 3"));
     }
 
+    @Test public void policyLifecycleHoldsExplosiveProposalAndRollsBack()throws Exception{
+        Context context=ApplicationProvider.getApplicationContext();
+        CortexPolicyLifecycle.clearForTests(context);
+        CortexPersonalPolicy.clear(context);
+
+        JSONObject current=new JSONObject()
+                .put("version","stable-before")
+                .put("generatedAt",System.currentTimeMillis())
+                .put("ttlMs",604800000L)
+                .put("attentionThreshold",.72)
+                .put("maxNowItems",5)
+                .put("featureWeights",new JSONObject())
+                .put("boosts",new JSONArray());
+        CortexPersonalPolicy.save(context,current);
+
+        JSONObject proposed=new JSONObject(current.toString())
+                .put("version","teacher-explosive")
+                .put("attentionThreshold",.20);
+
+        JSONObject impact=new JSONObject()
+                .put("candidateCount",10)
+                .put("beforeNow",3)
+                .put("afterNow",9)
+                .put("promoted",6)
+                .put("deferred",0)
+                .put("averageScoreDelta",.31);
+
+        CortexPolicyLifecycle.Result held=
+                CortexPolicyLifecycle.stage(context,current,proposed,impact);
+        assertEquals(CortexPolicyLifecycle.Activation.HELD,held.activation);
+        assertEquals("stable-before",CortexPersonalPolicy.version(context));
+
+        JSONObject safeImpact=new JSONObject()
+                .put("candidateCount",10)
+                .put("beforeNow",3)
+                .put("afterNow",4)
+                .put("promoted",1)
+                .put("deferred",0)
+                .put("averageScoreDelta",.04);
+
+        CortexPolicyLifecycle.Result canary=
+                CortexPolicyLifecycle.stage(context,current,proposed,safeImpact);
+        assertEquals(CortexPolicyLifecycle.Activation.CANARY,canary.activation);
+        CortexPersonalPolicy.save(context,proposed);
+        assertEquals("teacher-explosive",CortexPersonalPolicy.version(context));
+
+        assertTrue(CortexPolicyLifecycle.rollback(context,"test rollback"));
+        assertEquals("stable-before",CortexPersonalPolicy.version(context));
+    }
+
     @Test public void extractsJsonFromSharedText()throws Exception{
         String shared="ChatGPT result:\n{\"version\":\"chatgpt-teacher-share\",\"ttlMs\":86400000,\"attentionThreshold\":0.72,\"maxNowItems\":7,\"interruptionPenaltyScale\":0.24,\"featureWeights\":{},\"boosts\":[],\"teacherNotes\":\"ok\"}\n";
         JSONObject p=CortexChatGptAppTeacher.extractPolicy(shared);
