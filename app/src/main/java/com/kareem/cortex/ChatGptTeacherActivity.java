@@ -50,11 +50,11 @@ public final class ChatGptTeacherActivity extends Activity {
 
         LinearLayout titles=new LinearLayout(this);
         titles.setOrientation(LinearLayout.VERTICAL);
-        TextView h=CortexUi.plain(this,"Cortex Teacher",28,CortexUi.TEXT);
+        TextView h=CortexUi.plain(this,"ChatGPT Teacher",28,CortexUi.TEXT);
         CortexUi.medium(h);
         titles.addView(h);
         TextView sub=CortexUi.text(this,
-                "Free teacher route · bounded FINAL JUDGMENT policy only.",
+                "GPT-5.6 Sol teaches bounded FINAL JUDGMENT policy only.",
                 11,CortexUi.MUTED);
         sub.setPadding(0,dp(2),0,0);
         titles.addView(sub);
@@ -63,8 +63,8 @@ public final class ChatGptTeacherActivity extends Activity {
 
         body.addView(CortexUi.section(this,"Teacher route"));
         TextView route=CortexUi.text(this,
-                "Provider: OpenRouter\nRoute: "+CortexOpenAiTeacher.MODEL+
-                "\nCost: free router\nCredential: existing encrypted OpenRouter key\nRelay endpoint: not required",
+                "Provider: OpenRouter\nModel: "+CortexOpenAiTeacher.MODEL+
+                "\nCredential: existing encrypted OpenRouter key\nRelay endpoint: not required",
                 12,CortexUi.TEXT);
         route.setPadding(0,dp(4),0,dp(8));
         body.addView(route);
@@ -83,7 +83,7 @@ public final class ChatGptTeacherActivity extends Activity {
 
         body.addView(CortexUi.section(this,"Safety boundary"));
         TextView rules=CortexUi.text(this,
-                "Cortex sends only the normalized compact Context Pack. The free teacher model may return a temporary bounded Policy Pack for CortexAttentionJudge. "+
+                "Cortex sends only the normalized compact Context Pack. GPT-5.6 Sol may return a temporary bounded Policy Pack for CortexAttentionJudge. "+
                 "It cannot rewrite evidence or canonical knowledge, cannot directly surface or suppress items, cannot execute actions, and Cortex keeps working if this route is unavailable.",
                 12,CortexUi.MUTED);
         rules.setPadding(0,dp(4),0,0);
@@ -115,12 +115,7 @@ public final class ChatGptTeacherActivity extends Activity {
                 sync.setEnabled(true);
                 sync.setText("SYNC TEACHER NOW");
                 status.setText(statusText()+"\nLast request: "+(r.ok?"SUCCESS · "+r.durationMs+" ms":"FAILED · "+r.error));
-                String toast;
-                if(r.ok)toast="Teacher policy updated";
-                else if(r.error.contains("429"))toast="Free teacher is busy · try again later";
-                else if(r.error.contains("402"))toast="Free route unavailable for this request";
-                else toast="Teacher request failed";
-                Toast.makeText(this,toast,Toast.LENGTH_LONG).show();
+                Toast.makeText(this,r.ok?"Teacher policy updated":"Teacher request failed",Toast.LENGTH_LONG).show();
             });
         },"cortex-gpt56-teacher").start();
     }
