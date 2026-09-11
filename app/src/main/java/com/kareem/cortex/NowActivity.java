@@ -3,9 +3,9 @@ package com.kareem.cortex;
 import android.content.Intent;
 import android.view.Gravity;
 import android.widget.*;
-import java.util.List;
+import java.util.*;
 
-/** Top-level Now destination: v70 cognitive selections first, legacy PRIME fallback only. */
+/** Top-level Now destination: one ranked view across cognitive situations and durable Cortex items. */
 public final class NowActivity extends PremiumHomeActivity {
     @Override void build(){
         LinearLayout root=new LinearLayout(this);root.setOrientation(LinearLayout.VERTICAL);root.setBackgroundColor(CortexUi.BG);
@@ -29,28 +29,56 @@ public final class NowActivity extends PremiumHomeActivity {
         LinearLayout status=CortexPipelineStatusBar.build(this,db);LinearLayout.LayoutParams sp=new LinearLayout.LayoutParams(-1,-2);sp.setMargins(0,dp(10),0,dp(4));content.addView(status,sp);
 
         List<PrimeBriefStore.Item> cognitive;
-        try{cognitive=CognitiveNowReadModel.load(db.getReadableDatabase(),8);}catch(Throwable ignored){cognitive=java.util.Collections.emptyList();}
-        if(!cognitive.isEmpty()){
-            int shown=0;
-            for(String kind:new String[]{"ACTION","WAITING","DECISION","INSIGHT"}){
-                int count=0;for(PrimeBriefStore.Item x:cognitive)if(kind.equalsIgnoreCase(x.kind))count++;if(count==0)continue;
-                String heading="ACTION".equals(kind)?"Needs you":"WAITING".equals(kind)?"Waiting for someone / follow-up":"DECISION".equals(kind)?"Decisions":"Worth knowing now";
-                content.addView(CortexUi.section(this,heading));
-                for(PrimeBriefStore.Item x:cognitive){if(!kind.equalsIgnoreCase(x.kind))continue;derivedRow(x);shown++;}
-            }
-            if(shown>0)return;
-        }
+        try{cognitive=CognitiveNowReadModel.load(db.getReadableDatabase(),10);}catch(Throwable ignored){cognitive=Collections.emptyList();}
+
+        ArrayList<PrimeBriefStore.Item> merged=new ArrayList<>();
+        LinkedHashSet<String> seen=new LinkedHashSet<>();
+        addUnique(merged,seen,cognitive,12);
+        addUnique(merged,seen,s.actions,8);
+        addUnique(merged,seen,s.waiting,6);
+        addUnique(merged,seen,s.decisions,5);
+        addUnique(merged,seen,s.worthKnowing,6);
+        merged.sort((a,b)->{int z=Integer.compare(b.importance,a.importance);return z!=0?z:Long.compare(b.updatedAt,a.updatedAt);});
 
         int shown=0;
-        if(!s.actions.isEmpty()){content.addView(CortexUi.section(this,"Needs you"));for(int i=0;i<Math.min(5,s.actions.size());i++){derivedRow(s.actions.get(i));shown++;}}
-        if(!s.waiting.isEmpty()){content.addView(CortexUi.section(this,"Waiting for someone / follow-up"));for(int i=0;i<Math.min(3,s.waiting.size());i++){derivedRow(s.waiting.get(i));shown++;}}
-        if(!s.decisions.isEmpty()){content.addView(CortexUi.section(this,"Decisions"));for(int i=0;i<Math.min(3,s.decisions.size());i++){derivedRow(s.decisions.get(i));shown++;}}
-        if(!s.worthKnowing.isEmpty()){content.addView(CortexUi.section(this,"Worth knowing now"));for(int i=0;i<Math.min(4,s.worthKnowing.size());i++){derivedRow(s.worthKnowing.get(i));shown++;}}
+        for(String kind:new String[]{"ACTION","WAITING","DECISION","INSIGHT","IDEA","OPPORTUNITY","HYPOTHESIS"}){
+            int count=0;for(PrimeBriefStore.Item x:merged)if(kind.equalsIgnoreCase(x.kind))count++;if(count==0)continue;
+            String heading="ACTION".equals(kind)?"Needs you":"WAITING".equals(kind)?"Waiting for someone / follow-up":"DECISION".equals(kind)?"Decisions":"Worth knowing now";
+            if(("IDEA".equals(kind)||"OPPORTUNITY".equals(kind)||"HYPOTHESIS".equals(kind))&&containsHeadingAlready(heading,kind,merged))continue;
+            content.addView(CortexUi.section(this,heading));
+            int cap="ACTION".equals(kind)?6:("WAITING".equals(kind)?4:4),local=0;
+            for(PrimeBriefStore.Item x:merged){
+                if(!sameDisplayGroup(kind,x.kind))continue;
+                derivedRow(x);shown++;if(++local>=cap)break;
+            }
+            if(sameDisplayGroup(kind,"INSIGHT"))break;
+        }
+
+        if(!s.changes.isEmpty()){
+            content.addView(CortexUi.section(this,"What changed"));
+            for(int i=0;i<Math.min(4,s.changes.size());i++){PrimeBriefStore.Item x=s.changes.get(i);String key=key(x);if(seen.add(key)){derivedRow(x);shown++;}}
+        }
+
         if(shown==0){
             LinearLayout card=CortexUi.card(this,24);card.setPadding(dp(18),dp(24),dp(18),dp(24));
             TextView h=CortexUi.plain(this,"Nothing needs you right now",19,CortexUi.TEXT);CortexUi.medium(h);card.addView(h);
-            TextView b=CortexUi.text(this,"Cortex is capturing and rebuilding its live world model. The status bar above shows exactly whether anything is still processing.",12,CortexUi.MUTED);b.setPadding(0,dp(7),0,0);card.addView(b);
+            TextView b=CortexUi.text(this,"Cortex is capturing, understanding and rebuilding its live world model. The status bar above shows whether anything is still processing.",12,CortexUi.MUTED);b.setPadding(0,dp(7),0,0);card.addView(b);
             LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,-2);p.setMargins(0,dp(14),0,0);content.addView(card,p);
         }
     }
+
+    private static void addUnique(ArrayList<PrimeBriefStore.Item> out,Set<String> seen,List<PrimeBriefStore.Item> xs,int cap){
+        if(xs==null)return;int n=0;for(PrimeBriefStore.Item x:xs){if(x==null)continue;String k=key(x);if(seen.add(k)){out.add(x);if(++n>=cap)break;}}
+    }
+    private static String key(PrimeBriefStore.Item x){
+        String text=LocalSemanticEmbedder.norm((x.kind==null?"":x.kind)+" "+(x.title==null?"":x.title)+" "+(x.body==null?"":x.body));
+        if(x.threadId>0)return (x.kind==null?"":x.kind)+"|thread:"+x.threadId;
+        return text.length()>220?text.substring(0,220):text;
+    }
+    private static boolean sameDisplayGroup(String requested,String actual){
+        if(requested.equalsIgnoreCase(actual))return true;
+        if("INSIGHT".equals(requested))return "IDEA".equalsIgnoreCase(actual)||"OPPORTUNITY".equalsIgnoreCase(actual)||"HYPOTHESIS".equalsIgnoreCase(actual);
+        return false;
+    }
+    private static boolean containsHeadingAlready(String heading,String kind,List<PrimeBriefStore.Item> xs){return "Worth knowing now".equals(heading)&&!("INSIGHT".equals(kind));}
 }
