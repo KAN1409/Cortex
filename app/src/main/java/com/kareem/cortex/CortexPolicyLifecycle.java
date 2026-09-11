@@ -121,4 +121,8 @@ public final class CortexPolicyLifecycle {
             return raw==null||raw.trim().isEmpty()?new JSONObject():new JSONObject(raw);
         }catch(Throwable ignored){return new JSONObject();}
     }
+
+    static void clearForTests(Context context){
+        if(context!=null)p(context).edit().clear().apply();
+    }
 }
