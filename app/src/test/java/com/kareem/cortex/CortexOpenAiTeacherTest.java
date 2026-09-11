@@ -25,7 +25,7 @@ public class CortexOpenAiTeacherTest {
                 .put("system",new JSONObject());
 
         JSONObject req=CortexOpenAiTeacher.request(pack);
-        assertEquals("openrouter/free",req.getString("model"));
+        assertEquals("openai/gpt-5.6-sol",req.getString("model"));
 
         JSONObject responseFormat=req.getJSONObject("response_format");
         assertEquals("json_schema",responseFormat.getString("type"));
