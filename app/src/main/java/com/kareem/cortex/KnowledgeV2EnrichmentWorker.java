@@ -53,7 +53,7 @@ public final class KnowledgeV2EnrichmentWorker extends Worker {
         long id=c.moveToFirst()?c.getLong(0):0;c.close();return id;
     }
 
-    private static void enrich(VaultDb db,SQLiteDatabase s,long evidenceId){
+    private static void enrich(VaultDb db,SQLiteDatabase s,long evidenceId) throws Exception {
         long now=System.currentTimeMillis();
         ArrayList<Long> entities=new ArrayList<>();
         Cursor m=s.rawQuery("SELECT id,mention_kind,mention_text,normalized_text,resolution_confidence FROM kv2_entity_mentions WHERE evidence_id=? ORDER BY id ASC",
@@ -83,7 +83,7 @@ public final class KnowledgeV2EnrichmentWorker extends Worker {
 
         Cursor facts=s.rawQuery("SELECT f.id,f.object_type,f.object_value FROM kv2_facts f JOIN kv2_fact_evidence l ON l.fact_id=f.id WHERE l.evidence_id=?",new String[]{String.valueOf(evidenceId)});
         while(facts.moveToNext()){
-            long factId=facts.getLong(0);String type=n(facts.getString(1)),value=n(facts.getString(2));
+            long factId=facts.getLong(0);String type=n(facts.getString(1));
             if(!type.isEmpty())assignCategory(s,"FACT",factId,type,.72,"fact type",now);
             for(long entityId:entities)edge(s,"fact",factId,"entity",entityId,"ABOUT",.62,now);
             if("MONEY".equalsIgnoreCase(type))assignCategory(s,"FACT",factId,"Money",.95,"money entity",now);
@@ -95,26 +95,31 @@ public final class KnowledgeV2EnrichmentWorker extends Worker {
         Cursor events=s.rawQuery("SELECT ev.id,ev.event_type,ev.title,ev.body,ev.confidence FROM kv2_events ev JOIN kv2_event_evidence ee ON ee.event_id=ev.id WHERE ee.evidence_id=?",
                 new String[]{String.valueOf(evidenceId)});
         while(events.moveToNext()){
-            long eventId=events.getLong(0);String type=n(events.getString(1)),title=n(events.getString(2)),body=n(events.getString(3));double conf=events.getDouble(4);
+            long eventId=events.getLong(0);String title=n(events.getString(2)),body=n(events.getString(3));double conf=events.getDouble(4);
             assignCategory(s,"EVENT",eventId,"Actions & commitments",.90,"action candidate",now);
             for(long entityId:entities)edge(s,"event",eventId,"entity",entityId,"INVOLVES",.68,now);
             if(conf>=.72&&!title.isEmpty()){
                 String fp=Fingerprint.text("kv2-derived-action|"+eventId+"|"+LocalSemanticEmbedder.norm(title));
-                long id=CognitiveStore.addDerived(db,"ACTION",title,body,"open",Math.max(.72,conf),78,fp,
-                        "{"source":"picbrain","canonical":"knowledge_v2","event_id":"+eventId+","evidence_id":"+evidenceId+"}");
+                JSONObject meta=new JSONObject();
+                meta.put("source","picbrain");
+                meta.put("canonical","knowledge_v2");
+                meta.put("event_id",eventId);
+                meta.put("evidence_id",evidenceId);
+                long id=CognitiveStore.addDerived(db,"ACTION",title,body,"open",Math.max(.72,conf),78,fp,meta.toString());
                 if(id>0)CognitiveStore.setDerivedRoutingChecked(db,id,"picbrain",0,0,"ACTION","kv2:event:"+eventId);
             }
         }events.close();
     }
 
-    private static long resolveEntity(SQLiteDatabase s,String kind,String name,String norm,long now){
+    private static long resolveEntity(SQLiteDatabase s,String kind,String name,String norm,long now) throws Exception {
         Cursor a=s.rawQuery("SELECT n.id FROM entity_aliases a JOIN entity_nodes n ON n.id=a.entity_id WHERE a.normalized_alias=? AND n.status='active' ORDER BY a.confidence DESC LIMIT 1",new String[]{norm});
         long id=a.moveToFirst()?a.getLong(0):0;a.close();
         if(id>0)return id;
         String key="kv2|"+kind.toLowerCase(Locale.ROOT)+"|"+norm;
         Cursor c=s.query("entity_nodes",new String[]{"id"},"normalized_key=?",new String[]{key},null,null,null,"1");id=c.moveToFirst()?c.getLong(0):0;c.close();
         if(id<=0){
-            ContentValues v=new ContentValues();v.put("kind",kind);v.put("canonical_name",name);v.put("normalized_key",key);v.put("status","active");v.put("metadata_json","{"source":"knowledge_v2","resolution":"normalized"}");v.put("created_at",now);v.put("updated_at",now);
+            JSONObject meta=new JSONObject();meta.put("source","knowledge_v2");meta.put("resolution","normalized");
+            ContentValues v=new ContentValues();v.put("kind",kind);v.put("canonical_name",name);v.put("normalized_key",key);v.put("status","active");v.put("metadata_json",meta.toString());v.put("created_at",now);v.put("updated_at",now);
             id=s.insertWithOnConflict("entity_nodes",null,v,SQLiteDatabase.CONFLICT_IGNORE);
             if(id<=0){Cursor x=s.query("entity_nodes",new String[]{"id"},"normalized_key=?",new String[]{key},null,null,null,"1");id=x.moveToFirst()?x.getLong(0):0;x.close();}
         }
@@ -141,11 +146,21 @@ public final class KnowledgeV2EnrichmentWorker extends Worker {
     }
 
     private static void mark(SQLiteDatabase s,long id,String state,String error){
-        ContentValues v=new ContentValues();v.put("state",state);v.put("last_error",error);v.put("updated_at",System.currentTimeMillis());if("RUNNING".equals(state)){v.put("started_at",System.currentTimeMillis());v.put("attempt_count","attempt_count+1");}
-        if("DONE".equals(state))v.put("completed_at",System.currentTimeMillis());
+        long now=System.currentTimeMillis();
+        if("RUNNING".equals(state)){
+            s.execSQL("UPDATE kv2_processing SET state='RUNNING',attempt_count=attempt_count+1,last_error=NULL,started_at=?,updated_at=? WHERE evidence_id=? AND stage=? AND pipeline_version=?",
+                    new Object[]{now,now,id,STAGE,KnowledgeV2Schema.PIPELINE_VERSION});
+            return;
+        }
+        ContentValues v=new ContentValues();v.put("state",state);v.put("last_error",error);v.put("updated_at",now);if("DONE".equals(state))v.put("completed_at",now);
         s.update("kv2_processing",v,"evidence_id=? AND stage=? AND pipeline_version=?",new String[]{String.valueOf(id),STAGE,String.valueOf(KnowledgeV2Schema.PIPELINE_VERSION)});
-        if("RUNNING".equals(state))s.execSQL("UPDATE kv2_processing SET attempt_count=attempt_count+1 WHERE evidence_id=? AND stage=? AND pipeline_version=?",new Object[]{id,STAGE,KnowledgeV2Schema.PIPELINE_VERSION});
     }
-    private static void markFailure(SQLiteDatabase s,long id,Throwable t){String e=t==null?"Unknown enrichment error":n(t.getMessage());s.execSQL("UPDATE kv2_processing SET state=CASE WHEN attempt_count>=3 THEN 'FAILED' ELSE 'PENDING' END,last_error=?,updated_at=? WHERE evidence_id=? AND stage=? AND pipeline_version=?",new Object[]{e,System.currentTimeMillis(),id,STAGE,KnowledgeV2Schema.PIPELINE_VERSION});}
+
+    private static void markFailure(SQLiteDatabase s,long id,Throwable t){
+        String e=t==null?"Unknown enrichment error":n(t.getMessage());
+        s.execSQL("UPDATE kv2_processing SET state=CASE WHEN attempt_count>=3 THEN 'FAILED' ELSE 'PENDING' END,last_error=?,updated_at=? WHERE evidence_id=? AND stage=? AND pipeline_version=?",
+                new Object[]{e,System.currentTimeMillis(),id,STAGE,KnowledgeV2Schema.PIPELINE_VERSION});
+    }
+
     private static String n(String s){return s==null?"":s.trim();}
 }
