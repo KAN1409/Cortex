@@ -13,6 +13,7 @@ import java.util.Locale;
 public final class CortexPersonalPolicy {
     private static final String PREF="cortex_personal_policy";
     private static final String KEY="policy_json";
+    private static final long DEFAULT_TTL=7L*24L*60L*60L*1000L;
     private CortexPersonalPolicy(){}
 
     private static SharedPreferences p(Context c){return c.getApplicationContext().getSharedPreferences(PREF,Context.MODE_PRIVATE);}
@@ -20,16 +21,26 @@ public final class CortexPersonalPolicy {
         try{
             String raw=p(c).getString(KEY,"");
             if(raw!=null&&!raw.trim().isEmpty()){
-                JSONObject o=new JSONObject(raw);long generated=o.optLong("generatedAt",0),ttl=Math.max(60_000L,o.optLong("ttlMs",7L*24L*60L*60L*1000L));
+                JSONObject o=new JSONObject(raw);long generated=o.optLong("generatedAt",0),ttl=Math.max(60_000L,o.optLong("ttlMs",DEFAULT_TTL));
                 if(generated>0&&System.currentTimeMillis()-generated<=ttl)return o;
             }
         }catch(Throwable ignored){}
         return bootstrap();
     }
     private static JSONObject bootstrap(){
-        try{JSONObject o=new JSONObject();o.put("version","local-bootstrap-3");o.put("generatedAt",System.currentTimeMillis());o.put("ttlMs",7L*24L*60L*60L*1000L);o.put("attentionThreshold",.72);o.put("maxNowItems",7);o.put("suppressPhrases",new JSONArray().put("cortex is processing").put("ask brain to interpret the intent").put("notification hints are evidence").put("resolved downstream").put("understanding...").put("check important info"));o.put("boosts",new JSONArray());return o;}catch(Exception e){return new JSONObject();}
+        try{JSONObject o=new JSONObject();o.put("version","local-bootstrap-3");o.put("generatedAt",System.currentTimeMillis());o.put("ttlMs",DEFAULT_TTL);o.put("attentionThreshold",.72);o.put("maxNowItems",7);o.put("suppressPhrases",new JSONArray().put("cortex is processing").put("ask brain to interpret the intent").put("notification hints are evidence").put("resolved downstream").put("understanding...").put("check important info"));o.put("boosts",new JSONArray());return o;}catch(Exception e){return new JSONObject();}
     }
-    public static void save(Context c,JSONObject policy){if(policy==null)return;p(c).edit().putString(KEY,policy.toString()).apply();}
+    public static void save(Context c,JSONObject policy){
+        if(policy==null)return;
+        try{
+            JSONObject normalized=new JSONObject(policy.toString());long now=System.currentTimeMillis();
+            if(normalized.optLong("generatedAt",0)<=0)normalized.put("generatedAt",now);
+            normalized.put("ttlMs",Math.max(60_000L,Math.min(30L*24L*60L*60L*1000L,normalized.optLong("ttlMs",DEFAULT_TTL))));
+            normalized.put("attentionThreshold",Math.max(0,Math.min(1,normalized.optDouble("attentionThreshold",.72))));
+            normalized.put("maxNowItems",Math.max(1,Math.min(12,normalized.optInt("maxNowItems",7))));
+            p(c).edit().putString(KEY,normalized.toString()).apply();
+        }catch(Throwable ignored){}
+    }
     public static void clear(Context c){p(c).edit().remove(KEY).apply();}
     public static String version(Context c){return current(c).optString("version","none");}
     public static int maxNowItems(Context c){return Math.max(1,Math.min(12,current(c).optInt("maxNowItems",7)));}
