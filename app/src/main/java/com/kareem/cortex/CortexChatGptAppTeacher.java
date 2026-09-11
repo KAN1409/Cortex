@@ -187,6 +187,12 @@ public final class CortexChatGptAppTeacher {
         for(int i=0;i<boosts.length();i++){
             JSONObject b=boosts.optJSONObject(i);
             if(b==null)throw new IllegalArgumentException("Invalid boost");
+            String match=b.optString("match","").trim();
+            String feature=b.optString("feature","").trim();
+            if(match.isEmpty()&&feature.isEmpty())throw new IllegalArgumentException("Boost requires match or feature");
+            // ChatGPT commonly expresses semantic boosts as {feature, weight}.
+            // Normalize that teacher-friendly shape into Cortex's canonical {match, weight}.
+            if(match.isEmpty())b.put("match",feature);
             double w=b.optDouble("weight",Double.NaN);
             if(Double.isNaN(w)||w<-1||w>1)throw new IllegalArgumentException("Boost weight outside bounds");
         }
