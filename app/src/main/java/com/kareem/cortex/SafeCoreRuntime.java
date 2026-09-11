@@ -9,9 +9,9 @@ import android.service.notification.NotificationListenerService;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
-/** Staged recovery bridge between a visually stable launcher and the safe Java/SQLite Cortex core. */
+/** Staged recovery bridge between a visually stable launcher and the full Cortex runtime. */
 public final class SafeCoreRuntime {
-    public static final String VERSION = "safe_core_runtime_002";
+    public static final String VERSION = "safe_core_runtime_003";
     private static final long POST_RESUME_SETTLE_MS = 1200L;
 
     public enum Phase { COLD_START, UI_STABLE_PROBING, CORE_READY, CORE_FAILED }
@@ -40,10 +40,17 @@ public final class SafeCoreRuntime {
             CapabilitySupervisor.recordHealthy(app,CapabilitySupervisor.Capability.DATABASE);
             PHASE.set(Phase.CORE_READY);
 
-            // Resume all safe Java/SQLite drains. Native OCR/ASR/LLM entry points remain blocked
-            // by CapabilitySupervisor; cloud audio transcription is allowed by AnalysisQueue.
+            // Release only the cold-start boundary. Native components still have independent
+            // circuit breakers and are entered lazily; this avoids bringing every JNI runtime up
+            // at once while also preventing recovery mode from becoming permanent.
+            StartupSafetyGate.releaseAfterSafeCore();
+
+            try{StartupMaintenance.schedule(app);}catch(Throwable t){CapabilitySupervisor.recordFailure(app,CapabilitySupervisor.Capability.BACKGROUND_SCHEDULING,t);}
             try{StatefulMeaningScheduler.kick(app);}catch(Throwable t){CapabilitySupervisor.recordFailure(app,CapabilitySupervisor.Capability.BACKGROUND_SCHEDULING,t);}
             try{AnalysisQueue.kick(app,null,null);}catch(Throwable t){CapabilitySupervisor.recordFailure(app,CapabilitySupervisor.Capability.DETERMINISTIC_COGNITION,t);}
+            try{KnowledgeV2Scheduler.enqueue(app);}catch(Throwable t){CapabilitySupervisor.recordFailure(app,CapabilitySupervisor.Capability.BACKGROUND_SCHEDULING,t);}
+            try{if(GeminiKeyStore.has(app))VisualIntelligenceScheduler.kick(app);}catch(Throwable t){CapabilitySupervisor.recordFailure(app,CapabilitySupervisor.Capability.BACKGROUND_SCHEDULING,t);}
+            try{ProactiveScheduler.enableDaily(app);}catch(Throwable t){CapabilitySupervisor.recordFailure(app,CapabilitySupervisor.Capability.BACKGROUND_SCHEDULING,t);}
 
             try{NotificationListenerService.requestRebind(new ComponentName(app,NotificationCaptureService.class));}catch(Throwable ignored){}
         }catch(Throwable t){
@@ -57,6 +64,6 @@ public final class SafeCoreRuntime {
                 ||capability==CapabilitySupervisor.Capability.DETERMINISTIC_COGNITION
                 ||capability==CapabilitySupervisor.Capability.BACKGROUND_SCHEDULING;
     }
-    static void resetForTests(){ARMED.set(false);PHASE.set(Phase.COLD_START);}
-    static void forceReadyForTests(){ARMED.set(true);PHASE.set(Phase.CORE_READY);}
+    static void resetForTests(){ARMED.set(false);PHASE.set(Phase.COLD_START);StartupSafetyGate.resetForTests();}
+    static void forceReadyForTests(){ARMED.set(true);PHASE.set(Phase.CORE_READY);StartupSafetyGate.releaseAfterSafeCore();}
 }
