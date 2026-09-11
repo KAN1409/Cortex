@@ -126,8 +126,8 @@ public final class CortexOpenAiTeacher {
             }
         }
         text=text==null?"":text.trim();
-        if(text.startsWith("\`\`\`")){
-            text=text.replaceFirst("^\`\`\`(?:json)?\\\\s*","").replaceFirst("\\\\s*\`\`\`$","");
+        if(text.startsWith("```")){
+            text=text.replaceFirst("^```(?:json)?\\s*","").replaceFirst("\\s*```$","");
         }
         JSONObject policy=new JSONObject(text);
         validate(policy);
