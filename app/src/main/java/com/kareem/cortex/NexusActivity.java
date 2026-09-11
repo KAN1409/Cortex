@@ -1,6 +1,8 @@
 package com.kareem.cortex;
 
 import android.app.Activity;
+import android.content.Intent;
+import android.database.Cursor;
 import android.os.Bundle;
 import android.view.Gravity;
 import android.widget.*;
@@ -30,6 +32,7 @@ public final class NexusActivity extends Activity {
         ArrayList<NexusEngine.Interest> interests=NexusEngine.interests(db,12);ArrayList<NexusEngine.Discovery> discoveries=NexusEngine.discoveries(db,8);ArrayList<NexusEngine.PreparedAction> actions=NexusEngine.actions(db,12);
         int observations=NexusEngine.observationCount(db),ready=NexusEngine.readyActionCount(db);
         LinearLayout stats=CortexUi.card(this,20);stats.setPadding(dp(14),dp(13),dp(14),dp(13));stats.addView(CortexUi.text(this,observations+" observations  •  "+interests.size()+" interests  •  "+discoveries.size()+" discoveries  •  "+ready+" ready",12,CortexUi.TEXT));body.addView(stats,margin(10));
+        shortcuts();
 
         body.addView(CortexUi.section(this,"What Cortex is learning"));
         if(interests.isEmpty())body.addView(CortexUi.text(this,"NEXUS is waiting for enough grounded Cortex context to model interests.",12,CortexUi.MUTED),margin(6));
@@ -42,7 +45,16 @@ public final class NexusActivity extends Activity {
         body.addView(CortexUi.section(this,"For you"));
         if(discoveries.isEmpty())body.addView(CortexUi.text(this,"Nothing noisy here. NEXUS will surface a pattern only when it has repeated grounded support.",12,CortexUi.MUTED),margin(6));
         for(NexusEngine.Discovery x:discoveries)discoveryCard(x);
+
+        renderActivity();
+        renderObservedContext();
     }
+
+    void shortcuts(){
+        LinearLayout row=new LinearLayout(this);row.setOrientation(LinearLayout.HORIZONTAL);row.setPadding(0,dp(8),0,0);
+        shortcut(row,"Memory",VaultActivity.class);shortcut(row,"Knowledge",KnowledgeExplorerActivity.class);shortcut(row,"Access",PhoneContextAccessActivity.class);body.addView(row);
+    }
+    void shortcut(LinearLayout row,String label,Class<?> target){TextView v=CortexUi.action(this,label,CortexUi.MUTED,false);v.setGravity(Gravity.CENTER);v.setOnClickListener(x->{try{startActivity(new Intent(this,target));}catch(Throwable ignored){}});LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,dp(42),1);p.setMargins(0,0,dp(6),0);row.addView(v,p);}
 
     void interestCard(NexusEngine.Interest x){
         LinearLayout c=CortexUi.card(this,18);c.setPadding(dp(14),dp(12),dp(14),dp(12));
@@ -66,10 +78,27 @@ public final class NexusActivity extends Activity {
         if(actions.getChildCount()>0)c.addView(actions);body.addView(c,margin(7));
     }
 
+    void renderActivity(){
+        body.addView(CortexUi.section(this,"Recent NEXUS activity"));
+        Cursor c=db.getReadableDatabase().rawQuery("SELECT f.event_type,COALESCE(d.title,'Cortex action'),COALESCE(d.body,''),f.created_at FROM feedback_events f LEFT JOIN derived_items d ON d.id=f.target_id WHERE f.policy_version=? ORDER BY f.created_at DESC LIMIT 16",new String[]{NexusEngine.VERSION});
+        int n=0;while(c.moveToNext()){
+            String event=c.getString(0),title=c.getString(1),detail=c.getString(2);long at=c.getLong(3);LinearLayout card=CortexUi.card(this,16);card.setPadding(dp(12),dp(10),dp(12),dp(10));TextView k=CortexUi.plain(this,event.replace('_',' '),9,CortexUi.LIME);CortexUi.medium(k);card.addView(k);TextView t=CortexUi.text(this,title,13,CortexUi.TEXT);CortexUi.medium(t);card.addView(t);if(detail!=null&&!detail.trim().isEmpty())card.addView(CortexUi.text(this,clip(detail,160),11,CortexUi.MUTED));card.addView(CortexUi.plain(this,friendlyAge(at),9,CortexUi.MUTED));body.addView(card,margin(6));n++;}
+        c.close();if(n==0)body.addView(CortexUi.text(this,"No approval or action decisions yet. They will appear here without duplicating Cortex evidence.",12,CortexUi.MUTED),margin(6));
+    }
+
+    void renderObservedContext(){
+        body.addView(CortexUi.section(this,"Recent observed context"));
+        Cursor c=db.getReadableDatabase().rawQuery("SELECT COALESCE(source,''),COALESCE(title,''),COALESCE(body,''),occurred_at FROM raw_signals WHERE state<>'suppressed' AND COALESCE(disposition,'')<>'discard' ORDER BY occurred_at DESC LIMIT 20",null);int shown=0;
+        while(c.moveToNext()&&shown<8){String source=c.getString(0),title=c.getString(1),detail=c.getString(2);long at=c.getLong(3);if(AttentionNoisePolicy.suppress(source,title,detail,"",""))continue;LinearLayout card=CortexUi.card(this,16);card.setPadding(dp(12),dp(10),dp(12),dp(10));TextView k=CortexUi.plain(this,source.isEmpty()?"OBSERVED":source,9,CortexUi.MUTED);CortexUi.medium(k);card.addView(k);card.addView(CortexUi.text(this,clip(title.isEmpty()?detail:title,160),12,CortexUi.TEXT));card.addView(CortexUi.plain(this,friendlyAge(at),9,CortexUi.MUTED));body.addView(card,margin(6));shown++;}
+        c.close();if(shown==0)body.addView(CortexUi.text(this,"No recent grounded observations are ready to show.",12,CortexUi.MUTED),margin(6));
+    }
+
     void addAction(LinearLayout row,String label,Runnable op,boolean primary){TextView v=CortexUi.action(this,label,primary?CortexUi.LIME:CortexUi.MUTED,primary);v.setGravity(Gravity.CENTER);v.setOnClickListener(x->{try{op.run();render();}catch(Throwable e){Toast.makeText(this,"Action update failed safely",Toast.LENGTH_SHORT).show();}});LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,dp(42),1);p.setMargins(0,0,dp(6),0);row.addView(v,p);}
 
     void refreshAsync(){if(destroyed||db==null)return;new Thread(()->{try{NexusEngine.refreshIfStale(db,2L*60L*1000L);}catch(Throwable ignored){}if(!destroyed)runOnUiThread(this::render);},"cortex-nexus-refresh").start();}
     String friendlyState(String s){if("READY_FOR_APPROVAL".equals(s))return"Ready";if("APPROVED".equals(s))return"Approved";if("EXECUTING".equals(s))return"In progress";if("DRAFT".equals(s))return"Later";return s.replace('_',' ');}
     int stateColor(String s){if("READY_FOR_APPROVAL".equals(s)||"APPROVED".equals(s))return CortexUi.LIME;if("EXECUTING".equals(s))return CortexUi.SAGE;return CortexUi.COPPER;}
+    String friendlyAge(long at){long d=Math.max(0,System.currentTimeMillis()-at);if(d<60_000)return"now";long m=d/60_000;if(m<60)return m+"m ago";long h=m/60;if(h<24)return h+"h ago";return(h/24)+"d ago";}
+    String clip(String s,int n){String x=s==null?"":s.trim().replaceAll("\\s+"," ");return x.length()<=n?x:x.substring(0,n)+"…";}
     LinearLayout.LayoutParams margin(int top){LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,-2);p.setMargins(0,dp(top),0,0);return p;}
 }
