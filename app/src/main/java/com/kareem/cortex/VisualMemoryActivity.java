@@ -19,6 +19,10 @@ import java.util.*;
 import java.util.concurrent.*;
 
 public final class VisualMemoryActivity extends Activity {
+    private static final int INITIAL_ITEM_LIMIT=24;
+    private static final int SEARCH_ITEM_LIMIT=36;
+    private static final int THUMBNAIL_MAX_PX=220;
+
     LinearLayout list;
     EditText search;
     TextView stats, state;
@@ -147,14 +151,15 @@ public final class VisualMemoryActivity extends Activity {
 
     void load(String q){
         if(!hasMediaPermission()){requestMediaPermission();return;}
-        state.setText(q==null||q.trim().isEmpty()?"Loading screenshots…":"Searching visual memory…");
+        final boolean searching=q!=null&&!q.trim().isEmpty();
+        state.setText(searching?"Searching visual memory…":"Loading screenshots…");
         refresh.setEnabled(false);
         io.execute(()->{
             try{
                 VisualMemoryStats s=VisualMemoryRuntime.stats(this);
-                List<VisualMemoryItem> items=(q==null||q.trim().isEmpty())
-                    ?VisualMemoryRuntime.recent(this,180)
-                    :VisualMemoryRuntime.search(this,q.trim(),180);
+                List<VisualMemoryItem> items=searching
+                    ?VisualMemoryRuntime.search(this,q.trim(),SEARCH_ITEM_LIMIT)
+                    :VisualMemoryRuntime.recent(this,INITIAL_ITEM_LIMIT);
                 post(()->render(s,items,q));
             }catch(Throwable e){
                 post(()->{refresh.setEnabled(true);state.setText("Visual memory stayed safe, but this view could not load: "+safe(e.getMessage()));});
@@ -164,12 +169,17 @@ public final class VisualMemoryActivity extends Activity {
 
     void render(VisualMemoryStats s,List<VisualMemoryItem> items,String q){
         if(destroyed)return;
-        clearBitmaps();list.removeAllViews();refresh.setEnabled(true);
+        // Detach views first. Explicit Bitmap.recycle() while ImageViews are still attached can
+        // race the next draw pass; modern Android manages Bitmap pixel memory safely after detach.
+        list.removeAllViews();
+        clearBitmaps();
+        refresh.setEnabled(true);
         modelInstalled=s.getModelInstalled();
         stats.setText("Pictures "+s.getPictures()+"  •  Screenshots "+s.getScreenshots()+"  •  OCR "+s.getOcrReady()+"/"+s.getScreenshots()+"  •  Semantic "+s.getSemanticIndexed()+"/"+s.getOcrReady());
         state.setText(
                 "Knowledge "+s.getKnowledgeDone()+" done  •  "+s.getKnowledgePending()+" pending  •  "+s.getKnowledgeRunning()+" running  •  "+s.getKnowledgeBlocked()+" blocked  •  "+s.getKnowledgeSkipped()+" no-text  •  "+s.getKnowledgeFailed()+" failed\n"+
-                "OCR failed "+s.getOcrFailed()+"  •  Semantic "+s.getSemanticPending()+" pending  •  "+s.getSemanticSkipped()+" no-text  •  "+s.getSemanticFailed()+" failed  •  "+(modelInstalled?"EmbeddingGemma ready":"Semantic model not installed"));
+                "OCR failed "+s.getOcrFailed()+"  •  Semantic "+s.getSemanticPending()+" pending  •  "+s.getSemanticSkipped()+" no-text  •  "+s.getSemanticFailed()+" failed  •  "+(modelInstalled?"EmbeddingGemma ready":"Semantic model not installed")+
+                ((q==null||q.trim().isEmpty())?"\nShowing newest "+INITIAL_ITEM_LIMIT+" only for fast, memory-safe launch. Search reaches older screenshots.":""));
         semantic.setText(modelInstalled?"Repair semantic index":"Download semantic model");
         if(items==null||items.isEmpty()){
             TextView empty=CortexUi.text(this,q==null||q.trim().isEmpty()?"No screenshots indexed yet. Tap Sync.":"No confident matches.",12,CortexUi.MUTED);
@@ -182,7 +192,7 @@ public final class VisualMemoryActivity extends Activity {
         LinearLayout card=CortexUi.card(this,20);card.setPadding(dp(10),dp(10),dp(10),dp(11));
         LinearLayout row=new LinearLayout(this);row.setGravity(Gravity.TOP);
         ImageView image=new ImageView(this);image.setScaleType(ImageView.ScaleType.CENTER_CROP);image.setBackground(CortexUi.round(this,CortexUi.SURFACE_3,CortexUi.BORDER_SOFT,14));
-        Bitmap b=loadBitmap(item.getContentUri(),420);if(b!=null){bitmaps.add(b);image.setImageBitmap(b);}
+        Bitmap b=loadBitmap(item.getContentUri(),THUMBNAIL_MAX_PX);if(b!=null){bitmaps.add(b);image.setImageBitmap(b);}
         row.addView(image,new LinearLayout.LayoutParams(dp(108),dp(128)));
         LinearLayout tx=new LinearLayout(this);tx.setOrientation(LinearLayout.VERTICAL);LinearLayout.LayoutParams tp=new LinearLayout.LayoutParams(0,-2,1);tp.setMargins(dp(12),0,0,0);row.addView(tx,tp);
         TextView title=CortexUi.text(this,clean(item.getDisplayName()),13,CortexUi.TEXT);CortexUi.medium(title);title.setMaxLines(2);tx.addView(title);
@@ -190,8 +200,8 @@ public final class VisualMemoryActivity extends Activity {
         String preview=item.getOcrText();TextView p=CortexUi.text(this,preview==null||preview.trim().isEmpty()?"No OCR text yet.":clip(preview.trim(),320),11,CortexUi.MUTED);p.setPadding(0,dp(7),0,0);p.setMaxLines(6);tx.addView(p);
         card.addView(row);
         LinearLayout chips=new LinearLayout(this);chips.setOrientation(LinearLayout.HORIZONTAL);
-        chips.addView(CortexUi.chip(this,"OCR",item.getOcrState().equals("DONE")?CortexUi.GREEN:CortexUi.MUTED,false),chipParams());
-        chips.addView(CortexUi.chip(this,"Semantic",item.getSemanticState().equals("DONE")?CortexUi.LIME:(item.getSemanticState().equals("FAILED")?CortexUi.RED:CortexUi.ORANGE),false),chipParams());
+        chips.addView(CortexUi.chip(this,"OCR","DONE".equals(item.getOcrState())?CortexUi.GREEN:CortexUi.MUTED,false),chipParams());
+        chips.addView(CortexUi.chip(this,"Semantic","DONE".equals(item.getSemanticState())?CortexUi.LIME:("FAILED".equals(item.getSemanticState())?CortexUi.RED:CortexUi.ORANGE),false),chipParams());
         String ks=item.getKnowledgeState();
         if(ks!=null&&!ks.trim().isEmpty()){
             int kc="DONE".equals(ks)?CortexUi.LIME:("BLOCKED".equals(ks)?CortexUi.YELLOW:("SKIPPED".equals(ks)?CortexUi.MUTED:("FAILED".equals(ks)?CortexUi.RED:CortexUi.ORANGE)));
@@ -222,14 +232,15 @@ public final class VisualMemoryActivity extends Activity {
             Uri u=Uri.parse(uri);
             BitmapFactory.Options bounds=new BitmapFactory.Options();bounds.inJustDecodeBounds=true;
             in=getContentResolver().openInputStream(u);BitmapFactory.decodeStream(in,null,bounds);if(in!=null)in.close();in=null;
-            int sample=1;while(bounds.outWidth/sample>max*2||bounds.outHeight/sample>max*2)sample*=2;
-            BitmapFactory.Options o=new BitmapFactory.Options();o.inSampleSize=Math.max(1,sample);
+            if(bounds.outWidth<=0||bounds.outHeight<=0)return null;
+            int sample=1;while(bounds.outWidth/sample>max||bounds.outHeight/sample>max*2)sample*=2;
+            BitmapFactory.Options o=new BitmapFactory.Options();o.inSampleSize=Math.max(1,sample);o.inPreferredConfig=Bitmap.Config.RGB_565;o.inDither=true;
             in=getContentResolver().openInputStream(u);return BitmapFactory.decodeStream(in,null,o);
         }catch(Throwable ignored){return null;}
         finally{if(in!=null)try{in.close();}catch(Throwable ignored){}}
     }
 
-    void clearBitmaps(){for(Bitmap b:bitmaps)try{if(b!=null&&!b.isRecycled())b.recycle();}catch(Throwable ignored){}bitmaps.clear();}
+    void clearBitmaps(){bitmaps.clear();}
     boolean hasMediaPermission(){
         if(Build.VERSION.SDK_INT>=33)return checkSelfPermission(Manifest.permission.READ_MEDIA_IMAGES)==PackageManager.PERMISSION_GRANTED;
         return checkSelfPermission(Manifest.permission.READ_EXTERNAL_STORAGE)==PackageManager.PERMISSION_GRANTED;
