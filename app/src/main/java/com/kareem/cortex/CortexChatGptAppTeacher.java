@@ -143,12 +143,18 @@ public final class CortexChatGptAppTeacher {
 
             // Counterfactual shadow evaluation runs on the exact same grounded candidate set
             // before the proposed policy becomes active. Diagnostics never block local autonomy.
+            JSONObject impact=new JSONObject();
             try{
-                JSONObject impact=CortexTeacherImpact.compare(context.getApplicationContext(),policy);
+                impact=CortexTeacherImpact.compare(context.getApplicationContext(),policy);
                 CortexTeacherImpact.save(context.getApplicationContext(),impact);
             }catch(Throwable ignored){}
 
-            CortexPersonalPolicy.save(context.getApplicationContext(),policy);
+            CortexPolicyPromotion.Result promotion=
+                    CortexPolicyPromotion.evaluateAndPromote(context.getApplicationContext(),policy,impact);
+            if(!promotion.promoted){
+                return new ImportResult(false,policy.optString("version",""),
+                        "Policy not activated: "+promotion.reason);
+            }
             context.getSharedPreferences(PREF,Context.MODE_PRIVATE).edit()
                     .putBoolean(KEY_PENDING,false)
                     .remove(KEY_PROMPT)
