@@ -68,6 +68,16 @@
         <activity android:name=".OpenRouterSettingsActivity" android:exported="false" android:label="Cortex OpenRouter Setup" />
         <activity android:name=".GeminiSettingsActivity" android:exported="false" android:label="Cortex Gemini Setup" />
         <activity android:name=".ChatGptTeacherActivity" android:exported="false" android:label="Cortex ChatGPT Teacher" />
+        <activity
+            android:name=".CortexTeacherImportActivity"
+            android:exported="true"
+            android:label="Import ChatGPT Policy">
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
+            </intent-filter>
+        </activity>
         <activity android:name=".MainActivity" android:exported="false" />
 
         <service android:name=".LocalModelDownloadService" android:exported="false" android:foregroundServiceType="dataSync" />
