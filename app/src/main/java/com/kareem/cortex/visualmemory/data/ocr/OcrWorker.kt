@@ -14,6 +14,7 @@ import androidx.work.WorkManager
 import com.kareem.cortex.visualmemory.data.search.EmbeddingWorker
 import com.kareem.cortex.visualmemory.data.search.SemanticModelStore
 import com.kareem.cortex.visualmemory.VisualMemoryStore
+import com.kareem.cortex.KnowledgeV2Scheduler
 
 class OcrWorker(
     appContext: Context,
@@ -49,6 +50,10 @@ class OcrWorker(
                 )
 
                 if (batch.attempted == 0) break
+            }
+
+            if (totalSuccess > 0) {
+                KnowledgeV2Scheduler.enqueue(applicationContext)
             }
 
             if (totalSuccess > 0 && SemanticModelStore(applicationContext).isInstalled()) {
