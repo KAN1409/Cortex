@@ -148,6 +148,67 @@ public class CortexIntelligenceArchitectureTest {
         assertTrue(CortexReasoningGate.assess(ambiguousHighValue, false, false).escalate);
     }
 
+    @Test public void chatGptSemanticPolicyActuallyChangesFinalJudgeScore() throws Exception {
+        long now = System.currentTimeMillis();
+        AttentionDecisionEngine.Candidate security = new AttentionDecisionEngine.Candidate(
+                21, "security", "open", "Critical security alert",
+                "Saved password may be compromised", .96,
+                .55, .62, .80, .72, .35, 0, now, now, 1, 2,
+                true, false, true, false, false);
+
+        CortexPersonalPolicy.clear(context);
+        CortexAttentionJudge.Judgment baseline = CortexAttentionJudge.evaluate(
+                context, security, CortexAttentionJudge.RuntimeContext.neutral());
+
+        JSONObject teacher = new JSONObject();
+        teacher.put("version", "chatgpt-teacher-score-test");
+        teacher.put("ttlMs", 604800000L);
+        teacher.put("attentionThreshold", .72);
+        teacher.put("maxNowItems", 5);
+        teacher.put("interruptionPenaltyScale", .24);
+        teacher.put("featureWeights", new JSONObject()
+                .put("securityRisk", .30)
+                .put("priority", .25));
+        teacher.put("boosts", new org.json.JSONArray().put(
+                new JSONObject().put("feature", "securityRisk").put("weight", .22)));
+        teacher.put("teacherNotes", "test");
+        CortexPersonalPolicy.save(context, teacher);
+
+        CortexAttentionJudge.Judgment taught = CortexAttentionJudge.evaluate(
+                context, security, CortexAttentionJudge.RuntimeContext.neutral());
+
+        assertEquals("chatgpt-teacher-score-test", taught.policyVersion);
+        assertTrue("teacher policy must materially affect final judge score",
+                taught.score > baseline.score + .05);
+    }
+
+    @Test public void finalJudgeHonorsTeacherMaxNowItems() throws Exception {
+        JSONObject teacher = new JSONObject();
+        teacher.put("version", "chatgpt-teacher-cap-test");
+        teacher.put("ttlMs", 604800000L);
+        teacher.put("attentionThreshold", .10);
+        teacher.put("maxNowItems", 2);
+        teacher.put("interruptionPenaltyScale", .10);
+        teacher.put("featureWeights", new JSONObject());
+        teacher.put("boosts", new org.json.JSONArray());
+        teacher.put("teacherNotes", "test");
+        CortexPersonalPolicy.save(context, teacher);
+
+        long now = System.currentTimeMillis();
+        java.util.ArrayList<AttentionDecisionEngine.Candidate> xs = new java.util.ArrayList<>();
+        for (int i = 0; i < 5; i++) {
+            xs.add(new AttentionDecisionEngine.Candidate(
+                    100 + i, "commitment", "open", "Item " + i, "Reply required", .95,
+                    .80, .85, .90, .20, .60, now + 60L * 60L * 1000L, now, now,
+                    1, 2, true, true, true, true, false));
+        }
+
+        java.util.List<CortexAttentionJudge.Judgment> ranked = CortexAttentionJudge.rankForNow(
+                context, xs, CortexAttentionJudge.RuntimeContext.neutral(),
+                CortexPersonalPolicy.maxNowItems(context));
+        assertEquals(2, ranked.size());
+    }
+
     private static String rawHash(SQLiteDatabase s, long id) {
         Cursor c = s.rawQuery("SELECT immutable_hash FROM ue_raw_observations WHERE id=?",
                 new String[]{String.valueOf(id)});
