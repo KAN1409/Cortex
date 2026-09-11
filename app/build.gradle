@@ -33,7 +33,7 @@ android {
     buildFeatures { buildConfig true }
     sourceSets { main { assets.srcDir generatedOcrAssets } }
     signingConfigs { debug { storeFile cortexDebugKeystore; storePassword 'android'; keyAlias 'androiddebugkey'; keyPassword 'android' } }
-    defaultConfig { applicationId 'com.kareem.cortex'; minSdk 26; targetSdk 35; versionCode 97; versionName '1.4.0-v72-u2-provenance-firewall' }
+    defaultConfig { applicationId 'com.kareem.cortex'; minSdk 26; targetSdk 35; versionCode 98; versionName '1.4.1-v73-picbrain-nav' }
     buildTypes { debug { signingConfig signingConfigs.debug } }
     compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
     kotlinOptions { jvmTarget = '17' }
