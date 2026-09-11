@@ -2,6 +2,7 @@ package com.kareem.cortex;
 
 import android.content.ComponentName;
 import android.content.Context;
+import android.content.SharedPreferences;
 import android.database.Cursor;
 import android.os.Handler;
 import android.os.Looper;
@@ -11,7 +12,7 @@ import java.util.concurrent.atomic.AtomicReference;
 
 /** Staged recovery bridge between a visually stable launcher and the full Cortex runtime. */
 public final class SafeCoreRuntime {
-    public static final String VERSION = "safe_core_runtime_003";
+    public static final String VERSION = "safe_core_runtime_004";
     private static final long POST_RESUME_SETTLE_MS = 1200L;
 
     public enum Phase { COLD_START, UI_STABLE_PROBING, CORE_READY, CORE_FAILED }
@@ -49,13 +50,38 @@ public final class SafeCoreRuntime {
             try{StatefulMeaningScheduler.kick(app);}catch(Throwable t){CapabilitySupervisor.recordFailure(app,CapabilitySupervisor.Capability.BACKGROUND_SCHEDULING,t);}
             try{AnalysisQueue.kick(app,null,null);}catch(Throwable t){CapabilitySupervisor.recordFailure(app,CapabilitySupervisor.Capability.DETERMINISTIC_COGNITION,t);}
             try{KnowledgeV2Recovery.recover(app);KnowledgeV2Scheduler.enqueue(app);}catch(Throwable t){CapabilitySupervisor.recordFailure(app,CapabilitySupervisor.Capability.BACKGROUND_SCHEDULING,t);}
-            try{if(GeminiKeyStore.has(app))VisualIntelligenceScheduler.kick(app);}catch(Throwable t){CapabilitySupervisor.recordFailure(app,CapabilitySupervisor.Capability.BACKGROUND_SCHEDULING,t);}
+            try{
+                if(GeminiKeyStore.has(app)){
+                    recoverVisualFailuresOnce(app);
+                    VisualIntelligenceScheduler.kick(app);
+                }
+            }catch(Throwable t){CapabilitySupervisor.recordFailure(app,CapabilitySupervisor.Capability.BACKGROUND_SCHEDULING,t);}
             try{ProactiveScheduler.enableDaily(app);}catch(Throwable t){CapabilitySupervisor.recordFailure(app,CapabilitySupervisor.Capability.BACKGROUND_SCHEDULING,t);}
 
             try{NotificationListenerService.requestRebind(new ComponentName(app,NotificationCaptureService.class));}catch(Throwable ignored){}
         }catch(Throwable t){
             CapabilitySupervisor.recordFailure(app,CapabilitySupervisor.Capability.DATABASE,t);PHASE.set(Phase.CORE_FAILED);
         }finally{if(db!=null)try{db.close();}catch(Throwable ignored){}}
+    }
+
+    /**
+     * Failed strong-vision rows from an older/current install get one bounded automatic retry per
+     * visual pipeline version. If they fail again they remain visible as real failures instead of
+     * entering an infinite/costly cloud retry loop.
+     */
+    private static void recoverVisualFailuresOnce(Context app){
+        SharedPreferences p=app.getSharedPreferences("cortex_completion_recovery",Context.MODE_PRIVATE);
+        String key="visual_failed_recovery_pipeline";
+        if(p.getInt(key,-1)==VisualInsightStore.PIPELINE_VERSION)return;
+        VaultDb db=null;int requeued=0;
+        try{
+            db=new VaultDb(app);VisualInsightStore.ensure(db);
+            int failed=VisualInsightStore.countFailed(db);
+            if(failed>0)requeued=VisualInsightStore.requeueFailed(db,Math.min(20,failed));
+        }finally{
+            if(db!=null)try{db.close();}catch(Throwable ignored){}
+            p.edit().putInt(key,VisualInsightStore.PIPELINE_VERSION).putInt("visual_failed_requeued",requeued).putLong("visual_failed_recovery_at",System.currentTimeMillis()).apply();
+        }
     }
 
     static boolean safeCapability(CapabilitySupervisor.Capability capability){
