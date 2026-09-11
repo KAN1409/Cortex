@@ -1,7 +1,9 @@
 package com.kareem.cortex;
 
+import android.content.ContentValues;
 import android.content.Context;
 import android.database.Cursor;
+import android.database.sqlite.SQLiteDatabase;
 import androidx.test.core.app.ApplicationProvider;
 import org.junit.After;
 import org.junit.Test;
@@ -36,5 +38,43 @@ public class KnowledgeV2SchemaTest {
         assertTrue(tables.moveToFirst());
         assertEquals(4,tables.getInt(0));
         tables.close();
+    }
+
+    @Test public void completionPipelineAccountsForEligibleBlockedAndNoTextEvidence(){
+        Context c=ApplicationProvider.getApplicationContext();
+        c.deleteDatabase("cortex.db");
+        db=new VaultDb(c);
+        SQLiteDatabase s=db.getWritableDatabase();
+        KnowledgeV2Schema.ensure(s);
+
+        insertEvidence(s,"eligible","hello",1,0.0);
+        insertEvidence(s,"blocked","self screenshot",0,1.0);
+        insertEvidence(s,"blank","",1,0.0);
+
+        KnowledgeV2Maintenance.prepare(s);
+
+        Cursor states=s.rawQuery(
+                "SELECT state,COUNT(*) FROM kv2_processing WHERE stage=? AND pipeline_version=? GROUP BY state",
+                new String[]{KnowledgeV2Store.STAGE_EXTRACTION,String.valueOf(KnowledgeV2Schema.PIPELINE_VERSION)});
+        int pending=0,blocked=0,skipped=0;
+        while(states.moveToNext()){
+            String state=states.getString(0);int count=states.getInt(1);
+            if("PENDING".equals(state))pending=count;
+            else if("BLOCKED".equals(state))blocked=count;
+            else if("SKIPPED".equals(state))skipped=count;
+        }
+        states.close();
+        assertEquals(1,pending);
+        assertEquals(1,blocked);
+        assertEquals(1,skipped);
+    }
+
+    private static void insertEvidence(SQLiteDatabase s,String key,String raw,int eligible,double selfScore){
+        long now=System.currentTimeMillis();
+        ContentValues v=new ContentValues();
+        v.put("source_type","PICBRAIN_SCREENSHOT");v.put("source_key",key);v.put("source_uri","content://test/"+key);v.put("source_media_id",key.hashCode());
+        v.put("raw_text",raw);v.put("content_hash",key);v.put("origin","EXTERNAL");v.put("self_reference_score",selfScore);v.put("derivation_depth",0);v.put("knowledge_eligible",eligible);
+        v.put("provenance_reason","");v.put("captured_at",now);v.put("observed_at",now);v.put("created_at",now);v.put("updated_at",now);
+        assertTrue(s.insert("kv2_evidence",null,v)>0);
     }
 }
