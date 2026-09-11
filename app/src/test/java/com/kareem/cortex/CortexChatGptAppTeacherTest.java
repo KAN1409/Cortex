@@ -34,6 +34,27 @@ public class CortexChatGptAppTeacherTest {
         assertEquals("chatgpt-teacher-test",CortexPersonalPolicy.version(context));
     }
 
+
+    @Test public void acceptsChatGptFeatureBoostShape()throws Exception{
+        Context context=ApplicationProvider.getApplicationContext();
+        JSONObject policy=new JSONObject()
+                .put("version","chatgpt-teacher-conservative-v1")
+                .put("ttlMs",604800000)
+                .put("attentionThreshold",.76)
+                .put("maxNowItems",5)
+                .put("interruptionPenaltyScale",.30)
+                .put("featureWeights",new JSONObject().put("priority",.32))
+                .put("boosts",new JSONArray().put(
+                        new JSONObject().put("feature","securityRisk").put("weight",.22)))
+                .put("teacherNotes","test");
+
+        CortexChatGptAppTeacher.ImportResult r=
+                CortexChatGptAppTeacher.importText(context,policy.toString());
+
+        assertTrue(r.error,r.ok);
+        assertEquals("chatgpt-teacher-conservative-v1",CortexPersonalPolicy.version(context));
+    }
+
     @Test public void rejectsOutOfBoundsPolicy()throws Exception{
         Context context=ApplicationProvider.getApplicationContext();
         JSONObject policy=new JSONObject()
