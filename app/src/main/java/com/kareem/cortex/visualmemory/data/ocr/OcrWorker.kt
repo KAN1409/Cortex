@@ -25,7 +25,7 @@ class OcrWorker(
 
         val dao = VisualMemoryStore.database(applicationContext).mediaItemDao()
         val engine = HybridOcrEngine(applicationContext)
-        val processor = ScreenshotOcrProcessor(dao, engine)
+        val processor = ScreenshotOcrProcessor(applicationContext, dao, engine)
 
         return try {
             dao.resetOcrFromOlderEngines(HybridOcrEngine.ID)
