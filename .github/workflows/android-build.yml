@@ -38,6 +38,6 @@ jobs:
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
         with:
-          name: Cortex-v80-2.0.0-major-completion
+          name: Cortex-v80-2.0.1-now-quality
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
