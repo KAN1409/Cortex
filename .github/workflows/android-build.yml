@@ -49,6 +49,6 @@ jobs:
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
         with:
-          name: Cortex-v82-2.2.0-chatgpt-policy-bridge
+          name: Cortex-v82-2.2.1-memory-crash-fix
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
