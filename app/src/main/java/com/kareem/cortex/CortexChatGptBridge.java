@@ -11,8 +11,8 @@ import java.nio.charset.StandardCharsets;
  * Bidirectional transport between Cortex and the private ChatGPT teacher relay.
  *
  * No OpenAI model API is called here. Cortex uploads a compact layered Context Pack and pulls a
- * bounded Policy Pack. The teacher is deliberately connected at the ATTENTION policy boundary,
- * not to raw evidence, canonical knowledge mutation, or action execution.
+ * bounded Policy Pack. The teacher is connected to the FINAL JUDGMENT policy boundary: it can
+ * teach how Cortex ranks and interrupts, but it cannot rewrite evidence/knowledge or execute.
  */
 public final class CortexChatGptBridge {
     private static final int CONNECT_TIMEOUT_MS = 8_000;
@@ -44,7 +44,7 @@ public final class CortexChatGptBridge {
     }
 
     static JSONObject buildContextPack(Context app, VaultDb db) throws Exception {
-        return CortexTeacherContext.build(app, db);
+        return CortexTeacherContextNormalizer.apply(CortexTeacherContext.build(app, db));
     }
 
     private static String request(String method, String url, String token, String body) throws Exception {
