@@ -58,6 +58,8 @@ data class VisualMemoryItem(
 
 object VisualMemoryRuntime {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private const val COMPLETION_PREFS = "cortex_visual_completion"
+    private const val SEMANTIC_REPAIR_VERSION = 2
 
     interface Callback {
         fun success(message: String)
@@ -104,7 +106,9 @@ object VisualMemoryRuntime {
         val app = context.applicationContext
         scope.launch {
             if (restart) {
-                VisualMemoryStore.database(app).mediaItemDao().resetSemanticFailures()
+                val dao = VisualMemoryStore.database(app).mediaItemDao()
+                dao.resetSemanticFailures()
+                dao.resetRecoverableSemanticSkips()
             }
             val request = OneTimeWorkRequestBuilder<EmbeddingWorker>().build()
             WorkManager.getInstance(app).enqueueUniqueWork(
@@ -116,9 +120,8 @@ object VisualMemoryRuntime {
     }
 
     /**
-     * Completion-mode maintenance is intentionally idempotent. Opening Cortex/PicBrain no longer
-     * requires a manual "Start semantic index" ritual: failed semantic rows are recovered and all
-     * OCR-complete screenshots are accounted for in Knowledge V2.
+     * Completion-mode maintenance is intentionally idempotent. A new repair algorithm receives one
+     * automatic reset pass; persistent bad inputs are then left visible instead of looping forever.
      */
     @JvmStatic
     fun enqueueCompletionMaintenance(context: Context) {
@@ -129,12 +132,18 @@ object VisualMemoryRuntime {
                 val store = SemanticModelStore(app)
                 if (!store.isInstalled()) return@runCatching
                 val dao = VisualMemoryStore.database(app).mediaItemDao()
-                val hasFailures = dao.getAll().any { it.isScreenshot && it.semanticState == "FAILED" }
-                if (hasFailures) dao.resetSemanticFailures()
+                val prefs = app.getSharedPreferences(COMPLETION_PREFS, Context.MODE_PRIVATE)
+                val appliedVersion = prefs.getInt("semantic_repair_version", 0)
+                val shouldRepair = appliedVersion < SEMANTIC_REPAIR_VERSION
+                if (shouldRepair) {
+                    dao.resetSemanticFailures()
+                    dao.resetRecoverableSemanticSkips()
+                    prefs.edit().putInt("semantic_repair_version", SEMANTIC_REPAIR_VERSION).apply()
+                }
                 val request = OneTimeWorkRequestBuilder<EmbeddingWorker>().build()
                 WorkManager.getInstance(app).enqueueUniqueWork(
                     EmbeddingWorker.UNIQUE_WORK_NAME,
-                    if (hasFailures) ExistingWorkPolicy.REPLACE else ExistingWorkPolicy.KEEP,
+                    if (shouldRepair) ExistingWorkPolicy.REPLACE else ExistingWorkPolicy.KEEP,
                     request
                 )
             }
@@ -147,6 +156,8 @@ object VisualMemoryRuntime {
         scope.launch {
             runCatching {
                 SemanticModelStore(app).downloadOfficial()
+                app.getSharedPreferences(COMPLETION_PREFS, Context.MODE_PRIVATE)
+                    .edit().remove("semantic_repair_version").apply()
                 enqueueSemantic(app, true)
                 "EmbeddingGemma installed and indexing queued"
             }.onSuccess { callback?.success(it) }
@@ -166,13 +177,15 @@ object VisualMemoryRuntime {
             EmbeddingGemmaEmbedder.TARGET_DIMENSIONS
         ).asSequence().map { it.mediaId }.filter { it in screenshotIds }.toSet()
         val semanticSkipped = screenshots.count {
-            it.ocrState == "DONE" && it.ocrNormalizedText.orEmpty().trim().isEmpty()
+            it.semanticState == "SKIPPED" ||
+                (it.ocrState == "DONE" && it.ocrNormalizedText.orEmpty().trim().isEmpty())
         }
         val semanticFailed = screenshots.count { it.semanticState == "FAILED" }
         val semanticPending = screenshots.count {
             it.ocrState == "DONE" &&
                 it.mediaId !in embeddedIds &&
                 it.semanticState != "FAILED" &&
+                it.semanticState != "SKIPPED" &&
                 it.ocrNormalizedText.orEmpty().isNotBlank()
         }
         val knowledgeCounts = KnowledgeV2Store.visualProcessingCounts(app)
