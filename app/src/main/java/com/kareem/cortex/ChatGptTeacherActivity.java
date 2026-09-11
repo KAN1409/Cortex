@@ -8,13 +8,9 @@ import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 
-/**
- * Manual test surface for the bounded GPT-5.6 Sol teacher route.
- * No endpoint, relay token, or per-notification dependency is required.
- */
 public final class ChatGptTeacherActivity extends Activity {
     private TextView status;
-    private TextView sync;
+    private TextView launch;
 
     private int dp(int x){return CortexUi.dp(this,x);}
 
@@ -26,7 +22,11 @@ public final class ChatGptTeacherActivity extends Activity {
 
     @Override protected void onResume(){
         super.onResume();
-        if(status!=null)status.setText(statusText());
+        if(status!=null){
+            CortexChatGptAppTeacher.ImportResult r=CortexChatGptAppTeacher.importClipboardIfReady(this);
+            if(r.ok)Toast.makeText(this,"ChatGPT policy imported",Toast.LENGTH_LONG).show();
+            status.setText(statusText(r));
+        }
     }
 
     private void build(){
@@ -54,37 +54,41 @@ public final class ChatGptTeacherActivity extends Activity {
         CortexUi.medium(h);
         titles.addView(h);
         TextView sub=CortexUi.text(this,
-                "GPT-5.6 Sol teaches bounded FINAL JUDGMENT policy only.",
+                "Uses your ChatGPT app subscription · no API credits required.",
                 11,CortexUi.MUTED);
         sub.setPadding(0,dp(2),0,0);
         titles.addView(sub);
         head.addView(titles,new LinearLayout.LayoutParams(0,-2,1));
         body.addView(head);
 
-        body.addView(CortexUi.section(this,"Teacher route"));
+        body.addView(CortexUi.section(this,"How it works"));
         TextView route=CortexUi.text(this,
-                "Provider: OpenRouter\nModel: "+CortexOpenAiTeacher.MODEL+
-                "\nCredential: existing encrypted OpenRouter key\nRelay endpoint: not required",
+                "1. Cortex builds a compact normalized Context Pack.\n"+
+                "2. ChatGPT opens with the teacher request.\n"+
+                "3. Copy the JSON Policy Pack in ChatGPT, then return here.\n"+
+                "4. Cortex validates every bound locally before applying it.\n\n"+
+                "You can also use Share in ChatGPT and choose Cortex.",
                 12,CortexUi.TEXT);
         route.setPadding(0,dp(4),0,dp(8));
         body.addView(route);
 
-        sync=CortexUi.action(this,"SYNC TEACHER NOW",CortexUi.LIME,true);
+        launch=CortexUi.action(this,"TEACH WITH CHATGPT",CortexUi.LIME,true);
         LinearLayout.LayoutParams yp=new LinearLayout.LayoutParams(-1,dp(46));
         yp.setMargins(0,dp(10),0,0);
-        body.addView(sync,yp);
-        sync.setOnClickListener(v->syncNow());
+        body.addView(launch,yp);
+        launch.setOnClickListener(v->launchChatGpt());
 
         body.addView(CortexUi.section(this,"Status"));
-        status=CortexUi.text(this,statusText(),12,CortexUi.TEXT);
+        status=CortexUi.text(this,statusText(null),12,CortexUi.TEXT);
         status.setPadding(0,dp(4),0,dp(8));
         status.setTextIsSelectable(true);
         body.addView(status);
 
         body.addView(CortexUi.section(this,"Safety boundary"));
         TextView rules=CortexUi.text(this,
-                "Cortex sends only the normalized compact Context Pack. GPT-5.6 Sol may return a temporary bounded Policy Pack for CortexAttentionJudge. "+
-                "It cannot rewrite evidence or canonical knowledge, cannot directly surface or suppress items, cannot execute actions, and Cortex keeps working if this route is unavailable.",
+                "ChatGPT never writes directly into Cortex. It returns a proposed Policy Pack only. "+
+                "Cortex validates the threshold, TTL, interruption penalty, feature weights and boosts locally before saving. "+
+                "Evidence, canonical knowledge, world state and actions remain owned by Cortex.",
                 12,CortexUi.MUTED);
         rules.setPadding(0,dp(4),0,0);
         body.addView(rules);
@@ -93,37 +97,35 @@ public final class ChatGptTeacherActivity extends Activity {
         CortexUi.fitSystemBars(this,root);
     }
 
-    private void syncNow(){
-        if(!CortexOpenAiTeacher.configured(this)){
-            Toast.makeText(this,"OpenRouter is not configured in Cortex",Toast.LENGTH_LONG).show();
-            return;
-        }
-        sync.setEnabled(false);
-        sync.setText("TEACHING…");
-        status.setText("Building normalized Context Pack and requesting bounded policy…");
-
+    private void launchChatGpt(){
+        launch.setEnabled(false);
+        launch.setText("PREPARING…");
         new Thread(()->{
-            CortexOpenAiTeacher.Result result;
             try{
-                result=CortexOpenAiTeacher.sync(getApplicationContext());
+                CortexChatGptAppTeacher.launch(this);
             }catch(Throwable e){
-                result=new CortexOpenAiTeacher.Result(false,"",
-                        e.getClass().getSimpleName()+": "+(e.getMessage()==null?"":e.getMessage()),0);
+                runOnUiThread(()->Toast.makeText(this,
+                        "Could not open ChatGPT: "+(e.getMessage()==null?e.getClass().getSimpleName():e.getMessage()),
+                        Toast.LENGTH_LONG).show());
+            }finally{
+                runOnUiThread(()->{
+                    launch.setEnabled(true);
+                    launch.setText("TEACH WITH CHATGPT");
+                    status.setText(statusText(null));
+                });
             }
-            final CortexOpenAiTeacher.Result r=result;
-            runOnUiThread(()->{
-                sync.setEnabled(true);
-                sync.setText("SYNC TEACHER NOW");
-                status.setText(statusText()+"\nLast request: "+(r.ok?"SUCCESS · "+r.durationMs+" ms":"FAILED · "+r.error));
-                Toast.makeText(this,r.ok?"Teacher policy updated":"Teacher request failed",Toast.LENGTH_LONG).show();
-            });
-        },"cortex-gpt56-teacher").start();
+        },"cortex-chatgpt-app-teacher").start();
     }
 
-    private String statusText(){
-        return "Teacher: "+(CortexOpenAiTeacher.configured(this)?"ready":"OpenRouter key missing")+
-                "\nModel: "+CortexOpenAiTeacher.MODEL+
-                "\nPolicy: "+CortexPersonalPolicy.version(this)+
-                "\nCortex autonomy: local-first / teacher optional";
+    private String statusText(CortexChatGptAppTeacher.ImportResult latest){
+        StringBuilder b=new StringBuilder();
+        b.append("Policy: ").append(CortexPersonalPolicy.version(this));
+        b.append("\nPending ChatGPT request: ").append(CortexChatGptAppTeacher.pending(this)?"YES":"NO");
+        if(CortexChatGptAppTeacher.launchedAt(this)>0)
+            b.append("\nLast launch: ").append(new java.text.SimpleDateFormat("dd MMM · HH:mm:ss",
+                    java.util.Locale.getDefault()).format(new java.util.Date(CortexChatGptAppTeacher.launchedAt(this))));
+        if(latest!=null&&!latest.ok&&!latest.error.isEmpty()&&!"Waiting for ChatGPT policy".equals(latest.error))
+            b.append("\nClipboard status: ").append(latest.error);
+        return b.toString();
     }
 }
