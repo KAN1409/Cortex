@@ -13,6 +13,7 @@ import org.json.JSONObject;
  * Cortex semantic truth.
  */
 public final class NotificationEventEngine {
+    private static final long CROSS_STREAM_DEDUP_MS=3_000L;
     public static final class Result {
         public final long rawId,streamId,semanticEventId;
         public final String transition,technicalType,platformHint;
@@ -30,6 +31,7 @@ public final class NotificationEventEngine {
         s.execSQL("CREATE INDEX IF NOT EXISTS idx_notif_raw_time ON notification_raw_observations(occurred_at DESC)");
         s.execSQL("CREATE INDEX IF NOT EXISTS idx_notif_raw_stream ON notification_raw_observations(stream_key,occurred_at ASC)");
         s.execSQL("CREATE INDEX IF NOT EXISTS idx_notif_raw_pkg ON notification_raw_observations(package_name,occurred_at DESC)");
+        s.execSQL("CREATE INDEX IF NOT EXISTS idx_notif_raw_hash ON notification_raw_observations(package_name,content_hash,occurred_at DESC)");
 
         s.execSQL("CREATE TABLE IF NOT EXISTS notification_streams(id INTEGER PRIMARY KEY AUTOINCREMENT,stream_key TEXT UNIQUE NOT NULL,package_name TEXT NOT NULL,app_label TEXT,title TEXT,body TEXT,content_hash TEXT,platform_hint TEXT,technical_type TEXT,state TEXT NOT NULL DEFAULT 'active',progress INTEGER DEFAULT 0,progress_max INTEGER DEFAULT 0,observation_count INTEGER DEFAULT 0,meaningful_count INTEGER DEFAULT 0,first_seen_at INTEGER NOT NULL,last_seen_at INTEGER NOT NULL,last_meaningful_at INTEGER DEFAULT 0,metadata_json TEXT,created_at INTEGER NOT NULL,updated_at INTEGER NOT NULL)");
         s.execSQL("CREATE INDEX IF NOT EXISTS idx_notif_stream_recent ON notification_streams(last_seen_at DESC)");
@@ -56,25 +58,35 @@ public final class NotificationEventEngine {
         int progress=m.optInt("progress",0),progressMax=m.optInt("progress_max",0);
         String transition=transition(streamId,ev,hash,oldHash,tech,oldTech,progress,progressMax,oldProgress,oldProgressMax,oldState);
         boolean meaningful=isMeaningful(transition);
+        boolean semanticDuplicate=meaningful&&dedupEligible(tech)&&recentEquivalentMeaning(s,p,hash,streamKey,when);
 
         ContentValues raw=new ContentValues();raw.put("stream_key",streamKey);raw.put("package_name",p);raw.put("app_label",app);raw.put("event_type",ev);raw.put("title",t);raw.put("body",b);raw.put("content_hash",hash);raw.put("platform_hint",hint);raw.put("technical_type",tech);raw.put("metadata_json",m.toString());raw.put("occurred_at",when);raw.put("created_at",now);
         long rawId=s.insertOrThrow("notification_raw_observations",null,raw);
 
         if(streamId<=0){
-            ContentValues v=new ContentValues();v.put("stream_key",streamKey);v.put("package_name",p);v.put("app_label",app);v.put("title",t);v.put("body",b);v.put("content_hash",hash);v.put("platform_hint",hint);v.put("technical_type",tech);v.put("state","removed".equals(ev)?"removed":"active");v.put("progress",progress);v.put("progress_max",progressMax);v.put("observation_count",1);v.put("meaningful_count",meaningful?1:0);v.put("first_seen_at",when);v.put("last_seen_at",when);v.put("last_meaningful_at",meaningful?when:0);v.put("metadata_json",m.toString());v.put("created_at",now);v.put("updated_at",now);streamId=s.insertOrThrow("notification_streams",null,v);
+            ContentValues v=new ContentValues();v.put("stream_key",streamKey);v.put("package_name",p);v.put("app_label",app);v.put("title",t);v.put("body",b);v.put("content_hash",hash);v.put("platform_hint",hint);v.put("technical_type",tech);v.put("state","removed".equals(ev)?"removed":"active");v.put("progress",progress);v.put("progress_max",progressMax);v.put("observation_count",1);v.put("meaningful_count",meaningful&&!semanticDuplicate?1:0);v.put("first_seen_at",when);v.put("last_seen_at",when);v.put("last_meaningful_at",meaningful&&!semanticDuplicate?when:0);v.put("metadata_json",m.toString());v.put("created_at",now);v.put("updated_at",now);streamId=s.insertOrThrow("notification_streams",null,v);
         }else{
-            ContentValues v=new ContentValues();v.put("package_name",p);v.put("app_label",app);v.put("title",t);v.put("body",b);v.put("content_hash",hash);v.put("platform_hint",hint);v.put("technical_type",tech);v.put("state","removed".equals(ev)?"removed":"active");v.put("progress",progress);v.put("progress_max",progressMax);v.put("last_seen_at",when);v.put("metadata_json",m.toString());v.put("updated_at",now);v.put("observation_count",rawCountForStream(s,streamKey));if(meaningful){v.put("meaningful_count",oldMeaningful+1);v.put("last_meaningful_at",when);}s.update("notification_streams",v,"id=?",new String[]{String.valueOf(streamId)});
+            ContentValues v=new ContentValues();v.put("package_name",p);v.put("app_label",app);v.put("title",t);v.put("body",b);v.put("content_hash",hash);v.put("platform_hint",hint);v.put("technical_type",tech);v.put("state","removed".equals(ev)?"removed":"active");v.put("progress",progress);v.put("progress_max",progressMax);v.put("last_seen_at",when);v.put("metadata_json",m.toString());v.put("updated_at",now);v.put("observation_count",rawCountForStream(s,streamKey));if(meaningful&&!semanticDuplicate){v.put("meaningful_count",oldMeaningful+1);v.put("last_meaningful_at",when);}s.update("notification_streams",v,"id=?",new String[]{String.valueOf(streamId)});
         }
 
         long semanticId=0;
-        if(meaningful){ContentValues v=new ContentValues();v.put("stream_id",streamId);v.put("raw_observation_id",rawId);v.put("transition",transition);v.put("technical_type",tech);v.put("platform_hint",hint);v.put("semantic_state","pending");v.put("occurred_at",when);v.put("created_at",now);semanticId=s.insert("notification_semantic_events",null,v);}
-        return new Result(rawId,streamId,semanticId,transition,tech,hint,meaningful&&hasSemanticContent(b,tech));
+        if(meaningful&&!semanticDuplicate){ContentValues v=new ContentValues();v.put("stream_id",streamId);v.put("raw_observation_id",rawId);v.put("transition",transition);v.put("technical_type",tech);v.put("platform_hint",hint);v.put("semantic_state","pending");v.put("occurred_at",when);v.put("created_at",now);semanticId=s.insert("notification_semantic_events",null,v);}
+        String resultTransition=semanticDuplicate?"DUPLICATE_EVIDENCE":transition;
+        return new Result(rawId,streamId,semanticId,resultTransition,tech,hint,!semanticDuplicate&&meaningful&&hasSemanticContent(b,tech));
     }
 
     public static long rawCountSince(VaultDb db,long since){ensure(db);return scalar(db,"SELECT COUNT(*) FROM notification_raw_observations WHERE occurred_at>=?",new String[]{String.valueOf(since)});}
     public static long streamCountSince(VaultDb db,long since){ensure(db);return scalar(db,"SELECT COUNT(*) FROM notification_streams WHERE last_seen_at>=?",new String[]{String.valueOf(since)});}
     public static long meaningfulCountSince(VaultDb db,long since){ensure(db);return scalar(db,"SELECT COUNT(*) FROM notification_semantic_events WHERE occurred_at>=?",new String[]{String.valueOf(since)});}
     public static long appCountSince(VaultDb db,long since){ensure(db);return scalar(db,"SELECT COUNT(DISTINCT package_name) FROM notification_streams WHERE last_seen_at>=?",new String[]{String.valueOf(since)});}
+
+    private static boolean recentEquivalentMeaning(SQLiteDatabase s,String pkg,String hash,String streamKey,long when){
+        long lo=Math.max(0,when-CROSS_STREAM_DEDUP_MS),hi=when+CROSS_STREAM_DEDUP_MS;
+        Cursor c=s.rawQuery("SELECT 1 FROM notification_semantic_events se JOIN notification_raw_observations ro ON ro.id=se.raw_observation_id WHERE ro.package_name=? AND ro.content_hash=? AND ro.stream_key<>? AND se.occurred_at BETWEEN ? AND ? LIMIT 1",
+                new String[]{pkg,hash,streamKey,String.valueOf(lo),String.valueOf(hi)});
+        boolean found=c.moveToFirst();c.close();return found;
+    }
+    private static boolean dedupEligible(String tech){return !"conversation_notification".equals(tech)&&!"call_hint".equals(tech);}
 
     private static String transition(long streamId,String event,String hash,String oldHash,String tech,String oldTech,int progress,int max,int oldProgress,int oldMax,String oldState){
         if("removed".equals(event))return "removed".equals(oldState)?"NOISE_UPDATE":"REMOVED";
