@@ -74,6 +74,30 @@ public class CortexChatGptAppTeacherTest {
         assertTrue(r.error.contains("attentionThreshold"));
     }
 
+    @Test public void teacherImpactReportPersistsAndSummarizes()throws Exception{
+        Context context=ApplicationProvider.getApplicationContext();
+        JSONObject report=new JSONObject()
+                .put("version","cortex_teacher_impact_001")
+                .put("createdAt",System.currentTimeMillis())
+                .put("currentPolicy","before")
+                .put("proposedPolicy","after")
+                .put("candidateCount",8)
+                .put("beforeNow",5)
+                .put("afterNow",3)
+                .put("promoted",1)
+                .put("deferred",3)
+                .put("unchanged",4)
+                .put("averageScoreDelta",-0.12)
+                .put("examples",new JSONArray());
+
+        CortexTeacherImpact.save(context,report);
+        JSONObject loaded=CortexTeacherImpact.latest(context);
+
+        assertEquals("before",loaded.getString("currentPolicy"));
+        assertEquals("after",loaded.getString("proposedPolicy"));
+        assertTrue(CortexTeacherImpact.summary(context).contains("5 → 3"));
+    }
+
     @Test public void extractsJsonFromSharedText()throws Exception{
         String shared="ChatGPT result:\n{\"version\":\"chatgpt-teacher-share\",\"ttlMs\":86400000,\"attentionThreshold\":0.72,\"maxNowItems\":7,\"interruptionPenaltyScale\":0.24,\"featureWeights\":{},\"boosts\":[],\"teacherNotes\":\"ok\"}\n";
         JSONObject p=CortexChatGptAppTeacher.extractPolicy(shared);
