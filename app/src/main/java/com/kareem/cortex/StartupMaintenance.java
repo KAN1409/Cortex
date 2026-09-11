@@ -12,7 +12,6 @@ public final class StartupMaintenance {
     private StartupMaintenance(){}
 
     public static void schedule(Context context){
-        // Recovery build: do not even initialize WorkManager or SQLite from a startup caller.
         if(StartupSafetyGate.active())return;
         if(context==null||!scheduled.compareAndSet(false,true))return;
         Context app=context.getApplicationContext();
@@ -39,6 +38,7 @@ public final class StartupMaintenance {
             AdjudicationRecovery.run(context,db);
             ContactSafetyMaintenance.run(db);
             EntityGraphMaintenance.run(db);
+            EntityQualityMaintenance.run(db);
             IntentionalCognitiveBridge.backfill(db,250);
             StatefulMeaningRebuilder.run(db,240);
             EnvironmentPreflight.run(context);
