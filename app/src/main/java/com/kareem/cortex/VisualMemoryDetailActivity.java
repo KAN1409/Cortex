@@ -10,6 +10,9 @@ import android.widget.*;
 import java.io.InputStream;
 import java.text.SimpleDateFormat;
 import java.util.*;
+import java.util.concurrent.*;
+import com.kareem.cortex.visualmemory.VisualKnowledgeReader;
+import com.kareem.cortex.visualmemory.VisualKnowledgeSnapshot;
 
 public final class VisualMemoryDetailActivity extends Activity {
     int dp(int x){return CortexUi.dp(this,x);}
@@ -33,6 +36,7 @@ public final class VisualMemoryDetailActivity extends Activity {
         int derivationDepth=i.getIntExtra("derivation_depth",0);
         boolean knowledgeEligible=i.getBooleanExtra("knowledge_eligible",true);
         String provenanceReason=i.getStringExtra("provenance_reason");
+        long mediaId=i.getLongExtra("media_id",0L);
 
         LinearLayout root=new LinearLayout(this);root.setOrientation(LinearLayout.VERTICAL);root.setBackgroundColor(CortexUi.BG);
         ScrollView sv=new ScrollView(this);sv.setFillViewport(true);
@@ -54,6 +58,16 @@ public final class VisualMemoryDetailActivity extends Activity {
         body.addView(info("OCR STATUS",safe(ocrState),CortexUi.GREEN));
         body.addView(info("SEMANTIC STATUS",safe(semanticState)+(safe(semanticError).isEmpty()?"":"\n\nLast error: "+semanticError),CortexUi.LIME));
         body.addView(info("PROVENANCE",(knowledgeEligible?"Eligible for knowledge":"Blocked from new knowledge")+"\nOrigin: "+safe(origin)+"\nSelf-reference: "+Math.round(selfScore*100)+"%\nDerivation depth: "+derivationDepth+(safe(provenanceReason).isEmpty()?"":"\nReason: "+provenanceReason),knowledgeEligible?CortexUi.GREEN:CortexUi.YELLOW));
+        LinearLayout understood=CortexUi.card(this,18);understood.setPadding(dp(14),dp(12),dp(14),dp(14));
+        TextView understoodLabel=CortexUi.plain(this,"CORTEX UNDERSTOOD",10,CortexUi.LIME);CortexUi.medium(understoodLabel);understood.addView(understoodLabel);
+        TextView understoodBody=CortexUi.text(this,knowledgeEligible?"Building structured information from this screenshot…":"Not promoted: this screenshot is Cortex-derived evidence.",12,CortexUi.TEXT);understoodBody.setPadding(0,dp(7),0,0);understood.addView(understoodBody);
+        LinearLayout understoodWrap=new LinearLayout(this);understoodWrap.addView(understood,new LinearLayout.LayoutParams(-1,-2));LinearLayout.LayoutParams uwp=new LinearLayout.LayoutParams(-1,-2);uwp.setMargins(0,dp(9),0,0);understoodWrap.setLayoutParams(uwp);body.addView(understoodWrap);
+        if(knowledgeEligible&&mediaId>0){
+            Executors.newSingleThreadExecutor().execute(()->{
+                VisualKnowledgeSnapshot k=VisualKnowledgeReader.read(this,mediaId);
+                runOnUiThread(()->understoodBody.setText(formatKnowledge(k)));
+            });
+        }
         body.addView(info("TRANSCRIPTION",safe(ocr).isEmpty()?"No OCR text available yet.":ocr,CortexUi.TEXT));
 
         TextView original=CortexUi.action(this,"Open original image",CortexUi.ORANGE,false);
@@ -80,6 +94,16 @@ public final class VisualMemoryDetailActivity extends Activity {
             in=getContentResolver().openInputStream(u);return BitmapFactory.decodeStream(in,null,o);
         }catch(Throwable e){return null;}
         finally{if(in!=null)try{in.close();}catch(Throwable ignored){}}
+    }
+    String formatKnowledge(VisualKnowledgeSnapshot k){
+        if(k==null||k.getKnowledgeId()<=0)return "No structured information has been promoted yet.";
+        StringBuilder s=new StringBuilder();
+        if(!safe(k.getSummary()).isEmpty())s.append(k.getSummary());
+        if(!safe(k.getCategory()).isEmpty())s.append(s.length()>0?"\n\n":"").append("Category: ").append(k.getCategory());
+        if(k.getEntities()!=null&&!k.getEntities().isEmpty())s.append("\n\nInformation\n• ").append(String.join("\n• ",k.getEntities()));
+        if(k.getActions()!=null&&!k.getActions().isEmpty())s.append("\n\nPossible actions\n• ").append(String.join("\n• ",k.getActions()));
+        s.append("\n\nEvidence depth: ").append(k.getDerivationDepth());
+        return s.toString();
     }
     String safe(String s){return s==null?"":s.trim();}
 }
