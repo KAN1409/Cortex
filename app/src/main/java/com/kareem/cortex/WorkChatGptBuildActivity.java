@@ -18,6 +18,9 @@ import java.util.ArrayList;
 public final class WorkChatGptBuildActivity extends Activity {
     public static final String EXTRA_KIND="document_kind";
     private static final int REQ_REFERENCES=8611;
+    private static final String STATE_PROJECT="work_chatgpt_project";
+    private static final String STATE_REQUIREMENTS="work_chatgpt_requirements";
+    private static final String STATE_REFERENCES="work_chatgpt_references";
 
     private VaultDb db;
     private WorkDocumentRecipe.Kind kind=WorkDocumentRecipe.Kind.PROJECT_STATUS_REPORT;
@@ -32,6 +35,16 @@ public final class WorkChatGptBuildActivity extends Activity {
         super.onCreate(state);CortexUi.applyWindow(this);db=new VaultDb(getApplicationContext());
         try{String raw=getIntent().getStringExtra(EXTRA_KIND);if(raw!=null)kind=WorkDocumentRecipe.Kind.valueOf(raw);}catch(Throwable ignored){}
         build();
+        restoreDraft(state);
+    }
+
+    @Override protected void onSaveInstanceState(Bundle outState){
+        super.onSaveInstanceState(outState);
+        outState.putString(STATE_PROJECT,text(project));
+        outState.putString(STATE_REQUIREMENTS,text(requirements));
+        ArrayList<String> uris=new ArrayList<>();
+        for(Uri uri:references)if(uri!=null)uris.add(uri.toString());
+        outState.putStringArrayList(STATE_REFERENCES,uris);
     }
 
     @Override protected void onDestroy(){if(db!=null)try{db.close();}catch(Throwable ignored){}super.onDestroy();}
@@ -60,6 +73,26 @@ public final class WorkChatGptBuildActivity extends Activity {
         setContentView(root);
     }
 
+    private void restoreDraft(Bundle state){
+        if(state==null)return;
+        String savedProject=state.getString(STATE_PROJECT,"");
+        String savedRequirements=state.getString(STATE_REQUIREMENTS,"");
+        if(project!=null)project.setText(savedProject);
+        if(requirements!=null)requirements.setText(savedRequirements);
+        references.clear();
+        ArrayList<String> uris=state.getStringArrayList(STATE_REFERENCES);
+        if(uris!=null){
+            for(String raw:uris){
+                if(raw==null||raw.trim().isEmpty())continue;
+                try{
+                    Uri uri=Uri.parse(raw);
+                    if(!references.contains(uri)&&WorkReferenceFilePolicy.isSupportedMime(safeMime(uri)))references.add(uri);
+                }catch(Throwable ignored){}
+            }
+        }
+        updateRefsLabel();
+    }
+
     private void chooseReferences(){
         Intent i=new Intent(Intent.ACTION_OPEN_DOCUMENT);i.addCategory(Intent.CATEGORY_OPENABLE);i.setType("*/*");i.putExtra(Intent.EXTRA_ALLOW_MULTIPLE,true);
         String[] types={"application/pdf","application/vnd.openxmlformats-officedocument.wordprocessingml.document","application/msword","application/vnd.openxmlformats-officedocument.spreadsheetml.sheet","application/vnd.ms-excel","application/vnd.openxmlformats-officedocument.presentationml.presentation","application/vnd.ms-powerpoint"};
@@ -84,6 +117,7 @@ public final class WorkChatGptBuildActivity extends Activity {
     }
 
     private void updateRefsLabel(){
+        if(refsLabel==null)return;
         if(references.isEmpty()){
             refsLabel.setText("No reference files selected yet. References are optional, but strongly recommended when ChatGPT should copy a model, structure or formatting style.");return;
         }
@@ -98,8 +132,8 @@ public final class WorkChatGptBuildActivity extends Activity {
     }
 
     private void reviewBeforeSend(TextView button){
-        String p=project.getText()==null?"":project.getText().toString().trim();
-        String req=requirements.getText()==null?"":requirements.getText().toString().trim();
+        String p=text(project);
+        String req=text(requirements);
         if(req.isEmpty()){android.widget.Toast.makeText(this,"Write the new document requirements first",android.widget.Toast.LENGTH_LONG).show();requirements.requestFocus();return;}
 
         StringBuilder review=new StringBuilder();
@@ -121,19 +155,19 @@ public final class WorkChatGptBuildActivity extends Activity {
         new AlertDialog.Builder(this)
                 .setTitle("Review before sending")
                 .setMessage(review.toString())
-                .setNegativeButton("Back",null)
+                .setNegativeButton("Edit request",null)
                 .setPositiveButton("Send to ChatGPT",(d,w)->sendToChatGpt(button,false))
                 .show();
     }
 
     private void sendToChatGpt(TextView button,boolean largeFilesConfirmed){
-        String p=project.getText()==null?"":project.getText().toString().trim();String req=requirements.getText()==null?"":requirements.getText().toString().trim();
+        String p=text(project);String req=text(requirements);
         if(req.isEmpty()){android.widget.Toast.makeText(this,"Write the new document requirements first",android.widget.Toast.LENGTH_LONG).show();requirements.requestFocus();return;}
         if(!largeFilesConfirmed&&hasLargeReference()){
             new AlertDialog.Builder(this)
                     .setTitle("Large reference file")
                     .setMessage("One or more selected references are larger than 50 MB. Cortex will not block them, but sharing may be slower or the receiving app may reject them. Continue?")
-                    .setNegativeButton("Cancel",null)
+                    .setNegativeButton("Edit request",null)
                     .setPositiveButton("Continue",(d,w)->sendToChatGpt(button,true))
                     .show();
             return;
@@ -159,6 +193,7 @@ public final class WorkChatGptBuildActivity extends Activity {
     }
 
     private String safeMime(Uri uri){try{String m=getContentResolver().getType(uri);return m==null?"application/octet-stream":m;}catch(Throwable ignored){return "application/octet-stream";}}
+    private static String text(EditText e){return e==null||e.getText()==null?"":e.getText().toString().trim();}
 
     private static final class RefMeta {final String name,mime;final long size;RefMeta(String n,String m,long s){name=n;mime=m;size=s;}}
 }
