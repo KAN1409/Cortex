@@ -28,6 +28,7 @@
         <activity android:name=".NexusActivity" android:exported="false" />
         <activity android:name=".CaptureOverviewActivity" android:exported="false" />
         <activity android:name=".WorkVaultActivity" android:exported="false" />
+        <activity android:name=".WorkVaultAskActivity" android:exported="false" android:windowSoftInputMode="adjustResize" />
         <activity android:name=".CognitiveShadowActivity" android:exported="true" />
         <activity android:name=".CrashReportActivity" android:exported="false" />
         <activity android:name=".SatinBriefActivity" android:exported="false" />
