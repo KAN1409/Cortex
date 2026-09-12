@@ -1,6 +1,7 @@
 package com.kareem.cortex;
 
 import static org.junit.Assert.*;
+import java.util.Arrays;
 import org.junit.Test;
 
 public class WorkDocumentClassifierTest {
@@ -83,5 +84,10 @@ public class WorkDocumentClassifierTest {
         WorkPriceComparisonEngine.Comparison unitMismatch=WorkPriceComparisonEngine.compare(linear,oldPrice);
         assertFalse(unitMismatch.comparable);
         assertEquals("UNIT_MISMATCH",unitMismatch.reason);
+    }
+
+    @Test public void anomalyMedianIsStableAgainstSingleExtremeValue(){
+        assertEquals(2500.0,WorkPriceAnalyticsEngine.median(Arrays.asList(2400d,2500d,2600d)),.001);
+        assertEquals(2550.0,WorkPriceAnalyticsEngine.median(Arrays.asList(2400d,2500d,2600d,9999d)),.001);
     }
 }
