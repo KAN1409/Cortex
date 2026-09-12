@@ -5,9 +5,9 @@ import java.util.regex.*;
 
 /** Deterministic first-pass extraction for construction/procurement archives. */
 public final class WorkStructuredExtractor {
-    public static final String VERSION="work_structured_extractor_002";
-    private static final Pattern PR=Pattern.compile("(?i)(?:\\bPR\\b|P\\.?R\\.?|طلب شراء|طلب الشراء)\\s*[-:#/]?\\s*([A-Z0-9][A-Z0-9._/-]{1,24})");
-    private static final Pattern PO=Pattern.compile("(?i)(?:\\bPO\\b|P\\.?O\\.?|أمر إسناد|امر اسناد|أمر شراء|امر شراء)\\s*[-:#/]?\\s*([A-Z0-9][A-Z0-9._/-]{1,24})");
+    public static final String VERSION="work_structured_extractor_003";
+    private static final Pattern PR=Pattern.compile("(?i)(?:(?<![A-Z0-9])P\\.?R\.?(?![A-Z0-9])|طلب شراء|طلب الشراء)\\s*[-:#/]?\\s*([A-Z0-9][A-Z0-9._/-]{1,24})");
+    private static final Pattern PO=Pattern.compile("(?i)(?:(?<![A-Z0-9])P\\.?O\.?(?![A-Z0-9])|أمر إسناد|امر اسناد|أمر شراء|امر شراء)\\s*[-:#/]?\\s*([A-Z0-9][A-Z0-9._/-]{1,24})");
     private static final Pattern PROJECT=Pattern.compile("(?i)(?:project|المشروع)\\s*[:\\-]\\s*([^|\\n\\r]{2,120})");
 
     private WorkStructuredExtractor(){}
