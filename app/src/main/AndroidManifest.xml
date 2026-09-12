@@ -22,6 +22,8 @@
         <activity android:name=".InputActivity" android:exported="false" />
         <activity android:name=".NowActivity" android:exported="true"><intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter></activity>
         <activity android:name=".NexusActivity" android:exported="false" />
+        <activity android:name=".CaptureHubActivity" android:exported="false" />
+        <activity android:name=".VoiceLibraryActivity" android:exported="false" />
         <activity android:name=".CaptureOverviewActivity" android:exported="false" />
         <activity android:name=".WorkWorkspaceActivity" android:exported="false" />
         <activity android:name=".WorkVaultActivity" android:exported="false" />
