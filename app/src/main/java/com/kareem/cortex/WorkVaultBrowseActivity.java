@@ -23,7 +23,7 @@ public final class WorkVaultBrowseActivity extends Activity {
     public static final String MODE_PROJECTS="projects";
     public static final String MODE_FILES="files";
     public static final String MODE_PRICES="prices";
-    public static final String VERSION="work_vault_browse_activity_003";
+    public static final String VERSION="work_vault_browse_activity_004";
 
     private VaultDb db;
     private LinearLayout content;
@@ -51,6 +51,12 @@ public final class WorkVaultBrowseActivity extends Activity {
     static long normalizeProjectId(long raw){return Math.max(0L,raw);}
 
     static String generatedBoundaryLabel(){return "DERIVED OUTPUT · NOT SOURCE EVIDENCE";}
+
+    static boolean sameProjectLabel(String generatedProject,String canonicalProject){
+        String a=generatedProject==null?"":generatedProject.trim();
+        String b=canonicalProject==null?"":canonicalProject.trim();
+        return !a.isEmpty()&&!b.isEmpty()&&a.equalsIgnoreCase(b);
+    }
 
     private void build(){
         LinearLayout root=new LinearLayout(this);root.setOrientation(LinearLayout.VERTICAL);root.setBackgroundColor(CortexUi.BG);
@@ -119,6 +125,12 @@ public final class WorkVaultBrowseActivity extends Activity {
 
         ArrayList<FileRow> files=loadProjectFiles(id,120);content.addView(section("Files & evidence",files.size(),CortexUi.OLIVE));
         if(files.isEmpty())empty("No active evidence files","No active-version file is currently linked to this project.");else for(FileRow r:files)fileCard(r);
+
+        ArrayList<WorkGeneratedDocumentsReader.Row> generated=new ArrayList<>();
+        for(WorkGeneratedDocumentsReader.Row r:WorkGeneratedDocumentsReader.load(db.getReadableDatabase(),300))if(sameProjectLabel(r.project,project.name))generated.add(r);
+        content.addView(section("Generated documents",generated.size(),CortexUi.YELLOW));
+        TextView boundary=CortexUi.text(this,generatedBoundaryLabel(),10,CortexUi.YELLOW);boundary.setPadding(dp(2),0,0,dp(9));content.addView(boundary);
+        if(generated.isEmpty())empty("No generated documents for this project","Only outputs explicitly tagged with this exact project name appear here; they remain derived and never become source evidence.");else for(WorkGeneratedDocumentsReader.Row r:generated)generatedCard(r);
     }
 
     private ProjectRow loadProject(long id){
