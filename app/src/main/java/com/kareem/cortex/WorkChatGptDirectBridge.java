@@ -15,7 +15,7 @@ import java.util.ArrayList;
 
 /** Direct user-invoked ChatGPT document builder with explicit reference attachments and detailed requirements. */
 public final class WorkChatGptDirectBridge {
-    public static final String VERSION="work_chatgpt_direct_bridge_002";
+    public static final String VERSION="work_chatgpt_direct_bridge_003";
     public static final String CHATGPT_PACKAGE="com.openai.chatgpt";
     private WorkChatGptDirectBridge(){}
 
@@ -32,9 +32,10 @@ public final class WorkChatGptDirectBridge {
     public static Prepared prepare(Context context,VaultDb vault,WorkDocumentRecipe.Kind kind,String project,String requirements,ArrayList<Uri> references) throws Exception {
         String req=requirements==null?"":requirements.trim();
         if(req.isEmpty())throw new IllegalArgumentException("Detailed document requirements are required");
+        ArrayList<Uri> safeReferences=sanitizeReferences(context,references);
 
         JSONObject payload=WorkDocumentBuildPackage.build(vault,kind,project);
-        JSONArray refs=referenceMetadata(context,references);
+        JSONArray refs=referenceMetadata(context,safeReferences);
         payload.put("requestMode","DIRECT_CHATGPT_REFERENCE_BUILD");
         payload.put("userRequirements",req);
         payload.put("selectedReferenceDocuments",refs);
@@ -47,11 +48,11 @@ public final class WorkChatGptDirectBridge {
         try(OutputStream out=new FileOutputStream(json)){out.write(payload.toString(2).getBytes(StandardCharsets.UTF_8));}
         Uri jsonUri=FileProvider.getUriForFile(context,context.getPackageName()+".feedback.files",json);
 
-        ArrayList<Uri> all=new ArrayList<>();all.add(jsonUri);if(references!=null)all.addAll(references);
+        ArrayList<Uri> all=new ArrayList<>();all.add(jsonUri);all.addAll(safeReferences);
         WorkDocumentRecipe.Recipe recipe=WorkDocumentRecipe.forKind(kind);
         WorkGeneratedDocumentRegistry.register(vault.getWritableDatabase(),kind,recipe.outputFormat,project,"CHATGPT_DIRECT_REFERENCE_BUILDER",json.getAbsolutePath(),jsonUri.toString());
         long requestId=WorkChatGptBuildRequestRegistry.registerPrepared(vault.getWritableDatabase(),kind,project,req,refs,json.getAbsolutePath(),jsonUri.toString());
-        return new Prepared(json,jsonUri,all,prompt(kind,project,req,references),payload,requestId);
+        return new Prepared(json,jsonUri,all,prompt(kind,project,req,safeReferences),payload,requestId);
     }
 
     public static boolean openChatGpt(Context context,Prepared p){
@@ -72,10 +73,30 @@ public final class WorkChatGptDirectBridge {
         }
     }
 
+    private static ArrayList<Uri> sanitizeReferences(Context context,ArrayList<Uri> refs){
+        ArrayList<Uri> out=new ArrayList<>();if(refs==null)return out;
+        for(Uri uri:refs){
+            if(uri==null||out.contains(uri))continue;
+            String mime=safeMime(context,uri);
+            if(!WorkReferenceFilePolicy.isSupportedMime(mime))continue;
+            out.add(uri);
+        }
+        return out;
+    }
+
     private static JSONArray referenceMetadata(Context context,ArrayList<Uri> refs){
         JSONArray a=new JSONArray();if(refs==null)return a;
         for(Uri uri:refs){if(uri==null)continue;JSONObject o=new JSONObject();try{
-            o.put("uri",uri.toString());o.put("displayName",displayName(context,uri));o.put("mimeType",safeMime(context,uri));o.put("role","USER_SELECTED_REFERENCE_DOCUMENT");a.put(o);
+            String mime=safeMime(context,uri);long size=sizeBytes(context,uri);
+            o.put("uri",uri.toString());
+            o.put("displayName",displayName(context,uri));
+            o.put("mimeType",mime);
+            o.put("documentType",WorkReferenceFilePolicy.shortType(mime));
+            o.put("sizeBytes",size);
+            o.put("sizeDisplay",WorkReferenceFilePolicy.formatBytes(size));
+            o.put("largeFileWarning",WorkReferenceFilePolicy.shouldWarnForSize(size));
+            o.put("role","USER_SELECTED_REFERENCE_DOCUMENT");
+            a.put(o);
         }catch(Throwable ignored){}}
         return a;
     }
@@ -87,6 +108,8 @@ public final class WorkChatGptDirectBridge {
         o.put("doNotInventMissingFacts",true);
         o.put("archiveFactsRemainGroundedEvidence",true);
         o.put("generatedOutputIsNotOriginalEvidence",true);
+        o.put("noArtificialReferenceSizeLimit",true);
+        o.put("largeReferenceFilesMayTriggerUserWarning",true);
     }catch(Throwable ignored){}return o;}
 
     private static String prompt(WorkDocumentRecipe.Kind kind,String project,String requirements,ArrayList<Uri> refs){
@@ -100,7 +123,7 @@ public final class WorkChatGptDirectBridge {
                 "EXECUTION RULES:\n"+
                 "- Read every attached reference document before building the output.\n"+
                 "- Use the reference documents to understand the intended model, layout, headings, table structure, wording style and level of detail.\n"+
-                "- Use the attached JSON for structured Work Vault facts and provenance.\n"+
+                "- Use the attached JSON for structured Work Vault facts, reference metadata and provenance.\n"+
                 "- Follow the user requirements above with high priority unless they contradict grounded source facts.\n"+
                 "- Never invent missing prices, quantities, dates, approvals, PR numbers, PO numbers, vendors, taxes or contractual facts.\n"+
                 "- If a required factual field is not supported by the attachments or JSON, leave it blank or mark it FOR REVIEW.\n"+
@@ -110,6 +133,7 @@ public final class WorkChatGptDirectBridge {
                 "- Treat the result as GENERATED_DOCUMENT derived from the supplied references and evidence.\n";
     }
 
-    private static String displayName(Context c,Uri u){Cursor x=null;try{x=c.getContentResolver().query(u,new String[]{OpenableColumns.DISPLAY_NAME},null,null,null);if(x!=null&&x.moveToFirst())return x.getString(0);}catch(Throwable ignored){}finally{if(x!=null)x.close();}return u.getLastPathSegment()==null?"reference":u.getLastPathSegment();}
+    private static String displayName(Context c,Uri u){Cursor x=null;try{x=c.getContentResolver().query(u,new String[]{OpenableColumns.DISPLAY_NAME},null,null,null);if(x!=null&&x.moveToFirst()){int i=x.getColumnIndex(OpenableColumns.DISPLAY_NAME);if(i>=0&&!x.isNull(i))return x.getString(i);}}catch(Throwable ignored){}finally{if(x!=null)x.close();}return u.getLastPathSegment()==null?"reference":u.getLastPathSegment();}
+    private static long sizeBytes(Context c,Uri u){Cursor x=null;try{x=c.getContentResolver().query(u,new String[]{OpenableColumns.SIZE},null,null,null);if(x!=null&&x.moveToFirst()){int i=x.getColumnIndex(OpenableColumns.SIZE);if(i>=0&&!x.isNull(i))return x.getLong(i);}}catch(Throwable ignored){}finally{if(x!=null)x.close();}return -1;}
     private static String safeMime(Context c,Uri u){try{String m=c.getContentResolver().getType(u);return m==null?"application/octet-stream":m;}catch(Throwable ignored){return "application/octet-stream";}}
 }
