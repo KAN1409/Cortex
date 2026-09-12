@@ -13,7 +13,7 @@ import java.util.Locale;
  * not proof that the business step never happened.
  */
 public final class WorkProcurementCaseEngine {
-    public static final String VERSION="work_procurement_case_engine_002";
+    public static final String VERSION="work_procurement_case_engine_003";
     private WorkProcurementCaseEngine(){}
 
     public static ArrayList<Case> load(VaultDb vault,int limit){
@@ -22,14 +22,16 @@ public final class WorkProcurementCaseEngine {
         WorkVaultIndexSchema.ensure(db);WorkDocumentProfileStore.ensure(db);
         ArrayList<Case> out=new ArrayList<>();
         Cursor c=db.rawQuery(
-                "SELECT r.normalized_value,COALESCE(NULLIF(r.project_id,0),0),MAX(r.confidence) "+
+                "SELECT r.normalized_value,COALESCE(NULLIF(r.project_id,0),0),"+
+                "CASE WHEN r.project_id=0 THEN r.file_id ELSE 0 END,MAX(r.confidence) "+
                 "FROM work_procurement_refs r JOIN work_files f ON f.id=r.file_id "+
                 "WHERE f.active_version_id>0 AND r.version_id=f.active_version_id AND r.ref_type='PR' AND r.normalized_value<>'' "+
-                "GROUP BY r.normalized_value,COALESCE(NULLIF(r.project_id,0),0) ORDER BY MAX(r.created_at) DESC LIMIT ?",
+                "GROUP BY r.normalized_value,COALESCE(NULLIF(r.project_id,0),0),CASE WHEN r.project_id=0 THEN r.file_id ELSE 0 END "+
+                "ORDER BY MAX(r.created_at) DESC LIMIT ?",
                 new String[]{String.valueOf(Math.max(1,limit*4))});
         while(c.moveToNext()){
-            String pr=s(c,0);long projectId=c.getLong(1);double refConfidence=c.getDouble(2);
-            Case x=build(db,pr,projectId,refConfidence);
+            String pr=s(c,0);long projectId=c.getLong(1),anchorFileId=c.getLong(2);double refConfidence=c.getDouble(3);
+            Case x=build(db,pr,projectId,anchorFileId,refConfidence);
             if(x!=null)out.add(x);
         }c.close();
         out.sort((a,b)->Integer.compare(b.priority,a.priority));
@@ -37,10 +39,16 @@ public final class WorkProcurementCaseEngine {
         return out;
     }
 
-    private static Case build(SQLiteDatabase db,String pr,long projectId,double refConfidence){
+    private static Case build(SQLiteDatabase db,String pr,long projectId,long anchorFileId,double refConfidence){
         ArrayList<Long> refIds=new ArrayList<>();
-        Cursor r=db.rawQuery("SELECT r.id FROM work_procurement_refs r JOIN work_files f ON f.id=r.file_id WHERE f.active_version_id>0 AND r.version_id=f.active_version_id AND r.ref_type='PR' AND r.normalized_value=? AND (?=0 OR r.project_id=? OR r.project_id=0)",new String[]{pr,String.valueOf(projectId),String.valueOf(projectId)});
-        while(r.moveToNext())refIds.add(r.getLong(0));r.close();
+        Cursor r=db.rawQuery(
+                "SELECT r.id,r.project_id,r.file_id FROM work_procurement_refs r JOIN work_files f ON f.id=r.file_id "+
+                "WHERE f.active_version_id>0 AND r.version_id=f.active_version_id AND r.ref_type='PR' AND r.normalized_value=?",
+                new String[]{pr});
+        while(r.moveToNext()){
+            long candidateProjectId=r.getLong(1),candidateFileId=r.getLong(2);
+            if(sameCaseScope(projectId,anchorFileId,candidateProjectId,candidateFileId))refIds.add(r.getLong(0));
+        }r.close();
         if(refIds.isEmpty())return null;
 
         Stage stage=new Stage();
@@ -65,6 +73,11 @@ public final class WorkProcurementCaseEngine {
         int priority=priority(issue,statuses);
         return new Case(pr,project,stage.quotation,stage.comparison,stage.approval,stage.po,stage.invoice,stage.delivery,
                 new ArrayList<>(docs),new ArrayList<>(statuses),issue,priority,refConfidence);
+    }
+
+    static boolean sameCaseScope(long caseProjectId,long anchorFileId,long candidateProjectId,long candidateFileId){
+        if(caseProjectId>0)return candidateProjectId==caseProjectId;
+        return candidateProjectId==0&&anchorFileId>0&&candidateFileId==anchorFileId;
     }
 
     static String issue(boolean quotation,boolean comparison,boolean approval,boolean po){
