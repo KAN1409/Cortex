@@ -71,7 +71,7 @@ public final class VisualMemoryActivity extends Activity {
         head.addView(back,new LinearLayout.LayoutParams(dp(42),dp(48)));
         LinearLayout ht=new LinearLayout(this);ht.setOrientation(LinearLayout.VERTICAL);
         TextView title=CortexUi.plain(this,"Visual Memory",28,CortexUi.TEXT);CortexUi.medium(title);ht.addView(title);
-        ht.addView(CortexUi.text(this,"PicBrain inside Cortex — screenshots, OCR, semantic memory and read-only originals.",11,CortexUi.MUTED));
+        ht.addView(CortexUi.text(this,"Pictures + screenshots — originals, OCR, semantic memory and Cortex understanding.",11,CortexUi.MUTED));
         head.addView(ht,new LinearLayout.LayoutParams(0,-2,1));
         body.addView(head);
 
@@ -90,7 +90,7 @@ public final class VisualMemoryActivity extends Activity {
         semantic.setOnClickListener(v->semanticAction());
 
         search=new EditText(this);
-        search.setHint("Search screenshots by words or meaning");
+        search.setHint("Search pictures or screenshots by words or meaning");
         search.setTextColor(CortexUi.TEXT);search.setHintTextColor(CortexUi.FAINT);
         search.setSingleLine(true);search.setImeOptions(EditorInfo.IME_ACTION_SEARCH);
         search.setPadding(dp(14),0,dp(14),0);
@@ -107,7 +107,7 @@ public final class VisualMemoryActivity extends Activity {
         refresh.setOnClickListener(v->{VisualMemoryRuntime.enqueueCompletionMaintenance(this);load(search.getText().toString());});
         knowledge.setOnClickListener(v->{try{startActivity(new Intent(this,KnowledgeExplorerActivity.class));}catch(Throwable ignored){}});
 
-        body.addView(CortexUi.section(this,"Visual evidence"));
+        body.addView(CortexUi.section(this,"Visual library"));
         list=new LinearLayout(this);list.setOrientation(LinearLayout.VERTICAL);body.addView(list);
     }
 
@@ -152,7 +152,7 @@ public final class VisualMemoryActivity extends Activity {
     void load(String q){
         if(!hasMediaPermission()){requestMediaPermission();return;}
         final boolean searching=q!=null&&!q.trim().isEmpty();
-        state.setText(searching?"Searching visual memory…":"Loading screenshots…");
+        state.setText(searching?"Searching visual memory…":"Loading pictures and screenshots…");
         refresh.setEnabled(false);
         io.execute(()->{
             try{
@@ -179,10 +179,10 @@ public final class VisualMemoryActivity extends Activity {
         state.setText(
                 "Knowledge "+s.getKnowledgeDone()+" done  •  "+s.getKnowledgePending()+" pending  •  "+s.getKnowledgeRunning()+" running  •  "+s.getKnowledgeBlocked()+" blocked  •  "+s.getKnowledgeSkipped()+" no-text  •  "+s.getKnowledgeFailed()+" failed\n"+
                 "OCR failed "+s.getOcrFailed()+"  •  Semantic "+s.getSemanticPending()+" pending  •  "+s.getSemanticSkipped()+" no-text  •  "+s.getSemanticFailed()+" failed  •  "+(modelInstalled?"EmbeddingGemma ready":"Semantic model not installed")+
-                ((q==null||q.trim().isEmpty())?"\nShowing newest "+INITIAL_ITEM_LIMIT+" only for fast, memory-safe launch. Search reaches older screenshots.":""));
+                ((q==null||q.trim().isEmpty())?"\nShowing newest "+INITIAL_ITEM_LIMIT+" only for fast, memory-safe launch. Search reaches older pictures and screenshots.":""));
         semantic.setText(modelInstalled?"Repair semantic index":"Download semantic model");
         if(items==null||items.isEmpty()){
-            TextView empty=CortexUi.text(this,q==null||q.trim().isEmpty()?"No screenshots indexed yet. Tap Sync.":"No confident matches.",12,CortexUi.MUTED);
+            TextView empty=CortexUi.text(this,q==null||q.trim().isEmpty()?"No pictures or screenshots indexed yet. Tap Sync.":"No confident matches.",12,CortexUi.MUTED);
             empty.setPadding(0,dp(8),0,dp(20));list.addView(empty);return;
         }
         for(VisualMemoryItem item:items)list.addView(card(item),margins(0,0,0,10));
@@ -253,7 +253,7 @@ public final class VisualMemoryActivity extends Activity {
     @Override public void onRequestPermissionsResult(int request,String[] permissions,int[] results){super.onRequestPermissionsResult(request,permissions,results);if(request==7101&&hasMediaPermission())loadAndMaybeSync();}
     void post(Runnable r){if(destroyed)return;runOnUiThread(()->{if(!destroyed&&!isFinishing()&&!isDestroyed())r.run();});}
     String stamp(long t){return new SimpleDateFormat("dd MMM • HH:mm",Locale.getDefault()).format(new Date(t));}
-    String clean(String s){return s==null||s.trim().isEmpty()?"Screenshot":s.trim();}
+    String clean(String s){return s==null||s.trim().isEmpty()?"Picture":s.trim();}
     String clip(String s,int n){return s==null?"":(s.length()<=n?s:s.substring(0,n)+"…");}
     String safe(String s){return s==null?"":s;}
 }
