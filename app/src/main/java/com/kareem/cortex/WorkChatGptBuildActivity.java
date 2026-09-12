@@ -23,6 +23,7 @@ public final class WorkChatGptBuildActivity extends Activity {
     private static final String STATE_REQUIREMENTS="work_chatgpt_requirements";
     private static final String STATE_REFERENCES="work_chatgpt_references";
     private static final String STATE_REQUEST_ID="work_chatgpt_request_id";
+    private static final String STATE_FINISHED_ATTACHED="work_chatgpt_finished_attached";
 
     private VaultDb db;
     private WorkDocumentRecipe.Kind kind=WorkDocumentRecipe.Kind.PROJECT_STATUS_REPORT;
@@ -31,6 +32,7 @@ public final class WorkChatGptBuildActivity extends Activity {
     private TextView refsLabel;
     private TextView finishedFileButton;
     private long pendingRequestId=0L;
+    private boolean finishedFileAttached=false;
     private final ArrayList<Uri> references=new ArrayList<>();
 
     int dp(int v){return CortexUi.dp(this,v);}
@@ -47,6 +49,7 @@ public final class WorkChatGptBuildActivity extends Activity {
         outState.putString(STATE_PROJECT,text(project));
         outState.putString(STATE_REQUIREMENTS,text(requirements));
         outState.putLong(STATE_REQUEST_ID,pendingRequestId);
+        outState.putBoolean(STATE_FINISHED_ATTACHED,finishedFileAttached);
         ArrayList<String> uris=new ArrayList<>();
         for(Uri uri:references)if(uri!=null)uris.add(uri.toString());
         outState.putStringArrayList(STATE_REFERENCES,uris);
@@ -85,6 +88,7 @@ public final class WorkChatGptBuildActivity extends Activity {
         String savedProject=state.getString(STATE_PROJECT,"");
         String savedRequirements=state.getString(STATE_REQUIREMENTS,"");
         pendingRequestId=state.getLong(STATE_REQUEST_ID,0L);
+        finishedFileAttached=state.getBoolean(STATE_FINISHED_ATTACHED,false);
         if(project!=null)project.setText(savedProject);
         if(requirements!=null)requirements.setText(savedRequirements);
         references.clear();
@@ -140,13 +144,18 @@ public final class WorkChatGptBuildActivity extends Activity {
         int take=flags&Intent.FLAG_GRANT_READ_URI_PERMISSION;try{getContentResolver().takePersistableUriPermission(uri,take);}catch(Throwable ignored){}
         try{
             RefMeta m=meta(uri);String output=WorkReferenceFilePolicy.shortType(m.mime);
-            WorkGeneratedDocumentRegistry.register(db.getWritableDatabase(),kind,output,text(project),"CHATGPT_RETURNED_FILE","",uri.toString());
-            if(finishedFileButton!=null){finishedFileButton.setVisibility(android.view.View.VISIBLE);finishedFileButton.setText("FINISHED FILE ATTACHED · REPLACE");}
+            long generatedId=WorkGeneratedDocumentRegistry.register(db.getWritableDatabase(),kind,output,text(project),"CHATGPT_RETURNED_FILE","",uri.toString());
+            if(pendingRequestId>0)WorkChatGptBuildRequestRegistry.markReturned(db.getWritableDatabase(),pendingRequestId,generatedId,uri.toString(),m.name,m.mime);
+            finishedFileAttached=true;updateFinishedFileAction();
             android.widget.Toast.makeText(this,"Saved as generated document • "+m.name,android.widget.Toast.LENGTH_SHORT).show();
         }catch(Throwable e){android.widget.Toast.makeText(this,"Could not register finished file",android.widget.Toast.LENGTH_LONG).show();}
     }
 
-    private void updateFinishedFileAction(){if(finishedFileButton!=null)finishedFileButton.setVisibility(pendingRequestId>0?android.view.View.VISIBLE:android.view.View.GONE);}
+    private void updateFinishedFileAction(){
+        if(finishedFileButton==null)return;
+        finishedFileButton.setVisibility(pendingRequestId>0?android.view.View.VISIBLE:android.view.View.GONE);
+        if(pendingRequestId>0)finishedFileButton.setText(finishedFileAttached?"FINISHED FILE ATTACHED · REPLACE":"ATTACH FINISHED FILE");
+    }
 
     private void updateRefsLabel(){
         if(refsLabel==null)return;
@@ -210,9 +219,9 @@ public final class WorkChatGptBuildActivity extends Activity {
             runOnUiThread(()->{
                 boolean ok=WorkChatGptDirectBridge.openChatGpt(this,prepared);
                 try{WorkChatGptBuildRequestRegistry.markOpened(db.getWritableDatabase(),prepared.requestId,ok);}catch(Throwable ignored){}
-                if(ok){pendingRequestId=prepared.requestId;updateFinishedFileAction();}
+                if(ok){pendingRequestId=prepared.requestId;finishedFileAttached=false;updateFinishedFileAction();}
                 button.setEnabled(true);button.setText("REVIEW & SEND TO CHATGPT");
-                android.widget.Toast.makeText(this,ok?"Sent to ChatGPT • attach the finished file here when it returns":"Could not open ChatGPT/share target",ok?android.widget.Toast.LENGTH_LONG:android.widget.Toast.LENGTH_LONG).show();
+                android.widget.Toast.makeText(this,ok?"Sent to ChatGPT • attach the finished file here when it returns":"Could not open ChatGPT/share target",android.widget.Toast.LENGTH_LONG).show();
             });
         }catch(Throwable e){runOnUiThread(()->{button.setEnabled(true);button.setText("REVIEW & SEND TO CHATGPT");android.widget.Toast.makeText(this,"Could not prepare ChatGPT build package",android.widget.Toast.LENGTH_LONG).show();});}},"work-chatgpt-direct-builder").start();
     }
