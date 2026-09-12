@@ -32,13 +32,14 @@ public class WorkStructuredExtractorTest {
 
         WorkStructuredExtractor.Result r=WorkStructuredExtractor.extract(d);
         assertEquals(1,r.projects.size());
-        assertEquals("Negma PR-0262 PO-1047",r.projects.get(0).name);
+        assertEquals("Negma",r.projects.get(0).name);
         assertEquals(2,r.refs.size());
         assertEquals(1,r.prices.size());
         WorkStructuredExtractor.Price p=r.prices.get(0);
         assertEquals("Galala marble supply",p.item);
         assertEquals("Life Style",p.vendor);
         assertEquals(430.0,p.quantity,0.001);
+        assertEquals("m2",p.unit);
         assertEquals(2650.0,p.unitPrice,0.001);
         assertEquals(1139500.0,p.totalPrice,0.001);
         assertEquals("EGP",p.currency);
@@ -55,5 +56,6 @@ public class WorkStructuredExtractorTest {
         WorkStructuredExtractor.Result r=WorkStructuredExtractor.extract(d);
         assertEquals(1,r.prices.size());
         assertEquals("رخام جلالة",r.prices.get(0).item);
+        assertEquals(2500.0,r.prices.get(0).unitPrice,0.001);
     }
 }
