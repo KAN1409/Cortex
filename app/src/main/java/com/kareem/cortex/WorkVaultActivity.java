@@ -55,8 +55,10 @@ public final class WorkVaultActivity extends Activity {
 
         LinearLayout stats=CortexUi.card(this,22);LinearLayout.LayoutParams sp=new LinearLayout.LayoutParams(-1,-2);sp.setMargins(0,dp(16),0,0);
         TextView stat=CortexUi.plain(this,counts.files+" files  •  "+counts.projects+" projects  •  "+counts.prices+" prices",16,CortexUi.TEXT);CortexUi.medium(stat);stats.addView(stat);
-        TextView size=CortexUi.text(this,humanBytes(counts.bytes)+" referenced  •  originals stay in place",11,CortexUi.MUTED);size.setPadding(0,dp(5),0,0);stats.addView(size);
-        if(counts.newFiles+counts.modifiedFiles>0){TextView pending=CortexUi.plain(this,(counts.newFiles+counts.modifiedFiles)+" files waiting for parsing",10,CortexUi.ACCENT);pending.setPadding(0,dp(7),0,0);stats.addView(pending);}content.addView(stats,sp);
+        TextView follow=CortexUi.text(this,counts.followUps+" follow-up rows  •  "+counts.openFollowUps+" potentially open",11,CortexUi.MUTED);follow.setPadding(0,dp(5),0,0);stats.addView(follow);
+        TextView size=CortexUi.text(this,humanBytes(counts.bytes)+" referenced  •  originals stay in place",11,CortexUi.MUTED);size.setPadding(0,dp(4),0,0);stats.addView(size);
+        long waiting=counts.newFiles+counts.modifiedFiles;
+        if(waiting>0||counts.needsOcrFiles>0){StringBuilder p=new StringBuilder();if(waiting>0)p.append(waiting).append(" files waiting for parsing");if(counts.needsOcrFiles>0){if(p.length()>0)p.append("  •  ");p.append(counts.needsOcrFiles).append(" OCR unresolved");}TextView pending=CortexUi.plain(this,p.toString(),10,CortexUi.ACCENT);pending.setPadding(0,dp(7),0,0);stats.addView(pending);}content.addView(stats,sp);
 
         TextView add=CortexUi.action(this,"ADD ARCHIVE SOURCE",CortexUi.ACCENT,true);LinearLayout.LayoutParams ap=new LinearLayout.LayoutParams(-1,dp(48));ap.setMargins(0,dp(14),0,0);content.addView(add,ap);add.setOnClickListener(v->chooseTree());
         TextView ask=CortexUi.action(this,"ASK WORK ARCHIVE",CortexUi.MUTED,false);LinearLayout.LayoutParams qp=new LinearLayout.LayoutParams(-1,dp(46));qp.setMargins(0,dp(8),0,0);content.addView(ask,qp);ask.setOnClickListener(v->startActivity(new Intent(this,WorkVaultAskActivity.class)));
