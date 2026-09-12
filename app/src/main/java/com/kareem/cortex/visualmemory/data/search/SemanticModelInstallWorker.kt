@@ -23,7 +23,7 @@ class SemanticModelInstallWorker(appContext: Context, params: WorkerParameters) 
         }
         return try {
             val bytes = store.downloadOfficial { progress ->
-                setProgress(workDataOf(KEY_STATE to "downloading", KEY_PROGRESS to progress))
+                setProgressAsync(workDataOf(KEY_STATE to "downloading", KEY_PROGRESS to progress))
             }
             if (!store.isInstalled()) return Result.retry()
             VisualMemoryRuntime.enqueueSemantic(applicationContext, true)
