@@ -67,7 +67,7 @@ public final class AudioAnalyzer {
             AnalysisResult r=LocalAnalyzer.analyze(t.text,"text/plain");
             String corrected=MixedBidiText.stripControls(CorrectionEngine.apply(ctx,t.text));
             r.extractedText=corrected.trim();
-            r.summary=MixedBidiText.stripControls(r.summary).trim();
+            r.summary=VoiceUnderstanding.summarize(r.extractedText,r);
             r.engine=t.engine+"+local_analysis";r.version=t.version;r.category="Voice & Audio";r.tags="voice,audio,transcript,"+AutoClassifier.tags(t.text,"Voice & Audio");
             r.title=VoiceTextPresentation.compactTitle(t.text);
             for(TranscriptResult.Segment s:t.segments)r.transcriptSegments.add(new AnalysisResult.TranscriptSegment(s.startMs,s.endMs,MixedBidiText.stripControls(s.text),s.confidence));
