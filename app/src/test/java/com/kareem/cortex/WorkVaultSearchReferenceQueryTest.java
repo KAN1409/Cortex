@@ -11,7 +11,12 @@ public class WorkVaultSearchReferenceQueryTest {
 
     @Test public void parsesPoWithDash(){
         WorkVaultSearch.RefQuery q=WorkVaultSearch.parseReferenceQuery("PO-1047");
-        assertEquals("",q.type);assertEquals("PO-1047",q.value);
+        assertEquals("PO",q.type);assertEquals("1047",q.value);
+    }
+
+    @Test public void parsesJoinedPrWithoutSeparator(){
+        WorkVaultSearch.RefQuery q=WorkVaultSearch.parseReferenceQuery("PR0262");
+        assertEquals("PR",q.type);assertEquals("0262",q.value);
     }
 
     @Test public void parsesArabicSurroundingText(){
