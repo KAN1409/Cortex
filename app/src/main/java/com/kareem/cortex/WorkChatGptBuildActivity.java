@@ -18,15 +18,19 @@ import java.util.ArrayList;
 public final class WorkChatGptBuildActivity extends Activity {
     public static final String EXTRA_KIND="document_kind";
     private static final int REQ_REFERENCES=8611;
+    private static final int REQ_FINISHED_FILE=8612;
     private static final String STATE_PROJECT="work_chatgpt_project";
     private static final String STATE_REQUIREMENTS="work_chatgpt_requirements";
     private static final String STATE_REFERENCES="work_chatgpt_references";
+    private static final String STATE_REQUEST_ID="work_chatgpt_request_id";
 
     private VaultDb db;
     private WorkDocumentRecipe.Kind kind=WorkDocumentRecipe.Kind.PROJECT_STATUS_REPORT;
     private EditText project;
     private EditText requirements;
     private TextView refsLabel;
+    private TextView finishedFileButton;
+    private long pendingRequestId=0L;
     private final ArrayList<Uri> references=new ArrayList<>();
 
     int dp(int v){return CortexUi.dp(this,v);}
@@ -42,6 +46,7 @@ public final class WorkChatGptBuildActivity extends Activity {
         super.onSaveInstanceState(outState);
         outState.putString(STATE_PROJECT,text(project));
         outState.putString(STATE_REQUIREMENTS,text(requirements));
+        outState.putLong(STATE_REQUEST_ID,pendingRequestId);
         ArrayList<String> uris=new ArrayList<>();
         for(Uri uri:references)if(uri!=null)uris.add(uri.toString());
         outState.putStringArrayList(STATE_REFERENCES,uris);
@@ -69,7 +74,9 @@ public final class WorkChatGptBuildActivity extends Activity {
 
         TextView send=CortexUi.action(this,"REVIEW & SEND TO CHATGPT",CortexUi.ACCENT,true);LinearLayout.LayoutParams sp=new LinearLayout.LayoutParams(-1,dp(52));sp.setMargins(0,dp(12),0,0);box.addView(send,sp);send.setOnClickListener(v->reviewBeforeSend(send));
 
-        TextView note=CortexUi.text(this,"Cortex sends the selected reference files themselves, plus a structured JSON build package and your detailed requirements. ChatGPT is used as the document builder; the output remains a generated document, not new source evidence.",10,CortexUi.MUTED);note.setPadding(0,dp(14),0,0);box.addView(note);
+        finishedFileButton=CortexUi.action(this,"ATTACH FINISHED FILE",CortexUi.GREEN,false);LinearLayout.LayoutParams fp=new LinearLayout.LayoutParams(-1,dp(48));fp.setMargins(0,dp(10),0,0);box.addView(finishedFileButton,fp);finishedFileButton.setVisibility(android.view.View.GONE);finishedFileButton.setOnClickListener(v->chooseFinishedFile());
+
+        TextView note=CortexUi.text(this,"Cortex sends the selected reference files themselves, plus a structured JSON build package and your detailed requirements. When ChatGPT returns the finished file, attach it here so Cortex records it as a derived GENERATED_DOCUMENT. It never becomes original archive evidence.",10,CortexUi.MUTED);note.setPadding(0,dp(14),0,0);box.addView(note);
         setContentView(root);
     }
 
@@ -77,6 +84,7 @@ public final class WorkChatGptBuildActivity extends Activity {
         if(state==null)return;
         String savedProject=state.getString(STATE_PROJECT,"");
         String savedRequirements=state.getString(STATE_REQUIREMENTS,"");
+        pendingRequestId=state.getLong(STATE_REQUEST_ID,0L);
         if(project!=null)project.setText(savedProject);
         if(requirements!=null)requirements.setText(savedRequirements);
         references.clear();
@@ -91,6 +99,7 @@ public final class WorkChatGptBuildActivity extends Activity {
             }
         }
         updateRefsLabel();
+        updateFinishedFileAction();
     }
 
     private void chooseReferences(){
@@ -99,8 +108,17 @@ public final class WorkChatGptBuildActivity extends Activity {
         i.putExtra(Intent.EXTRA_MIME_TYPES,types);i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);startActivityForResult(i,REQ_REFERENCES);
     }
 
+    private void chooseFinishedFile(){
+        Intent i=new Intent(Intent.ACTION_OPEN_DOCUMENT);i.addCategory(Intent.CATEGORY_OPENABLE);i.setType("*/*");
+        String[] types={"application/pdf","application/vnd.openxmlformats-officedocument.wordprocessingml.document","application/msword","application/vnd.openxmlformats-officedocument.spreadsheetml.sheet","application/vnd.ms-excel","application/vnd.openxmlformats-officedocument.presentationml.presentation","application/vnd.ms-powerpoint"};
+        i.putExtra(Intent.EXTRA_MIME_TYPES,types);i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);startActivityForResult(i,REQ_FINISHED_FILE);
+    }
+
     @Override protected void onActivityResult(int requestCode,int resultCode,Intent data){
-        super.onActivityResult(requestCode,resultCode,data);if(requestCode!=REQ_REFERENCES||resultCode!=RESULT_OK||data==null)return;
+        super.onActivityResult(requestCode,resultCode,data);
+        if(resultCode!=RESULT_OK||data==null)return;
+        if(requestCode==REQ_FINISHED_FILE){if(data.getData()!=null)attachFinishedFile(data.getData(),data.getFlags());return;}
+        if(requestCode!=REQ_REFERENCES)return;
         references.clear();ClipData clip=data.getClipData();if(clip!=null){for(int n=0;n<clip.getItemCount();n++)addReference(clip.getItemAt(n).getUri(),data.getFlags());}else if(data.getData()!=null)addReference(data.getData(),data.getFlags());updateRefsLabel();
     }
 
@@ -115,6 +133,20 @@ public final class WorkChatGptBuildActivity extends Activity {
         int take=flags&Intent.FLAG_GRANT_READ_URI_PERMISSION;
         try{getContentResolver().takePersistableUriPermission(uri,take);}catch(Throwable ignored){}
     }
+
+    private void attachFinishedFile(Uri uri,int flags){
+        if(uri==null)return;String mime=safeMime(uri);
+        if(!WorkReferenceFilePolicy.isSupportedMime(mime)){android.widget.Toast.makeText(this,"Unsupported finished file type",android.widget.Toast.LENGTH_LONG).show();return;}
+        int take=flags&Intent.FLAG_GRANT_READ_URI_PERMISSION;try{getContentResolver().takePersistableUriPermission(uri,take);}catch(Throwable ignored){}
+        try{
+            RefMeta m=meta(uri);String output=WorkReferenceFilePolicy.shortType(m.mime);
+            WorkGeneratedDocumentRegistry.register(db.getWritableDatabase(),kind,output,text(project),"CHATGPT_RETURNED_FILE","",uri.toString());
+            if(finishedFileButton!=null){finishedFileButton.setVisibility(android.view.View.VISIBLE);finishedFileButton.setText("FINISHED FILE ATTACHED · REPLACE");}
+            android.widget.Toast.makeText(this,"Saved as generated document • "+m.name,android.widget.Toast.LENGTH_SHORT).show();
+        }catch(Throwable e){android.widget.Toast.makeText(this,"Could not register finished file",android.widget.Toast.LENGTH_LONG).show();}
+    }
+
+    private void updateFinishedFileAction(){if(finishedFileButton!=null)finishedFileButton.setVisibility(pendingRequestId>0?android.view.View.VISIBLE:android.view.View.GONE);}
 
     private void updateRefsLabel(){
         if(refsLabel==null)return;
@@ -178,8 +210,9 @@ public final class WorkChatGptBuildActivity extends Activity {
             runOnUiThread(()->{
                 boolean ok=WorkChatGptDirectBridge.openChatGpt(this,prepared);
                 try{WorkChatGptBuildRequestRegistry.markOpened(db.getWritableDatabase(),prepared.requestId,ok);}catch(Throwable ignored){}
+                if(ok){pendingRequestId=prepared.requestId;updateFinishedFileAction();}
                 button.setEnabled(true);button.setText("REVIEW & SEND TO CHATGPT");
-                android.widget.Toast.makeText(this,ok?"Reference package sent to ChatGPT":"Could not open ChatGPT/share target",ok?android.widget.Toast.LENGTH_SHORT:android.widget.Toast.LENGTH_LONG).show();
+                android.widget.Toast.makeText(this,ok?"Sent to ChatGPT • attach the finished file here when it returns":"Could not open ChatGPT/share target",ok?android.widget.Toast.LENGTH_LONG:android.widget.Toast.LENGTH_LONG).show();
             });
         }catch(Throwable e){runOnUiThread(()->{button.setEnabled(true);button.setText("REVIEW & SEND TO CHATGPT");android.widget.Toast.makeText(this,"Could not prepare ChatGPT build package",android.widget.Toast.LENGTH_LONG).show();});}},"work-chatgpt-direct-builder").start();
     }
