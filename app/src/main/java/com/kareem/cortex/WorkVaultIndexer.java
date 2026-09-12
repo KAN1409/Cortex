@@ -9,13 +9,13 @@ import java.util.*;
 
 /** Resumable file-by-file indexer. A failed document never invalidates the rest of the archive. */
 public final class WorkVaultIndexer {
-    public static final String VERSION="work_vault_indexer_001";
+    public static final String VERSION="work_vault_indexer_002";
     private WorkVaultIndexer(){}
 
     public static Result indexPending(Context context,VaultDb vault,long sourceId){
         Result out=new Result();SQLiteDatabase db=vault.getWritableDatabase();WorkVaultIndexSchema.ensure(db);
         ArrayList<FileRow> rows=new ArrayList<>();
-        Cursor c=db.rawQuery("SELECT id,document_uri,display_name,extension,COALESCE(fingerprint,'') FROM work_files WHERE source_id=? AND state IN ('new','modified','parse_failed') ORDER BY id ASC",new String[]{String.valueOf(sourceId)});
+        Cursor c=db.rawQuery("SELECT id,document_uri,display_name,extension,COALESCE(fingerprint,'') FROM work_files WHERE source_id=? AND state IN ('new','modified','parse_failed','needs_ocr') ORDER BY id ASC",new String[]{String.valueOf(sourceId)});
         while(c.moveToNext())rows.add(new FileRow(c.getLong(0),c.getString(1),c.getString(2),c.getString(3),c.getString(4)));c.close();
         out.total=rows.size();
         for(FileRow f:rows){
@@ -24,15 +24,17 @@ public final class WorkVaultIndexer {
             try{
                 WorkParsedDocument parsed=WorkDocumentParser.parse(context.getApplicationContext(),Uri.parse(f.uri),f.ext);
                 WorkStructuredExtractor.Result structured=WorkStructuredExtractor.extract(parsed);
-                persist(db,f,parsed,structured);
+                WorkFollowUpExtractor.Result followup=WorkFollowUpExtractor.extract(parsed);
+                persist(db,f,parsed,structured,followup);
                 out.indexed++;
+                out.followUpRecords+=followup.records.size();
                 if(parsed.needsOcr)out.needsOcr++;
             }catch(Throwable t){mark(db,f.id,"parse_failed",VERSION,0);out.failed++;out.lastError=t.getClass().getSimpleName()+": "+safe(t.getMessage());}
         }
         return out;
     }
 
-    private static void persist(SQLiteDatabase db,FileRow f,WorkParsedDocument parsed,WorkStructuredExtractor.Result structured)throws Exception{
+    private static void persist(SQLiteDatabase db,FileRow f,WorkParsedDocument parsed,WorkStructuredExtractor.Result structured,WorkFollowUpExtractor.Result followup)throws Exception{
         long now=System.currentTimeMillis();db.beginTransaction();try{
             WorkVaultIndexSchema.ensure(db);
             ContentValues vv=new ContentValues();vv.put("file_id",f.id);vv.put("fingerprint",f.fingerprint.isEmpty()?"unknown-"+now:f.fingerprint);vv.put("parser_version",parsed.parserVersion);vv.put("state",parsed.needsOcr?"partial_needs_ocr":"complete");vv.put("parsed_at",now);vv.put("error","");
@@ -44,6 +46,7 @@ public final class WorkVaultIndexer {
             db.delete("work_facts","file_id=?",new String[]{String.valueOf(f.id)});
             db.delete("work_procurement_refs","file_id=?",new String[]{String.valueOf(f.id)});
             db.delete("work_price_records","file_id=?",new String[]{String.valueOf(f.id)});
+            db.delete("work_followup_records","file_id=?",new String[]{String.valueOf(f.id)});
             db.delete("work_relations","source_file_id=?",new String[]{String.valueOf(f.id)});
 
             long projectId=0;
@@ -51,6 +54,13 @@ public final class WorkVaultIndexer {
             for(WorkStructuredExtractor.Project p:structured.projects){long pid=upsertProject(db,p.name,now);fact(db,f.id,pid,"PROJECT","project",p.name,null,"","",p.source,.92,now);}
             for(WorkStructuredExtractor.Ref ref:structured.refs){ContentValues x=new ContentValues();x.put("file_id",f.id);x.put("project_id",projectId);x.put("ref_type",ref.type);x.put("ref_value",ref.value);x.put("normalized_value",ref.value.toUpperCase(Locale.ROOT));x.put("confidence",.94);x.put("created_at",now);db.insertWithOnConflict("work_procurement_refs",null,x,SQLiteDatabase.CONFLICT_IGNORE);fact(db,f.id,projectId,ref.type,ref.type,ref.value,null,"","",ref.source,.94,now);}
             for(WorkStructuredExtractor.Price p:structured.prices){ContentValues x=new ContentValues();x.put("file_id",f.id);x.put("project_id",projectId);x.put("item_name",p.item);x.put("vendor_name",p.vendor);if(p.quantity!=null)x.put("quantity",p.quantity);x.put("unit",p.unit);if(p.unitPrice!=null)x.put("unit_price",p.unitPrice);if(p.totalPrice!=null)x.put("total_price",p.totalPrice);x.put("currency",p.currency);x.put("sheet_name",safe(p.source.sheetName));x.put("page_number",p.source.pageNumber);x.put("row_number",p.source.rowNumber);x.put("confidence",.86);x.put("created_at",now);long priceId=db.insert("work_price_records",null,x);if(!p.vendor.isEmpty()){long vendorId=upsertEntity(db,"VENDOR",p.vendor,now);relation(db,"PRICE",priceId,"ENTITY",vendorId,"vendor",.90,f.id,now);}}
+
+            for(WorkFollowUpExtractor.Record r:followup.records){
+                long pid=projectId;if(!safe(r.project).isEmpty())pid=upsertProject(db,r.project,now);
+                ContentValues x=new ContentValues();x.put("file_id",f.id);x.put("project_id",pid);x.put("reference_type",safe(r.referenceType));x.put("reference_value",safe(r.referenceValue));x.put("item_name",safe(r.item));x.put("status",safe(r.status));x.put("status_normalized",safe(r.normalizedStatus));x.put("owner_name",safe(r.owner));x.put("due_text",safe(r.dueText));x.put("remarks",safe(r.remarks));x.put("vendor_name",safe(r.vendor));if(r.source!=null){x.put("sheet_name",safe(r.source.sheetName));x.put("page_number",r.source.pageNumber);x.put("row_number",r.source.rowNumber);}x.put("confidence",.88);x.put("extractor_version",WorkFollowUpExtractor.VERSION);x.put("created_at",now);long followId=db.insert("work_followup_records",null,x);
+                if(!safe(r.vendor).isEmpty()){long vendorId=upsertEntity(db,"VENDOR",r.vendor,now);relation(db,"FOLLOWUP",followId,"ENTITY",vendorId,"vendor",.88,f.id,now);}
+                if(!safe(r.owner).isEmpty()){long ownerId=upsertEntity(db,"OWNER",r.owner,now);relation(db,"FOLLOWUP",followId,"ENTITY",ownerId,"owner",.82,f.id,now);}
+            }
 
             mark(db,f.id,parsed.needsOcr?"needs_ocr":"indexed",parsed.parserVersion,now);
             db.setTransactionSuccessful();
@@ -66,5 +76,5 @@ public final class WorkVaultIndexer {
     private static String safe(String s){return s==null?"":s.trim();}
 
     private static final class FileRow{final long id;final String uri,name,ext,fingerprint;FileRow(long id,String u,String n,String e,String f){this.id=id;uri=u;name=n;ext=e==null?"":e;fingerprint=f==null?"":f;}}
-    public static final class Result{public int total,indexed,failed,unsupported,needsOcr;public boolean interrupted;public String lastError="";}
+    public static final class Result{public int total,indexed,failed,unsupported,needsOcr,followUpRecords;public boolean interrupted;public String lastError="";}
 }
