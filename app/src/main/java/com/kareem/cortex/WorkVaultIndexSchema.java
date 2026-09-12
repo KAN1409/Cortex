@@ -4,7 +4,7 @@ import android.database.sqlite.SQLiteDatabase;
 
 /** Versioned parse/chunk storage layered on top of WorkVaultSchema. */
 public final class WorkVaultIndexSchema {
-    public static final String VERSION="work_vault_index_schema_001";
+    public static final String VERSION="work_vault_index_schema_002";
     private WorkVaultIndexSchema(){}
 
     public static void ensure(SQLiteDatabase db){
@@ -36,5 +36,29 @@ public final class WorkVaultIndexSchema {
                 "UNIQUE(version_id,chunk_index))");
         db.execSQL("CREATE INDEX IF NOT EXISTS idx_work_chunks_file ON work_chunks(file_id,chunk_index)");
         db.execSQL("CREATE INDEX IF NOT EXISTS idx_work_chunks_location ON work_chunks(file_id,sheet_name,page_number,slide_number,row_number)");
+
+        db.execSQL("CREATE TABLE IF NOT EXISTS work_followup_records("+
+                "id INTEGER PRIMARY KEY AUTOINCREMENT,"+
+                "file_id INTEGER NOT NULL,"+
+                "project_id INTEGER NOT NULL DEFAULT 0,"+
+                "reference_type TEXT,"+
+                "reference_value TEXT,"+
+                "item_name TEXT,"+
+                "status TEXT,"+
+                "status_normalized TEXT NOT NULL DEFAULT 'unknown',"+
+                "owner_name TEXT,"+
+                "due_text TEXT,"+
+                "remarks TEXT,"+
+                "vendor_name TEXT,"+
+                "sheet_name TEXT,"+
+                "page_number INTEGER NOT NULL DEFAULT 0,"+
+                "row_number INTEGER NOT NULL DEFAULT 0,"+
+                "confidence REAL NOT NULL DEFAULT 0,"+
+                "extractor_version TEXT,"+
+                "created_at INTEGER NOT NULL)");
+        db.execSQL("CREATE INDEX IF NOT EXISTS idx_work_followup_file ON work_followup_records(file_id,row_number)");
+        db.execSQL("CREATE INDEX IF NOT EXISTS idx_work_followup_status ON work_followup_records(status_normalized,created_at DESC)");
+        db.execSQL("CREATE INDEX IF NOT EXISTS idx_work_followup_ref ON work_followup_records(reference_type,reference_value)");
+        db.execSQL("CREATE INDEX IF NOT EXISTS idx_work_followup_project ON work_followup_records(project_id,status_normalized)");
     }
 }
