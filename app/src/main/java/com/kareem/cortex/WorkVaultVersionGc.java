@@ -7,7 +7,7 @@ import java.util.List;
 
 /** Conservative cleanup for superseded parse history. Never removes an active version. */
 public final class WorkVaultVersionGc {
-    public static final String VERSION="work_vault_version_gc_001";
+    public static final String VERSION="work_vault_version_gc_002";
     public static final int DEFAULT_PREVIOUS_TO_KEEP=2;
     private WorkVaultVersionGc(){}
 
@@ -48,11 +48,15 @@ public final class WorkVaultVersionGc {
             while(c.moveToNext()){
                 long id=c.getLong(0);
                 if(id==activeVersionId)continue;
-                if(previousSeen<keep){previousSeen++;continue;}
-                out.add(id);
+                if(shouldPrunePreviousOrdinal(previousSeen,keep))out.add(id);
+                previousSeen++;
             }
         }finally{c.close();}
         return out;
+    }
+
+    static boolean shouldPrunePreviousOrdinal(int zeroBasedPreviousOrdinal,int previousToKeep){
+        return zeroBasedPreviousOrdinal>=Math.max(0,previousToKeep);
     }
 
     public static final class Result{
