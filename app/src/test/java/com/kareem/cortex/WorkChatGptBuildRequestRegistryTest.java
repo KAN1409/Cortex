@@ -4,9 +4,14 @@ import android.database.Cursor;
 import android.database.sqlite.SQLiteDatabase;
 import org.json.JSONArray;
 import org.junit.Test;
+import org.junit.runner.RunWith;
+import org.robolectric.RobolectricTestRunner;
+import org.robolectric.annotation.Config;
 
 import static org.junit.Assert.*;
 
+@RunWith(RobolectricTestRunner.class)
+@Config(sdk=35)
 public class WorkChatGptBuildRequestRegistryTest {
     @Test public void returnedFileCompletesRequestAndStoresDerivedLinkage(){
         SQLiteDatabase db=SQLiteDatabase.create(null);
