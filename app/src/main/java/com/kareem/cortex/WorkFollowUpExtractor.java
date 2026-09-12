@@ -4,7 +4,7 @@ import java.util.*;
 
 /** Deterministic extraction of project/procurement follow-up rows. It preserves source location and raw status. */
 public final class WorkFollowUpExtractor {
-    public static final String VERSION="work_followup_extractor_001";
+    public static final String VERSION="work_followup_extractor_002";
     private WorkFollowUpExtractor(){}
 
     public static Result extract(WorkParsedDocument doc){
@@ -14,11 +14,11 @@ public final class WorkFollowUpExtractor {
             if(b==null||b.cells.isEmpty())continue;
             String scope=safe(b.sheetName).toLowerCase(Locale.ROOT);
             Header candidate=Header.detect(b.cells);
-            if(candidate.score>=2&&(candidate.status!=null||candidate.reference!=null||candidate.item!=null)){
+            if(candidate.score>=2&&candidate.hasOperationalColumn()){
                 headers.put(scope,candidate);continue;
             }
             Header active=headers.get(scope);if(active==null)continue;
-            Record r=active.record(b);if(r!=null)out.records.add(r);
+            out.records.addAll(active.records(b));
         }
         return out;
     }
@@ -30,32 +30,63 @@ public final class WorkFollowUpExtractor {
     }
 
     private static final class Header{
-        String reference,referenceType,item,status,owner,due,remarks,vendor,project;int score;
+        String prReference,poReference,genericReference,item,status,owner,due,remarks,vendor,project;int score;
+
+        boolean hasOperationalColumn(){
+            return prReference!=null||poReference!=null||genericReference!=null||status!=null||item!=null;
+        }
+
         static Header detect(Map<String,String> cells){
             Header h=new Header();
             for(Map.Entry<String,String> e:cells.entrySet()){
                 String x=normHeader(e.getValue()),col=e.getKey();
-                if(any(x,"pr no","pr number","pr #","purchase request","طلب شراء","رقم طلب الشراء")){h.reference=col;h.referenceType="PR";h.score++;}
-                else if(any(x,"po no","po number","po #","purchase order","أمر إسناد","امر اسناد","أمر شراء","امر شراء","رقم أمر الشراء","رقم امر الشراء")){h.reference=col;h.referenceType="PO";h.score++;}
-                else if(any(x,"reference","ref no","ref number","reference no","reference number","المرجع","الرقم المرجعي")){h.reference=col;h.referenceType="REF";h.score++;}
-                else if(any(x,"item description","description","item","scope","البند","الوصف","البيان")){h.item=col;h.score++;}
-                else if(any(x,"status","state","الحالة","حالة")){h.status=col;h.score++;}
-                else if(any(x,"responsible","owner","assigned to","assignee","pic","المسؤول","مسئول","مسؤول")){h.owner=col;h.score++;}
-                else if(any(x,"due date","target date","deadline","required date","due","تاريخ الاستحقاق","التاريخ المطلوب","ميعاد","موعد")){h.due=col;h.score++;}
-                else if(any(x,"remarks","remark","notes","note","comments","comment","ملاحظات","ملحوظات","تعليق")){h.remarks=col;h.score++;}
-                else if(any(x,"vendor","supplier","contractor","المورد","المقاول")){h.vendor=col;h.score++;}
-                else if(any(x,"project","project name","المشروع","اسم المشروع")){h.project=col;h.score++;}
+                if(any(x,"pr no","pr number","pr #","purchase request no","purchase request number","رقم طلب الشراء","طلب شراء رقم")){h.prReference=col;h.score++;continue;}
+                if(any(x,"po no","po number","po #","purchase order no","purchase order number","رقم أمر الشراء","رقم امر الشراء","رقم أمر الإسناد","رقم امر الاسناد")){h.poReference=col;h.score++;continue;}
+                if(any(x,"reference","ref no","ref number","reference no","reference number","document no","document number","pr/po no","po/pr no","المرجع","الرقم المرجعي","رقم المستند")){h.genericReference=col;h.score++;continue;}
+                if(any(x,"item description","description","item","scope","البند","الوصف","البيان")){h.item=col;h.score++;continue;}
+                if(any(x,"status","state","الحالة","حالة")){h.status=col;h.score++;continue;}
+                if(any(x,"responsible","owner","assigned to","assignee","pic","المسؤول","مسئول","مسؤول")){h.owner=col;h.score++;continue;}
+                if(any(x,"due date","target date","deadline","required date","due","تاريخ الاستحقاق","التاريخ المطلوب","ميعاد","موعد")){h.due=col;h.score++;continue;}
+                if(any(x,"remarks","remark","notes","note","comments","comment","ملاحظات","ملحوظات","تعليق")){h.remarks=col;h.score++;continue;}
+                if(any(x,"vendor","supplier","contractor","المورد","المقاول")){h.vendor=col;h.score++;continue;}
+                if(any(x,"project","project name","المشروع","اسم المشروع")){h.project=col;h.score++;}
             }
             return h;
         }
 
-        Record record(WorkParsedDocument.Block b){
-            Record r=new Record();r.referenceType=safe(referenceType);r.referenceValue=v(b.cells,reference);r.item=v(b.cells,item);r.status=v(b.cells,status);r.owner=v(b.cells,owner);r.dueText=v(b.cells,due);r.remarks=v(b.cells,remarks);r.vendor=v(b.cells,vendor);r.project=v(b.cells,project);r.source=b;
-            if(r.referenceValue.isEmpty()&&r.item.isEmpty()&&r.status.isEmpty()&&r.owner.isEmpty()&&r.dueText.isEmpty()&&r.remarks.isEmpty())return null;
-            if(looksLikeHeader(r))return null;
-            r.normalizedStatus=normalizeStatus(r.status);
-            return r;
+        ArrayList<Record> records(WorkParsedDocument.Block b){
+            ArrayList<Record> out=new ArrayList<>();
+            String pr=v(b.cells,prReference),po=v(b.cells,poReference),generic=v(b.cells,genericReference);
+            String itemValue=v(b.cells,item),statusValue=v(b.cells,status),ownerValue=v(b.cells,owner),dueValue=v(b.cells,due),remarksValue=v(b.cells,remarks),vendorValue=v(b.cells,vendor),projectValue=v(b.cells,project);
+            boolean hasPayload=!itemValue.isEmpty()||!statusValue.isEmpty()||!ownerValue.isEmpty()||!dueValue.isEmpty()||!remarksValue.isEmpty()||!vendorValue.isEmpty()||!projectValue.isEmpty();
+
+            if(!pr.isEmpty())addRecord(out,"PR",pr,itemValue,statusValue,ownerValue,dueValue,remarksValue,vendorValue,projectValue,b);
+            if(!po.isEmpty()&&!sameReference(pr,po))addRecord(out,"PO",po,itemValue,statusValue,ownerValue,dueValue,remarksValue,vendorValue,projectValue,b);
+            if(!generic.isEmpty()&&pr.isEmpty()&&po.isEmpty())addRecord(out,inferReferenceType(generic),stripReferencePrefix(generic),itemValue,statusValue,ownerValue,dueValue,remarksValue,vendorValue,projectValue,b);
+            if(out.isEmpty()&&hasPayload)addRecord(out,"","",itemValue,statusValue,ownerValue,dueValue,remarksValue,vendorValue,projectValue,b);
+            return out;
         }
+    }
+
+    private static void addRecord(List<Record> out,String type,String value,String item,String status,String owner,String due,String remarks,String vendor,String project,WorkParsedDocument.Block source){
+        Record r=new Record();r.referenceType=safe(type);r.referenceValue=safe(value);r.item=safe(item);r.status=safe(status);r.owner=safe(owner);r.dueText=safe(due);r.remarks=safe(remarks);r.vendor=safe(vendor);r.project=safe(project);r.source=source;
+        if(r.referenceValue.isEmpty()&&r.item.isEmpty()&&r.status.isEmpty()&&r.owner.isEmpty()&&r.dueText.isEmpty()&&r.remarks.isEmpty()&&r.vendor.isEmpty()&&r.project.isEmpty())return;
+        if(looksLikeHeader(r))return;
+        r.normalizedStatus=normalizeStatus(r.status);out.add(r);
+    }
+
+    private static boolean sameReference(String a,String b){return !safe(a).isEmpty()&&safe(a).equalsIgnoreCase(safe(b));}
+
+    static String inferReferenceType(String value){
+        String x=safe(value).toUpperCase(Locale.ROOT).replace('–','-').replace('—','-');
+        if(x.matches("^P\\.?R\\.?\\s*[-:#/]?.*"))return "PR";
+        if(x.matches("^P\\.?O\\.?\\s*[-:#/]?.*"))return "PO";
+        return "REF";
+    }
+
+    static String stripReferencePrefix(String value){
+        String x=safe(value).replace('–','-').replace('—','-');
+        return x.replaceFirst("(?i)^P\\.?[RO]\\.?\\s*[-:#/]*\\s*","").trim();
     }
 
     private static boolean looksLikeHeader(Record r){
