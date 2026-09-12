@@ -5,10 +5,10 @@ import java.util.regex.*;
 
 /** Deterministic first-pass extraction for construction/procurement archives. */
 public final class WorkStructuredExtractor {
-    public static final String VERSION="work_structured_extractor_001";
+    public static final String VERSION="work_structured_extractor_002";
     private static final Pattern PR=Pattern.compile("(?i)(?:\\bPR\\b|P\\.?R\\.?|طلب شراء|طلب الشراء)\\s*[-:#/]?\\s*([A-Z0-9][A-Z0-9._/-]{1,24})");
     private static final Pattern PO=Pattern.compile("(?i)(?:\\bPO\\b|P\\.?O\\.?|أمر إسناد|امر اسناد|أمر شراء|امر شراء)\\s*[-:#/]?\\s*([A-Z0-9][A-Z0-9._/-]{1,24})");
-    private static final Pattern PROJECT=Pattern.compile("(?i)(?:project|المشروع)\\s*[:\\-]\\s*([^|\\n\\r]{2,80})");
+    private static final Pattern PROJECT=Pattern.compile("(?i)(?:project|المشروع)\\s*[:\\-]\\s*([^|\\n\\r]{2,120})");
 
     private WorkStructuredExtractor(){}
 
@@ -37,6 +37,7 @@ public final class WorkStructuredExtractor {
     private static void project(String text,WorkParsedDocument.Block b,Result r){
         Matcher m=PROJECT.matcher(text);while(m.find()){
             String name=n(m.group(1)).replaceAll("\\s{2,}"," ");
+            name=name.replaceFirst("(?i)\\s+(?:PR|P\\.?R\\.?|PO|P\\.?O\\.?)\\s*[-:#/]?.*$","").trim();
             if(name.length()>1&&!looksHeader(name))r.projects.add(new Project(name,b));
         }
     }
@@ -61,12 +62,12 @@ public final class WorkStructuredExtractor {
             Header h=new Header();
             for(Map.Entry<String,String> e:cells.entrySet()){
                 String x=normHeader(e.getValue()),col=e.getKey();
-                if(any(x,"item","description","item description","scope","البند","الوصف","البيان")){h.item=col;h.score++;}
+                if(any(x,"item description","description","item","scope","البند","الوصف","البيان")){h.item=col;h.score++;}
                 else if(any(x,"vendor","supplier","contractor","المورد","المقاول")){h.vendor=col;h.score++;}
                 else if(any(x,"qty","quantity","الكمية","كمية")){h.qty=col;h.score++;}
+                else if(any(x,"unit price","unit rate","price/unit","rate","سعر الوحدة","سعر وحده","السعر")){h.unitPrice=col;h.score++;}
                 else if(any(x,"unit","uom","الوحدة","وحدة")){h.unit=col;h.score++;}
-                else if(any(x,"unit price","unit rate","rate","price/unit","سعر الوحدة","سعر وحده","السعر")){h.unitPrice=col;h.score++;}
-                else if(any(x,"total","amount","total price","value","الإجمالي","الاجمالي","اجمالي","القيمة")){h.total=col;h.score++;}
+                else if(any(x,"total price","total","amount","value","الإجمالي","الاجمالي","اجمالي","القيمة")){h.total=col;h.score++;}
                 else if(any(x,"currency","curr","العملة")){h.currency=col;h.score++;}
             }
             return h;
