@@ -42,7 +42,9 @@ public final class WorkVaultIndexService extends Service {
             notifyState("Scanning archive for changes",sourceName,true);WorkVaultScanner.Result scan=WorkVaultScanner.scan(getApplicationContext(),db,sourceId,Uri.parse(tree));
             if(Thread.currentThread().isInterrupted())return;if(!scan.error.isEmpty()){notifyState("Archive scan failed",scan.error,false);return;}
             notifyState("Parsing changed files",scan.processed+" files inventoried",true);WorkVaultIndexer.Result indexed=WorkVaultIndexer.indexPending(getApplicationContext(),db,sourceId);if(Thread.currentThread().isInterrupted())return;
-            String summary="Parsed "+indexed.indexed+" • follow-up "+indexed.followUpRecords+" • links "+indexed.procurementLinks+" • OCR pending "+indexed.needsOcr+" • failed "+indexed.failed;
+            notifyState("Classifying work documents","Quotation • comparison • approval • PR • PO • follow-up",true);
+            int profiled=WorkDocumentProfileStore.classifySource(db.getWritableDatabase(),sourceId);if(Thread.currentThread().isInterrupted())return;
+            String summary="Parsed "+indexed.indexed+" • classified "+profiled+" • follow-up "+indexed.followUpRecords+" • links "+indexed.procurementLinks+" • OCR pending "+indexed.needsOcr+" • failed "+indexed.failed;
             if(indexed.ambiguousLinksSkipped>0)summary+=" • ambiguous skipped "+indexed.ambiguousLinksSkipped;
             notifyState(indexed.failed>0?"Work Vault indexed with warnings":"Work Vault index complete",summary,false);
         }catch(Throwable t){if(!Thread.currentThread().isInterrupted())notifyState("Work Vault indexing failed",safe(t.getMessage()).isEmpty()?t.getClass().getSimpleName():safe(t.getMessage()),false);}finally{
