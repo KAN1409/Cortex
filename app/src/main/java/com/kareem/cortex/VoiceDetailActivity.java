@@ -178,7 +178,7 @@ public final class VoiceDetailActivity extends Activity {
 
     String understood(KnowledgeItem k){
         String s=safe(k.summary),t=transcript(k);
-        return VoiceTextPresentation.materiallyDifferent(s,t)?s:"";
+        return VoiceTextPresentation.materiallyDifferent(s,t)?s:VoiceUnderstanding.summarize(t,null);
     }
 
     String meta(KnowledgeItem k){
