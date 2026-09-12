@@ -4,11 +4,10 @@ import android.content.ContentValues;
 import android.database.Cursor;
 import android.database.sqlite.SQLiteDatabase;
 import org.json.JSONObject;
-import java.util.*;
 
-/** Stores descriptive document-type metadata derived from latest grounded chunks. */
+/** Stores descriptive document-type metadata derived from the latest grounded file version only. */
 public final class WorkDocumentProfileStore {
-    public static final String VERSION="work_document_profile_store_001";
+    public static final String VERSION="work_document_profile_store_002";
     private WorkDocumentProfileStore(){}
 
     public static void ensure(SQLiteDatabase db){
@@ -23,24 +22,36 @@ public final class WorkDocumentProfileStore {
     }
 
     public static int classifySource(SQLiteDatabase db,long sourceId){
-        ensure(db);int count=0;
+        ensure(db);WorkVaultIndexSchema.ensure(db);int count=0;
         Cursor files=db.rawQuery("SELECT id,display_name FROM work_files WHERE source_id=? AND state IN ('indexed','needs_ocr')",new String[]{String.valueOf(sourceId)});
-        while(files.moveToNext()){
-            long fileId=files.getLong(0);String name=files.isNull(1)?"":files.getString(1);
-            StringBuilder body=new StringBuilder();
-            Cursor c=db.rawQuery("SELECT chunk_text,sheet_name FROM work_chunks WHERE file_id=? ORDER BY chunk_index ASC LIMIT 120",new String[]{String.valueOf(fileId)});
-            while(c.moveToNext()){
-                if(!c.isNull(1))body.append(' ').append(c.getString(1));
-                if(!c.isNull(0))body.append(' ').append(c.getString(0));
-                if(body.length()>40000)break;
-            }c.close();
-            WorkDocumentClassifier.Result r=WorkDocumentClassifier.classifyText(name,body.toString());
-            ContentValues v=new ContentValues();v.put("file_id",fileId);v.put("document_type",r.type);v.put("confidence",r.confidence);v.put("classifier_version",WorkDocumentClassifier.VERSION);v.put("scores_json",new JSONObject(r.scores).toString());v.put("updated_at",System.currentTimeMillis());
-            db.insertWithOnConflict("work_document_profiles",null,v,SQLiteDatabase.CONFLICT_REPLACE);count++;
-        }files.close();return count;
+        try{
+            while(files.moveToNext()){
+                long fileId=files.getLong(0);String name=files.isNull(1)?"":files.getString(1);
+                StringBuilder body=new StringBuilder();
+                Cursor c=db.rawQuery(
+                        "SELECT chunk_text,sheet_name FROM work_chunks "+
+                                "WHERE file_id=? AND version_id=("+
+                                "SELECT id FROM work_file_versions "+
+                                "WHERE file_id=? AND state IN ('complete','partial_needs_ocr') "+
+                                "ORDER BY parsed_at DESC,id DESC LIMIT 1"+
+                                ") ORDER BY chunk_index ASC LIMIT 120",
+                        new String[]{String.valueOf(fileId),String.valueOf(fileId)});
+                try{
+                    while(c.moveToNext()){
+                        if(!c.isNull(1))body.append(' ').append(c.getString(1));
+                        if(!c.isNull(0))body.append(' ').append(c.getString(0));
+                        if(body.length()>40000)break;
+                    }
+                }finally{c.close();}
+                WorkDocumentClassifier.Result r=WorkDocumentClassifier.classifyText(name,body.toString());
+                ContentValues v=new ContentValues();v.put("file_id",fileId);v.put("document_type",r.type);v.put("confidence",r.confidence);v.put("classifier_version",WorkDocumentClassifier.VERSION);v.put("scores_json",new JSONObject(r.scores).toString());v.put("updated_at",System.currentTimeMillis());
+                db.insertWithOnConflict("work_document_profiles",null,v,SQLiteDatabase.CONFLICT_REPLACE);count++;
+            }
+        }finally{files.close();}
+        return count;
     }
 
     public static String typeForFile(SQLiteDatabase db,long fileId){
-        ensure(db);Cursor c=db.rawQuery("SELECT document_type FROM work_document_profiles WHERE file_id=? LIMIT 1",new String[]{String.valueOf(fileId)});String out=c.moveToFirst()?c.getString(0):"OTHER";c.close();return out==null?"OTHER":out;
+        ensure(db);Cursor c=db.rawQuery("SELECT document_type FROM work_document_profiles WHERE file_id=? LIMIT 1",new String[]{String.valueOf(fileId)});try{return c.moveToFirst()&&!c.isNull(0)?c.getString(0):"OTHER";}finally{c.close();}
     }
 }
