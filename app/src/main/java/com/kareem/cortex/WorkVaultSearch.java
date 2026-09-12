@@ -6,7 +6,7 @@ import java.util.*;
 
 /** Grounded lexical retrieval across the latest parsed Work Vault versions. */
 public final class WorkVaultSearch {
-    public static final String VERSION="work_vault_search_001";
+    public static final String VERSION="work_vault_search_002";
     private WorkVaultSearch(){}
 
     public static ArrayList<Hit> search(VaultDb vault,String query,int limit){
@@ -33,6 +33,16 @@ public final class WorkVaultSearch {
         while(c.moveToNext()){
             Hit h=new Hit();h.kind="PRICE";h.fileId=c.getLong(0);h.fileName=s(c,1);h.documentUri=s(c,2);
             StringBuilder b=new StringBuilder();b.append(s(c,3));if(!s(c,4).isEmpty())b.append(" • vendor ").append(s(c,4));if(!c.isNull(5))b.append(" • qty ").append(c.getDouble(5)).append(' ').append(s(c,6));if(!c.isNull(7))b.append(" • unit price ").append(c.getDouble(7)).append(' ').append(s(c,9));if(!c.isNull(8))b.append(" • total ").append(c.getDouble(8)).append(' ').append(s(c,9));if(!s(c,13).isEmpty())b.append(" • ").append(s(c,13)).append(' ').append(s(c,14));h.snippet=b.toString();h.sheet=s(c,10);h.page=c.getInt(11);h.row=c.getInt(12);h.score=score(q,h.fileName+" "+h.snippet)+.35;out.add(h);
+        }c.close();
+
+        c=db.rawQuery(
+                "SELECT u.file_id,f.display_name,f.document_uri,u.reference_type,u.reference_value,u.item_name,u.status,u.status_normalized,u.owner_name,u.due_text,u.remarks,u.vendor_name,u.sheet_name,u.page_number,u.row_number "+
+                "FROM work_followup_records u JOIN work_files f ON f.id=u.file_id "+
+                "WHERE u.reference_value LIKE ? OR u.item_name LIKE ? OR u.status LIKE ? OR u.status_normalized LIKE ? OR u.owner_name LIKE ? OR u.due_text LIKE ? OR u.remarks LIKE ? OR u.vendor_name LIKE ? OR f.display_name LIKE ? LIMIT 80",
+                new String[]{like,like,like,like,like,like,like,like,like});
+        while(c.moveToNext()){
+            Hit h=new Hit();h.kind="FOLLOW_UP";h.fileId=c.getLong(0);h.fileName=s(c,1);h.documentUri=s(c,2);
+            StringBuilder b=new StringBuilder();if(!s(c,3).isEmpty()||!s(c,4).isEmpty())b.append(s(c,3)).append(' ').append(s(c,4));if(!s(c,5).isEmpty()){if(b.length()>0)b.append(" • ");b.append(s(c,5));}if(!s(c,6).isEmpty())b.append(" • status ").append(s(c,6));if(!s(c,8).isEmpty())b.append(" • owner ").append(s(c,8));if(!s(c,9).isEmpty())b.append(" • due ").append(s(c,9));if(!s(c,11).isEmpty())b.append(" • vendor ").append(s(c,11));if(!s(c,10).isEmpty())b.append(" • ").append(s(c,10));h.snippet=b.toString();h.sheet=s(c,12);h.page=c.getInt(13);h.row=c.getInt(14);h.score=score(q,h.fileName+" "+h.snippet)+.42;out.add(h);
         }c.close();
 
         c=db.rawQuery(
