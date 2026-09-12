@@ -11,7 +11,7 @@ import java.util.Locale;
 
 /** Inventory-only recursive scanner. Parsing/indexing is intentionally a separate resumable stage. */
 public final class WorkVaultScanner {
-    public static final String VERSION="work_vault_scanner_001";
+    public static final String VERSION="work_vault_scanner_002";
     private WorkVaultScanner(){}
 
     public static Result scan(Context context,VaultDb vault,long sourceId,Uri treeUri){
@@ -74,16 +74,18 @@ public final class WorkVaultScanner {
     }
 
     public static Counts counts(VaultDb vault){
-        SQLiteDatabase db=vault.getReadableDatabase();WorkVaultSchema.ensure(db);Counts out=new Counts();
-        Cursor c=db.rawQuery("SELECT COUNT(*),SUM(CASE WHEN state='new' THEN 1 ELSE 0 END),SUM(CASE WHEN state='modified' THEN 1 ELSE 0 END),SUM(size_bytes) FROM work_files",null);
-        if(c.moveToFirst()){out.files=c.getLong(0);out.newFiles=c.isNull(1)?0:c.getLong(1);out.modifiedFiles=c.isNull(2)?0:c.getLong(2);out.bytes=c.isNull(3)?0:c.getLong(3);}c.close();
+        SQLiteDatabase db=vault.getReadableDatabase();WorkVaultIndexSchema.ensure(db);Counts out=new Counts();
+        Cursor c=db.rawQuery("SELECT COUNT(*),SUM(CASE WHEN state='new' THEN 1 ELSE 0 END),SUM(CASE WHEN state='modified' THEN 1 ELSE 0 END),SUM(CASE WHEN state='needs_ocr' THEN 1 ELSE 0 END),SUM(size_bytes) FROM work_files",null);
+        if(c.moveToFirst()){out.files=c.getLong(0);out.newFiles=c.isNull(1)?0:c.getLong(1);out.modifiedFiles=c.isNull(2)?0:c.getLong(2);out.needsOcrFiles=c.isNull(3)?0:c.getLong(3);out.bytes=c.isNull(4)?0:c.getLong(4);}c.close();
         c=db.rawQuery("SELECT COUNT(*) FROM work_projects WHERE state='active'",null);if(c.moveToFirst())out.projects=c.getLong(0);c.close();
         c=db.rawQuery("SELECT COUNT(*) FROM work_price_records",null);if(c.moveToFirst())out.prices=c.getLong(0);c.close();
+        c=db.rawQuery("SELECT COUNT(*) FROM work_followup_records",null);if(c.moveToFirst())out.followUps=c.getLong(0);c.close();
+        c=db.rawQuery("SELECT COUNT(*) FROM work_followup_records WHERE status_normalized IN ('open','on_hold','other','unknown')",null);if(c.moveToFirst())out.openFollowUps=c.getLong(0);c.close();
         return out;
     }
 
     public static final class Result{public int total,processed,failed;public String error="";}
-    public static final class Counts{public long files,newFiles,modifiedFiles,bytes,projects,prices;}
+    public static final class Counts{public long files,newFiles,modifiedFiles,needsOcrFiles,bytes,projects,prices,followUps,openFollowUps;}
     private static String extension(String name){int i=name.lastIndexOf('.');return i<0||i==name.length()-1?"":name.substring(i+1).toLowerCase(Locale.ROOT);}
     private static String n(String s){return s==null?"":s.trim();}
 }
