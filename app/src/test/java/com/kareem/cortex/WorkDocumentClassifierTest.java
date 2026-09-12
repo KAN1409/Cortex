@@ -2,6 +2,8 @@ package com.kareem.cortex;
 
 import static org.junit.Assert.*;
 import java.util.Arrays;
+import org.json.JSONArray;
+import org.json.JSONObject;
 import org.junit.Test;
 
 public class WorkDocumentClassifierTest {
@@ -121,5 +123,20 @@ public class WorkDocumentClassifierTest {
         assertEquals("ASSIGNMENT_ORDER",b.family);assertEquals("MANUFACTURING_AND_SUPPLY",b.scope);
         WorkDocumentRecipe.Recipe c=WorkDocumentRecipe.forKind(WorkDocumentRecipe.Kind.SUPPLY_ORDER_SUPPLY_ONLY);
         assertEquals("SUPPLY_ORDER",c.family);assertEquals("SUPPLY_ONLY",c.scope);
+    }
+
+    @Test public void generationRouterUsesLocalOnlyForSafeStructuredXlsx(){
+        JSONObject withPrices=new JSONObject();
+        withPrices.put("priceRecords",new JSONArray().put(new JSONObject().put("item","Galala").put("unitPrice",2500)));
+        WorkDocumentGenerationDecision.Decision local=WorkDocumentGenerationDecision.decide(WorkDocumentRecipe.Kind.PRICE_COMPARISON,withPrices);
+        assertEquals(WorkDocumentGenerationDecision.Route.LOCAL_GENERATION,local.route);
+        assertEquals(1,local.evidenceRows);
+
+        JSONObject empty=new JSONObject().put("priceRecords",new JSONArray());
+        WorkDocumentGenerationDecision.Decision noEvidence=WorkDocumentGenerationDecision.decide(WorkDocumentRecipe.Kind.COMMERCIAL_COMPARISON,empty);
+        assertEquals(WorkDocumentGenerationDecision.Route.CHATGPT_BUILD,noEvidence.route);
+
+        WorkDocumentGenerationDecision.Decision order=WorkDocumentGenerationDecision.decide(WorkDocumentRecipe.Kind.ASSIGNMENT_ORDER_MANUFACTURING_AND_SUPPLY,withPrices);
+        assertEquals(WorkDocumentGenerationDecision.Route.CHATGPT_BUILD,order.route);
     }
 }
