@@ -3,8 +3,8 @@ package com.kareem.cortex;
 import android.database.Cursor;
 import android.database.sqlite.SQLiteDatabase;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.LinkedHashSet;
-import java.util.List;
 import java.util.Locale;
 
 /**
@@ -74,7 +74,7 @@ public final class WorkProcurementCaseEngine {
         return "QUOTATION_EVIDENCE_NOT_FOUND";
     }
 
-    private static int priority(String issue,List<String> statuses){
+    private static int priority(String issue,Collection<String> statuses){
         String joined=statuses.toString().toLowerCase(Locale.ROOT);
         if(joined.contains("overdue")||joined.contains("urgent"))return 100;
         if("PO_EVIDENCE_NOT_FOUND".equals(issue))return 90;
