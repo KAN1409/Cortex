@@ -7,198 +7,49 @@ import org.json.JSONObject;
 
 /** Incrementally rebuilds stateful identity/correlation/projection tables from immutable UE evidence. */
 public final class StatefulMeaningRebuilder {
-    public static final String PROCESSOR_VERSION="stateful_rebuilder_004";
+    public static final String PROCESSOR_VERSION="stateful_rebuilder_005";
     private StatefulMeaningRebuilder(){}
 
     public static int run(VaultDb vault,int maxRows){
-        if(vault==null)return 0;
-        SQLiteDatabase db=vault.getWritableDatabase();
-        UniversalEventStore.ensure(db);
-        StatefulMeaningStore.ensure(db);
-        CommitmentLifecycleStore.ensure(db);
-        CanonicalStateStore.ensure(db);
-        int budget=Math.max(1,Math.min(500,maxRows)),done=0;
-        retireLegacyDirectProjections(db);
-        quarantineInvalidSituations(db);
-        done+=rebuildObservations(db,budget-done);
-        if(done<budget)done+=rebuildSemantic(vault,db,budget-done);
-        CommitmentLifecycleStore.rebuild(db,Math.max(8,Math.min(80,budget/2)));
-        return done;
+        if(vault==null)return 0;SQLiteDatabase db=vault.getWritableDatabase();UniversalEventStore.ensure(db);StatefulMeaningStore.ensure(db);CommitmentLifecycleStore.ensure(db);CanonicalStateStore.ensure(db);CortexV91Authority.migrate(db);
+        int budget=Math.max(1,Math.min(500,maxRows)),done=0;retireLegacyDirectProjections(db);quarantineInvalidSituations(db);done+=rebuildObservations(db,budget-done);if(done<budget)done+=rebuildSemantic(vault,db,budget-done);CommitmentLifecycleStore.rebuild(db,Math.max(8,Math.min(80,budget/2)));CortexV91Authority.enforceLive(db);return done;
     }
 
     private static int rebuildObservations(SQLiteDatabase db,int limit){
-        if(limit<=0)return 0;
-        Cursor c=db.rawQuery(
-                "SELECT r.id,r.source_key,r.technical_type,r.event_type,r.title,r.body,r.occurred_at,r.payload_json " +
-                        "FROM ue_raw_observations r WHERE r.source_type='notification' " +
-                        "AND NOT EXISTS(SELECT 1 FROM ue_source_transitions t WHERE t.raw_observation_id=r.id) " +
-                        "ORDER BY r.id ASC LIMIT ?",
-                new String[]{String.valueOf(limit)});
-        int n=0;
-        while(c.moveToNext()){
-            JSONObject meta=parse(c.getString(7));
-            StatefulMeaningStore.observeNotification(db,c.getLong(0),c.getString(1),c.getString(2),c.getString(3),
-                    c.getString(4),c.getString(5),c.getLong(6),meta);
-            n++;
-        }
-        c.close();return n;
+        if(limit<=0)return 0;Cursor c=db.rawQuery("SELECT r.id,r.source_key,r.technical_type,r.event_type,r.title,r.body,r.occurred_at,r.payload_json FROM ue_raw_observations r WHERE r.source_type='notification' AND NOT EXISTS(SELECT 1 FROM ue_source_transitions t WHERE t.raw_observation_id=r.id) ORDER BY r.id ASC LIMIT ?",new String[]{String.valueOf(limit)});int n=0;while(c.moveToNext()){JSONObject meta=parse(c.getString(7));StatefulMeaningStore.observeNotification(db,c.getLong(0),c.getString(1),c.getString(2),c.getString(3),c.getString(4),c.getString(5),c.getLong(6),meta);n++;}c.close();return n;
     }
 
     private static int rebuildSemantic(VaultDb vault,SQLiteDatabase db,int limit){
         if(limit<=0)return 0;
-        String sql="SELECT e.id,e.raw_observation_id,e.semantic_type,e.intent,e.subject,e.summary,e.confidence," +
-                "e.occurred_at,r.source_key,COALESCE(t.source_instance_id,0),r.source_type,r.technical_type " +
-                "FROM ue_semantic_events e JOIN ue_raw_observations r ON r.id=e.raw_observation_id " +
-                "LEFT JOIN ue_source_transitions t ON t.raw_observation_id=e.raw_observation_id " +
-                "LEFT JOIN ue_canonical_states cs ON cs.semantic_event_id=e.id " +
-                "WHERE e.semantic_state='complete' AND e.superseded_by=0 " +
-                "AND (cs.semantic_event_id IS NULL OR cs.canonical_state='proposed') ORDER BY e.id ASC LIMIT ?";
-        Cursor c=db.rawQuery(sql,new String[]{String.valueOf(limit)});
-        int n=0;
+        String sql="SELECT e.id,e.raw_observation_id,e.semantic_type,e.intent,e.subject,e.summary,e.confidence,e.occurred_at,r.source_key,COALESCE(t.source_instance_id,0),r.source_type,r.technical_type FROM ue_semantic_events e JOIN ue_raw_observations r ON r.id=e.raw_observation_id LEFT JOIN ue_source_transitions t ON t.raw_observation_id=e.raw_observation_id LEFT JOIN ue_canonical_states cs ON cs.semantic_event_id=e.id WHERE e.semantic_state='complete' AND e.superseded_by=0 AND (cs.semantic_event_id IS NULL OR cs.canonical_state='proposed') ORDER BY e.id ASC LIMIT ?";
+        Cursor c=db.rawQuery(sql,new String[]{String.valueOf(limit)});int n=0;
         while(c.moveToNext()){
-            long eventId=c.getLong(0),rawId=c.getLong(1),instanceId=c.getLong(9),at=c.getLong(7);
-            String type=c.getString(2),intent=c.getString(3),subject=c.getString(4),summary=c.getString(5),
-                    source=c.getString(8),sourceType=c.getString(10),technical=c.getString(11);
-            double conf=c.getDouble(6);
-            CanonicalSemanticQualityGate.Result q=CanonicalSemanticQualityGate.evaluate(
-                    sourceType,technical,type,intent,subject,summary,conf);
-            if(!q.eligible){
-                CanonicalStateStore.set(db,eventId,"rejected",q.confidence,q.reason);
-                captureOnly(db,eventId,q.reason);
-                UniversalEventStore.stage(db,rawId,eventId,"QUALITY_GATE","complete",
-                        CanonicalSemanticQualityGate.VERSION,"Rejected from world state: "+q.reason,"");
-                n++;continue;
-            }
-
-            CanonicalStateStore.set(db,eventId,"supported",q.confidence,q.reason);
-            long situation=StatefulMeaningStore.correlate(db,eventId,instanceId,source,type,subject,summary,q.confidence,at);
-            CanonicalStateStore.verifyIfRepeated(db,eventId,situation);
-            String transition=latestTransition(db,situation,eventId);
-            int repeats=memberCount(db,situation);
-            StatefulMeaningPolicy.ProjectionDecision d=StatefulMeaningPolicy.projection(
-                    type,intent,q.confidence,transition,repeats,subject,summary);
-            StatefulMeaningStore.recordProjectionDecision(db,eventId,situation,d);
-            CanonicalMemoryPromoter.reconcile(vault,db,eventId,situation);
-            UniversalEventStore.stage(db,rawId,eventId,"QUALITY_GATE","complete",
-                    CanonicalSemanticQualityGate.VERSION,"Supported for stateful correlation: "+q.reason,"");
-            n++;
-        }
-        c.close();
-        return n;
+            long eventId=c.getLong(0),rawId=c.getLong(1),instanceId=c.getLong(9),at=c.getLong(7);String type=c.getString(2),intent=c.getString(3),subject=c.getString(4),summary=c.getString(5),source=c.getString(8),sourceType=c.getString(10),technical=c.getString(11);double conf=c.getDouble(6);
+            CanonicalSemanticQualityGate.Result q=CanonicalSemanticQualityGate.evaluate(sourceType,technical,type,intent,subject,summary,conf);
+            if(!q.eligible){CanonicalStateStore.set(db,eventId,"rejected",q.confidence,q.reason);captureOnly(db,eventId,q.reason);UniversalEventStore.stage(db,rawId,eventId,"QUALITY_GATE","complete",CanonicalSemanticQualityGate.VERSION,"Rejected from world state: "+q.reason,"");n++;continue;}
+            CanonicalStateStore.set(db,eventId,"supported",q.confidence,q.reason);long situation=StatefulMeaningStore.correlate(db,eventId,instanceId,source,type,subject,summary,q.confidence,at);CanonicalStateStore.verifyIfRepeated(db,eventId,situation);String transition=latestTransition(db,situation,eventId);int repeats=memberCount(db,situation);StatefulMeaningPolicy.ProjectionDecision d=StatefulMeaningPolicy.projection(type,intent,q.confidence,transition,repeats,subject,summary);StatefulMeaningStore.recordProjectionDecision(db,eventId,situation,d);CanonicalMemoryPromoter.reconcile(vault,db,eventId,situation);UniversalEventStore.stage(db,rawId,eventId,"QUALITY_GATE","complete",CanonicalSemanticQualityGate.VERSION,"Supported for stateful correlation: "+q.reason,"");n++;
+        }c.close();return n;
     }
 
     private static void captureOnly(SQLiteDatabase db,long eventId,String reason){
-        long now=System.currentTimeMillis();
-        String[] projections={"CAPTURE","NOW","BRIEF","BRAIN"};
-        for(String p:projections){
-            ContentValues v=new ContentValues();
-            v.put("semantic_event_id",eventId);
-            v.put("situation_id",0);
-            v.put("projection",p);
-            v.put("eligible","CAPTURE".equals(p)?1:0);
-            v.put("reason","v90 semantic quality gate: "+reason);
-            v.put("policy_version",CanonicalSemanticQualityGate.VERSION);
-            v.put("created_at",now);
-            db.insertWithOnConflict("ue_projection_decisions",null,v,SQLiteDatabase.CONFLICT_REPLACE);
-        }
-        ContentValues off=new ContentValues();
-        off.put("eligible",0);
-        off.put("reason","superseded by canonical semantic quality gate: "+reason);
-        db.update("ue_projection_decisions",off,
-                "semantic_event_id=? AND projection<>'CAPTURE'",new String[]{String.valueOf(eventId)});
+        long now=System.currentTimeMillis();String[] projections={"CAPTURE","NOW","BRIEF","BRAIN"};for(String p:projections){ContentValues v=new ContentValues();v.put("semantic_event_id",eventId);v.put("situation_id",0);v.put("projection",p);v.put("eligible","CAPTURE".equals(p)?1:0);v.put("reason","v91 semantic quality gate: "+reason);v.put("policy_version",CanonicalSemanticQualityGate.VERSION);v.put("created_at",now);db.insertWithOnConflict("ue_projection_decisions",null,v,SQLiteDatabase.CONFLICT_REPLACE);}ContentValues off=new ContentValues();off.put("eligible",0);off.put("reason","superseded by canonical semantic quality gate: "+reason);db.update("ue_projection_decisions",off,"semantic_event_id=? AND projection<>'CAPTURE'",new String[]{String.valueOf(eventId)});
     }
 
-    /**
-     * v90 migration: old semantic workers created a second, direct situation/attention projection.
-     * Preserve those rows as history but remove their live authority. Canonical kind='stateful'
-     * situations are never touched here.
-     */
     private static void retireLegacyDirectProjections(SQLiteDatabase db){
-        long now=System.currentTimeMillis();
-        String legacyWhere =
-                "state='open' AND kind IN ('conversation','open_request','commitment','decision','context','missed_call') " +
-                "AND EXISTS(SELECT 1 FROM ue_situation_events se WHERE se.situation_id=ue_situations.id) " +
-                "AND NOT EXISTS(SELECT 1 FROM ue_situation_state_v2 ss WHERE ss.situation_id=ue_situations.id)";
-
-        ContentValues a=new ContentValues();
-        a.put("state","suppressed");
-        a.put("resolved_at",now);
-        a.put("reason","superseded by canonical state/judgment pipeline");
-        a.put("updated_at",now);
-        db.update("ue_attention_items",a,
-                "situation_id IN (SELECT id FROM ue_situations WHERE "+legacyWhere+") " +
-                        "AND state IN ('open','deferred')",null);
-
-        db.execSQL("UPDATE derived_items SET state='suppressed',updated_at=? WHERE id IN " +
-                        "(SELECT ? + id FROM ue_attention_items WHERE reason='superseded by canonical state/judgment pipeline' " +
-                        "AND updated_at=?)",
-                new Object[]{now,UniversalEventStore.ATTENTION_COMPAT_OFFSET,now});
-
-        ContentValues s=new ContentValues();
-        s.put("state","superseded_projection");
-        s.put("resolved_at",now);
-        s.put("updated_at",now);
-        db.update("ue_situations",s,legacyWhere,null);
+        long now=System.currentTimeMillis();String legacyWhere="state='open' AND kind IN ('conversation','open_request','commitment','decision','context','missed_call') AND EXISTS(SELECT 1 FROM ue_situation_events se WHERE se.situation_id=ue_situations.id) AND NOT EXISTS(SELECT 1 FROM ue_situation_state_v2 ss WHERE ss.situation_id=ue_situations.id)";
+        ContentValues a=new ContentValues();a.put("state","suppressed");a.put("resolved_at",now);a.put("reason","superseded by canonical state/judgment pipeline");a.put("updated_at",now);db.update("ue_attention_items",a,"situation_id IN (SELECT id FROM ue_situations WHERE "+legacyWhere+") AND state IN ('open','deferred')",null);
+        db.execSQL("UPDATE derived_items SET state='suppressed',updated_at=? WHERE id IN (SELECT ? + id FROM ue_attention_items WHERE reason='superseded by canonical state/judgment pipeline' AND updated_at=?)",new Object[]{now,UniversalEventStore.ATTENTION_COMPAT_OFFSET,now});
+        ContentValues s=new ContentValues();s.put("state","superseded_projection");s.put("resolved_at",now);s.put("updated_at",now);db.update("ue_situations",s,legacyWhere,null);
     }
 
+    /** Working state may be discarded; provenance/membership is immutable history and is retained. */
     private static void quarantineInvalidSituations(SQLiteDatabase db){
-        String sql="SELECT s.id,e.id,r.source_type,r.technical_type,e.semantic_type,e.intent,e.subject,e.summary,e.confidence " +
-                "FROM ue_situations s JOIN ue_situation_members_v2 m ON m.situation_id=s.id " +
-                "JOIN ue_semantic_events e ON e.id=m.semantic_event_id JOIN ue_raw_observations r ON r.id=e.raw_observation_id " +
-                "WHERE s.state='open' AND e.superseded_by=0 AND e.id=(SELECT MAX(e2.id) " +
-                "FROM ue_situation_members_v2 m2 JOIN ue_semantic_events e2 ON e2.id=m2.semantic_event_id " +
-                "WHERE m2.situation_id=s.id AND e2.superseded_by=0)";
-        Cursor c=db.rawQuery(sql,null);
-        long now=System.currentTimeMillis();
-        while(c.moveToNext()){
-            long situation=c.getLong(0);
-            CanonicalSemanticQualityGate.Result q=CanonicalSemanticQualityGate.evaluate(
-                    c.getString(2),c.getString(3),c.getString(4),c.getString(5),
-                    c.getString(6),c.getString(7),c.getDouble(8));
-            if(q.eligible)continue;
-            ContentValues s=new ContentValues();
-            s.put("state","quarantined_noise");s.put("resolved_at",now);s.put("updated_at",now);
-            db.update("ue_situations",s,"id=?",new String[]{String.valueOf(situation)});
-            ContentValues a=new ContentValues();
-            a.put("state","suppressed");a.put("resolved_at",now);a.put("updated_at",now);
-            db.update("ue_attention_items",a,"situation_id=? AND state='open'",new String[]{String.valueOf(situation)});
-            db.delete("ue_situation_state_v2","situation_id=?",new String[]{String.valueOf(situation)});
-            db.delete("ue_situation_members_v2","situation_id=?",new String[]{String.valueOf(situation)});
-        }
-        c.close();
+        String sql="SELECT s.id,e.id,r.source_type,r.technical_type,e.semantic_type,e.intent,e.subject,e.summary,e.confidence FROM ue_situations s JOIN ue_situation_members_v2 m ON m.situation_id=s.id JOIN ue_semantic_events e ON e.id=m.semantic_event_id JOIN ue_raw_observations r ON r.id=e.raw_observation_id WHERE s.state='open' AND e.superseded_by=0 AND e.id=(SELECT MAX(e2.id) FROM ue_situation_members_v2 m2 JOIN ue_semantic_events e2 ON e2.id=m2.semantic_event_id WHERE m2.situation_id=s.id AND e2.superseded_by=0)";
+        Cursor c=db.rawQuery(sql,null);long now=System.currentTimeMillis();while(c.moveToNext()){long situation=c.getLong(0);CanonicalSemanticQualityGate.Result q=CanonicalSemanticQualityGate.evaluate(c.getString(2),c.getString(3),c.getString(4),c.getString(5),c.getString(6),c.getString(7),c.getDouble(8));if(q.eligible)continue;ContentValues s=new ContentValues();s.put("state","quarantined_noise");s.put("resolved_at",now);s.put("updated_at",now);db.update("ue_situations",s,"id=?",new String[]{String.valueOf(situation)});ContentValues a=new ContentValues();a.put("state","suppressed");a.put("resolved_at",now);a.put("updated_at",now);a.put("reason","v91 semantic quality quarantine: "+q.reason);db.update("ue_attention_items",a,"situation_id=? AND state='open'",new String[]{String.valueOf(situation)});db.delete("ue_situation_state_v2","situation_id=?",new String[]{String.valueOf(situation)});}c.close();
     }
 
-    public static boolean hasBacklog(VaultDb vault){
-        SQLiteDatabase db=vault.getReadableDatabase();
-        StatefulMeaningStore.ensure(db);
-        CommitmentLifecycleStore.ensure(db);
-        CanonicalStateStore.ensure(db);
-        Cursor c=db.rawQuery("SELECT 1 FROM ue_raw_observations r WHERE r.source_type='notification' " +
-                "AND NOT EXISTS(SELECT 1 FROM ue_source_transitions t WHERE t.raw_observation_id=r.id) LIMIT 1",null);
-        boolean raw=c.moveToFirst();c.close();if(raw)return true;
-        c=db.rawQuery("SELECT 1 FROM ue_semantic_events e LEFT JOIN ue_canonical_states cs ON cs.semantic_event_id=e.id " +
-                "WHERE e.semantic_state='complete' AND e.superseded_by=0 " +
-                "AND (cs.semantic_event_id IS NULL OR cs.canonical_state='proposed') LIMIT 1",null);
-        boolean sem=c.moveToFirst();c.close();if(sem)return true;
-        return CommitmentLifecycleStore.hasBacklog(db);
-    }
-
-    private static String latestTransition(SQLiteDatabase db,long situationId,long eventId){
-        if(situationId<=0)return"";
-        Cursor c=db.rawQuery("SELECT kind FROM ue_situation_transitions WHERE situation_id=? AND semantic_event_id=? " +
-                        "ORDER BY id DESC LIMIT 1",
-                new String[]{String.valueOf(situationId),String.valueOf(eventId)});
-        String x=c.moveToFirst()?c.getString(0):"SUPPORTING_EVIDENCE";c.close();return x==null?"":x;
-    }
-
-    private static int memberCount(SQLiteDatabase db,long situationId){
-        if(situationId<=0)return 0;
-        Cursor c=db.rawQuery("SELECT member_count FROM ue_situation_state_v2 WHERE situation_id=?",
-                new String[]{String.valueOf(situationId)});
-        int n=c.moveToFirst()?c.getInt(0):0;c.close();return n;
-    }
-
-    private static JSONObject parse(String s){
-        try{return new JSONObject(s==null?"{}":s);}catch(Exception ignored){return new JSONObject();}
-    }
+    public static boolean hasBacklog(VaultDb vault){SQLiteDatabase db=vault.getReadableDatabase();StatefulMeaningStore.ensure(db);CommitmentLifecycleStore.ensure(db);CanonicalStateStore.ensure(db);Cursor c=db.rawQuery("SELECT 1 FROM ue_raw_observations r WHERE r.source_type='notification' AND NOT EXISTS(SELECT 1 FROM ue_source_transitions t WHERE t.raw_observation_id=r.id) LIMIT 1",null);boolean raw=c.moveToFirst();c.close();if(raw)return true;c=db.rawQuery("SELECT 1 FROM ue_semantic_events e LEFT JOIN ue_canonical_states cs ON cs.semantic_event_id=e.id WHERE e.semantic_state='complete' AND e.superseded_by=0 AND (cs.semantic_event_id IS NULL OR cs.canonical_state='proposed') LIMIT 1",null);boolean sem=c.moveToFirst();c.close();if(sem)return true;return CommitmentLifecycleStore.hasBacklog(db);}
+    private static String latestTransition(SQLiteDatabase db,long situationId,long eventId){if(situationId<=0)return"";Cursor c=db.rawQuery("SELECT kind FROM ue_situation_transitions WHERE situation_id=? AND semantic_event_id=? ORDER BY id DESC LIMIT 1",new String[]{String.valueOf(situationId),String.valueOf(eventId)});String x=c.moveToFirst()?c.getString(0):"SUPPORTING_EVIDENCE";c.close();return x==null?"":x;}
+    private static int memberCount(SQLiteDatabase db,long situationId){if(situationId<=0)return 0;Cursor c=db.rawQuery("SELECT member_count FROM ue_situation_state_v2 WHERE situation_id=?",new String[]{String.valueOf(situationId)});int n=c.moveToFirst()?c.getInt(0):0;c.close();return n;}
+    private static JSONObject parse(String s){try{return new JSONObject(s==null?"{}":s);}catch(Exception ignored){return new JSONObject();}}
 }

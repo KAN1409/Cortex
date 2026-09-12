@@ -2,13 +2,14 @@ package com.kareem.cortex;
 
 import java.util.Locale;
 
-/** Final user-facing quality gate. Raw evidence stays preserved; only low-value projections are hidden. */
+/** Legacy/pre-judge user-facing quality guard. Final-Judge rows are presentation-only here. */
 public final class NowQualityPolicy {
     private NowQualityPolicy(){}
 
     public static boolean suppress(String kind,String source,String title,String body){
         String k=n(kind).toUpperCase(Locale.ROOT);
         String src=n(source).toLowerCase(Locale.ROOT);
+        if(src.startsWith("final_judge|"))return false;
         String t=n(title);
         String b=n(body);
         String x=(t+" "+b).replaceAll("\\s+"," ").trim();
@@ -18,9 +19,7 @@ public final class NowQualityPolicy {
         if(metaUi(l))return true;
         if("WAITING".equals(k)&&systemNotice(l))return true;
 
-        // PicBrain is evidence first. A screenshot is promoted to Now only when the extracted
-        // candidate contains an explicit obligation/request/follow-up signal, never just because
-        // an OCR/model sentence contains words such as "should" or resembles an instruction.
+        // PicBrain is evidence first. This guard remains for legacy/non-canonical surfaces only.
         if("picbrain".equals(src)||src.contains("knowledge_v2")){
             if(x.length()>180)return true;
             if(genericReference(l))return true;

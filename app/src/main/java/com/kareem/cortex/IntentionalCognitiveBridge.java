@@ -6,11 +6,10 @@ import java.util.*;
 
 /** Bridges analyzed intentional captures into the unified derived graph without turning passive evidence into tasks. */
 public final class IntentionalCognitiveBridge {
-    public static final String POLICY="intentional_bridge_004";
+    public static final String POLICY="intentional_bridge_005";
     private static final double PROJECT_CANDIDATE_MIN_CONFIDENCE=.72;
     private IntentionalCognitiveBridge(){}
 
-    /** Backfill intentional captures directly; do not depend on recency-biased generic Vault search. */
     public static void backfill(VaultDb db,int limit){
         if(db==null)return;int lim=Math.max(1,Math.min(5000,limit));Cursor c=null;try{
             c=db.getReadableDatabase().query("knowledge_items",null,"status='analyzed' AND source IN ('manual','manual_recording','quick_capture')",null,null,null,"created_at DESC",String.valueOf(lim));
@@ -22,21 +21,21 @@ public final class IntentionalCognitiveBridge {
     }
 
     public static void afterAnalysis(VaultDb db,KnowledgeItem item,AnalysisResult r){
-        if(db==null||item==null||r==null)return;CognitiveStore.ensure(db);
-        if(passive(item))return;
+        if(db==null||item==null||r==null)return;CognitiveStore.ensure(db);if(passive(item))return;
         String text=bestText(item,r),norm=LocalSemanticEmbedder.norm(text);boolean intentional=intentional(item);
         try{
-            if(intentional){for(AnalysisResult.Action a:r.actions){String action=n(a.text);if(action.isEmpty())continue;String actionNorm=LocalSemanticEmbedder.norm(action);if(strongAction(norm,actionNorm))add(db,item,CognitiveTypes.DerivedKind.ACTION,action,action,"open",.92,76);else review(db,item,CognitiveTypes.DerivedKind.ACTION,action,action,.62,56,"intentional capture contains an action-like clause but explicit commitment is uncertain");}}
+            if(intentional){
+                for(AnalysisResult.Action a:r.actions){String action=n(a.text);if(action.isEmpty())continue;String actionNorm=LocalSemanticEmbedder.norm(action);if(strongAction(norm,actionNorm))add(db,item,CognitiveTypes.DerivedKind.ACTION,action,action,"open",.92,76);else review(db,item,CognitiveTypes.DerivedKind.ACTION,action,action,.62,56,"intentional capture contains an action-like clause but explicit commitment is uncertain");}
+                if(hasAny(norm,"waiting for","waiting on","awaiting","مستني","مستنى","منتظر","في انتظار","لما يرد","لما ترد"))add(db,item,CognitiveTypes.DerivedKind.WAITING,titleFor(r,"Waiting"),clip(text,700),"open",.90,70);
+                if(hasAny(norm,"i decided","we decided","decided to","agreed to","approved","قررت","قررنا","اتفقنا","اعتمدنا","تمت الموافقه","تم الموافقة"))add(db,item,CognitiveTypes.DerivedKind.DECISION,titleFor(r,"Decision"),clip(text,700),"open",.91,72);
+                if(hasAny(norm,"goal:","my goal","goal is","هدفي","الهدف:","هدف:"))add(db,item,CognitiveTypes.DerivedKind.GOAL_SIGNAL,titleFor(r,"Goal"),clip(text,700),"open",.94,74);
+                if(hasAny(norm,"idea:","idea is","فكره:","فكرة:","عندي فكره","عندي فكرة"))add(db,item,CognitiveTypes.DerivedKind.IDEA,titleFor(r,"Idea"),clip(text,700),"open",.94,58);
+                if(hasAny(norm,"opportunity:","فرصه:","فرصة:","دي فرصه","دي فرصة"))add(db,item,CognitiveTypes.DerivedKind.OPPORTUNITY,titleFor(r,"Opportunity"),clip(text,700),"open",.94,66);
+                if(hasAny(norm,"hypothesis:","my hypothesis","فرضيه:","فرضية:","ممكن يكون السبب","i suspect that"))add(db,item,CognitiveTypes.DerivedKind.HYPOTHESIS,titleFor(r,"Hypothesis"),clip(text,700),"open",.82,54);
 
-            if(intentional&&hasAny(norm,"waiting for","waiting on","awaiting","مستني","مستنى","منتظر","في انتظار","لما يرد","لما ترد"))add(db,item,CognitiveTypes.DerivedKind.WAITING,titleFor(r,"Waiting"),clip(text,700),"open",.90,70);
-            if(intentional&&hasAny(norm,"i decided","we decided","decided to","agreed to","approved","قررت","قررنا","اتفقنا","اعتمدنا","تمت الموافقه","تم الموافقة"))add(db,item,CognitiveTypes.DerivedKind.DECISION,titleFor(r,"Decision"),clip(text,700),"open",.91,72);
-            if(intentional&&hasAny(norm,"goal:","my goal","goal is","هدفي","الهدف:","هدف:"))add(db,item,CognitiveTypes.DerivedKind.GOAL_SIGNAL,titleFor(r,"Goal"),clip(text,700),"open",.94,74);
-            if(intentional&&hasAny(norm,"idea:","idea is","فكره:","فكرة:","عندي فكره","عندي فكرة"))add(db,item,CognitiveTypes.DerivedKind.IDEA,titleFor(r,"Idea"),clip(text,700),"open",.94,58);
-            if(intentional&&hasAny(norm,"opportunity:","فرصه:","فرصة:","دي فرصه","دي فرصة"))add(db,item,CognitiveTypes.DerivedKind.OPPORTUNITY,titleFor(r,"Opportunity"),clip(text,700),"open",.94,66);
-            if(intentional&&hasAny(norm,"hypothesis:","my hypothesis","فرضيه:","فرضية:","ممكن يكون السبب","i suspect that"))add(db,item,CognitiveTypes.DerivedKind.HYPOTHESIS,titleFor(r,"Hypothesis"),clip(text,700),"open",.82,54);
-
-            // Inference can only create a candidate. The candidate itself must also look like a label, not a sentence fragment.
-            for(AnalysisResult.Entity e:r.entities){if(!"PROJECT".equalsIgnoreCase(n(e.kind))||e.confidence<PROJECT_CANDIDATE_MIN_CONFIDENCE)continue;String name=EntityQualityPolicy.cleanProjectName(e.value);if(!EntityQualityPolicy.plausibleProject(name))continue;add(db,item,CognitiveTypes.DerivedKind.PROJECT_CANDIDATE,name,clip(text,700),"pending",Math.max(PROJECT_CANDIDATE_MIN_CONFIDENCE,e.confidence),60);}
+                // Project inference is intentionally bounded to explicit/manual memory capture.
+                for(AnalysisResult.Entity e:r.entities){if(!"PROJECT".equalsIgnoreCase(n(e.kind))||e.confidence<PROJECT_CANDIDATE_MIN_CONFIDENCE)continue;String name=EntityQualityPolicy.cleanProjectName(e.value);if(!EntityQualityPolicy.plausibleProject(name))continue;add(db,item,CognitiveTypes.DerivedKind.PROJECT_CANDIDATE,name,clip(text,700),"pending",Math.max(PROJECT_CANDIDATE_MIN_CONFIDENCE,e.confidence),60);}
+            }
         }catch(Throwable e){DiagnosticsLog.error(db,"IntentionalCognitiveBridge","after_analysis",e,"INTENTIONAL_BRIDGE",item.id,0,0,0,0,null);}
     }
 
@@ -44,7 +43,6 @@ public final class IntentionalCognitiveBridge {
         try{JSONObject meta=new JSONObject().put("memory_id",item.id).put("source",n(item.source)).put("policy",POLICY).put("intentional",intentional(item));String fp=Fingerprint.text("intentional|"+kind+"|"+item.id+"|"+LocalSemanticEmbedder.norm(body));long id=CognitiveStore.addDerived(db,kind,title,body,state,confidence,importance,fp,meta.toString());if(id>0){CognitiveStore.setDerivedRouting(db,id,n(item.source),0,0,kind);CognitiveStore.link(db,CognitiveTypes.ObjectType.MEMORY,item.id,CognitiveTypes.ObjectType.DERIVED,id,CognitiveTypes.Relation.SUPPORTS,1.0,meta.toString());CognitiveStore.link(db,CognitiveTypes.ObjectType.DERIVED,id,CognitiveTypes.ObjectType.MEMORY,item.id,CognitiveTypes.Relation.GROUNDED_BY,1.0,"");}return id;}catch(Exception e){return 0;}
     }
     private static void review(VaultDb db,KnowledgeItem item,String candidate,String title,String body,double confidence,int importance,String reason){long id=ReviewQueueStore.enqueue(db,candidate,title,body,confidence,importance,0,0,reason,n(item.source));if(id>0)CognitiveStore.link(db,CognitiveTypes.ObjectType.MEMORY,item.id,CognitiveTypes.ObjectType.DERIVED,id,CognitiveTypes.Relation.SUPPORTS,1.0,"{\"policy\":\""+POLICY+"\"}");}
-
     private static boolean strongAction(String full,String action){String x=LocalSemanticEmbedder.norm(full+" "+action);if(negatedAction(x))return false;return hasAny(x,"remind me","remind","need to","must ","todo","to do","follow up","فكرني","لازم","محتاج اعمل","محتاج أعمل","عايز اعمل","عاوز اعمل","عايز أعمل","عاوز أعمل","هتابع","أتابع","اتابع");}
     private static boolean negatedAction(String x){return hasAny(x,"don't need to","dont need to","do not need to","no need to","don't have to","dont have to","do not have to","not required to","مش محتاج","مش لازم","مش عايز","مش عاوز","مش مطلوب");}
     private static boolean intentional(KnowledgeItem k){String s=n(k.source);return"manual".equals(s)||"manual_recording".equals(s)||"quick_capture".equals(s);}

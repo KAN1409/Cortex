@@ -6,7 +6,7 @@ import org.json.JSONObject;
 
 /** Safe promotion boundary for teacher policies. */
 public final class CortexPolicyPromotion {
-    public static final String VERSION="cortex_policy_promotion_002";
+    public static final String VERSION="cortex_policy_promotion_003";
     private static final String PREF="cortex_policy_promotion";
     private static final String KEY_PREVIOUS="previous_policy",KEY_STATE="state",KEY_REASON="reason",KEY_POLICY="policy_version",KEY_AT="updated_at";
     private CortexPolicyPromotion(){}
@@ -28,11 +28,24 @@ public final class CortexPolicyPromotion {
         if(lifecycle.activation==CortexPolicyLifecycle.Activation.HELD){rememberState(app,"HELD",lifecycle.reason,proposedVersion);return new Result(false,true,"HELD",lifecycle.reason,proposedVersion);}
         app.getSharedPreferences(PREF,Context.MODE_PRIVATE).edit().putString(KEY_PREVIOUS,current.toString()).apply();
         String reason=candidates==0?"activated in bounded canary; no live canonical candidates existed to compare yet":"shadow comparison passed; bounded canary active";
-        try{JSONObject activated=new JSONObject(proposed.toString());activated.put("promotionMode","CANARY");activated.put("promotedAt",System.currentTimeMillis());activated.put("previousPolicyVersion",current.optString("version","local"));CortexPersonalPolicy.saveWithoutLifecycle(app,activated);}catch(Throwable e){reason="promotion failed: "+n(e.getMessage());rememberState(app,"FAILED",reason,proposedVersion);return new Result(false,true,"FAILED",reason,proposedVersion);}
+        try{
+            JSONObject activated=new JSONObject(proposed.toString());activated.put("promotionMode","CANARY");activated.put("promotedAt",System.currentTimeMillis());activated.put("previousPolicyVersion",current.optString("version","local"));CortexPersonalPolicy.saveWithoutLifecycle(app,activated);
+            VaultDb vault=new VaultDb(app);
+            try{
+                CognitiveStore.ensure(vault);CanonicalAttentionMaterializer.run(app,vault);
+                CortexV91Authority.Validation validation=CortexV91Authority.validate(vault.getReadableDatabase(),activated.optString("version","teacher"),activated.optInt("maxNowItems",7));
+                if(!validation.ok){
+                    CortexPersonalPolicy.saveWithoutLifecycle(app,current);CortexPolicyLifecycle.rollback(app,"v91 policy activation invariant failed: "+validation.summary());CanonicalAttentionMaterializer.run(app,vault);
+                    reason="policy rolled back: "+validation.summary();rememberState(app,"ROLLED_BACK",reason,proposedVersion);return new Result(false,true,"ROLLED_BACK",reason,proposedVersion);
+                }
+            }finally{try{vault.close();}catch(Throwable ignored){}}
+        }catch(Throwable e){
+            CortexPersonalPolicy.saveWithoutLifecycle(app,current);CortexPolicyLifecycle.rollback(app,"promotion failure");reason="promotion failed: "+n(e.getMessage());rememberState(app,"FAILED",reason,proposedVersion);return new Result(false,true,"FAILED",reason,proposedVersion);
+        }
         rememberState(app,"CANARY",reason,proposedVersion);return new Result(true,false,"CANARY",reason,proposedVersion);
     }
 
-    public static boolean rollback(Context context,String reason){Context app=context.getApplicationContext();SharedPreferences p=app.getSharedPreferences(PREF,Context.MODE_PRIVATE);String raw=p.getString(KEY_PREVIOUS,"");if(raw==null||raw.trim().isEmpty())return false;try{JSONObject previous=new JSONObject(raw);CortexPersonalPolicy.saveWithoutLifecycle(app,previous);CortexPolicyLifecycle.rollback(app,n(reason).isEmpty()?"manual rollback":reason);rememberState(app,"ROLLED_BACK",n(reason).isEmpty()?"manual rollback":reason,previous.optString("version","previous"));return true;}catch(Throwable ignored){return false;}}
+    public static boolean rollback(Context context,String reason){Context app=context.getApplicationContext();SharedPreferences p=app.getSharedPreferences(PREF,Context.MODE_PRIVATE);String raw=p.getString(KEY_PREVIOUS,"");if(raw==null||raw.trim().isEmpty())return false;try{JSONObject previous=new JSONObject(raw);CortexPersonalPolicy.saveWithoutLifecycle(app,previous);CortexPolicyLifecycle.rollback(app,n(reason).isEmpty()?"manual rollback":reason);try(VaultDb vault=new VaultDb(app)){CanonicalAttentionMaterializer.run(app,vault);}rememberState(app,"ROLLED_BACK",n(reason).isEmpty()?"manual rollback":reason,previous.optString("version","previous"));return true;}catch(Throwable ignored){return false;}}
     public static String status(Context context){SharedPreferences p=context.getApplicationContext().getSharedPreferences(PREF,Context.MODE_PRIVATE);String state=p.getString(KEY_STATE,"NONE"),version=p.getString(KEY_POLICY,""),reason=p.getString(KEY_REASON,"");return state+(version==null||version.isEmpty()?"":" · "+version)+(reason==null||reason.isEmpty()?"":"\n"+reason);}
     public static boolean canRollback(Context context){String raw=context.getApplicationContext().getSharedPreferences(PREF,Context.MODE_PRIVATE).getString(KEY_PREVIOUS,"");return raw!=null&&!raw.trim().isEmpty();}
     private static void rememberState(Context context,String state,String reason,String policy){context.getSharedPreferences(PREF,Context.MODE_PRIVATE).edit().putString(KEY_STATE,n(state)).putString(KEY_REASON,n(reason)).putString(KEY_POLICY,n(policy)).putLong(KEY_AT,System.currentTimeMillis()).apply();}

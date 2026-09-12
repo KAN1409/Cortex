@@ -8,7 +8,7 @@ import android.database.sqlite.SQLiteDatabase;
 public final class CognitiveStore {
     private CognitiveStore(){}
 
-    public static void ensure(VaultDb db){CognitiveSchema.ensure(db.getWritableDatabase());}
+    public static void ensure(VaultDb db){CognitiveSchema.ensure(db.getWritableDatabase());CortexV91Authority.migrate(db.getWritableDatabase());}
 
     public static void link(VaultDb db,String fromType,long fromId,String toType,long toId,String relation,double confidence,String metadataJson){linkChecked(db,fromType,fromId,toType,toId,relation,confidence,metadataJson);}
     public static boolean linkChecked(VaultDb db,String fromType,long fromId,String toType,long toId,String relation,double confidence,String metadataJson){
