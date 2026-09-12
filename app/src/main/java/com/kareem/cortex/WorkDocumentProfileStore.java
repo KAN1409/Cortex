@@ -5,9 +5,9 @@ import android.database.Cursor;
 import android.database.sqlite.SQLiteDatabase;
 import org.json.JSONObject;
 
-/** Stores descriptive document-type metadata derived from the latest grounded file version only. */
+/** Stores descriptive document-type metadata derived from the active grounded file version only. */
 public final class WorkDocumentProfileStore {
-    public static final String VERSION="work_document_profile_store_002";
+    public static final String VERSION="work_document_profile_store_003";
     private WorkDocumentProfileStore(){}
 
     public static void ensure(SQLiteDatabase db){
@@ -23,19 +23,14 @@ public final class WorkDocumentProfileStore {
 
     public static int classifySource(SQLiteDatabase db,long sourceId){
         ensure(db);WorkVaultIndexSchema.ensure(db);int count=0;
-        Cursor files=db.rawQuery("SELECT id,display_name FROM work_files WHERE source_id=? AND state IN ('indexed','needs_ocr')",new String[]{String.valueOf(sourceId)});
+        Cursor files=db.rawQuery("SELECT id,display_name,active_version_id FROM work_files WHERE source_id=? AND state IN ('indexed','needs_ocr') AND active_version_id>0",new String[]{String.valueOf(sourceId)});
         try{
             while(files.moveToNext()){
-                long fileId=files.getLong(0);String name=files.isNull(1)?"":files.getString(1);
+                long fileId=files.getLong(0);String name=files.isNull(1)?"":files.getString(1);long versionId=files.getLong(2);
                 StringBuilder body=new StringBuilder();
                 Cursor c=db.rawQuery(
-                        "SELECT chunk_text,sheet_name FROM work_chunks "+
-                                "WHERE file_id=? AND version_id=("+
-                                "SELECT id FROM work_file_versions "+
-                                "WHERE file_id=? AND state IN ('complete','partial_needs_ocr') "+
-                                "ORDER BY parsed_at DESC,id DESC LIMIT 1"+
-                                ") ORDER BY chunk_index ASC LIMIT 120",
-                        new String[]{String.valueOf(fileId),String.valueOf(fileId)});
+                        "SELECT chunk_text,sheet_name FROM work_chunks WHERE file_id=? AND version_id=? ORDER BY chunk_index ASC LIMIT 120",
+                        new String[]{String.valueOf(fileId),String.valueOf(versionId)});
                 try{
                     while(c.moveToNext()){
                         if(!c.isNull(1))body.append(' ').append(c.getString(1));
