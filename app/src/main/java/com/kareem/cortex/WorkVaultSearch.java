@@ -1,0 +1,69 @@
+package com.kareem.cortex;
+
+import android.database.Cursor;
+import android.database.sqlite.SQLiteDatabase;
+import java.util.*;
+
+/** Grounded lexical retrieval across the latest parsed Work Vault versions. */
+public final class WorkVaultSearch {
+    public static final String VERSION="work_vault_search_001";
+    private WorkVaultSearch(){}
+
+    public static ArrayList<Hit> search(VaultDb vault,String query,int limit){
+        SQLiteDatabase db=vault.getReadableDatabase();WorkVaultIndexSchema.ensure(db);
+        String q=query==null?"":query.trim();ArrayList<Hit> out=new ArrayList<>();
+        if(q.isEmpty())return out;
+        String like="%"+q+"%";
+
+        Cursor c=db.rawQuery(
+                "SELECT c.file_id,f.display_name,f.document_uri,c.chunk_text,c.sheet_name,c.page_number,c.slide_number,c.row_number "+
+                "FROM work_chunks c JOIN work_files f ON f.id=c.file_id "+
+                "WHERE c.version_id=(SELECT v.id FROM work_file_versions v WHERE v.file_id=c.file_id ORDER BY v.parsed_at DESC,v.id DESC LIMIT 1) "+
+                "AND (c.chunk_text LIKE ? OR f.display_name LIKE ?) LIMIT 80",
+                new String[]{like,like});
+        while(c.moveToNext()){
+            Hit h=new Hit();h.kind="TEXT";h.fileId=c.getLong(0);h.fileName=s(c,1);h.documentUri=s(c,2);h.snippet=clip(s(c,3),900);h.sheet=s(c,4);h.page=c.getInt(5);h.slide=c.getInt(6);h.row=c.getInt(7);h.score=score(q,h.fileName+" "+h.snippet)+.15;out.add(h);
+        }c.close();
+
+        c=db.rawQuery(
+                "SELECT p.file_id,f.display_name,f.document_uri,p.item_name,p.vendor_name,p.quantity,p.unit,p.unit_price,p.total_price,p.currency,p.sheet_name,p.page_number,p.row_number,p.reference_type,p.reference_value "+
+                "FROM work_price_records p JOIN work_files f ON f.id=p.file_id "+
+                "WHERE p.item_name LIKE ? OR p.vendor_name LIKE ? OR p.reference_value LIKE ? OR f.display_name LIKE ? LIMIT 60",
+                new String[]{like,like,like,like});
+        while(c.moveToNext()){
+            Hit h=new Hit();h.kind="PRICE";h.fileId=c.getLong(0);h.fileName=s(c,1);h.documentUri=s(c,2);
+            StringBuilder b=new StringBuilder();b.append(s(c,3));if(!s(c,4).isEmpty())b.append(" • vendor ").append(s(c,4));if(!c.isNull(5))b.append(" • qty ").append(c.getDouble(5)).append(' ').append(s(c,6));if(!c.isNull(7))b.append(" • unit price ").append(c.getDouble(7)).append(' ').append(s(c,9));if(!c.isNull(8))b.append(" • total ").append(c.getDouble(8)).append(' ').append(s(c,9));if(!s(c,13).isEmpty())b.append(" • ").append(s(c,13)).append(' ').append(s(c,14));h.snippet=b.toString();h.sheet=s(c,10);h.page=c.getInt(11);h.row=c.getInt(12);h.score=score(q,h.fileName+" "+h.snippet)+.35;out.add(h);
+        }c.close();
+
+        c=db.rawQuery(
+                "SELECT x.file_id,f.display_name,f.document_uri,x.fact_type,x.fact_key,x.text_value,x.sheet_name,x.page_number,x.slide_number,x.row_number "+
+                "FROM work_facts x JOIN work_files f ON f.id=x.file_id "+
+                "WHERE x.fact_key LIKE ? OR x.text_value LIKE ? OR f.display_name LIKE ? LIMIT 60",
+                new String[]{like,like,like});
+        while(c.moveToNext()){
+            Hit h=new Hit();h.kind=s(c,3);h.fileId=c.getLong(0);h.fileName=s(c,1);h.documentUri=s(c,2);h.snippet=(s(c,4).isEmpty()?"":s(c,4)+": ")+s(c,5);h.sheet=s(c,6);h.page=c.getInt(7);h.slide=c.getInt(8);h.row=c.getInt(9);h.score=score(q,h.fileName+" "+h.snippet)+.30;out.add(h);
+        }c.close();
+
+        Collections.sort(out,(a,b)->Double.compare(b.score,a.score));
+        LinkedHashMap<String,Hit> unique=new LinkedHashMap<>();
+        for(Hit h:out){String key=h.fileId+"|"+h.location()+"|"+h.snippet;unique.putIfAbsent(key,h);if(unique.size()>=Math.max(1,limit))break;}
+        return new ArrayList<>(unique.values());
+    }
+
+    public static String groundedContext(String query,List<Hit> hits,int maxChars){
+        StringBuilder b=new StringBuilder();b.append("WORK VAULT EVIDENCE\nQuery: ").append(query==null?"":query).append("\n\n");int i=1;
+        for(Hit h:hits){String block="["+i+"] "+h.fileName+(h.location().isEmpty()?"":" — "+h.location())+"\n"+h.snippet+"\n\n";if(b.length()+block.length()>maxChars)break;b.append(block);i++;}
+        b.append("Use only the grounded evidence above. Distinguish facts from inference. Cite evidence numbers and file/location for every concrete claim. If evidence is insufficient, say so.");
+        return b.toString();
+    }
+
+    private static double score(String query,String text){String q=n(query).toLowerCase(Locale.ROOT),t=n(text).toLowerCase(Locale.ROOT);if(q.isEmpty())return 0;double s=t.contains(q)?.7:0;String[] tokens=q.split("[^\\p{L}\\p{N}]+");int hit=0,total=0;for(String token:tokens){if(token.length()<2)continue;total++;if(t.contains(token))hit++;}if(total>0)s+=.3*((double)hit/total);return Math.min(1,s);}
+    private static String clip(String s,int n){String x=n(s);return x.length()<=n?x:x.substring(0,n)+"…";}
+    private static String s(Cursor c,int i){return c.isNull(i)?"":c.getString(i);}
+    private static String n(String s){return s==null?"":s.trim();}
+
+    public static final class Hit{
+        public String kind="",fileName="",documentUri="",snippet="",sheet="";public long fileId;public int page,slide,row;public double score;
+        public String location(){ArrayList<String> p=new ArrayList<>();if(!sheet.isEmpty())p.add("Sheet "+sheet);if(page>0)p.add("Page "+page);if(slide>0)p.add("Slide "+slide);if(row>0)p.add("Row "+row);return android.text.TextUtils.join(" • ",p);}
+    }
+}
