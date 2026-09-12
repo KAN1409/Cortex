@@ -2,8 +2,6 @@ package com.kareem.cortex;
 
 import static org.junit.Assert.*;
 import java.util.Arrays;
-import org.json.JSONArray;
-import org.json.JSONObject;
 import org.junit.Test;
 
 public class WorkDocumentClassifierTest {
@@ -125,18 +123,15 @@ public class WorkDocumentClassifierTest {
         assertEquals("SUPPLY_ORDER",c.family);assertEquals("SUPPLY_ONLY",c.scope);
     }
 
-    @Test public void generationRouterUsesLocalOnlyForSafeStructuredXlsx() throws Exception {
-        JSONObject withPrices=new JSONObject();
-        withPrices.put("priceRecords",new JSONArray().put(new JSONObject().put("item","Galala").put("unitPrice",2500)));
-        WorkDocumentGenerationDecision.Decision local=WorkDocumentGenerationDecision.decide(WorkDocumentRecipe.Kind.PRICE_COMPARISON,withPrices);
+    @Test public void generationRouterUsesLocalOnlyForSafeStructuredXlsx(){
+        WorkDocumentGenerationDecision.Decision local=WorkDocumentGenerationDecision.decide(WorkDocumentRecipe.Kind.PRICE_COMPARISON,1);
         assertEquals(WorkDocumentGenerationDecision.Route.LOCAL_GENERATION,local.route);
         assertEquals(1,local.evidenceRows);
 
-        JSONObject empty=new JSONObject().put("priceRecords",new JSONArray());
-        WorkDocumentGenerationDecision.Decision noEvidence=WorkDocumentGenerationDecision.decide(WorkDocumentRecipe.Kind.COMMERCIAL_COMPARISON,empty);
+        WorkDocumentGenerationDecision.Decision noEvidence=WorkDocumentGenerationDecision.decide(WorkDocumentRecipe.Kind.COMMERCIAL_COMPARISON,0);
         assertEquals(WorkDocumentGenerationDecision.Route.CHATGPT_BUILD,noEvidence.route);
 
-        WorkDocumentGenerationDecision.Decision order=WorkDocumentGenerationDecision.decide(WorkDocumentRecipe.Kind.ASSIGNMENT_ORDER_MANUFACTURING_AND_SUPPLY,withPrices);
+        WorkDocumentGenerationDecision.Decision order=WorkDocumentGenerationDecision.decide(WorkDocumentRecipe.Kind.ASSIGNMENT_ORDER_MANUFACTURING_AND_SUPPLY,10);
         assertEquals(WorkDocumentGenerationDecision.Route.CHATGPT_BUILD,order.route);
     }
 }
