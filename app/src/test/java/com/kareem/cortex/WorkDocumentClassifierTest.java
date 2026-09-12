@@ -90,4 +90,36 @@ public class WorkDocumentClassifierTest {
         assertEquals(2500.0,WorkPriceAnalyticsEngine.median(Arrays.asList(2400d,2500d,2600d)),.001);
         assertEquals(2550.0,WorkPriceAnalyticsEngine.median(Arrays.asList(2400d,2500d,2600d,9999d)),.001);
     }
+
+    @Test public void distinguishesTheThreeRealOrderTypes(){
+        WorkOrderClassifier.Result manufacturing=WorkOrderClassifier.classify(
+                "أمر إسناد تشطيبات.docx","أمر إسناد لأعمال المصنعات والتصنيع فقط");
+        assertEquals("ASSIGNMENT_ORDER",manufacturing.family);
+        assertEquals("MANUFACTURING_ONLY",manufacturing.scope);
+
+        WorkOrderClassifier.Result mixed=WorkOrderClassifier.classify(
+                "أمر إسناد رخام.pdf","أمر إسناد لأعمال تصنيع وتوريد الرخام للمشروع");
+        assertEquals("ASSIGNMENT_ORDER",mixed.family);
+        assertEquals("MANUFACTURING_AND_SUPPLY",mixed.scope);
+
+        WorkOrderClassifier.Result supply=WorkOrderClassifier.classify(
+                "أمر توريد رخام.xlsx","أمر توريد خامات فقط للمشروع");
+        assertEquals("SUPPLY_ORDER",supply.family);
+        assertEquals("SUPPLY_ONLY",supply.scope);
+    }
+
+    @Test public void leavesAssignmentScopeUnknownWhenEvidenceIsInsufficient(){
+        WorkOrderClassifier.Result r=WorkOrderClassifier.classify("أمر إسناد 1047.pdf","أمر إسناد للمقاول");
+        assertEquals("ASSIGNMENT_ORDER",r.family);
+        assertEquals("UNKNOWN",r.scope);
+    }
+
+    @Test public void documentRecipesPreserveOrderFamilyAndScope(){
+        WorkDocumentRecipe.Recipe a=WorkDocumentRecipe.forKind(WorkDocumentRecipe.Kind.ASSIGNMENT_ORDER_MANUFACTURING_ONLY);
+        assertEquals("ASSIGNMENT_ORDER",a.family);assertEquals("MANUFACTURING_ONLY",a.scope);assertEquals("DOCX",a.outputFormat);
+        WorkDocumentRecipe.Recipe b=WorkDocumentRecipe.forKind(WorkDocumentRecipe.Kind.ASSIGNMENT_ORDER_MANUFACTURING_AND_SUPPLY);
+        assertEquals("ASSIGNMENT_ORDER",b.family);assertEquals("MANUFACTURING_AND_SUPPLY",b.scope);
+        WorkDocumentRecipe.Recipe c=WorkDocumentRecipe.forKind(WorkDocumentRecipe.Kind.SUPPLY_ORDER_SUPPLY_ONLY);
+        assertEquals("SUPPLY_ORDER",c.family);assertEquals("SUPPLY_ONLY",c.scope);
+    }
 }
