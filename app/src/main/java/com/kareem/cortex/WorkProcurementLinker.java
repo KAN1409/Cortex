@@ -10,7 +10,7 @@ import java.util.*;
  * Never creates canonical procurement facts. Ambiguous joins are deliberately skipped.
  */
 public final class WorkProcurementLinker {
-    public static final String VERSION="work_procurement_linker_002";
+    public static final String VERSION="work_procurement_linker_003";
     private WorkProcurementLinker(){}
 
     /**
@@ -41,25 +41,40 @@ public final class WorkProcurementLinker {
         ArrayList<Follow> follow=followForFile(db,fileId);
         ArrayList<Price> prices=pricesForFile(db,fileId);
 
-        // Exact reference identity is safe even across different files.
+        // Exact reference identity is strong only inside the same known project. If one side has
+        // no project yet we allow a weaker provisional link; known cross-project collisions are skipped.
         for(Ref r:refs){
-            Cursor c=db.rawQuery("SELECT id,file_id,project_id FROM work_procurement_refs WHERE ref_type=? AND normalized_value=? AND id<>?",new String[]{r.type,r.value,String.valueOf(r.id)});
+            Cursor c=db.rawQuery(
+                    "SELECT r.id,r.file_id,r.project_id FROM work_procurement_refs r JOIN work_files f ON f.id=r.file_id "+
+                    "WHERE r.ref_type=? AND r.normalized_value=? AND r.id<>? AND f.active_version_id>0 AND r.version_id=f.active_version_id",
+                    new String[]{r.type,r.value,String.valueOf(r.id)});
             while(c.moveToNext()){
-                long other=c.getLong(0),otherFile=c.getLong(1),otherProject=c.getLong(2);
-                double conf=(projectId>0&&otherProject>0&&projectId==otherProject)?.995:.985;
-                link(db,"REF",r.id,"REF",other,"same_reference",conf,"exact_type_and_normalized_reference",fileId,projectId>0?projectId:otherProject,now);out.sameReference++;
+                long other=c.getLong(0),otherProject=c.getLong(2);
+                if(!projectsCompatible(projectId,otherProject)){out.crossProjectSkipped++;continue;}
+                long from=Math.min(r.id,other),to=Math.max(r.id,other);
+                double conf=sameReferenceConfidence(projectId,otherProject);
+                link(db,"REF",from,"REF",to,"same_reference",conf,
+                        projectId>0&&otherProject>0?"exact_reference_same_project":"exact_reference_project_unknown",
+                        fileId,resolvedProject(projectId,otherProject),now);out.sameReference++;
             }c.close();
         }
 
-        // A status row belongs to a procurement reference only on exact type/value match.
+        // A status row belongs to a procurement reference only on exact type/value match, with
+        // known cross-project collisions rejected before an edge is created.
         for(Follow f:follow){
             if(f.refType.isEmpty()||f.refValue.isEmpty())continue;
             String normalized=normRef(f.refValue);
-            Cursor c=db.rawQuery("SELECT id,file_id,project_id FROM work_procurement_refs WHERE ref_type=? AND normalized_value=?",new String[]{f.refType,normalized});
+            Cursor c=db.rawQuery(
+                    "SELECT r.id,r.file_id,r.project_id FROM work_procurement_refs r JOIN work_files wf ON wf.id=r.file_id "+
+                    "WHERE r.ref_type=? AND r.normalized_value=? AND (r.file_id=? OR (wf.active_version_id>0 AND r.version_id=wf.active_version_id))",
+                    new String[]{f.refType,normalized,String.valueOf(fileId)});
             while(c.moveToNext()){
                 long refId=c.getLong(0),refFile=c.getLong(1),refProject=c.getLong(2);
-                double conf=refFile==fileId?.995:.98;
-                link(db,"FOLLOWUP",f.id,"REF",refId,"status_for_reference",conf,"exact_reference_identity",fileId,projectId>0?projectId:refProject,now);out.statusLinks++;
+                if(refFile!=fileId&&!projectsCompatible(f.projectId,refProject)){out.crossProjectSkipped++;continue;}
+                double conf=refFile==fileId?.995:(f.projectId>0&&refProject>0?.985:.93);
+                link(db,"FOLLOWUP",f.id,"REF",refId,"status_for_reference",conf,
+                        refFile==fileId?"exact_reference_same_file":(f.projectId>0&&refProject>0?"exact_reference_same_project":"exact_reference_project_unknown"),
+                        fileId,resolvedProject(f.projectId,refProject),now);out.statusLinks++;
             }c.close();
         }
 
@@ -81,11 +96,15 @@ public final class WorkProcurementLinker {
         return out;
     }
 
+    static boolean projectsCompatible(long a,long b){return a<=0||b<=0||a==b;}
+    static double sameReferenceConfidence(long a,long b){return a>0&&b>0&&a==b?.995:.93;}
+    static long resolvedProject(long a,long b){return a>0?a:Math.max(0,b);}
+
     private static ArrayList<Ref> refsForFile(SQLiteDatabase db,long fileId){
         ArrayList<Ref> out=new ArrayList<>();Cursor c=db.rawQuery("SELECT id,ref_type,normalized_value FROM work_procurement_refs WHERE file_id=? ORDER BY id",new String[]{String.valueOf(fileId)});while(c.moveToNext())out.add(new Ref(c.getLong(0),s(c,1),s(c,2)));c.close();return out;
     }
     private static ArrayList<Follow> followForFile(SQLiteDatabase db,long fileId){
-        ArrayList<Follow> out=new ArrayList<>();Cursor c=db.rawQuery("SELECT id,reference_type,reference_value FROM work_followup_records WHERE file_id=? ORDER BY id",new String[]{String.valueOf(fileId)});while(c.moveToNext())out.add(new Follow(c.getLong(0),s(c,1),s(c,2)));c.close();return out;
+        ArrayList<Follow> out=new ArrayList<>();Cursor c=db.rawQuery("SELECT id,reference_type,reference_value,project_id FROM work_followup_records WHERE file_id=? ORDER BY id",new String[]{String.valueOf(fileId)});while(c.moveToNext())out.add(new Follow(c.getLong(0),s(c,1),s(c,2),c.getLong(3)));c.close();return out;
     }
     private static ArrayList<Price> pricesForFile(SQLiteDatabase db,long fileId){ArrayList<Price> out=new ArrayList<>();Cursor c=db.rawQuery("SELECT id FROM work_price_records WHERE file_id=? ORDER BY id",new String[]{String.valueOf(fileId)});while(c.moveToNext())out.add(new Price(c.getLong(0)));c.close();return out;}
     private static Ref onlyOfType(List<Ref> refs,String type){Ref found=null;for(Ref r:refs)if(type.equals(r.type)){if(found!=null)return null;found=r;}return found;}
@@ -96,7 +115,7 @@ public final class WorkProcurementLinker {
     private static String normRef(String x){return x==null?"":x.trim().replaceAll("^[#:/-]+|[#:/-]+$","").toUpperCase(Locale.ROOT);}
     private static String s(Cursor c,int i){return c.isNull(i)?"":c.getString(i);}
     private static final class Ref{final long id;final String type,value;Ref(long i,String t,String v){id=i;type=t;value=v;}}
-    private static final class Follow{final long id;final String refType,refValue;Follow(long i,String t,String v){id=i;refType=t;refValue=v;}}
+    private static final class Follow{final long id,projectId;final String refType,refValue;Follow(long i,String t,String v,long p){id=i;refType=t;refValue=v;projectId=p;}}
     private static final class Price{final long id;Price(long i){id=i;}}
-    public static final class Result{public int sameReference,statusLinks,lifecycleLinks,priceLinks,ambiguousSkipped;public int total(){return sameReference+statusLinks+lifecycleLinks+priceLinks;}}
+    public static final class Result{public int sameReference,statusLinks,lifecycleLinks,priceLinks,ambiguousSkipped,crossProjectSkipped;public int total(){return sameReference+statusLinks+lifecycleLinks+priceLinks;}}
 }
