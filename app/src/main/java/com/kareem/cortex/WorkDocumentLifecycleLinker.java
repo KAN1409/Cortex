@@ -8,10 +8,10 @@ import java.util.*;
 /**
  * Adds provenance-bearing document-role edges after document classification.
  * This layer never creates procurement facts; it only links an already-classified FILE
- * to exact PR/PO references extracted from that same file. Ambiguous reference sets are skipped.
+ * to exact PR/PO references extracted from that same active file version. Ambiguous reference sets are skipped.
  */
 public final class WorkDocumentLifecycleLinker {
-    public static final String VERSION="work_document_lifecycle_linker_001";
+    public static final String VERSION="work_document_lifecycle_linker_002";
     private static final String RULE_PREFIX="document_profile_";
     private WorkDocumentLifecycleLinker(){}
 
@@ -22,7 +22,7 @@ public final class WorkDocumentLifecycleLinker {
         db.delete("work_procurement_links","evidence_rule LIKE ? AND source_file_id IN (SELECT id FROM work_files WHERE source_id=?)",new String[]{RULE_PREFIX+"%",String.valueOf(sourceId)});
 
         Cursor files=db.rawQuery(
-                "SELECT f.id,p.document_type,p.confidence FROM work_files f JOIN work_document_profiles p ON p.file_id=f.id WHERE f.source_id=? AND f.state IN ('indexed','needs_ocr') ORDER BY f.id",
+                "SELECT f.id,p.document_type,p.confidence FROM work_files f JOIN work_document_profiles p ON p.file_id=f.id AND p.version_id=f.active_version_id WHERE f.source_id=? AND f.active_version_id>0 AND f.state IN ('indexed','needs_ocr') ORDER BY f.id",
                 new String[]{String.valueOf(sourceId)});
         while(files.moveToNext()){
             long fileId=files.getLong(0);String type=s(files,1);double confidence=files.getDouble(2);
@@ -46,7 +46,6 @@ public final class WorkDocumentLifecycleLinker {
                 continue;
             }
 
-            // Quotation/comparison/approval/follow-up are PR-oriented unless the source carries only one PO.
             if(prCount==1&&pr!=null){
                 add(db,fileId,pr.id,relation+"_for_pr",Math.min(.97,.82+.12*confidence),RULE_PREFIX+type.toLowerCase(Locale.ROOT)+"_plus_exact_pr",fileId,pr.projectId);out.links++;
             }else if(prCount>1){
@@ -73,7 +72,7 @@ public final class WorkDocumentLifecycleLinker {
     }
 
     private static ArrayList<Ref> refs(SQLiteDatabase db,long fileId){
-        ArrayList<Ref> out=new ArrayList<>();Cursor c=db.rawQuery("SELECT id,ref_type,normalized_value,project_id FROM work_procurement_refs WHERE file_id=? ORDER BY id",new String[]{String.valueOf(fileId)});
+        ArrayList<Ref> out=new ArrayList<>();Cursor c=db.rawQuery("SELECT r.id,r.ref_type,r.normalized_value,r.project_id FROM work_procurement_refs r JOIN work_files f ON f.id=r.file_id WHERE r.file_id=? AND f.active_version_id>0 AND r.version_id=f.active_version_id ORDER BY r.id",new String[]{String.valueOf(fileId)});
         while(c.moveToNext())out.add(new Ref(c.getLong(0),s(c,1),s(c,2),c.getLong(3)));c.close();return out;
     }
     private static Ref only(List<Ref> refs,String type){Ref found=null;for(Ref r:refs)if(type.equals(r.type)){if(found!=null)return null;found=r;}return found;}

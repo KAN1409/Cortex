@@ -14,7 +14,7 @@ import java.util.Locale;
  * It never converts units or currencies and never writes canonical facts.
  */
 public final class WorkPriceAnalyticsEngine {
-    public static final String VERSION="work_price_analytics_engine_001";
+    public static final String VERSION="work_price_analytics_engine_002";
     private WorkPriceAnalyticsEngine(){}
 
     public static ArrayList<VendorQuote> vendorComparison(VaultDb vault,String query,int limit){
@@ -28,7 +28,7 @@ public final class WorkPriceAnalyticsEngine {
                 "p.reference_type,p.reference_value,f.display_name,f.document_uri,f.modified_at,p.created_at,"+
                 "p.sheet_name,p.page_number,p.row_number,COALESCE(pr.canonical_name,'') "+
                 "FROM work_price_records p JOIN work_files f ON f.id=p.file_id LEFT JOIN work_projects pr ON pr.id=p.project_id "+
-                "WHERE p.unit_price IS NOT NULL AND p.unit_price>0 AND TRIM(p.item_name)<>'' AND TRIM(COALESCE(p.vendor_name,''))<>'' "+
+                "WHERE f.active_version_id>0 AND p.version_id=f.active_version_id AND p.unit_price IS NOT NULL AND p.unit_price>0 AND TRIM(p.item_name)<>'' AND TRIM(COALESCE(p.vendor_name,''))<>'' "+
                 "ORDER BY CASE WHEN f.modified_at>0 THEN f.modified_at ELSE p.created_at END DESC,p.id DESC LIMIT 1800",null);
         while(c.moveToNext()){
             WorkPriceComparisonEngine.Price p=read(c);
@@ -55,7 +55,7 @@ public final class WorkPriceAnalyticsEngine {
                 "p.reference_type,p.reference_value,f.display_name,f.document_uri,f.modified_at,p.created_at,"+
                 "p.sheet_name,p.page_number,p.row_number,COALESCE(pr.canonical_name,'') "+
                 "FROM work_price_records p JOIN work_files f ON f.id=p.file_id LEFT JOIN work_projects pr ON pr.id=p.project_id "+
-                "WHERE p.unit_price IS NOT NULL AND p.unit_price>0 AND TRIM(p.item_name)<>'' "+
+                "WHERE f.active_version_id>0 AND p.version_id=f.active_version_id AND p.unit_price IS NOT NULL AND p.unit_price>0 AND TRIM(p.item_name)<>'' "+
                 "ORDER BY CASE WHEN f.modified_at>0 THEN f.modified_at ELSE p.created_at END ASC,p.id ASC LIMIT 2400",null);
         while(c.moveToNext()){
             WorkPriceComparisonEngine.Price p=read(c);String item=WorkPriceComparisonEngine.item(p.item),unit=WorkPriceComparisonEngine.unit(p.unit),currency=WorkPriceComparisonEngine.currency(p.currency);
@@ -84,7 +84,7 @@ public final class WorkPriceAnalyticsEngine {
                 "p.reference_type,p.reference_value,f.display_name,f.document_uri,f.modified_at,p.created_at,"+
                 "p.sheet_name,p.page_number,p.row_number,COALESCE(pr.canonical_name,'') "+
                 "FROM work_price_records p JOIN work_files f ON f.id=p.file_id LEFT JOIN work_projects pr ON pr.id=p.project_id "+
-                "WHERE p.unit_price IS NOT NULL AND p.unit_price>0 AND TRIM(p.item_name)<>'' "+
+                "WHERE f.active_version_id>0 AND p.version_id=f.active_version_id AND p.unit_price IS NOT NULL AND p.unit_price>0 AND TRIM(p.item_name)<>'' "+
                 "ORDER BY CASE WHEN f.modified_at>0 THEN f.modified_at ELSE p.created_at END DESC,p.id DESC LIMIT 2400",null);
         while(c.moveToNext()){
             WorkPriceComparisonEngine.Price p=read(c);String item=WorkPriceComparisonEngine.item(p.item),unit=WorkPriceComparisonEngine.unit(p.unit),currency=WorkPriceComparisonEngine.currency(p.currency);
@@ -104,7 +104,7 @@ public final class WorkPriceAnalyticsEngine {
     }
 
     static double median(List<Double> values){if(values==null||values.isEmpty())return 0;ArrayList<Double> x=new ArrayList<>(values);Collections.sort(x);int n=x.size();return n%2==1?x.get(n/2):(x.get(n/2-1)+x.get(n/2))/2d;}
-    private static ArrayList<WorkPriceComparisonEngine.Price> distinctFiles(List<WorkPriceComparisonEngine.Price> in){ArrayList<WorkPriceComparisonEngine.Price> out=new ArrayList<>();long last=-1;for(WorkPriceComparisonEngine.Price p:in){boolean seen=false;for(WorkPriceComparisonEngine.Price x:out)if(x.fileId==p.fileId){seen=true;break;}if(!seen)out.add(p);}return out;}
+    private static ArrayList<WorkPriceComparisonEngine.Price> distinctFiles(List<WorkPriceComparisonEngine.Price> in){ArrayList<WorkPriceComparisonEngine.Price> out=new ArrayList<>();for(WorkPriceComparisonEngine.Price p:in){boolean seen=false;for(WorkPriceComparisonEngine.Price x:out)if(x.fileId==p.fileId){seen=true;break;}if(!seen)out.add(p);}return out;}
     private static String norm(String s){return s==null?"":s.trim().toLowerCase(Locale.ROOT).replaceAll("\\s+"," ");}
     private static String s(Cursor c,int i){return c.isNull(i)?"":c.getString(i);}
     private static WorkPriceComparisonEngine.Price read(Cursor c){WorkPriceComparisonEngine.Price p=new WorkPriceComparisonEngine.Price();p.id=c.getLong(0);p.fileId=c.getLong(1);p.projectId=c.getLong(2);p.item=s(c,3);p.vendor=s(c,4);p.unit=s(c,5);p.unitPrice=c.getDouble(6);p.currency=s(c,7);p.referenceType=s(c,8);p.referenceValue=s(c,9);p.fileName=s(c,10);p.documentUri=s(c,11);long modified=c.getLong(12),created=c.getLong(13);p.sourceTime=modified>0?modified:created;p.sheet=s(c,14);p.page=c.getInt(15);p.row=c.getInt(16);p.project=s(c,17);return p;}

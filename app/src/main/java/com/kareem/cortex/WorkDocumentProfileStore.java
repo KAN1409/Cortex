@@ -7,18 +7,21 @@ import org.json.JSONObject;
 
 /** Stores descriptive document-type metadata derived from the active grounded file version only. */
 public final class WorkDocumentProfileStore {
-    public static final String VERSION="work_document_profile_store_003";
+    public static final String VERSION="work_document_profile_store_004";
     private WorkDocumentProfileStore(){}
 
     public static void ensure(SQLiteDatabase db){
         db.execSQL("CREATE TABLE IF NOT EXISTS work_document_profiles("+
                 "file_id INTEGER PRIMARY KEY,"+
+                "version_id INTEGER NOT NULL DEFAULT 0,"+
                 "document_type TEXT NOT NULL,"+
                 "confidence REAL NOT NULL,"+
                 "classifier_version TEXT NOT NULL,"+
                 "scores_json TEXT NOT NULL,"+
                 "updated_at INTEGER NOT NULL)");
+        if(!hasColumn(db,"work_document_profiles","version_id"))db.execSQL("ALTER TABLE work_document_profiles ADD COLUMN version_id INTEGER NOT NULL DEFAULT 0");
         db.execSQL("CREATE INDEX IF NOT EXISTS idx_work_doc_profile_type ON work_document_profiles(document_type,confidence DESC)");
+        db.execSQL("CREATE INDEX IF NOT EXISTS idx_work_doc_profile_version ON work_document_profiles(file_id,version_id)");
     }
 
     public static int classifySource(SQLiteDatabase db,long sourceId){
@@ -39,7 +42,7 @@ public final class WorkDocumentProfileStore {
                     }
                 }finally{c.close();}
                 WorkDocumentClassifier.Result r=WorkDocumentClassifier.classifyText(name,body.toString());
-                ContentValues v=new ContentValues();v.put("file_id",fileId);v.put("document_type",r.type);v.put("confidence",r.confidence);v.put("classifier_version",WorkDocumentClassifier.VERSION);v.put("scores_json",new JSONObject(r.scores).toString());v.put("updated_at",System.currentTimeMillis());
+                ContentValues v=new ContentValues();v.put("file_id",fileId);v.put("version_id",versionId);v.put("document_type",r.type);v.put("confidence",r.confidence);v.put("classifier_version",WorkDocumentClassifier.VERSION);v.put("scores_json",new JSONObject(r.scores).toString());v.put("updated_at",System.currentTimeMillis());
                 db.insertWithOnConflict("work_document_profiles",null,v,SQLiteDatabase.CONFLICT_REPLACE);count++;
             }
         }finally{files.close();}
@@ -47,6 +50,10 @@ public final class WorkDocumentProfileStore {
     }
 
     public static String typeForFile(SQLiteDatabase db,long fileId){
-        ensure(db);Cursor c=db.rawQuery("SELECT document_type FROM work_document_profiles WHERE file_id=? LIMIT 1",new String[]{String.valueOf(fileId)});try{return c.moveToFirst()&&!c.isNull(0)?c.getString(0):"OTHER";}finally{c.close();}
+        ensure(db);Cursor c=db.rawQuery("SELECT p.document_type FROM work_document_profiles p JOIN work_files f ON f.id=p.file_id WHERE p.file_id=? AND f.active_version_id>0 AND p.version_id=f.active_version_id LIMIT 1",new String[]{String.valueOf(fileId)});try{return c.moveToFirst()&&!c.isNull(0)?c.getString(0):"OTHER";}finally{c.close();}
+    }
+
+    private static boolean hasColumn(SQLiteDatabase db,String table,String column){
+        Cursor c=db.rawQuery("PRAGMA table_info("+table+")",null);try{while(c.moveToNext())if(column.equals(c.getString(1)))return true;return false;}finally{c.close();}
     }
 }

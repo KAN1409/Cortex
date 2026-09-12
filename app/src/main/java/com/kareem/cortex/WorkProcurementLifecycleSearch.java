@@ -39,7 +39,7 @@ public final class WorkProcurementLifecycleSearch {
     }
     private static WorkVaultSearch.Hit fileHit(SQLiteDatabase db,long fileId,String relation,String rule,double conf){
         WorkDocumentProfileStore.ensure(db);
-        Cursor c=db.rawQuery("SELECT f.id,f.display_name,f.document_uri,p.document_type,p.confidence FROM work_files f LEFT JOIN work_document_profiles p ON p.file_id=f.id WHERE f.id=? AND f.active_version_id>0 LIMIT 1",new String[]{String.valueOf(fileId)});
+        Cursor c=db.rawQuery("SELECT f.id,f.display_name,f.document_uri,p.document_type,p.confidence FROM work_files f LEFT JOIN work_document_profiles p ON p.file_id=f.id AND p.version_id=f.active_version_id WHERE f.id=? AND f.active_version_id>0 LIMIT 1",new String[]{String.valueOf(fileId)});
         if(!c.moveToFirst()){c.close();return null;}WorkVaultSearch.Hit h=base(c,0,1,2);String type=s(c,3);double classConf=c.isNull(4)?0:c.getDouble(4);h.kind="LIFECYCLE_DOCUMENT";String label=type.isEmpty()?"WORK_DOCUMENT":type;h.snippet="Document type "+label+" • classifier confidence "+Math.round(classConf*100)+"%"+linkSuffix(relation,rule,conf);h.score=Math.min(1.5,.62+conf);c.close();return h;
     }
 
