@@ -16,10 +16,6 @@
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
 
     <application android:name=".CortexApp" android:theme="@style/AppTheme" android:label="Cortex" android:allowBackup="true">
-        <!-- Keep AndroidX WorkManagerInitializer enabled. Persisted JobScheduler jobs may recreate
-             SystemJobService before any Cortex UI scheduler runs, so provider-first initialization
-             is the safest and canonical bootstrap path for this app. -->
-
         <provider android:name="androidx.core.content.FileProvider" android:authorities="${applicationId}.feedback.files" android:exported="false" android:grantUriPermissions="true"><meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/feedback_file_paths" /></provider>
         <provider android:name="rikka.shizuku.ShizukuProvider" android:authorities="${applicationId}.shizuku" android:multiprocess="false" android:enabled="true" android:exported="true" android:permission="android.permission.INTERACT_ACROSS_USERS_FULL" />
 
@@ -70,19 +66,11 @@
         <activity android:name=".OpenRouterSettingsActivity" android:exported="false" android:label="Cortex OpenRouter Setup" />
         <activity android:name=".GeminiSettingsActivity" android:exported="false" android:label="Cortex Gemini Setup" />
         <activity android:name=".ChatGptTeacherActivity" android:exported="false" android:label="Cortex ChatGPT Teacher" />
-        <activity
-            android:name=".CortexTeacherImportActivity"
-            android:exported="true"
-            android:label="Import ChatGPT Policy">
-            <intent-filter>
-                <action android:name="android.intent.action.SEND" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <data android:mimeType="text/plain" />
-            </intent-filter>
-        </activity>
+        <activity android:name=".CortexTeacherImportActivity" android:exported="true" android:label="Import ChatGPT Policy"><intent-filter><action android:name="android.intent.action.SEND" /><category android:name="android.intent.category.DEFAULT" /><data android:mimeType="text/plain" /></intent-filter></activity>
         <activity android:name=".MainActivity" android:exported="false" />
 
         <service android:name=".LocalModelDownloadService" android:exported="false" android:foregroundServiceType="dataSync" />
+        <service android:name=".WorkVaultIndexService" android:exported="false" android:foregroundServiceType="dataSync" />
         <service android:name=".CortexRecordService" android:exported="false" android:foregroundServiceType="microphone" />
         <service android:name=".NotificationCaptureService" android:label="Cortex Notification Memory" android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE" android:exported="true"><intent-filter><action android:name="android.service.notification.NotificationListenerService" /></intent-filter></service>
         <service android:name=".CortexQuickTileService" android:label="Cortex Voice" android:permission="android.permission.BIND_QUICK_SETTINGS_TILE" android:exported="true"><intent-filter><action android:name="android.service.quicksettings.action.QS_TILE" /></intent-filter></service>
