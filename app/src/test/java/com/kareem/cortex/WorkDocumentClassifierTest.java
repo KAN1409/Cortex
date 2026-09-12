@@ -125,7 +125,7 @@ public class WorkDocumentClassifierTest {
         assertEquals("SUPPLY_ORDER",c.family);assertEquals("SUPPLY_ONLY",c.scope);
     }
 
-    @Test public void generationRouterUsesLocalOnlyForSafeStructuredXlsx(){
+    @Test public void generationRouterUsesLocalOnlyForSafeStructuredXlsx() throws Exception {
         JSONObject withPrices=new JSONObject();
         withPrices.put("priceRecords",new JSONArray().put(new JSONObject().put("item","Galala").put("unitPrice",2500)));
         WorkDocumentGenerationDecision.Decision local=WorkDocumentGenerationDecision.decide(WorkDocumentRecipe.Kind.PRICE_COMPARISON,withPrices);
