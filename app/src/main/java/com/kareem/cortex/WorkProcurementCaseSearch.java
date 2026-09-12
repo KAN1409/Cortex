@@ -6,7 +6,7 @@ import java.util.Locale;
 
 /** Adds derived, explicitly-labelled procurement case projections for missing-step questions. */
 public final class WorkProcurementCaseSearch {
-    public static final String VERSION="work_procurement_case_search_001";
+    public static final String VERSION="work_procurement_case_search_002";
     private WorkProcurementCaseSearch(){}
 
     public static void append(VaultDb vault,String query,List<WorkVaultSearch.Hit> out,int max){
@@ -25,11 +25,22 @@ public final class WorkProcurementCaseSearch {
     static Intent intent(String query){
         String q=query==null?"":query.toLowerCase(Locale.ROOT).replaceAll("\\s+"," ").trim();
         if(q.isEmpty())return Intent.NONE;
-        boolean missing=containsAny(q,"no po","without po","missing po","مفيش po","مافيش po","بدون po","لسه مفيش po","من غير po","po مش موجود");
-        if(missing)return Intent.MISSING_PO;
-        if(containsAny(q,"missing approval","no approval","without approval","مفيش اعتماد","بدون اعتماد","اعتماد مش موجود"))return Intent.MISSING_APPROVAL;
-        if(containsAny(q,"missing comparison","no comparison","without comparison","مفيش مقارنة","بدون مقارنة","مقارنة مش موجودة"))return Intent.MISSING_COMPARISON;
-        if(containsAny(q,"missing quotation","no quotation","without quotation","مفيش عرض سعر","بدون عرض سعر","عرض سعر مش موجود"))return Intent.MISSING_QUOTATION;
+        if(containsAny(q,
+                "no po","without po","missing po",
+                "مفيش po","مافيش po","بدون po","لسه مفيش po","من غير po","po مش موجود",
+                "مفيش لها po","مافيش لها po","لسه مفيش لها po","من غير لها po"))return Intent.MISSING_PO;
+        if(containsAny(q,
+                "missing approval","no approval","without approval",
+                "مفيش اعتماد","بدون اعتماد","اعتماد مش موجود",
+                "مفيش لها اعتماد","مافيش لها اعتماد","لسه مفيش لها اعتماد"))return Intent.MISSING_APPROVAL;
+        if(containsAny(q,
+                "missing comparison","no comparison","without comparison",
+                "مفيش مقارنة","بدون مقارنة","مقارنة مش موجودة",
+                "مفيش لها مقارنة","مافيش لها مقارنة","لسه مفيش لها مقارنة"))return Intent.MISSING_COMPARISON;
+        if(containsAny(q,
+                "missing quotation","no quotation","without quotation",
+                "مفيش عرض سعر","بدون عرض سعر","عرض سعر مش موجود",
+                "مفيش لها عرض سعر","مافيش لها عرض سعر","لسه مفيش لها عرض سعر"))return Intent.MISSING_QUOTATION;
         return Intent.NONE;
     }
 
