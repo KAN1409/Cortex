@@ -13,16 +13,17 @@ import android.widget.ScrollView;
 import android.widget.TextView;
 import java.text.DecimalFormat;
 import java.util.ArrayList;
+import java.util.List;
 import java.util.Locale;
 
-/** Dedicated grounded browse surfaces for projects, indexed files, and price evidence. */
+/** Dedicated grounded browse surfaces for projects, indexed files, prices, and clearly separated derived outputs. */
 public final class WorkVaultBrowseActivity extends Activity {
     public static final String EXTRA_MODE="work_vault_browse_mode";
     public static final String EXTRA_PROJECT_ID="work_vault_project_id";
     public static final String MODE_PROJECTS="projects";
     public static final String MODE_FILES="files";
     public static final String MODE_PRICES="prices";
-    public static final String VERSION="work_vault_browse_activity_002";
+    public static final String VERSION="work_vault_browse_activity_003";
 
     private VaultDb db;
     private LinearLayout content;
@@ -48,6 +49,8 @@ public final class WorkVaultBrowseActivity extends Activity {
     }
 
     static long normalizeProjectId(long raw){return Math.max(0L,raw);}
+
+    static String generatedBoundaryLabel(){return "DERIVED OUTPUT · NOT SOURCE EVIDENCE";}
 
     private void build(){
         LinearLayout root=new LinearLayout(this);root.setOrientation(LinearLayout.VERTICAL);root.setBackgroundColor(CortexUi.BG);
@@ -138,11 +141,25 @@ public final class WorkVaultBrowseActivity extends Activity {
     private void renderFiles(){
         ArrayList<FileRow> rows=new ArrayList<>();Cursor c=db.getReadableDatabase().rawQuery("SELECT f.display_name,COALESCE(s.display_name,''),f.document_uri,COALESCE(f.extension,''),f.size_bytes,f.state,f.active_version_id,f.indexed_at FROM work_files f LEFT JOIN work_sources s ON s.id=f.source_id WHERE f.state<>'missing' ORDER BY f.updated_at DESC LIMIT 300",null);
         try{while(c.moveToNext())rows.add(new FileRow(safe(c.getString(0)),safe(c.getString(1)),safe(c.getString(2)),safe(c.getString(3)),c.getLong(4),safe(c.getString(5)),c.getLong(6),c.getLong(7)));}finally{c.close();}
-        content.addView(summary(rows.size()+" visible file"+(rows.size()==1?"":"s"),"Tap a row to open the original document. Originals remain outside Cortex."));if(rows.isEmpty()){empty("No files discovered yet","Scan an archive source to populate this view.");return;}for(FileRow r:rows)fileCard(r);
+        List<WorkGeneratedDocumentsReader.Row> generated=WorkGeneratedDocumentsReader.load(db.getReadableDatabase(),120);
+        content.addView(summary(rows.size()+" source file"+(rows.size()==1?"":"s")+" · "+generated.size()+" derived output"+(generated.size()==1?"":"s"),"Source evidence and generated documents are intentionally separated. Generated outputs never become original evidence."));
+        content.addView(section("Source evidence",rows.size(),CortexUi.OLIVE));
+        if(rows.isEmpty())empty("No source files discovered yet","Scan an archive source to populate grounded evidence.");else for(FileRow r:rows)fileCard(r);
+        content.addView(section("Generated documents",generated.size(),CortexUi.YELLOW));
+        TextView boundary=CortexUi.text(this,generatedBoundaryLabel(),10,CortexUi.YELLOW);boundary.setPadding(dp(2),0,0,dp(9));content.addView(boundary);
+        if(generated.isEmpty())empty("No generated documents yet","Files created locally or returned from ChatGPT will appear here as derived outputs, never as source evidence.");else for(WorkGeneratedDocumentsReader.Row r:generated)generatedCard(r);
     }
 
     private void fileCard(FileRow r){
         LinearLayout card=CortexUi.card(this,20);card.setPadding(dp(14),dp(13),dp(14),dp(13));LinearLayout top=new LinearLayout(this);top.setGravity(Gravity.CENTER_VERTICAL);TextView h=CortexUi.plain(this,r.name,14,CortexUi.TEXT);CortexUi.medium(h);top.addView(h,new LinearLayout.LayoutParams(0,-2,1));int stateColor=r.activeVersion>0?CortexUi.GREEN:("failed".equals(r.state)?CortexUi.ORANGE:CortexUi.YELLOW);top.addView(CortexUi.chip(this,r.activeVersion>0?"indexed":r.state,stateColor,true),new LinearLayout.LayoutParams(-2,dp(28)));card.addView(top);String meta=(r.ext.isEmpty()?"FILE":r.ext.toUpperCase(Locale.ROOT))+" · "+humanBytes(r.bytes)+(r.source.isEmpty()?"":" · "+r.source);TextView s=CortexUi.text(this,meta,10,CortexUi.MUTED);s.setPadding(0,dp(5),0,0);card.addView(s);makeOpenable(card,r.uri,20);content.addView(card,margins(0,0,0,8));
+    }
+
+    private void generatedCard(WorkGeneratedDocumentsReader.Row r){
+        LinearLayout card=CortexUi.card(this,20);card.setPadding(dp(14),dp(13),dp(14),dp(13));
+        LinearLayout top=new LinearLayout(this);top.setGravity(Gravity.CENTER_VERTICAL);TextView h=CortexUi.plain(this,WorkGeneratedDocumentsReader.displayName(r),14,CortexUi.TEXT);CortexUi.medium(h);top.addView(h,new LinearLayout.LayoutParams(0,-2,1));top.addView(CortexUi.chip(this,"DERIVED",CortexUi.YELLOW,true),new LinearLayout.LayoutParams(-2,dp(28)));card.addView(top);
+        String format=r.outputFormat.isEmpty()?"FILE":r.outputFormat.toUpperCase(Locale.ROOT);String meta=format+(r.project.isEmpty()?"":" · "+r.project)+(r.generator.isEmpty()?"":" · "+r.generator.replace('_',' '));TextView m=CortexUi.text(this,meta,10,CortexUi.MUTED);m.setPadding(0,dp(5),0,0);card.addView(m);
+        TextView boundary=CortexUi.text(this,generatedBoundaryLabel(),9,CortexUi.YELLOW);boundary.setPadding(0,dp(4),0,0);card.addView(boundary);
+        if(WorkGeneratedDocumentsReader.isOpenableUri(r.uri))makeOpenable(card,r.uri,20);content.addView(card,margins(0,0,0,8));
     }
 
     private void renderPrices(){
@@ -160,7 +177,7 @@ public final class WorkVaultBrowseActivity extends Activity {
     private void empty(String title,String body){LinearLayout card=CortexUi.card(this,22);card.setPadding(dp(16),dp(17),dp(16),dp(17));TextView h=CortexUi.plain(this,title,16,CortexUi.TEXT);CortexUi.medium(h);card.addView(h);TextView b=CortexUi.text(this,body,11,CortexUi.MUTED);b.setPadding(0,dp(5),0,0);card.addView(b);content.addView(card,margins(0,0,0,8));}
     private void makeOpenable(LinearLayout card,String raw,int radius){if(raw==null||raw.isEmpty())return;card.setOnClickListener(v->openUri(raw));CortexUi.pressable(this,card,CortexUi.velvet(this,radius));}
     private void openProject(long id){if(id<=0)return;try{Intent i=new Intent(this,WorkVaultBrowseActivity.class);i.putExtra(EXTRA_MODE,MODE_PROJECTS);i.putExtra(EXTRA_PROJECT_ID,id);startActivity(i);}catch(Throwable ignored){}}
-    private void openUri(String raw){try{Intent i=new Intent(Intent.ACTION_VIEW);i.setData(Uri.parse(raw));i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);startActivity(i);}catch(Throwable e){android.widget.Toast.makeText(this,"Could not open source file",android.widget.Toast.LENGTH_LONG).show();}}
+    private void openUri(String raw){try{Intent i=new Intent(Intent.ACTION_VIEW);i.setData(Uri.parse(raw));i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);startActivity(i);}catch(Throwable e){android.widget.Toast.makeText(this,"Could not open file",android.widget.Toast.LENGTH_LONG).show();}}
     private String money(Double value,String currency){if(value==null)return "";String x=number.format(value);return currency==null||currency.trim().isEmpty()?x:x+" "+currency.trim();}
     private static String location(String sheet,int page,int row){if(sheet!=null&&!sheet.isEmpty())return " · "+sheet+(row>0?" row "+row:"");if(page>0)return " · page "+page;if(row>0)return " · row "+row;return "";}
     private static boolean isClosed(String status){String x=status==null?"":status.trim().toLowerCase(Locale.ROOT);return "closed".equals(x)||"done".equals(x)||"complete".equals(x)||"completed".equals(x)||"cancelled".equals(x);}
