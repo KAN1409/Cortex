@@ -15,7 +15,7 @@ import java.util.ArrayList;
 
 /** Direct user-invoked ChatGPT document builder with explicit reference attachments and detailed requirements. */
 public final class WorkChatGptDirectBridge {
-    public static final String VERSION="work_chatgpt_direct_bridge_001";
+    public static final String VERSION="work_chatgpt_direct_bridge_002";
     public static final String CHATGPT_PACKAGE="com.openai.chatgpt";
     private WorkChatGptDirectBridge(){}
 
@@ -25,15 +25,20 @@ public final class WorkChatGptDirectBridge {
         public final ArrayList<Uri> attachments;
         public final String prompt;
         public final JSONObject payload;
-        Prepared(File f,Uri j,ArrayList<Uri> a,String p,JSONObject o){jsonFile=f;jsonUri=j;attachments=a;prompt=p;payload=o;}
+        public final long requestId;
+        Prepared(File f,Uri j,ArrayList<Uri> a,String p,JSONObject o,long requestId){jsonFile=f;jsonUri=j;attachments=a;prompt=p;payload=o;this.requestId=requestId;}
     }
 
     public static Prepared prepare(Context context,VaultDb vault,WorkDocumentRecipe.Kind kind,String project,String requirements,ArrayList<Uri> references) throws Exception {
+        String req=requirements==null?"":requirements.trim();
+        if(req.isEmpty())throw new IllegalArgumentException("Detailed document requirements are required");
+
         JSONObject payload=WorkDocumentBuildPackage.build(vault,kind,project);
+        JSONArray refs=referenceMetadata(context,references);
         payload.put("requestMode","DIRECT_CHATGPT_REFERENCE_BUILD");
-        payload.put("userRequirements",requirements==null?"":requirements.trim());
-        payload.put("selectedReferenceDocuments",referenceMetadata(context,references));
-        payload.put("referenceDocumentCount",references==null?0:references.size());
+        payload.put("userRequirements",req);
+        payload.put("selectedReferenceDocuments",refs);
+        payload.put("referenceDocumentCount",refs.length());
         payload.put("referenceUsePolicy",referencePolicy());
 
         File dir=new File(context.getFilesDir(),"document_build_packages");
@@ -45,7 +50,8 @@ public final class WorkChatGptDirectBridge {
         ArrayList<Uri> all=new ArrayList<>();all.add(jsonUri);if(references!=null)all.addAll(references);
         WorkDocumentRecipe.Recipe recipe=WorkDocumentRecipe.forKind(kind);
         WorkGeneratedDocumentRegistry.register(vault.getWritableDatabase(),kind,recipe.outputFormat,project,"CHATGPT_DIRECT_REFERENCE_BUILDER",json.getAbsolutePath(),jsonUri.toString());
-        return new Prepared(json,jsonUri,all,prompt(kind,project,requirements,references),payload);
+        long requestId=WorkChatGptBuildRequestRegistry.registerPrepared(vault.getWritableDatabase(),kind,project,req,refs,json.getAbsolutePath(),jsonUri.toString());
+        return new Prepared(json,jsonUri,all,prompt(kind,project,req,references),payload,requestId);
     }
 
     public static boolean openChatGpt(Context context,Prepared p){
@@ -90,7 +96,7 @@ public final class WorkChatGptDirectBridge {
                 "Create the finished "+recipe.outputFormat+" file for: "+WorkDocumentRecipe.displayName(kind)+".\n"+
                 (project==null||project.trim().isEmpty()?"":"Project: "+project.trim()+".\n")+
                 "Attached: one Cortex JSON build package plus "+count+" user-selected reference document(s).\n\n"+
-                "USER REQUIREMENTS:\n"+(req.isEmpty()?"No extra free-text requirements were supplied; follow the JSON and references precisely.":req)+"\n\n"+
+                "USER REQUIREMENTS:\n"+req+"\n\n"+
                 "EXECUTION RULES:\n"+
                 "- Read every attached reference document before building the output.\n"+
                 "- Use the reference documents to understand the intended model, layout, headings, table structure, wording style and level of detail.\n"+
