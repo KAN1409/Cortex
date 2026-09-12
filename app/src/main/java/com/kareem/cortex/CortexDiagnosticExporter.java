@@ -13,7 +13,7 @@ import java.nio.charset.StandardCharsets;
 
 /** Bounded source -> understanding -> judgment -> surface diagnostic export. */
 public final class CortexDiagnosticExporter {
-    public static final String VERSION="cortex_diagnostic_001";
+    public static final String VERSION="cortex_diagnostic_002";
     private CortexDiagnosticExporter(){}
 
     public static final class Exported {
@@ -25,7 +25,9 @@ public final class CortexDiagnosticExporter {
         Context app=context.getApplicationContext();
         VaultDb vault=new VaultDb(app);
         try{
-            SQLiteDatabase db=vault.getReadableDatabase();
+            SQLiteDatabase db=vault.getWritableDatabase();
+            UniversalEventStore.ensure(db);
+            CortexJudgmentTraceStore.ensure(db);
             JSONObject root=new JSONObject();
             root.put("schemaVersion",VERSION);
             root.put("generatedAt",System.currentTimeMillis());
@@ -42,23 +44,31 @@ public final class CortexDiagnosticExporter {
             int sections=0;
             sections+=putTable(root,db,"rawObservations","ue_raw_observations",500);
             sections+=putTable(root,db,"semanticEvents","ue_semantic_events",500);
+            sections+=putTable(root,db,"pipelineStages","ue_pipeline_stages",500);
             sections+=putTable(root,db,"projectionDecisions","ue_projection_decisions",300);
             sections+=putTable(root,db,"projectionRevisions","ue_projection_revisions",150);
             sections+=putTable(root,db,"judgmentTrace","cortex_judgment_trace",300);
             sections+=putTable(root,db,"sourceLinks","source_links",300);
             sections+=putTable(root,db,"knowledgeItems","knowledge_items",300);
             sections+=putTable(root,db,"derivedItems","derived_items",250);
-            sections+=putTable(root,db,"attentionItems","attention_items",250);
+            sections+=putTable(root,db,"attentionItems","ue_attention_items",250);
             sections+=putTable(root,db,"situations","ue_situations",250);
             sections+=putTable(root,db,"memoryPromotions","ue_memory_promotions",250);
             sections+=putTable(root,db,"legacyClassification","ue_legacy_classification",250);
 
+            long raw=count(db,"ue_raw_observations"),semantic=count(db,"ue_semantic_events"),knowledge=count(db,"knowledge_items"),judgment=count(db,"cortex_judgment_trace"),attention=count(db,"ue_attention_items"),situations=count(db,"ue_situations"),memory=count(db,"ue_memory_promotions"),stages=count(db,"ue_pipeline_stages"),derived=count(db,"derived_items");
             JSONObject counts=new JSONObject();
-            counts.put("rawObservations",count(db,"ue_raw_observations"));
-            counts.put("semanticEvents",count(db,"ue_semantic_events"));
-            counts.put("knowledgeItems",count(db,"knowledge_items"));
-            counts.put("judgmentTrace",count(db,"cortex_judgment_trace"));
+            counts.put("rawObservations",raw);
+            counts.put("semanticEvents",semantic);
+            counts.put("pipelineStages",stages);
+            counts.put("knowledgeItems",knowledge);
+            counts.put("derivedItems",derived);
+            counts.put("situations",situations);
+            counts.put("attentionItems",attention);
+            counts.put("memoryPromotions",memory);
+            counts.put("judgmentTrace",judgment);
             root.put("tableCounts",counts);
+            root.put("pipelineHealth",pipelineHealth(raw,semantic,knowledge,stages));
             root.put("note","Contains bounded recent source content and derived state for debugging. Share only when you intend to expose this diagnostic data.");
 
             File dir=new File(app.getFilesDir(),"debug_exports");
@@ -70,6 +80,14 @@ public final class CortexDiagnosticExporter {
             Uri uri=FileProvider.getUriForFile(app,app.getPackageName()+".feedback.files",file);
             return new Exported(file,uri,sections);
         }finally{try{vault.close();}catch(Throwable ignored){}}
+    }
+
+    static JSONObject pipelineHealth(long raw,long semantic,long knowledge,long stages)throws Exception{
+        String state="HEALTHY",reason="canonical evidence and semantic event flow observed";
+        if(knowledge>0&&raw==0){state="DEGRADED_NO_CANONICAL_INGEST";reason="knowledge exists but canonical raw observations are empty";}
+        else if(raw>0&&semantic==0){state="DEGRADED_SEMANTIC_STALLED";reason="raw observations exist but no semantic events were produced";}
+        else if(raw>0&&stages==0){state="DEGRADED_NO_STAGE_TRACE";reason="canonical observations exist without pipeline stage observability";}
+        return new JSONObject().put("state",state).put("reason",reason).put("rawObservations",raw).put("semanticEvents",semantic).put("pipelineStages",stages).put("knowledgeItems",knowledge);
     }
 
     private static int putTable(JSONObject root,SQLiteDatabase db,String key,String table,int limit)throws Exception{

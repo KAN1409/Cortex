@@ -29,11 +29,12 @@ public final class KnowledgeV2ProjectionWorker extends Worker {
                 "ORDER BY e.updated_at ASC",
                 new String[]{KnowledgeV2EnrichmentWorker.STAGE,String.valueOf(KnowledgeV2Schema.PIPELINE_VERSION)});
             while(c.moveToNext()&&!isStopped()){
-                long evidenceId=c.getLong(0);
+                long evidenceId=c.getLong(0),capturedAt=c.getLong(3);
                 String uri=n(c.getString(1)),raw=n(c.getString(2)),title=n(c.getString(4)),summary=n(c.getString(5)),category=KnowledgeV2Maintenance.canonicalCategory(n(c.getString(6))),tags=n(c.getString(7));
                 String fp=Fingerprint.text("kv2-projection|"+evidenceId);
                 JSONObject meta=new JSONObject();
                 meta.put("canonical","knowledge_v2");
+                meta.put("canonical_state","proposed");
                 meta.put("evidence_id",evidenceId);
                 meta.put("projection",true);
                 meta.put("pipeline_version",KnowledgeV2Schema.PIPELINE_VERSION);
@@ -51,8 +52,6 @@ public final class KnowledgeV2ProjectionWorker extends Worker {
                 long itemId=Math.abs(inserted);
                 if(itemId<=0)continue;
 
-                // Existing v1 projection rows are refreshed in place instead of silently keeping
-                // stale categories/entities merely because their fingerprint already exists.
                 ContentValues base=new ContentValues();
                 base.put("source","knowledge_v2");base.put("raw_text",raw);base.put("attachment_path",uri);base.put("metadata_json",meta.toString());base.put("updated_at",System.currentTimeMillis());
                 s.update("knowledge_items",base,"id=?",new String[]{String.valueOf(itemId)});
@@ -66,8 +65,15 @@ public final class KnowledgeV2ProjectionWorker extends Worker {
                 r.extractedText=raw;
                 r.engine="knowledge_v2_projection";
                 r.version=String.valueOf(KnowledgeV2Schema.PIPELINE_VERSION);
+
+                // Visual/OCR projection remains evidence. Local imperative extraction must never
+                // create legacy open actions directly from a screenshot/document projection.
+                r.actions.clear();
                 db.applyAnalysis(itemId,r);
                 CognitiveStore.linkChecked(db,"memory",itemId,"evidence",evidenceId,"PROJECTS_KNOWLEDGE_V2",1.0,"{\"pipeline_version\":"+KnowledgeV2Schema.PIPELINE_VERSION+"}");
+
+                meta.put("knowledge_item_id",itemId);
+                CanonicalEvidenceIngestor.ingestVisual(db,"knowledge_v2","evidence:"+evidenceId,r.title,raw,capturedAt,meta);
             }
             c.close();
             return Result.success();
