@@ -7,6 +7,7 @@ import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.net.Uri;
 import android.os.*;
+import android.provider.MediaStore;
 import android.text.InputType;
 import android.view.*;
 import android.widget.*;
@@ -17,8 +18,8 @@ import java.util.concurrent.*;
 
 /** Fast capture sheet: capture first, then immediately show Cortex understanding. */
 public class CaptureActivity extends Activity {
-    static final int REQ_MIC=771,REQ_FILE=772,REQ_PHOTO=773;
-    VaultDb db;AudioCapture recorder=new AudioCapture();long recordingStarted;Handler handler=new Handler(Looper.getMainLooper());Runnable tick;FrameLayout root;LinearLayout sheet,recordPanel,choices;TextView timer,importState;volatile boolean destroyed=false;
+    static final int REQ_MIC=771,REQ_FILE=772,REQ_PHOTO=773,REQ_CAMERA=774;
+    VaultDb db;AudioCapture recorder=new AudioCapture();long recordingStarted;Uri pendingCameraUri;Handler handler=new Handler(Looper.getMainLooper());Runnable tick;FrameLayout root;LinearLayout sheet,recordPanel,choices;TextView timer,importState;volatile boolean destroyed=false;
     final ExecutorService io=Executors.newSingleThreadExecutor(r->{Thread t=new Thread(r,"cortex-capture-io");t.setPriority(Thread.NORM_PRIORITY-1);return t;});
     int dp(int x){return CortexUi.dp(this,x);}
 
@@ -45,8 +46,76 @@ public class CaptureActivity extends Activity {
     void quickNote(){choices.setVisibility(View.GONE);final EditText e=new EditText(this);e.setHint("Type or paste…");e.setHintTextColor(CortexUi.FAINT);e.setTextColor(CortexUi.TEXT);e.setTextSize(15);e.setGravity(Gravity.TOP);e.setMinLines(4);e.setMaxLines(8);e.setInputType(InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_FLAG_MULTI_LINE);e.setPadding(dp(14),dp(12),dp(14),dp(12));e.setBackground(CortexUi.round(this,CortexUi.SURFACE_2,Color.TRANSPARENT,18));sheet.addView(e,new LinearLayout.LayoutParams(-1,-2));LinearLayout actions=new LinearLayout(this);actions.setOrientation(LinearLayout.HORIZONTAL);actions.setPadding(0,dp(12),0,0);TextView cancel=CortexUi.action(this,"Cancel",CortexUi.MUTED,false),save=CortexUi.action(this,"Capture",CortexUi.ACCENT,true);actions.addView(cancel,new LinearLayout.LayoutParams(0,dp(46),1));LinearLayout.LayoutParams saveParams=new LinearLayout.LayoutParams(0,dp(46),1);saveParams.setMargins(dp(8),0,0,0);actions.addView(save,saveParams);sheet.addView(actions);cancel.setOnClickListener(v->{sheet.removeView(e);sheet.removeView(actions);choices.setVisibility(View.VISIBLE);});save.setOnClickListener(v->{String s=e.getText().toString().trim();if(s.isEmpty()){e.setError("Write something first");return;}String cat=AutoClassifier.category(s,"text/plain");long id=db.insert("TEXT","manual",AutoClassifier.title(s,"text/plain"),s,cat,AutoClassifier.tags(s,cat),"",Fingerprint.text(s),"{}");if(id<0)Toast.makeText(this,"Already in Cortex",Toast.LENGTH_SHORT).show();else{AnalysisQueue.kick(this,null,null);showResult(id);}});e.requestFocus();handler.postDelayed(()->{try{((android.view.inputmethod.InputMethodManager)getSystemService(INPUT_METHOD_SERVICE)).showSoftInput(e,android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT);}catch(Throwable ignored){}},120);}
 
     void pickFile(){Intent i=new Intent(Intent.ACTION_OPEN_DOCUMENT);i.addCategory(Intent.CATEGORY_OPENABLE);i.setType("*/*");i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);startActivityForResult(i,REQ_FILE);}
-    void pickPhoto(){Intent i=new Intent(Intent.ACTION_OPEN_DOCUMENT);i.addCategory(Intent.CATEGORY_OPENABLE);i.setType("image/*");i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);startActivityForResult(i,REQ_PHOTO);}
-    @Override protected void onActivityResult(int req,int result,Intent data){super.onActivityResult(req,result,data);if(result!=RESULT_OK||data==null||data.getData()==null)return;Uri uri=data.getData();try{int take=data.getFlags()&(Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_WRITE_URI_PERMISSION);if((data.getFlags()&Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)!=0)getContentResolver().takePersistableUriPermission(uri,take&Intent.FLAG_GRANT_READ_URI_PERMISSION);}catch(Throwable ignored){}String mime=null;try{mime=getContentResolver().getType(uri);}catch(Throwable ignored){}importUriAsync(uri,mime,req);}
+    void pickPhoto(){
+        new AlertDialog.Builder(this)
+                .setTitle("Add photo")
+                .setItems(new String[]{"Take photo","Choose from gallery"},(d,which)->{
+                    if(which==0)takePhoto();
+                    else choosePhotoFromGallery();
+                })
+                .setNegativeButton("Cancel",null)
+                .show();
+    }
+
+    void choosePhotoFromGallery(){
+        Intent i;
+        if(Build.VERSION.SDK_INT>=33){
+            i=new Intent(MediaStore.ACTION_PICK_IMAGES);
+            i.setType("image/*");
+        }else{
+            i=new Intent(Intent.ACTION_OPEN_DOCUMENT);
+            i.addCategory(Intent.CATEGORY_OPENABLE);
+            i.setType("image/*");
+            i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
+        }
+        startActivityForResult(i,REQ_PHOTO);
+    }
+
+    void takePhoto(){
+        try{
+            ContentValues v=new ContentValues();
+            v.put(MediaStore.Images.Media.DISPLAY_NAME,"Cortex_"+System.currentTimeMillis()+".jpg");
+            v.put(MediaStore.Images.Media.MIME_TYPE,"image/jpeg");
+            if(Build.VERSION.SDK_INT>=29)v.put(MediaStore.Images.Media.RELATIVE_PATH,"Pictures/Cortex");
+            pendingCameraUri=getContentResolver().insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI,v);
+            if(pendingCameraUri==null)throw new IllegalStateException("Could not create camera destination");
+
+            Intent i=new Intent(MediaStore.ACTION_IMAGE_CAPTURE);
+            i.putExtra(MediaStore.EXTRA_OUTPUT,pendingCameraUri);
+            i.addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION|Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            if(i.resolveActivity(getPackageManager())==null)throw new IllegalStateException("No camera app available");
+            startActivityForResult(i,REQ_CAMERA);
+        }catch(Throwable e){
+            if(pendingCameraUri!=null){try{getContentResolver().delete(pendingCameraUri,null,null);}catch(Throwable ignored){}}
+            pendingCameraUri=null;
+            Toast.makeText(this,"Could not open camera",Toast.LENGTH_LONG).show();
+        }
+    }
+    @Override protected void onActivityResult(int req,int result,Intent data){
+        super.onActivityResult(req,result,data);
+
+        if(req==REQ_CAMERA){
+            Uri uri=pendingCameraUri;
+            pendingCameraUri=null;
+            if(result!=RESULT_OK){
+                if(uri!=null)try{getContentResolver().delete(uri,null,null);}catch(Throwable ignored){}
+                return;
+            }
+            if(uri!=null)importUriAsync(uri,"image/jpeg",REQ_PHOTO);
+            return;
+        }
+
+        if(result!=RESULT_OK||data==null||data.getData()==null)return;
+        Uri uri=data.getData();
+        try{
+            int take=data.getFlags()&(Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+            if((data.getFlags()&Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)!=0)
+                getContentResolver().takePersistableUriPermission(uri,take&Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        }catch(Throwable ignored){}
+        String mime=null;
+        try{mime=getContentResolver().getType(uri);}catch(Throwable ignored){}
+        importUriAsync(uri,mime,req);
+    }
 
     void importUriAsync(Uri uri,String mime,int req){setImporting(true,"Importing safely…");final String type=mime;io.execute(()->{VaultDb local=null;long id=0;Throwable error=null;try{local=new VaultDb(getApplicationContext());ShareImporter importer=new ShareImporter(getApplicationContext(),local);if(req==REQ_FILE&&type!=null&&type.startsWith("audio/"))id=importer.importAudio(uri,type);else{Intent share=new Intent(Intent.ACTION_SEND);share.setType(type==null?"application/octet-stream":type);share.putExtra(Intent.EXTRA_STREAM,uri);share.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);id=importer.importSingle(share);}}catch(Throwable t){error=t;}finally{if(local!=null)try{local.close();}catch(Throwable ignored){}}final long itemId=id;final Throwable failure=error;runOnUiThread(()->{if(destroyed||isFinishing()||isDestroyed())return;if(itemId>0){AnalysisQueue.kick(this,null,null);showResult(itemId);}else{setImporting(false,"");Toast.makeText(this,failure==null?"Could not import or it already exists":"Import failed safely",Toast.LENGTH_LONG).show();}});});}
 
