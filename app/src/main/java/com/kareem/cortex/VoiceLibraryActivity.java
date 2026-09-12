@@ -220,8 +220,8 @@ public final class VoiceLibraryActivity extends Activity {
     String understood(KnowledgeItem k){
         String s=safe(k.summary);
         String t=transcript(k);
-        if(!VoiceTextPresentation.materiallyDifferent(s,t))return "";
-        return s;
+        if(VoiceTextPresentation.materiallyDifferent(s,t))return s;
+        return VoiceUnderstanding.summarize(t,null);
     }
 
     String meta(KnowledgeItem k){
