@@ -41,4 +41,12 @@ public class WorkDocumentClassifierTest {
         assertEquals("purchase_order_document",WorkDocumentLifecycleLinker.relationForType("PURCHASE_ORDER"));
         assertEquals("",WorkDocumentLifecycleLinker.relationForType("OTHER"));
     }
+
+    @Test public void procurementTimelineReportsFirstMissingGroundedStage(){
+        assertEquals("QUOTATION_EVIDENCE_NOT_FOUND",WorkProcurementCaseEngine.issue(false,false,false,false));
+        assertEquals("COMPARISON_EVIDENCE_NOT_FOUND",WorkProcurementCaseEngine.issue(true,false,false,false));
+        assertEquals("APPROVAL_EVIDENCE_NOT_FOUND",WorkProcurementCaseEngine.issue(true,true,false,false));
+        assertEquals("PO_EVIDENCE_NOT_FOUND",WorkProcurementCaseEngine.issue(true,true,true,false));
+        assertEquals("PO_EVIDENCE_FOUND",WorkProcurementCaseEngine.issue(true,true,true,true));
+    }
 }
