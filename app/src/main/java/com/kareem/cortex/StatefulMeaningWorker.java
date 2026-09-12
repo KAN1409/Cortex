@@ -5,7 +5,7 @@ import androidx.annotation.NonNull;
 import androidx.work.Worker;
 import androidx.work.WorkerParameters;
 
-/** One bounded idempotent drain for safe semantics, stateful projections, Brain memory and v70 Now cognition. */
+/** One bounded idempotent drain for canonical state, memory and final judged attention. */
 public final class StatefulMeaningWorker extends Worker {
     public StatefulMeaningWorker(@NonNull Context c,@NonNull WorkerParameters p){super(c,p);}
 
@@ -19,7 +19,8 @@ public final class StatefulMeaningWorker extends Worker {
             DeterministicSemanticRecovery.recover(db,400);
             StatefulMeaningRebuilder.run(db,400);
             SemanticMemoryBridge.sync(db,400);
-            try{CognitiveShadowStore.run(db.getWritableDatabase(),8);}catch(Throwable ignored){}
+            try{CognitiveShadowStore.run(db.getWritableDatabase(),CortexPersonalPolicy.maxNowItems(app));}catch(Throwable ignored){}
+            CanonicalAttentionMaterializer.run(app,db);
             CapabilitySupervisor.recordHealthy(app,CapabilitySupervisor.Capability.DETERMINISTIC_COGNITION);
             boolean backlog=DeterministicSemanticRecovery.hasBacklog(db)
                     || StatefulMeaningRebuilder.hasBacklog(db)

@@ -11,17 +11,14 @@ import java.util.Locale;
 import java.util.Map;
 
 /**
- * Persisted, read-only-to-production shadow evaluation for the v70 cognitive attention path.
+ * Persisted, read-only-to-production shadow evaluation for the cognitive attention path.
  *
- * Shadow evaluation may advance the additive v70 commitment ledger, but it never writes
+ * Shadow evaluation may advance the additive commitment ledger, but it never writes
  * ue_attention_items, ue_projection_decisions, derived_items, situations, or semantic events,
  * so enabling cognitive evaluation cannot change production Now.
- *
- * Persisted situations are reconstructed through CognitiveWorldState before evaluation. v70.19
- * replaces synthetic per-event commitments with the persistent lifecycle/deadline ledger.
  */
 public final class CognitiveShadowStore {
-    public static final String VERSION = "cognitive_shadow_store_004";
+    public static final String VERSION = "cognitive_shadow_store_005";
 
     private CognitiveShadowStore() {}
 
@@ -67,13 +64,12 @@ public final class CognitiveShadowStore {
         db.execSQL("CREATE INDEX IF NOT EXISTS idx_ue_shadow_run ON ue_cognitive_shadow_decisions(run_id,cognitive_rank,situation_id)");
     }
 
-    /** Runs one bounded snapshot against persisted v69 state without changing any production projection. */
+    /** Runs one bounded snapshot against persisted state without changing any production projection. */
     public static long run(SQLiteDatabase db, int maxNowItems) {
         UniversalEventStore.ensure(db);
         StatefulMeaningStore.ensure(db);
         CommitmentLifecycleStore.ensure(db);
         ensure(db);
-        // Make an explicit shadow run self-contained even when invoked outside StatefulMeaningWorker.
         CommitmentLifecycleStore.rebuild(db,240);
         long started = System.currentTimeMillis();
         List<AttentionDecisionEngine.Candidate> candidates = loadCandidates(db, started);
@@ -131,8 +127,9 @@ public final class CognitiveShadowStore {
     }
 
     /**
-     * Rebuilds the bounded persisted world from correlated semantic evidence, attaches only OPEN
-     * persisted commitments, then asks the world-state layer for attention candidates.
+     * Rebuilds the bounded persisted world from canonical stateful semantic evidence.
+     * Request-like text may raise attention FEATURES only when the semantic event is already a
+     * grounded conversation candidate. No fact, deadline, risk, or state is invented here.
      */
     static List<AttentionDecisionEngine.Candidate> loadCandidates(SQLiteDatabase db, long nowAt) {
         CognitiveWorldState world = new CognitiveWorldState();
@@ -172,8 +169,11 @@ public final class CognitiveShadowStore {
                 String technicalType = n(c.getString(15));
                 String all = norm(type + " " + intent + " " + subject + " " + summary);
 
-                boolean request = contains(type, "request", "action_required", "required_response") ||
+                boolean typedRequest = contains(type, "request", "action_required", "required_response") ||
                         contains(intent, "request", "command", "send", "reply", "respond", "confirm", "submit", "pay");
+                ConversationAttentionFeatures.Result conversation =
+                        ConversationAttentionFeatures.evaluate(type, intent, subject, summary);
+                boolean request = typedRequest || conversation.explicitRequest;
                 boolean commitment = contains(type, "commitment", "waiting", "follow_up", "pending_response") ||
                         contains(intent, "waiting", "awaiting", "follow_up", "pending");
                 boolean security = StatefulMeaningPolicy.isSecurity(all);
@@ -197,6 +197,12 @@ public final class CognitiveShadowStore {
                 if (security) urgency = Math.max(urgency, .82);
                 if (request) urgency = Math.max(urgency, .62);
 
+                if (conversation.explicitRequest) {
+                    urgency = Math.max(urgency, conversation.urgencyFloor);
+                    actionability = Math.max(actionability, conversation.actionabilityFloor);
+                    relevance = Math.max(relevance, conversation.relevanceFloor);
+                }
+
                 ActionSpecificityGate.Result specificity = ActionSpecificityGate.evaluate(
                         type, intent, subject, summary, request, commitment);
                 if (provenance.authority != CortexProvenanceGate.Authority.USER_AUTHORED
@@ -205,6 +211,9 @@ public final class CognitiveShadowStore {
                     continue;
                 }
                 actionability = clamp01(actionability * Math.max(.35, specificity.specificity));
+                if (conversation.explicitRequest) {
+                    actionability = Math.max(actionability, conversation.actionabilityFloor);
+                }
 
                 world.observe(new CognitiveWorldState.Observation(
                         situationId, linkKey, type, state, subject, summary, confidence,
@@ -232,7 +241,7 @@ public final class CognitiveShadowStore {
         ArrayList<AttentionShadowComparator.LegacyDecision> out = new ArrayList<>();
         for (AttentionDecisionEngine.Candidate candidate : candidates) {
             boolean surface = false;
-            String reason = "no eligible v69 Now projection";
+            String reason = "no eligible legacy Now projection";
             Cursor c = db.rawQuery(
                     "SELECT pd.reason FROM ue_projection_decisions pd " +
                             "WHERE pd.situation_id=? AND pd.projection='NOW' AND pd.eligible=1 " +
