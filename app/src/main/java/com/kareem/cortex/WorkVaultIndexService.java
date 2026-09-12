@@ -59,8 +59,14 @@ public final class WorkVaultIndexService extends Service {
             int profiled=WorkDocumentProfileStore.classifySource(db.getWritableDatabase(),sourceId);if(Thread.currentThread().isInterrupted())return;
             notifyState("Linking procurement lifecycle","Using exact references + classified document roles",true);
             WorkDocumentLifecycleLinker.Result documentLinks=WorkDocumentLifecycleLinker.rebuildForSource(db.getWritableDatabase(),sourceId);if(Thread.currentThread().isInterrupted())return;
+
+            notifyState("Cleaning old parse history","Keeping active version + two previous versions per file",true);
+            WorkVaultVersionGc.Result gc=WorkVaultVersionGc.collectSource(db.getWritableDatabase(),sourceId);
+            if(Thread.currentThread().isInterrupted())return;
+
             int allLinks=indexed.procurementLinks+documentLinks.links;
             String summary="Parsed "+indexed.indexed+" • skipped "+indexed.skippedUnchanged+" • classified "+profiled+" • follow-up "+indexed.followUpRecords+" • links "+allLinks+" • OCR pending "+indexed.needsOcr+" • failed "+indexed.failed;
+            if(gc.versionsDeleted>0)summary+=" • old versions cleaned "+gc.versionsDeleted;
             if(indexed.linkingFailed>0)summary+=" • linker warnings "+indexed.linkingFailed;
             int ambiguous=indexed.ambiguousLinksSkipped+documentLinks.ambiguousSkipped;
             if(ambiguous>0)summary+=" • ambiguous skipped "+ambiguous;
