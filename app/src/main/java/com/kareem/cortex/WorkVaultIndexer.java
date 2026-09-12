@@ -9,7 +9,7 @@ import java.util.*;
 
 /** Resumable file-by-file indexer. A failed document never invalidates the rest of the archive. */
 public final class WorkVaultIndexer {
-    public static final String VERSION="work_vault_indexer_005";
+    public static final String VERSION="work_vault_indexer_006";
     private WorkVaultIndexer(){}
 
     public static Result indexPending(Context context,VaultDb vault,long sourceId){
@@ -56,7 +56,11 @@ public final class WorkVaultIndexer {
             for(WorkStructuredExtractor.Price p:structured.prices){ContentValues x=new ContentValues();x.put("file_id",f.id);x.put("version_id",versionId);x.put("project_id",projectId);x.put("item_name",p.item);x.put("vendor_name",p.vendor);if(p.quantity!=null)x.put("quantity",p.quantity);x.put("unit",p.unit);if(p.unitPrice!=null)x.put("unit_price",p.unitPrice);if(p.totalPrice!=null)x.put("total_price",p.totalPrice);x.put("currency",p.currency);x.put("sheet_name",safe(p.source.sheetName));x.put("page_number",p.source.pageNumber);x.put("row_number",p.source.rowNumber);x.put("confidence",.86);x.put("created_at",now);long priceId=db.insert("work_price_records",null,x);if(!p.vendor.isEmpty()){long vendorId=upsertEntity(db,"VENDOR",p.vendor,now);relation(db,"PRICE",priceId,"ENTITY",vendorId,"vendor",.90,f.id,now);}}
             for(WorkFollowUpExtractor.Record r:followup.records){long pid=projectId;if(!safe(r.project).isEmpty())pid=upsertProject(db,r.project,now);ContentValues x=new ContentValues();x.put("file_id",f.id);x.put("version_id",versionId);x.put("project_id",pid);x.put("reference_type",safe(r.referenceType));x.put("reference_value",safe(r.referenceValue));x.put("item_name",safe(r.item));x.put("status",safe(r.status));x.put("status_normalized",safe(r.normalizedStatus));x.put("owner_name",safe(r.owner));x.put("due_text",safe(r.dueText));x.put("remarks",safe(r.remarks));x.put("vendor_name",safe(r.vendor));if(r.source!=null){x.put("sheet_name",safe(r.source.sheetName));x.put("page_number",r.source.pageNumber);x.put("row_number",r.source.rowNumber);}x.put("confidence",.88);x.put("extractor_version",WorkFollowUpExtractor.VERSION);x.put("created_at",now);long followId=db.insert("work_followup_records",null,x);if(!safe(r.vendor).isEmpty()){long vendorId=upsertEntity(db,"VENDOR",r.vendor,now);relation(db,"FOLLOWUP",followId,"ENTITY",vendorId,"vendor",.88,f.id,now);}if(!safe(r.owner).isEmpty()){long ownerId=upsertEntity(db,"OWNER",r.owner,now);relation(db,"FOLLOWUP",followId,"ENTITY",ownerId,"owner",.82,f.id,now);}}
 
-            mark(db,f.id,parsed.needsOcr?"needs_ocr":"indexed",parsed.parserVersion,now);db.setTransactionSuccessful();
+            // Activation is the last state mutation inside the successful transaction.
+            ContentValues active=new ContentValues();active.put("active_version_id",versionId);active.put("updated_at",now);
+            if(db.update("work_files",active,"id=?",new String[]{String.valueOf(f.id)})!=1)throw new IllegalStateException("Could not activate work file version");
+            mark(db,f.id,parsed.needsOcr?"needs_ocr":"indexed",parsed.parserVersion,now);
+            db.setTransactionSuccessful();
         }finally{db.endTransaction();}
         return projectId;
     }
