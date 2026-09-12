@@ -27,6 +27,7 @@
         <activity android:name=".CaptureOverviewActivity" android:exported="false" />
         <activity android:name=".WorkWorkspaceActivity" android:exported="false" />
         <activity android:name=".WorkVaultActivity" android:exported="false" />
+        <activity android:name=".WorkVaultBrowseActivity" android:exported="false" />
         <activity android:name=".WorkVaultAskActivity" android:exported="false" android:windowSoftInputMode="adjustResize" />
         <activity android:name=".WorkFollowUpActivity" android:exported="false" />
         <activity android:name=".WorkChatGptBuildActivity" android:exported="false" android:windowSoftInputMode="adjustResize" />
