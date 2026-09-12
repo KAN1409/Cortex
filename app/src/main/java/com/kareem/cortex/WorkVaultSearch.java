@@ -6,7 +6,7 @@ import java.util.*;
 
 /** Grounded lexical retrieval across active Work Vault file versions only. */
 public final class WorkVaultSearch {
-    public static final String VERSION="work_vault_search_006";
+    public static final String VERSION="work_vault_search_007";
     private WorkVaultSearch(){}
 
     public static ArrayList<Hit> search(VaultDb vault,String query,int limit){
@@ -15,8 +15,12 @@ public final class WorkVaultSearch {
         if(q.isEmpty())return out;
         String like="%"+q+"%";
 
-        Cursor c=db.rawQuery("SELECT c.file_id,f.display_name,f.document_uri,c.chunk_text,c.sheet_name,c.page_number,c.slide_number,c.row_number FROM work_chunks c JOIN work_files f ON f.id=c.file_id WHERE f.active_version_id>0 AND c.version_id=f.active_version_id AND (c.chunk_text LIKE ? OR f.display_name LIKE ?) LIMIT 80",new String[]{like,like});
-        while(c.moveToNext()){Hit h=new Hit();h.kind="TEXT";h.fileId=c.getLong(0);h.fileName=s(c,1);h.documentUri=s(c,2);h.snippet=clip(s(c,3),900);h.sheet=s(c,4);h.page=c.getInt(5);h.slide=c.getInt(6);h.row=c.getInt(7);h.score=score(q,h.fileName+" "+h.snippet)+.15;out.add(h);}c.close();
+        Cursor c=null;
+        int fastText=WorkVaultFtsSearch.append(db,q,out,80);
+        if(fastText<=0){
+            c=db.rawQuery("SELECT c.file_id,f.display_name,f.document_uri,c.chunk_text,c.sheet_name,c.page_number,c.slide_number,c.row_number FROM work_chunks c JOIN work_files f ON f.id=c.file_id WHERE f.active_version_id>0 AND c.version_id=f.active_version_id AND (c.chunk_text LIKE ? OR f.display_name LIKE ?) LIMIT 80",new String[]{like,like});
+            while(c.moveToNext()){Hit h=new Hit();h.kind="TEXT";h.fileId=c.getLong(0);h.fileName=s(c,1);h.documentUri=s(c,2);h.snippet=clip(s(c,3),900);h.sheet=s(c,4);h.page=c.getInt(5);h.slide=c.getInt(6);h.row=c.getInt(7);h.score=score(q,h.fileName+" "+h.snippet)+.15;out.add(h);}c.close();
+        }
 
         c=db.rawQuery("SELECT p.file_id,f.display_name,f.document_uri,p.item_name,p.vendor_name,p.quantity,p.unit,p.unit_price,p.total_price,p.currency,p.sheet_name,p.page_number,p.row_number,p.reference_type,p.reference_value FROM work_price_records p JOIN work_files f ON f.id=p.file_id WHERE f.active_version_id>0 AND p.version_id=f.active_version_id AND (p.item_name LIKE ? OR p.vendor_name LIKE ? OR p.reference_value LIKE ? OR f.display_name LIKE ?) LIMIT 60",new String[]{like,like,like,like});
         while(c.moveToNext()){Hit h=new Hit();h.kind="PRICE";h.fileId=c.getLong(0);h.fileName=s(c,1);h.documentUri=s(c,2);StringBuilder b=new StringBuilder();b.append(s(c,3));if(!s(c,4).isEmpty())b.append(" • vendor ").append(s(c,4));if(!c.isNull(5))b.append(" • qty ").append(c.getDouble(5)).append(' ').append(s(c,6));if(!c.isNull(7))b.append(" • unit price ").append(c.getDouble(7)).append(' ').append(s(c,9));if(!c.isNull(8))b.append(" • total ").append(c.getDouble(8)).append(' ').append(s(c,9));if(!s(c,13).isEmpty())b.append(" • ").append(s(c,13)).append(' ').append(s(c,14));h.snippet=b.toString();h.sheet=s(c,10);h.page=c.getInt(11);h.row=c.getInt(12);h.score=score(q,h.fileName+" "+h.snippet)+.35;out.add(h);}c.close();
