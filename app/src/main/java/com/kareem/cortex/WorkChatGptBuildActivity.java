@@ -46,10 +46,10 @@ public final class WorkChatGptBuildActivity extends Activity {
         project=new EditText(this);project.setHint("Project name — optional");project.setSingleLine(true);project.setTextColor(CortexUi.TEXT);project.setHintTextColor(CortexUi.MUTED);box.addView(project,new LinearLayout.LayoutParams(-1,dp(52)));
 
         TextView reqTitle=CortexUi.section(this,"What should ChatGPT create?");box.addView(reqTitle);
-        requirements=new EditText(this);requirements.setHint("Write the requirements in as much detail as you want: content, wording, layout, tables, sections, logo/header, language, exact model to follow, what to change from the reference, what must stay the same…");requirements.setMinLines(7);requirements.setGravity(android.view.Gravity.TOP);requirements.setTextColor(CortexUi.TEXT);requirements.setHintTextColor(CortexUi.MUTED);requirements.setPadding(dp(14),dp(12),dp(14),dp(12));box.addView(requirements,new LinearLayout.LayoutParams(-1,dp(210)));
+        requirements=new EditText(this);requirements.setHint("Required: describe the new document in detail — content, wording, layout, tables, sections, logo/header, language, exact model to follow, what to change from the reference, and what must stay the same.");requirements.setMinLines(7);requirements.setGravity(android.view.Gravity.TOP);requirements.setTextColor(CortexUi.TEXT);requirements.setHintTextColor(CortexUi.MUTED);requirements.setPadding(dp(14),dp(12),dp(14),dp(12));box.addView(requirements,new LinearLayout.LayoutParams(-1,dp(210)));
 
         TextView refsTitle=CortexUi.section(this,"Reference documents");box.addView(refsTitle);
-        refsLabel=CortexUi.text(this,"No reference files selected yet.",11,CortexUi.MUTED);refsLabel.setPadding(0,0,0,dp(10));box.addView(refsLabel);
+        refsLabel=CortexUi.text(this,"No reference files selected yet. References are optional, but strongly recommended when ChatGPT should copy a model, structure or formatting style.",11,CortexUi.MUTED);refsLabel.setPadding(0,0,0,dp(10));box.addView(refsLabel);
 
         TextView choose=CortexUi.action(this,"SELECT REFERENCE FILES",CortexUi.ACCENT,false);LinearLayout.LayoutParams cp=new LinearLayout.LayoutParams(-1,dp(48));box.addView(choose,cp);choose.setOnClickListener(v->chooseReferences());
 
@@ -72,15 +72,20 @@ public final class WorkChatGptBuildActivity extends Activity {
 
     private void addReference(Uri uri,int flags){if(uri==null||references.contains(uri))return;references.add(uri);int take=flags&Intent.FLAG_GRANT_READ_URI_PERMISSION;try{getContentResolver().takePersistableUriPermission(uri,take);}catch(Throwable ignored){}}
 
-    private void updateRefsLabel(){if(references.isEmpty()){refsLabel.setText("No reference files selected yet.");return;}StringBuilder b=new StringBuilder();for(int i=0;i<references.size();i++){if(i>0)b.append("\n");b.append("• ").append(displayName(references.get(i)));}refsLabel.setText(b.toString());}
+    private void updateRefsLabel(){if(references.isEmpty()){refsLabel.setText("No reference files selected yet. References are optional, but strongly recommended when ChatGPT should copy a model, structure or formatting style.");return;}StringBuilder b=new StringBuilder();b.append(references.size()).append(" reference file").append(references.size()==1?"":"s").append(" selected:\n");for(int i=0;i<references.size();i++){b.append("• ").append(displayName(references.get(i)));if(i<references.size()-1)b.append("\n");}refsLabel.setText(b.toString());}
 
     private void sendToChatGpt(TextView button){
         String p=project.getText()==null?"":project.getText().toString().trim();String req=requirements.getText()==null?"":requirements.getText().toString().trim();
-        if(req.isEmpty()&&references.isEmpty()){android.widget.Toast.makeText(this,"Add requirements or at least one reference file first",android.widget.Toast.LENGTH_LONG).show();return;}
+        if(req.isEmpty()){android.widget.Toast.makeText(this,"Write the new document requirements first",android.widget.Toast.LENGTH_LONG).show();requirements.requestFocus();return;}
         button.setEnabled(false);button.setText("PREPARING PACKAGE…");ArrayList<Uri> refs=new ArrayList<>(references);
         new Thread(()->{try{
             WorkChatGptDirectBridge.Prepared prepared=WorkChatGptDirectBridge.prepare(this,db,kind,p,req,refs);
-            runOnUiThread(()->{boolean ok=WorkChatGptDirectBridge.openChatGpt(this,prepared);button.setEnabled(true);button.setText("SEND DIRECTLY TO CHATGPT");android.widget.Toast.makeText(this,ok?"Reference package sent to ChatGPT":"Could not open ChatGPT/share target",ok?android.widget.Toast.LENGTH_SHORT:android.widget.Toast.LENGTH_LONG).show();});
+            runOnUiThread(()->{
+                boolean ok=WorkChatGptDirectBridge.openChatGpt(this,prepared);
+                try{WorkChatGptBuildRequestRegistry.markOpened(db.getWritableDatabase(),prepared.requestId,ok);}catch(Throwable ignored){}
+                button.setEnabled(true);button.setText("SEND DIRECTLY TO CHATGPT");
+                android.widget.Toast.makeText(this,ok?"Reference package sent to ChatGPT":"Could not open ChatGPT/share target",ok?android.widget.Toast.LENGTH_SHORT:android.widget.Toast.LENGTH_LONG).show();
+            });
         }catch(Throwable e){runOnUiThread(()->{button.setEnabled(true);button.setText("SEND DIRECTLY TO CHATGPT");android.widget.Toast.makeText(this,"Could not prepare ChatGPT build package",android.widget.Toast.LENGTH_LONG).show();});}},"work-chatgpt-direct-builder").start();
     }
 
