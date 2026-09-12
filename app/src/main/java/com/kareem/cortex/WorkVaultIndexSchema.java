@@ -5,7 +5,7 @@ import android.database.sqlite.SQLiteDatabase;
 
 /** Versioned parse/chunk storage layered on top of WorkVaultSchema. */
 public final class WorkVaultIndexSchema {
-    public static final String VERSION="work_vault_index_schema_005";
+    public static final String VERSION="work_vault_index_schema_006";
     private WorkVaultIndexSchema(){}
 
     public static void ensure(SQLiteDatabase db){
@@ -75,6 +75,13 @@ public final class WorkVaultIndexSchema {
                 "SELECT 1 FROM work_file_versions v2 WHERE v2.file_id=work_files.id "+
                 "AND v2.state IN ('complete','partial_needs_ocr'))");
 
+        // Records created before version_id existed represent the then-current file projection.
+        // Attach only versionless legacy rows to the file's adopted active version; never rewrite explicit lineage.
+        backfillLegacyVersion(db,"work_facts");
+        backfillLegacyVersion(db,"work_procurement_refs");
+        backfillLegacyVersion(db,"work_price_records");
+        backfillLegacyVersion(db,"work_followup_records");
+
         db.execSQL("CREATE INDEX IF NOT EXISTS idx_work_files_active_version ON work_files(active_version_id)");
         db.execSQL("CREATE INDEX IF NOT EXISTS idx_work_facts_version ON work_facts(file_id,version_id,fact_type)");
         db.execSQL("CREATE INDEX IF NOT EXISTS idx_work_procurement_ref_version ON work_procurement_refs(file_id,version_id,ref_type,normalized_value)");
@@ -102,6 +109,11 @@ public final class WorkVaultIndexSchema {
         db.execSQL("CREATE INDEX IF NOT EXISTS idx_work_proc_links_to ON work_procurement_links(to_kind,to_id)");
         db.execSQL("CREATE INDEX IF NOT EXISTS idx_work_proc_links_file ON work_procurement_links(source_file_id,relation)");
         db.execSQL("CREATE INDEX IF NOT EXISTS idx_work_proc_links_project ON work_procurement_links(project_id,relation)");
+    }
+
+    private static void backfillLegacyVersion(SQLiteDatabase db,String table){
+        db.execSQL("UPDATE "+table+" SET version_id=(SELECT active_version_id FROM work_files f WHERE f.id="+table+".file_id) "+
+                "WHERE version_id=0 AND EXISTS(SELECT 1 FROM work_files f2 WHERE f2.id="+table+".file_id AND f2.active_version_id>0)");
     }
 
     private static void addColumnIfMissing(SQLiteDatabase db,String table,String column,String definition){
