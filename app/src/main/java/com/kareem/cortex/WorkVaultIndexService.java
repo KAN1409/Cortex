@@ -9,11 +9,12 @@ import android.os.IBinder;
 import androidx.core.app.NotificationCompat;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * User-initiated long-running archive scan/index service.
  * Keeps indexing alive independently of WorkVaultActivity and never copies source originals.
+ * Multiple archive roots are serialized; interrupted runs remain resumable from file state.
  */
 public final class WorkVaultIndexService extends Service {
     public static final String EXTRA_SOURCE_ID="source_id";
@@ -24,7 +25,7 @@ public final class WorkVaultIndexService extends Service {
     private static final int NOTIFICATION_ID=8601;
 
     private final ExecutorService worker=Executors.newSingleThreadExecutor(r->{Thread t=new Thread(r,"cortex-work-vault-index");t.setPriority(Thread.NORM_PRIORITY-1);return t;});
-    private final AtomicBoolean running=new AtomicBoolean(false);
+    private final AtomicInteger pending=new AtomicInteger(0);
 
     @Override public void onCreate(){super.onCreate();ensureChannel();}
     @Override public IBinder onBind(Intent intent){return null;}
@@ -36,17 +37,15 @@ public final class WorkVaultIndexService extends Service {
         final String sourceName=safe(intent.getStringExtra(EXTRA_SOURCE_NAME));
         if(sourceId<=0||tree==null||tree.trim().isEmpty()){stopSelf(startId);return START_NOT_STICKY;}
 
-        startForeground(NOTIFICATION_ID,notification("Preparing archive index",sourceName,false));
-        if(!running.compareAndSet(false,true)){
-            notifyState("Archive indexing already running",sourceName,false);
-            return START_NOT_STICKY;
-        }
-
-        worker.execute(()->runIndex(startId,sourceId,tree,sourceName));
+        startForeground(NOTIFICATION_ID,notification("Preparing archive index",sourceName,true));
+        int queue=pending.incrementAndGet();
+        if(queue>1)notifyState("Archive source queued",sourceName+" • "+queue+" sources pending",true);
+        try{worker.execute(()->runIndex(sourceId,tree,sourceName));}
+        catch(Throwable t){if(pending.decrementAndGet()<=0)finishForeground();}
         return START_NOT_STICKY;
     }
 
-    private void runIndex(int startId,long sourceId,String tree,String sourceName){
+    private void runIndex(long sourceId,String tree,String sourceName){
         VaultDb db=null;
         try{
             db=new VaultDb(getApplicationContext());
@@ -54,24 +53,36 @@ public final class WorkVaultIndexService extends Service {
 
             notifyState("Scanning archive for changes",sourceName,true);
             WorkVaultScanner.Result scan=WorkVaultScanner.scan(getApplicationContext(),db,sourceId,Uri.parse(tree));
-            if(!scan.error.isEmpty()){
-                notifyState("Archive scan failed",scan.error,false);
-                return;
-            }
+            if(Thread.currentThread().isInterrupted())return;
+            if(!scan.error.isEmpty()){notifyState("Archive scan failed",scan.error,false);return;}
 
             notifyState("Parsing changed files",scan.processed+" files inventoried",true);
             WorkVaultIndexer.Result indexed=WorkVaultIndexer.indexPending(getApplicationContext(),db,sourceId);
+            if(Thread.currentThread().isInterrupted())return;
 
             String summary="Parsed "+indexed.indexed+" • OCR "+indexed.needsOcr+" • failed "+indexed.failed;
             notifyState(indexed.failed>0?"Work Vault indexed with warnings":"Work Vault index complete",summary,false);
         }catch(Throwable t){
-            notifyState("Work Vault indexing failed",safe(t.getMessage()).isEmpty()?t.getClass().getSimpleName():safe(t.getMessage()),false);
+            if(!Thread.currentThread().isInterrupted())notifyState("Work Vault indexing failed",safe(t.getMessage()).isEmpty()?t.getClass().getSimpleName():safe(t.getMessage()),false);
         }finally{
-            running.set(false);
             if(db!=null)try{db.close();}catch(Throwable ignored){}
-            if(Build.VERSION.SDK_INT>=24)stopForeground(STOP_FOREGROUND_DETACH);else stopForeground(false);
-            stopSelf(startId);
+            int left=pending.decrementAndGet();
+            if(left<=0){pending.set(0);finishForeground();}
+            else notifyState("Continuing archive indexing",left+" source"+(left==1?"":"s")+" remaining",true);
         }
+    }
+
+    private void finishForeground(){
+        if(Build.VERSION.SDK_INT>=24)stopForeground(STOP_FOREGROUND_DETACH);else stopForeground(false);
+        stopSelf();
+    }
+
+    /** Android 15/16 dataSync FGS budget timeout: stop cleanly; pending file states make the next run resume safely. */
+    @Override public void onTimeout(int startId,int fgsType){
+        notifyState("Work Vault indexing paused","Android background-time limit reached • scan can resume safely",false);
+        pending.set(0);worker.shutdownNow();
+        if(Build.VERSION.SDK_INT>=24)stopForeground(STOP_FOREGROUND_DETACH);else stopForeground(false);
+        stopSelf();
     }
 
     private Notification notification(String title,String detail,boolean ongoing){
