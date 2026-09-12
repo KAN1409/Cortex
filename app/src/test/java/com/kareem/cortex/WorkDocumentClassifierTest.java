@@ -49,4 +49,19 @@ public class WorkDocumentClassifierTest {
         assertEquals("PO_EVIDENCE_NOT_FOUND",WorkProcurementCaseEngine.issue(true,true,true,false));
         assertEquals("PO_EVIDENCE_FOUND",WorkProcurementCaseEngine.issue(true,true,true,true));
     }
+
+    @Test public void understandsEnglishAndArabicMissingStepQuestions(){
+        assertEquals(WorkProcurementCaseSearch.Intent.MISSING_PO,
+                WorkProcurementCaseSearch.intent("Which PRs still have no PO?"));
+        assertEquals(WorkProcurementCaseSearch.Intent.MISSING_PO,
+                WorkProcurementCaseSearch.intent("إيه الـPRs اللي مفيش لها PO؟"));
+        assertEquals(WorkProcurementCaseSearch.Intent.MISSING_APPROVAL,
+                WorkProcurementCaseSearch.intent("إيه الـPRs اللي مفيش لها اعتماد؟"));
+        assertEquals(WorkProcurementCaseSearch.Intent.MISSING_COMPARISON,
+                WorkProcurementCaseSearch.intent("Which PRs are missing comparison?"));
+        assertEquals(WorkProcurementCaseSearch.Intent.MISSING_QUOTATION,
+                WorkProcurementCaseSearch.intent("إيه الـPRs اللي مفيش لها عرض سعر؟"));
+        assertEquals(WorkProcurementCaseSearch.Intent.NONE,
+                WorkProcurementCaseSearch.intent("Compare Galala marble prices"));
+    }
 }
