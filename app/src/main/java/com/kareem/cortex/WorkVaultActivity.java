@@ -62,6 +62,7 @@ public final class WorkVaultActivity extends Activity {
 
         TextView add=CortexUi.action(this,"ADD ARCHIVE SOURCE",CortexUi.ACCENT,true);LinearLayout.LayoutParams ap=new LinearLayout.LayoutParams(-1,dp(48));ap.setMargins(0,dp(14),0,0);content.addView(add,ap);add.setOnClickListener(v->chooseTree());
         TextView ask=CortexUi.action(this,"ASK WORK ARCHIVE",CortexUi.MUTED,false);LinearLayout.LayoutParams qp=new LinearLayout.LayoutParams(-1,dp(46));qp.setMargins(0,dp(8),0,0);content.addView(ask,qp);ask.setOnClickListener(v->startActivity(new Intent(this,WorkVaultAskActivity.class)));
+        TextView followUp=CortexUi.action(this,"OPEN WORK FOLLOW-UP",CortexUi.MUTED,false);LinearLayout.LayoutParams fp=new LinearLayout.LayoutParams(-1,dp(46));fp.setMargins(0,dp(8),0,0);content.addView(followUp,fp);followUp.setOnClickListener(v->startActivity(new Intent(this,WorkFollowUpActivity.class)));
 
         content.addView(CortexUi.section(this,"Archive sources"));
         if(sources.isEmpty()){
