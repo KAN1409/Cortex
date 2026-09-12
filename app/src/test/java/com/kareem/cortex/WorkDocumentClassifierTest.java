@@ -134,4 +134,23 @@ public class WorkDocumentClassifierTest {
         WorkDocumentGenerationDecision.Decision order=WorkDocumentGenerationDecision.decide(WorkDocumentRecipe.Kind.ASSIGNMENT_ORDER_MANUFACTURING_AND_SUPPLY,10);
         assertEquals(WorkDocumentGenerationDecision.Route.CHATGPT_BUILD,order.route);
     }
+
+    @Test public void referencePolicyAllowsOnlyWorkDocumentFormats(){
+        assertTrue(WorkReferenceFilePolicy.isSupportedMime("application/pdf"));
+        assertTrue(WorkReferenceFilePolicy.isSupportedMime("application/vnd.openxmlformats-officedocument.wordprocessingml.document"));
+        assertTrue(WorkReferenceFilePolicy.isSupportedMime("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"));
+        assertTrue(WorkReferenceFilePolicy.isSupportedMime("application/vnd.openxmlformats-officedocument.presentationml.presentation"));
+        assertFalse(WorkReferenceFilePolicy.isSupportedMime("image/jpeg"));
+        assertFalse(WorkReferenceFilePolicy.isSupportedMime("application/zip"));
+        assertFalse(WorkReferenceFilePolicy.isSupportedMime(null));
+    }
+
+    @Test public void referencePolicyWarnsWithoutCreatingArtificialSizeLimit(){
+        assertFalse(WorkReferenceFilePolicy.shouldWarnForSize(50L*1024L*1024L));
+        assertTrue(WorkReferenceFilePolicy.shouldWarnForSize(50L*1024L*1024L+1));
+        assertEquals("PDF",WorkReferenceFilePolicy.shortType("application/pdf"));
+        assertEquals("EXCEL",WorkReferenceFilePolicy.shortType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"));
+        assertEquals("50.0 MB",WorkReferenceFilePolicy.formatBytes(50L*1024L*1024L));
+        assertEquals("size unknown",WorkReferenceFilePolicy.formatBytes(-1));
+    }
 }
