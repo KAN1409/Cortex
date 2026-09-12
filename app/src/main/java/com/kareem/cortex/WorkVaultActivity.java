@@ -2,11 +2,8 @@ package com.kareem.cortex;
 
 import android.app.Activity;
 import android.content.Intent;
-import android.content.UriPermission;
 import android.net.Uri;
 import android.os.Bundle;
-import android.provider.DocumentsContract;
-import android.view.Gravity;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
@@ -30,7 +27,7 @@ public final class WorkVaultActivity extends Activity {
         super.onCreate(state);
         CortexUi.applyWindow(this);
         db=new VaultDb(getApplicationContext());
-        WorkVaultSchema.ensure(db.getWritableDatabase());
+        WorkVaultIndexSchema.ensure(db.getWritableDatabase());
         build();
         refresh();
     }
@@ -56,7 +53,6 @@ public final class WorkVaultActivity extends Activity {
 
     private void render(WorkVaultScanner.Counts counts,ArrayList<WorkVaultSourceStore.Source> sources){
         if(destroyed||content==null)return;content.removeAllViews();
-
         LinearLayout head=new LinearLayout(this);head.setOrientation(LinearLayout.VERTICAL);
         TextView title=CortexUi.plain(this,"Work Vault",31,CortexUi.TEXT);CortexUi.medium(title);head.addView(title);
         TextView sub=CortexUi.text(this,"Your professional archive, indexed with source-level provenance.",11,CortexUi.MUTED);sub.setPadding(0,dp(3),0,0);head.addView(sub);content.addView(head);
@@ -67,7 +63,6 @@ public final class WorkVaultActivity extends Activity {
         if(counts.newFiles+counts.modifiedFiles>0){TextView pending=CortexUi.plain(this,(counts.newFiles+counts.modifiedFiles)+" files waiting for parsing",10,CortexUi.ACCENT);pending.setPadding(0,dp(7),0,0);stats.addView(pending);}content.addView(stats,sp);
 
         TextView add=CortexUi.action(this,"ADD ARCHIVE SOURCE",CortexUi.ACCENT,true);LinearLayout.LayoutParams ap=new LinearLayout.LayoutParams(-1,dp(48));ap.setMargins(0,dp(14),0,0);content.addView(add,ap);add.setOnClickListener(v->chooseTree());
-
         TextView ask=CortexUi.action(this,"ASK WORK ARCHIVE",CortexUi.MUTED,false);LinearLayout.LayoutParams qp=new LinearLayout.LayoutParams(-1,dp(46));qp.setMargins(0,dp(8),0,0);content.addView(ask,qp);ask.setOnClickListener(v->{Intent i=new Intent(this,AskCortexActivity.class);i.putExtra("prefill","Search my Work Vault and answer only from grounded archive evidence: ");startActivity(i);});
 
         content.addView(CortexUi.section(this,"Archive sources"));
@@ -80,10 +75,10 @@ public final class WorkVaultActivity extends Activity {
     private void sourceRow(WorkVaultSourceStore.Source s){
         LinearLayout card=CortexUi.card(this,20);LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,-2);p.setMargins(0,0,0,dp(10));
         TextView name=CortexUi.text(this,s.displayName,15,CortexUi.TEXT);CortexUi.medium(name);card.addView(name);
-        String status=s.lastError.isEmpty()?(s.lastScanAt>0?"Inventory ready":"Not scanned yet"):("Scan error: "+s.lastError);
+        String status=s.lastError.isEmpty()?(s.lastScanAt>0?"Inventory and parser ready":"Not scanned yet"):("Scan error: "+s.lastError);
         TextView meta=CortexUi.text(this,status,11,s.lastError.isEmpty()?CortexUi.MUTED:CortexUi.RED);meta.setPadding(0,dp(5),0,0);card.addView(meta);
-        TextView scan=CortexUi.action(this,"SCAN FOR CHANGES",CortexUi.ACCENT,false);LinearLayout.LayoutParams bp=new LinearLayout.LayoutParams(-1,dp(42));bp.setMargins(0,dp(10),0,0);card.addView(scan,bp);
-        scan.setOnClickListener(v->{scan.setEnabled(false);scan.setText("SCANNING…");runScan(s,scan);});
+        TextView scan=CortexUi.action(this,"SCAN + INDEX CHANGES",CortexUi.ACCENT,false);LinearLayout.LayoutParams bp=new LinearLayout.LayoutParams(-1,dp(42));bp.setMargins(0,dp(10),0,0);card.addView(scan,bp);
+        scan.setOnClickListener(v->{scan.setEnabled(false);scan.setText("INDEXING…");runScan(s,scan);});
         content.addView(card,p);
     }
 
@@ -98,30 +93,28 @@ public final class WorkVaultActivity extends Activity {
         if(requestCode!=REQ_TREE||resultCode!=RESULT_OK||data==null||data.getData()==null)return;
         Uri uri=data.getData();
         int flags=data.getFlags()&(Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
-        try{getContentResolver().takePersistableUriPermission(uri,flags);}catch(Throwable ignored){
-            try{getContentResolver().takePersistableUriPermission(uri,Intent.FLAG_GRANT_READ_URI_PERMISSION);}catch(Throwable ignoredAgain){}
-        }
+        try{getContentResolver().takePersistableUriPermission(uri,flags);}catch(Throwable ignored){try{getContentResolver().takePersistableUriPermission(uri,Intent.FLAG_GRANT_READ_URI_PERMISSION);}catch(Throwable ignoredAgain){}}
         String name="Work archive";
         try{DocumentFile root=DocumentFile.fromTreeUri(this,uri);if(root!=null&&root.getName()!=null&&!root.getName().trim().isEmpty())name=root.getName().trim();}catch(Throwable ignored){}
-        long sourceId=WorkVaultSourceStore.addOrTouch(db,uri,name);
-        refresh();
+        long sourceId=WorkVaultSourceStore.addOrTouch(db,uri,name);refresh();
         if(sourceId>0)runScan(new WorkVaultSourceStore.Source(sourceId,uri.toString(),name,"active",0,""),null);
     }
 
     private void runScan(WorkVaultSourceStore.Source source,TextView button){
         if(destroyed||io.isShutdown())return;
         io.execute(()->{
-            WorkVaultScanner.Result r=WorkVaultScanner.scan(getApplicationContext(),db,source.id,Uri.parse(source.treeUri));
+            WorkVaultScanner.Result scan=WorkVaultScanner.scan(getApplicationContext(),db,source.id,Uri.parse(source.treeUri));
+            WorkVaultIndexer.Result indexed=new WorkVaultIndexer.Result();
+            if(scan.error.isEmpty())indexed=WorkVaultIndexer.indexPending(getApplicationContext(),db,source.id);
+            final WorkVaultIndexer.Result result=indexed;
             runOnUiThread(()->{
                 if(destroyed)return;
-                if(button!=null){button.setEnabled(true);button.setText("SCAN FOR CHANGES");}
-                android.widget.Toast.makeText(this,r.error.isEmpty()?("Indexed inventory: "+r.processed+" files"):("Scan failed: "+r.error),android.widget.Toast.LENGTH_LONG).show();
-                refresh();
+                if(button!=null){button.setEnabled(true);button.setText("SCAN + INDEX CHANGES");}
+                String msg=scan.error.isEmpty()?("Inventory "+scan.processed+" • parsed "+result.indexed+" • OCR "+result.needsOcr+" • failed "+result.failed):("Scan failed: "+scan.error);
+                android.widget.Toast.makeText(this,msg,android.widget.Toast.LENGTH_LONG).show();refresh();
             });
         });
     }
 
-    private static String humanBytes(long bytes){
-        if(bytes<1024)return bytes+" B";double v=bytes;String[] u={"KB","MB","GB","TB"};int i=-1;do{v/=1024;i++;}while(v>=1024&&i<u.length-1);return new DecimalFormat(v>=100?"0":(v>=10?"0.0":"0.00")).format(v)+" "+u[i];
-    }
+    private static String humanBytes(long bytes){if(bytes<1024)return bytes+" B";double v=bytes;String[] u={"KB","MB","GB","TB"};int i=-1;do{v/=1024;i++;}while(v>=1024&&i<u.length-1);return new DecimalFormat(v>=100?"0":(v>=10?"0.0":"0.00")).format(v)+" "+u[i];}
 }
