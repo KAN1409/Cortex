@@ -10,32 +10,131 @@ import android.view.*;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
-/** Approved Cortex AMOLED hierarchy system. Do not drift from black graphite + faded lime. */
+/** Cortex premium AMOLED design system: graphite depth, restrained lime, strong information hierarchy. */
 public final class CortexUi {
-    public static final int BG=Color.rgb(3,4,3), SURFACE=Color.rgb(12,13,12), SURFACE_2=Color.rgb(17,19,17), SURFACE_3=Color.rgb(23,25,22);
-    public static final int TEXT=Color.rgb(245,247,241), MUTED=Color.rgb(161,163,157), FAINT=Color.rgb(92,95,89);
-    public static final int LIME=Color.rgb(185,218,77), OLIVE=Color.rgb(126,145,55), GREEN=Color.rgb(111,202,86), YELLOW=Color.rgb(240,184,56), ORANGE=Color.rgb(242,154,49), RED=Color.rgb(239,92,73);
+    public static final int BG=Color.rgb(3,4,3), SURFACE=Color.rgb(11,12,11), SURFACE_2=Color.rgb(16,18,16), SURFACE_3=Color.rgb(22,25,21);
+    public static final int TEXT=Color.rgb(246,248,242), MUTED=Color.rgb(159,164,154), FAINT=Color.rgb(91,96,88);
+    public static final int LIME=Color.rgb(190,221,82), OLIVE=Color.rgb(126,146,55), GREEN=Color.rgb(111,202,86), YELLOW=Color.rgb(240,184,56), ORANGE=Color.rgb(242,154,49), RED=Color.rgb(239,92,73);
     public static final int ACCENT=LIME,SIGNAL=LIME,AMBER=YELLOW,SAGE=GREEN,INFO=GREEN,VIOLET=OLIVE,COPPER=ORANGE,CORAL=RED,GOLD=YELLOW;
-    public static final int BORDER=Color.rgb(43,46,41), BORDER_SOFT=Color.rgb(28,30,27), HAIRLINE=Color.argb(42,220,230,210);
+    public static final int BORDER=Color.rgb(44,48,42), BORDER_SOFT=Color.rgb(27,30,26), HAIRLINE=Color.argb(50,220,230,210);
     private CortexUi(){}
+
     public static int dp(Activity a,int v){return(int)(v*a.getResources().getDisplayMetrics().density+.5f);}
-    public static void applyWindow(Activity a){Window w=a.getWindow();w.setStatusBarColor(BG);w.setNavigationBarColor(BG);if(Build.VERSION.SDK_INT>=29)w.setNavigationBarContrastEnforced(false);if(Build.VERSION.SDK_INT>=23)w.getDecorView().setSystemUiVisibility(0);try{com.kareem.cortex.visualmemory.ScreenshotCaptureProvenance.register(a);}catch(Throwable ignored){}}
-    public static void fitSystemBars(Activity a,View root){final int pl=root.getPaddingLeft(),pt=root.getPaddingTop(),pr=root.getPaddingRight(),pb=root.getPaddingBottom();root.setOnApplyWindowInsetsListener((v,in)->{int l,t,r,b;if(Build.VERSION.SDK_INT>=30){android.graphics.Insets x=in.getInsets(WindowInsets.Type.systemBars());l=x.left;t=x.top;r=x.right;b=x.bottom;}else{l=in.getSystemWindowInsetLeft();t=in.getSystemWindowInsetTop();r=in.getSystemWindowInsetRight();b=in.getSystemWindowInsetBottom();}v.setPadding(pl+l,pt+t,pr+r,pb+b);return in;});root.requestApplyInsets();}
-    public static GradientDrawable round(Activity a,int fill,int stroke,int radius){GradientDrawable g=new GradientDrawable();g.setColor(fill);g.setCornerRadius(dp(a,radius));if(stroke!=Color.TRANSPARENT)g.setStroke(dp(a,1),stroke);return g;}
-    public static GradientDrawable gradient(Activity a,int start,int end,int stroke,int radius){GradientDrawable g=new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,new int[]{start,end});g.setCornerRadius(dp(a,radius));if(stroke!=Color.TRANSPARENT)g.setStroke(dp(a,1),stroke);return g;}
-    public static GradientDrawable velvet(Activity a,int radius){return gradient(a,SURFACE_2,SURFACE,HAIRLINE,radius);} public static GradientDrawable matte(Activity a,int radius){return round(a,SURFACE,HAIRLINE,radius);} public static View divider(Activity a){View v=new View(a);v.setBackgroundColor(BORDER_SOFT);return v;}
-    public static <T extends View>T raised(Activity a,T v,int e){if(Build.VERSION.SDK_INT>=21){v.setElevation(dp(a,e));v.setTranslationZ(0);}return v;} public static CortexGlyphView glyph(Activity a,String k,int c,boolean d){CortexGlyphView g=new CortexGlyphView(a,k,c,d);raised(a,g,3);return g;}
-    public static View pressable(Activity a,View v,GradientDrawable base){if(Build.VERSION.SDK_INT>=21)v.setBackground(new RippleDrawable(ColorStateList.valueOf(Color.argb(22,185,218,77)),base,null));else v.setBackground(base);v.setClickable(true);v.setFocusable(true);raised(a,v,3);v.setOnTouchListener((x,e)->{if(Build.VERSION.SDK_INT>=21){if(e.getActionMasked()==MotionEvent.ACTION_DOWN){x.setTranslationZ(-dp(a,1));x.setScaleX(.988f);x.setScaleY(.988f);}else if(e.getActionMasked()==MotionEvent.ACTION_UP||e.getActionMasked()==MotionEvent.ACTION_CANCEL){x.setTranslationZ(0);x.setScaleX(1);x.setScaleY(1);}}return false;});return v;}
-    public static TextView text(Activity a,String s,int sp,int c){TextView v=new TextView(a);v.setTextSize(sp);v.setTextColor(c);v.setLineSpacing(0,1.07f);CortexTextUi.setReadable(v,s==null?"":s);return v;} public static TextView plain(Activity a,String s,int sp,int c){TextView v=new TextView(a);v.setTextSize(sp);v.setTextColor(c);CortexTextUi.setPlain(v,s==null?"":s);return v;} public static void medium(TextView v){v.setTypeface(Typeface.create("sans-serif-medium",0));} public static void bold(TextView v){v.setTypeface(Typeface.create("sans-serif",Typeface.BOLD));}
-    public static LinearLayout card(Activity a,int r){LinearLayout c=new LinearLayout(a);c.setOrientation(LinearLayout.VERTICAL);c.setPadding(dp(a,16),dp(a,15),dp(a,16),dp(a,15));c.setBackground(velvet(a,r));raised(a,c,3);return c;}
-    public static TextView chip(Activity a,String label,int color,boolean strong){TextView v=plain(a,label,strong?11:10,color);if(strong)medium(v);v.setGravity(Gravity.CENTER);v.setPadding(dp(a,12),0,dp(a,12),0);int fill=Color.argb(strong?20:10,Color.red(color),Color.green(color),Color.blue(color));int stroke=Color.argb(strong?92:58,Color.red(color),Color.green(color),Color.blue(color));v.setBackground(round(a,fill,stroke,999));return raised(a,v,strong?3:1);}
-    public static TextView section(Activity a,String s){TextView h=plain(a,s,11,MUTED);medium(h);h.setPadding(0,dp(a,22),0,dp(a,9));return h;} public static TextView action(Activity a,String label,int color,boolean filled){TextView b=plain(a,label,12,color);medium(b);b.setGravity(Gravity.CENTER);b.setPadding(dp(a,14),0,dp(a,14),0);int wash=Color.argb(filled?22:8,Color.red(color),Color.green(color),Color.blue(color));pressable(a,b,round(a,wash,Color.argb(filled?110:64,Color.red(color),Color.green(color),Color.blue(color)),15));return b;}
+
+    public static void applyWindow(Activity a){
+        Window w=a.getWindow();
+        w.setStatusBarColor(BG);w.setNavigationBarColor(BG);
+        if(Build.VERSION.SDK_INT>=29)w.setNavigationBarContrastEnforced(false);
+        if(Build.VERSION.SDK_INT>=23)w.getDecorView().setSystemUiVisibility(0);
+        try{com.kareem.cortex.visualmemory.ScreenshotCaptureProvenance.register(a);}catch(Throwable ignored){}
+    }
+
+    public static void fitSystemBars(Activity a,View root){
+        final int pl=root.getPaddingLeft(),pt=root.getPaddingTop(),pr=root.getPaddingRight(),pb=root.getPaddingBottom();
+        root.setOnApplyWindowInsetsListener((v,in)->{
+            int l,t,r,b;
+            if(Build.VERSION.SDK_INT>=30){android.graphics.Insets x=in.getInsets(WindowInsets.Type.systemBars());l=x.left;t=x.top;r=x.right;b=x.bottom;}
+            else{l=in.getSystemWindowInsetLeft();t=in.getSystemWindowInsetTop();r=in.getSystemWindowInsetRight();b=in.getSystemWindowInsetBottom();}
+            v.setPadding(pl+l,pt+t,pr+r,pb+b);return in;
+        });
+        root.requestApplyInsets();
+    }
+
+    public static GradientDrawable round(Activity a,int fill,int stroke,int radius){
+        GradientDrawable g=new GradientDrawable();g.setColor(fill);g.setCornerRadius(dp(a,radius));if(stroke!=Color.TRANSPARENT)g.setStroke(dp(a,1),stroke);return g;
+    }
+    public static GradientDrawable gradient(Activity a,int start,int end,int stroke,int radius){
+        GradientDrawable g=new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,new int[]{start,end});g.setCornerRadius(dp(a,radius));if(stroke!=Color.TRANSPARENT)g.setStroke(dp(a,1),stroke);return g;
+    }
+    public static GradientDrawable velvet(Activity a,int radius){return gradient(a,SURFACE_3,SURFACE,HAIRLINE,radius);}
+    public static GradientDrawable matte(Activity a,int radius){return round(a,SURFACE_2,HAIRLINE,radius);}
+    public static View divider(Activity a){View v=new View(a);v.setBackgroundColor(BORDER_SOFT);return v;}
+
+    public static <T extends View>T raised(Activity a,T v,int e){if(Build.VERSION.SDK_INT>=21){v.setElevation(dp(a,e));v.setTranslationZ(0);}return v;}
+    public static CortexGlyphView glyph(Activity a,String k,int c,boolean d){CortexGlyphView g=new CortexGlyphView(a,k,c,d);raised(a,g,2);return g;}
+
+    public static View pressable(Activity a,View v,GradientDrawable base){
+        if(Build.VERSION.SDK_INT>=21)v.setBackground(new RippleDrawable(ColorStateList.valueOf(Color.argb(28,190,221,82)),base,null));else v.setBackground(base);
+        v.setClickable(true);v.setFocusable(true);raised(a,v,2);
+        v.setOnTouchListener((x,e)->{
+            if(Build.VERSION.SDK_INT>=21){
+                if(e.getActionMasked()==MotionEvent.ACTION_DOWN){x.setTranslationZ(-dp(a,1));x.setScaleX(.986f);x.setScaleY(.986f);}
+                else if(e.getActionMasked()==MotionEvent.ACTION_UP||e.getActionMasked()==MotionEvent.ACTION_CANCEL){x.setTranslationZ(0);x.setScaleX(1);x.setScaleY(1);}
+            }
+            return false;
+        });
+        return v;
+    }
+
+    public static TextView text(Activity a,String s,int sp,int c){TextView v=new TextView(a);v.setTextSize(sp);v.setTextColor(c);v.setLineSpacing(0,1.09f);CortexTextUi.setReadable(v,s==null?"":s);return v;}
+    public static TextView plain(Activity a,String s,int sp,int c){TextView v=new TextView(a);v.setTextSize(sp);v.setTextColor(c);CortexTextUi.setPlain(v,s==null?"":s);return v;}
+    public static void medium(TextView v){v.setTypeface(Typeface.create("sans-serif-medium",0));}
+    public static void bold(TextView v){v.setTypeface(Typeface.create("sans-serif",Typeface.BOLD));}
+
+    public static LinearLayout card(Activity a,int r){
+        LinearLayout c=new LinearLayout(a);c.setOrientation(LinearLayout.VERTICAL);c.setPadding(dp(a,17),dp(a,16),dp(a,17),dp(a,16));c.setBackground(velvet(a,r));raised(a,c,2);return c;
+    }
+
+    public static TextView chip(Activity a,String label,int color,boolean strong){
+        TextView v=plain(a,label,strong?11:10,color);if(strong)medium(v);v.setGravity(Gravity.CENTER);v.setPadding(dp(a,12),0,dp(a,12),0);
+        int fill=Color.argb(strong?24:11,Color.red(color),Color.green(color),Color.blue(color));
+        int stroke=Color.argb(strong?100:58,Color.red(color),Color.green(color),Color.blue(color));
+        v.setBackground(round(a,fill,stroke,999));return raised(a,v,strong?2:1);
+    }
+
+    public static TextView section(Activity a,String s){
+        TextView h=plain(a,s,11,MUTED);medium(h);if(Build.VERSION.SDK_INT>=21)h.setLetterSpacing(.035f);h.setPadding(dp(a,1),dp(a,24),0,dp(a,10));return h;
+    }
+
+    public static TextView action(Activity a,String label,int color,boolean filled){
+        TextView b=plain(a,label,12,color);medium(b);b.setGravity(Gravity.CENTER);b.setPadding(dp(a,15),0,dp(a,15),0);
+        int wash=Color.argb(filled?34:10,Color.red(color),Color.green(color),Color.blue(color));
+        int stroke=Color.argb(filled?125:66,Color.red(color),Color.green(color),Color.blue(color));
+        pressable(a,b,round(a,wash,stroke,16));return b;
+    }
+
+    public static TextView eyebrow(Activity a,String label,int color){
+        TextView v=plain(a,label==null?"":label.toUpperCase(),9,color);medium(v);if(Build.VERSION.SDK_INT>=21)v.setLetterSpacing(.13f);return v;
+    }
+
+    public static LinearLayout metric(Activity a,String value,String label,int color){
+        LinearLayout box=new LinearLayout(a);box.setOrientation(LinearLayout.VERTICAL);box.setGravity(Gravity.CENTER_VERTICAL);box.setPadding(dp(a,12),dp(a,10),dp(a,12),dp(a,10));box.setBackground(round(a,Color.argb(7,255,255,255),BORDER_SOFT,16));
+        TextView v=plain(a,value,20,color);medium(v);box.addView(v);
+        TextView l=plain(a,label,9,MUTED);if(Build.VERSION.SDK_INT>=21)l.setLetterSpacing(.04f);l.setPadding(0,dp(a,2),0,0);box.addView(l);
+        return box;
+    }
+
     public static int semanticFor(String k){if(k==null)return LIME;k=k.toLowerCase();if(k.contains("urgent")||k.contains("review"))return RED;if(k.contains("wait")||k.contains("remind"))return YELLOW;if(k.contains("input")||k.contains("capture")||k.contains("play"))return ORANGE;if(k.contains("people")||k.contains("project")||k.contains("useful")||k.contains("complete"))return LIME;return OLIVE;}
 
-    /** Primary user destinations only. NEXUS and Brain are engines under Now, not competing homes. */
-    public static void addBottomNav(Activity a,LinearLayout root,String selected,Runnable ignored){String cur=navKey(selected);LinearLayout bar=new LinearLayout(a);bar.setOrientation(LinearLayout.HORIZONTAL);bar.setGravity(Gravity.CENTER);bar.setPadding(dp(a,8),dp(a,6),dp(a,8),dp(a,6));bar.setBackground(matte(a,24));raised(a,bar,7);addNav(a,bar,"now","Now",cur,NowActivity.class);addNav(a,bar,"memory","Memory",cur,VisualMemoryActivity.class);addNav(a,bar,"work","Work",cur,WorkVaultActivity.class);addCenter(a,bar);addNav(a,bar,"capture","Capture",cur,CaptureOverviewActivity.class);LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,dp(a,76));p.setMargins(dp(a,14),dp(a,6),dp(a,14),dp(a,10));root.addView(bar,p);fitSystemBars(a,root);}
-    private static void addCenter(Activity a,LinearLayout row){TextView plus=plain(a,"+",38,BG);plus.setGravity(Gravity.CENTER);plus.setTypeface(Typeface.create("sans-serif-light",0));GradientDrawable base=round(a,LIME,Color.rgb(206,230,118),999);pressable(a,plus,base);raised(a,plus,9);plus.setContentDescription("Capture something");plus.setOnClickListener(v->CortexNavigation.openInput(a));LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,dp(a,62),1.08f);p.setMargins(dp(a,4),0,dp(a,4),0);row.addView(plus,p);}
+    /** Primary destinations only. Engines stay under the product surface instead of competing for navigation. */
+    public static void addBottomNav(Activity a,LinearLayout root,String selected,Runnable ignored){
+        String cur=navKey(selected);
+        LinearLayout bar=new LinearLayout(a);bar.setOrientation(LinearLayout.HORIZONTAL);bar.setGravity(Gravity.CENTER_VERTICAL);bar.setPadding(dp(a,7),dp(a,6),dp(a,7),dp(a,6));bar.setBackground(matte(a,25));raised(a,bar,8);
+        addNav(a,bar,"now","Now",cur,NowActivity.class);
+        addNav(a,bar,"memory","Memory",cur,VisualMemoryActivity.class);
+        addCenter(a,bar);
+        addNav(a,bar,"work","Work",cur,WorkVaultActivity.class);
+        addNav(a,bar,"capture","Capture",cur,CaptureOverviewActivity.class);
+        LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,dp(a,72));p.setMargins(dp(a,14),dp(a,5),dp(a,14),dp(a,10));root.addView(bar,p);fitSystemBars(a,root);
+    }
+
+    private static void addCenter(Activity a,LinearLayout row){
+        TextView plus=plain(a,"+",34,BG);plus.setGravity(Gravity.CENTER);plus.setTypeface(Typeface.create("sans-serif-light",0));
+        GradientDrawable base=round(a,LIME,Color.rgb(211,233,130),999);pressable(a,plus,base);raised(a,plus,8);plus.setContentDescription("Capture something");plus.setOnClickListener(v->CortexNavigation.openInput(a));
+        LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(dp(a,58),dp(a,58));p.setMargins(dp(a,5),0,dp(a,5),0);row.addView(plus,p);
+    }
+
     private static String navKey(String s){if("home".equals(s)||"focus".equals(s)||"now".equals(s))return"now";if("brief".equals(s)||"picbrain".equals(s)||"visualmemory".equals(s)||"memory".equals(s))return"memory";if("work".equals(s)||"workvault".equals(s)||"archive".equals(s))return"work";if("vault".equals(s)||"people".equals(s)||"capture".equals(s))return"capture";if("ask".equals(s)||"brain".equals(s))return"now";return s==null?"":s;}
-    private static void addNav(Activity a,LinearLayout row,String key,String label,String selected,Class<?> cls){boolean on=key.equals(selected);int sem=LIME,idle=mix(LIME,MUTED,.82f);String icon="now".equals(key)?"bolt":("capture".equals(key)?"phone":("memory".equals(key)?"photo":("work".equals(key)?"project":key)));LinearLayout item=new LinearLayout(a);item.setOrientation(LinearLayout.VERTICAL);item.setGravity(Gravity.CENTER);item.setPadding(dp(a,2),dp(a,4),dp(a,2),0);item.setBackground(round(a,on?Color.argb(12,185,218,77):Color.TRANSPARENT,Color.TRANSPARENT,16));CortexGlyphView glyph=glyph(a,icon,on?sem:idle,on);item.addView(glyph,new LinearLayout.LayoutParams(dp(a,34),dp(a,34)));TextView l=plain(a,label,8,on?LIME:MUTED);l.setGravity(Gravity.CENTER);l.setMaxLines(1);if(on)medium(l);item.addView(l,new LinearLayout.LayoutParams(-1,dp(a,18)));item.setContentDescription(label);item.setOnClickListener(v->{if(!on)CortexNavigation.openPrimary(a,cls);});row.addView(item,new LinearLayout.LayoutParams(0,-1,1));}
+
+    private static void addNav(Activity a,LinearLayout row,String key,String label,String selected,Class<?> cls){
+        boolean on=key.equals(selected);int idle=mix(LIME,MUTED,.84f);
+        String icon="now".equals(key)?"bolt":("capture".equals(key)?"phone":("memory".equals(key)?"photo":("work".equals(key)?"project":key)));
+        LinearLayout item=new LinearLayout(a);item.setOrientation(LinearLayout.VERTICAL);item.setGravity(Gravity.CENTER);item.setPadding(dp(a,3),dp(a,3),dp(a,3),dp(a,1));
+        item.setBackground(round(a,on?Color.argb(17,190,221,82):Color.TRANSPARENT,on?Color.argb(50,190,221,82):Color.TRANSPARENT,17));
+        CortexGlyphView glyph=glyph(a,icon,on?LIME:idle,on);item.addView(glyph,new LinearLayout.LayoutParams(dp(a,31),dp(a,31)));
+        TextView l=plain(a,label,8,on?LIME:MUTED);l.setGravity(Gravity.CENTER);l.setMaxLines(1);if(on)medium(l);item.addView(l,new LinearLayout.LayoutParams(-1,dp(a,17)));
+        item.setContentDescription(label);item.setOnClickListener(v->{if(!on)CortexNavigation.openPrimary(a,cls);});row.addView(item,new LinearLayout.LayoutParams(0,-1,1));
+    }
+
     private static int mix(int a,int b,float q){q=Math.max(0,Math.min(1,q));float p=1-q;return Color.rgb((int)(Color.red(a)*p+Color.red(b)*q),(int)(Color.green(a)*p+Color.green(b)*q),(int)(Color.blue(a)*p+Color.blue(b)*q));}
 }
