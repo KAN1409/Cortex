@@ -60,7 +60,7 @@ public final class WorkVaultIndexService extends Service {
             WorkVaultIndexer.Result indexed=WorkVaultIndexer.indexPending(getApplicationContext(),db,sourceId);
             if(Thread.currentThread().isInterrupted())return;
 
-            String summary="Parsed "+indexed.indexed+" • OCR "+indexed.needsOcr+" • failed "+indexed.failed;
+            String summary="Parsed "+indexed.indexed+" • follow-up "+indexed.followUpRecords+" • OCR pending "+indexed.needsOcr+" • failed "+indexed.failed;
             notifyState(indexed.failed>0?"Work Vault indexed with warnings":"Work Vault index complete",summary,false);
         }catch(Throwable t){
             if(!Thread.currentThread().isInterrupted())notifyState("Work Vault indexing failed",safe(t.getMessage()).isEmpty()?t.getClass().getSimpleName():safe(t.getMessage()),false);
