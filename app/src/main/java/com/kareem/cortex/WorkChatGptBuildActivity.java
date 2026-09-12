@@ -54,7 +54,7 @@ public final class WorkChatGptBuildActivity extends Activity {
 
         TextView choose=CortexUi.action(this,"SELECT REFERENCE FILES",CortexUi.ACCENT,false);LinearLayout.LayoutParams cp=new LinearLayout.LayoutParams(-1,dp(48));box.addView(choose,cp);choose.setOnClickListener(v->chooseReferences());
 
-        TextView send=CortexUi.action(this,"SEND DIRECTLY TO CHATGPT",CortexUi.ACCENT,true);LinearLayout.LayoutParams sp=new LinearLayout.LayoutParams(-1,dp(52));sp.setMargins(0,dp(12),0,0);box.addView(send,sp);send.setOnClickListener(v->sendToChatGpt(send,false));
+        TextView send=CortexUi.action(this,"REVIEW & SEND TO CHATGPT",CortexUi.ACCENT,true);LinearLayout.LayoutParams sp=new LinearLayout.LayoutParams(-1,dp(52));sp.setMargins(0,dp(12),0,0);box.addView(send,sp);send.setOnClickListener(v->reviewBeforeSend(send));
 
         TextView note=CortexUi.text(this,"Cortex sends the selected reference files themselves, plus a structured JSON build package and your detailed requirements. ChatGPT is used as the document builder; the output remains a generated document, not new source evidence.",10,CortexUi.MUTED);note.setPadding(0,dp(14),0,0);box.addView(note);
         setContentView(root);
@@ -97,6 +97,35 @@ public final class WorkChatGptBuildActivity extends Activity {
         refsLabel.setText(b.toString());
     }
 
+    private void reviewBeforeSend(TextView button){
+        String p=project.getText()==null?"":project.getText().toString().trim();
+        String req=requirements.getText()==null?"":requirements.getText().toString().trim();
+        if(req.isEmpty()){android.widget.Toast.makeText(this,"Write the new document requirements first",android.widget.Toast.LENGTH_LONG).show();requirements.requestFocus();return;}
+
+        StringBuilder review=new StringBuilder();
+        review.append("DOCUMENT TYPE\n").append(WorkDocumentRecipe.displayName(kind)).append("\n\n");
+        review.append("PROJECT\n").append(p.isEmpty()?"Not specified":p).append("\n\n");
+        review.append("DETAILED REQUIREMENTS\n").append(req).append("\n\n");
+        review.append("REFERENCE FILES\n");
+        if(references.isEmpty())review.append("None selected");
+        else{
+            review.append(references.size()).append(" selected\n");
+            for(Uri u:references){
+                RefMeta m=meta(u);
+                review.append("• ").append(m.name).append(" — ").append(WorkReferenceFilePolicy.shortType(m.mime)).append(" — ").append(WorkReferenceFilePolicy.formatBytes(m.size));
+                if(WorkReferenceFilePolicy.shouldWarnForSize(m.size))review.append(" — LARGE FILE");
+                review.append("\n");
+            }
+        }
+
+        new AlertDialog.Builder(this)
+                .setTitle("Review before sending")
+                .setMessage(review.toString())
+                .setNegativeButton("Back",null)
+                .setPositiveButton("Send to ChatGPT",(d,w)->sendToChatGpt(button,false))
+                .show();
+    }
+
     private void sendToChatGpt(TextView button,boolean largeFilesConfirmed){
         String p=project.getText()==null?"":project.getText().toString().trim();String req=requirements.getText()==null?"":requirements.getText().toString().trim();
         if(req.isEmpty()){android.widget.Toast.makeText(this,"Write the new document requirements first",android.widget.Toast.LENGTH_LONG).show();requirements.requestFocus();return;}
@@ -115,10 +144,10 @@ public final class WorkChatGptBuildActivity extends Activity {
             runOnUiThread(()->{
                 boolean ok=WorkChatGptDirectBridge.openChatGpt(this,prepared);
                 try{WorkChatGptBuildRequestRegistry.markOpened(db.getWritableDatabase(),prepared.requestId,ok);}catch(Throwable ignored){}
-                button.setEnabled(true);button.setText("SEND DIRECTLY TO CHATGPT");
+                button.setEnabled(true);button.setText("REVIEW & SEND TO CHATGPT");
                 android.widget.Toast.makeText(this,ok?"Reference package sent to ChatGPT":"Could not open ChatGPT/share target",ok?android.widget.Toast.LENGTH_SHORT:android.widget.Toast.LENGTH_LONG).show();
             });
-        }catch(Throwable e){runOnUiThread(()->{button.setEnabled(true);button.setText("SEND DIRECTLY TO CHATGPT");android.widget.Toast.makeText(this,"Could not prepare ChatGPT build package",android.widget.Toast.LENGTH_LONG).show();});}},"work-chatgpt-direct-builder").start();
+        }catch(Throwable e){runOnUiThread(()->{button.setEnabled(true);button.setText("REVIEW & SEND TO CHATGPT");android.widget.Toast.makeText(this,"Could not prepare ChatGPT build package",android.widget.Toast.LENGTH_LONG).show();});}},"work-chatgpt-direct-builder").start();
     }
 
     private boolean hasLargeReference(){for(Uri u:references)if(WorkReferenceFilePolicy.shouldWarnForSize(meta(u).size))return true;return false;}
