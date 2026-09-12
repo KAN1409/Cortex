@@ -1,6 +1,7 @@
 package com.kareem.cortex;
 
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.content.ClipData;
 import android.content.Intent;
 import android.net.Uri;
@@ -53,7 +54,7 @@ public final class WorkChatGptBuildActivity extends Activity {
 
         TextView choose=CortexUi.action(this,"SELECT REFERENCE FILES",CortexUi.ACCENT,false);LinearLayout.LayoutParams cp=new LinearLayout.LayoutParams(-1,dp(48));box.addView(choose,cp);choose.setOnClickListener(v->chooseReferences());
 
-        TextView send=CortexUi.action(this,"SEND DIRECTLY TO CHATGPT",CortexUi.ACCENT,true);LinearLayout.LayoutParams sp=new LinearLayout.LayoutParams(-1,dp(52));sp.setMargins(0,dp(12),0,0);box.addView(send,sp);send.setOnClickListener(v->sendToChatGpt(send));
+        TextView send=CortexUi.action(this,"SEND DIRECTLY TO CHATGPT",CortexUi.ACCENT,true);LinearLayout.LayoutParams sp=new LinearLayout.LayoutParams(-1,dp(52));sp.setMargins(0,dp(12),0,0);box.addView(send,sp);send.setOnClickListener(v->sendToChatGpt(send,false));
 
         TextView note=CortexUi.text(this,"Cortex sends the selected reference files themselves, plus a structured JSON build package and your detailed requirements. ChatGPT is used as the document builder; the output remains a generated document, not new source evidence.",10,CortexUi.MUTED);note.setPadding(0,dp(14),0,0);box.addView(note);
         setContentView(root);
@@ -70,13 +71,44 @@ public final class WorkChatGptBuildActivity extends Activity {
         references.clear();ClipData clip=data.getClipData();if(clip!=null){for(int n=0;n<clip.getItemCount();n++)addReference(clip.getItemAt(n).getUri(),data.getFlags());}else if(data.getData()!=null)addReference(data.getData(),data.getFlags());updateRefsLabel();
     }
 
-    private void addReference(Uri uri,int flags){if(uri==null||references.contains(uri))return;references.add(uri);int take=flags&Intent.FLAG_GRANT_READ_URI_PERMISSION;try{getContentResolver().takePersistableUriPermission(uri,take);}catch(Throwable ignored){}}
+    private void addReference(Uri uri,int flags){
+        if(uri==null||references.contains(uri))return;
+        String mime=safeMime(uri);
+        if(!WorkReferenceFilePolicy.isSupportedMime(mime)){
+            android.widget.Toast.makeText(this,"Unsupported reference type: "+WorkReferenceFilePolicy.shortType(mime),android.widget.Toast.LENGTH_LONG).show();
+            return;
+        }
+        references.add(uri);
+        int take=flags&Intent.FLAG_GRANT_READ_URI_PERMISSION;
+        try{getContentResolver().takePersistableUriPermission(uri,take);}catch(Throwable ignored){}
+    }
 
-    private void updateRefsLabel(){if(references.isEmpty()){refsLabel.setText("No reference files selected yet. References are optional, but strongly recommended when ChatGPT should copy a model, structure or formatting style.");return;}StringBuilder b=new StringBuilder();b.append(references.size()).append(" reference file").append(references.size()==1?"":"s").append(" selected:\n");for(int i=0;i<references.size();i++){b.append("• ").append(displayName(references.get(i)));if(i<references.size()-1)b.append("\n");}refsLabel.setText(b.toString());}
+    private void updateRefsLabel(){
+        if(references.isEmpty()){
+            refsLabel.setText("No reference files selected yet. References are optional, but strongly recommended when ChatGPT should copy a model, structure or formatting style.");return;
+        }
+        StringBuilder b=new StringBuilder();b.append(references.size()).append(" reference file").append(references.size()==1?"":"s").append(" selected:\n");
+        for(int i=0;i<references.size();i++){
+            RefMeta m=meta(references.get(i));
+            b.append("• ").append(m.name).append("  •  ").append(WorkReferenceFilePolicy.shortType(m.mime)).append("  •  ").append(WorkReferenceFilePolicy.formatBytes(m.size));
+            if(WorkReferenceFilePolicy.shouldWarnForSize(m.size))b.append("  ⚠ large file");
+            if(i<references.size()-1)b.append("\n");
+        }
+        refsLabel.setText(b.toString());
+    }
 
-    private void sendToChatGpt(TextView button){
+    private void sendToChatGpt(TextView button,boolean largeFilesConfirmed){
         String p=project.getText()==null?"":project.getText().toString().trim();String req=requirements.getText()==null?"":requirements.getText().toString().trim();
         if(req.isEmpty()){android.widget.Toast.makeText(this,"Write the new document requirements first",android.widget.Toast.LENGTH_LONG).show();requirements.requestFocus();return;}
+        if(!largeFilesConfirmed&&hasLargeReference()){
+            new AlertDialog.Builder(this)
+                    .setTitle("Large reference file")
+                    .setMessage("One or more selected references are larger than 50 MB. Cortex will not block them, but sharing may be slower or the receiving app may reject them. Continue?")
+                    .setNegativeButton("Cancel",null)
+                    .setPositiveButton("Continue",(d,w)->sendToChatGpt(button,true))
+                    .show();
+            return;
+        }
         button.setEnabled(false);button.setText("PREPARING PACKAGE…");ArrayList<Uri> refs=new ArrayList<>(references);
         new Thread(()->{try{
             WorkChatGptDirectBridge.Prepared prepared=WorkChatGptDirectBridge.prepare(this,db,kind,p,req,refs);
@@ -89,5 +121,15 @@ public final class WorkChatGptBuildActivity extends Activity {
         }catch(Throwable e){runOnUiThread(()->{button.setEnabled(true);button.setText("SEND DIRECTLY TO CHATGPT");android.widget.Toast.makeText(this,"Could not prepare ChatGPT build package",android.widget.Toast.LENGTH_LONG).show();});}},"work-chatgpt-direct-builder").start();
     }
 
-    private String displayName(Uri uri){Cursor c=null;try{c=getContentResolver().query(uri,new String[]{OpenableColumns.DISPLAY_NAME},null,null,null);if(c!=null&&c.moveToFirst())return c.getString(0);}catch(Throwable ignored){}finally{if(c!=null)c.close();}return uri.getLastPathSegment()==null?"reference":uri.getLastPathSegment();}
+    private boolean hasLargeReference(){for(Uri u:references)if(WorkReferenceFilePolicy.shouldWarnForSize(meta(u).size))return true;return false;}
+
+    private RefMeta meta(Uri uri){
+        String name=uri==null?"reference":(uri.getLastPathSegment()==null?"reference":uri.getLastPathSegment());long size=-1;Cursor c=null;
+        try{c=getContentResolver().query(uri,new String[]{OpenableColumns.DISPLAY_NAME,OpenableColumns.SIZE},null,null,null);if(c!=null&&c.moveToFirst()){int ni=c.getColumnIndex(OpenableColumns.DISPLAY_NAME);int si=c.getColumnIndex(OpenableColumns.SIZE);if(ni>=0&&!c.isNull(ni))name=c.getString(ni);if(si>=0&&!c.isNull(si))size=c.getLong(si);}}catch(Throwable ignored){}finally{if(c!=null)c.close();}
+        return new RefMeta(name,safeMime(uri),size);
+    }
+
+    private String safeMime(Uri uri){try{String m=getContentResolver().getType(uri);return m==null?"application/octet-stream":m;}catch(Throwable ignored){return "application/octet-stream";}}
+
+    private static final class RefMeta {final String name,mime;final long size;RefMeta(String n,String m,long s){name=n;mime=m;size=s;}}
 }
