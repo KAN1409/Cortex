@@ -10,8 +10,27 @@ import java.util.*;
  * Never creates canonical procurement facts. Ambiguous joins are deliberately skipped.
  */
 public final class WorkProcurementLinker {
-    public static final String VERSION="work_procurement_linker_001";
+    public static final String VERSION="work_procurement_linker_002";
     private WorkProcurementLinker(){}
+
+    /**
+     * Removes every procurement link that can reference records owned by a file before those
+     * records are deleted/recreated during re-indexing. This includes inbound links created by
+     * other files, not only rows whose source_file_id is the file being rebuilt.
+     */
+    public static int cleanupForReindex(SQLiteDatabase db,long fileId){
+        if(db==null||fileId<=0)return 0;WorkVaultIndexSchema.ensure(db);
+        String id=String.valueOf(fileId);
+        String where=
+                "source_file_id=?"+
+                " OR (from_kind='REF' AND from_id IN (SELECT id FROM work_procurement_refs WHERE file_id=?))"+
+                " OR (to_kind='REF' AND to_id IN (SELECT id FROM work_procurement_refs WHERE file_id=?))"+
+                " OR (from_kind='FOLLOWUP' AND from_id IN (SELECT id FROM work_followup_records WHERE file_id=?))"+
+                " OR (to_kind='FOLLOWUP' AND to_id IN (SELECT id FROM work_followup_records WHERE file_id=?))"+
+                " OR (from_kind='PRICE' AND from_id IN (SELECT id FROM work_price_records WHERE file_id=?))"+
+                " OR (to_kind='PRICE' AND to_id IN (SELECT id FROM work_price_records WHERE file_id=?))";
+        return db.delete("work_procurement_links",where,new String[]{id,id,id,id,id,id,id});
+    }
 
     public static Result rebuildForFile(SQLiteDatabase db,long fileId,long projectId){
         Result out=new Result();if(db==null||fileId<=0)return out;WorkVaultIndexSchema.ensure(db);
