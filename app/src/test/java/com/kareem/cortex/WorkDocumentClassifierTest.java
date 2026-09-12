@@ -64,4 +64,24 @@ public class WorkDocumentClassifierTest {
         assertEquals(WorkProcurementCaseSearch.Intent.NONE,
                 WorkProcurementCaseSearch.intent("Compare Galala marble prices"));
     }
+
+    @Test public void priceComparisonRequiresSameUnitAndCurrency(){
+        WorkPriceComparisonEngine.Price oldPrice=WorkPriceComparisonEngine.Price.of("Galala marble","m²",2500,"EGP");
+        WorkPriceComparisonEngine.Price newPrice=WorkPriceComparisonEngine.Price.of("Galala marble","sqm",2650,"L.E.");
+        WorkPriceComparisonEngine.Comparison ok=WorkPriceComparisonEngine.compare(newPrice,oldPrice);
+        assertTrue(ok.comparable);
+        assertEquals("INCREASE",ok.direction());
+        assertEquals(150.0,ok.delta,.001);
+        assertEquals(6.0,ok.percent,.001);
+
+        WorkPriceComparisonEngine.Price usd=WorkPriceComparisonEngine.Price.of("Galala marble","m2",52,"USD");
+        WorkPriceComparisonEngine.Comparison currencyMismatch=WorkPriceComparisonEngine.compare(usd,oldPrice);
+        assertFalse(currencyMismatch.comparable);
+        assertEquals("CURRENCY_MISMATCH",currencyMismatch.reason);
+
+        WorkPriceComparisonEngine.Price linear=WorkPriceComparisonEngine.Price.of("Galala marble","lm",2650,"EGP");
+        WorkPriceComparisonEngine.Comparison unitMismatch=WorkPriceComparisonEngine.compare(linear,oldPrice);
+        assertFalse(unitMismatch.comparable);
+        assertEquals("UNIT_MISMATCH",unitMismatch.reason);
+    }
 }
