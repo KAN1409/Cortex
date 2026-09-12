@@ -48,6 +48,23 @@ public class VaultDb extends SQLiteOpenHelper {
     public ArrayList<KnowledgeItem> lexicalSearch(String q,int limit){return itemSearch(q,limit,true);}
     public ArrayList<KnowledgeItem> captureSearch(String q,int limit){return itemSearch(q,limit,false);}
     private ArrayList<KnowledgeItem> itemSearch(String q,int limit,boolean brainOnly){ArrayList<KnowledgeItem> out=new ArrayList<>();SQLiteDatabase s=getReadableDatabase();UniversalEventStore.ensure(s);String text="";ArrayList<String> as=new ArrayList<>();if(q!=null&&!q.trim().isEmpty()){String w="%"+q.trim()+"%";text="(title LIKE ? OR raw_text LIKE ? OR extracted_text LIKE ? OR summary LIKE ? OR category LIKE ? OR tags LIKE ? OR id IN (SELECT item_id FROM entities WHERE value LIKE ?) OR id IN (SELECT item_id FROM actions WHERE action_text LIKE ?) OR id IN (SELECT item_id FROM vision_fields WHERE field_key LIKE ? OR field_value LIKE ?))";for(int i=0;i<10;i++)as.add(w);}String brain="(NOT EXISTS(SELECT 1 FROM ue_legacy_classification lc WHERE lc.knowledge_item_id=knowledge_items.id AND lc.classification='captured_artifact') OR EXISTS(SELECT 1 FROM ue_memory_promotions mp WHERE mp.knowledge_item_id=knowledge_items.id AND mp.state='promoted'))";String sel=brainOnly?(text.isEmpty()?brain:"("+text+") AND "+brain):(text.isEmpty()?null:text);Cursor c=s.query("knowledge_items",null,sel,as.isEmpty()?null:as.toArray(new String[0]),null,null,"created_at DESC",String.valueOf(limit));while(c.moveToNext())out.add(from(c));c.close();return out;}
+    /** Voice archive: recordings remain retrievable regardless of Brain promotion state. */
+    public ArrayList<KnowledgeItem> voiceSearch(String q,int limit){
+        ArrayList<KnowledgeItem> out=new ArrayList<>();
+        SQLiteDatabase s=getReadableDatabase();
+        String where="UPPER(type)='AUDIO'";
+        ArrayList<String> args=new ArrayList<>();
+        if(q!=null&&!q.trim().isEmpty()){
+            String w="%"+q.trim()+"%";
+            where+=" AND (title LIKE ? OR extracted_text LIKE ? OR summary LIKE ? OR raw_text LIKE ? OR tags LIKE ?)";
+            for(int i=0;i<5;i++)args.add(w);
+        }
+        Cursor c=s.query("knowledge_items",null,where,args.isEmpty()?null:args.toArray(new String[0]),
+                null,null,"created_at DESC",String.valueOf(Math.max(1,Math.min(1000,limit))));
+        try{while(c.moveToNext())out.add(from(c));}finally{c.close();}
+        return out;
+    }
+
     private boolean brainVisible(SQLiteDatabase s,long id){Cursor c=s.rawQuery("SELECT CASE WHEN EXISTS(SELECT 1 FROM ue_legacy_classification lc WHERE lc.knowledge_item_id=? AND lc.classification='captured_artifact') AND NOT EXISTS(SELECT 1 FROM ue_memory_promotions mp WHERE mp.knowledge_item_id=? AND mp.state='promoted') THEN 0 ELSE 1 END",new String[]{String.valueOf(id),String.valueOf(id)});boolean yes=c.moveToFirst()&&c.getInt(0)==1;c.close();return yes;}
 
     private KnowledgeItem from(Cursor c){return new KnowledgeItem(g(c,"id"),s(c,"type"),s(c,"source"),s(c,"title"),s(c,"raw_text"),s(c,"extracted_text"),s(c,"summary"),s(c,"category"),s(c,"tags"),s(c,"attachment_path"),s(c,"status"),s(c,"fingerprint"),s(c,"analysis_error"),s(c,"metadata_json"),g(c,"created_at"),g(c,"updated_at"));}
