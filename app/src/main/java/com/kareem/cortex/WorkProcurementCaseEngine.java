@@ -8,12 +8,12 @@ import java.util.LinkedHashSet;
 import java.util.Locale;
 
 /**
- * Read-only procurement case projection built from already-grounded Work Vault evidence.
+ * Read-only procurement case projection built from active grounded Work Vault evidence.
  * It never creates or strengthens facts. Missing stages mean "no grounded evidence found",
  * not proof that the business step never happened.
  */
 public final class WorkProcurementCaseEngine {
-    public static final String VERSION="work_procurement_case_engine_001";
+    public static final String VERSION="work_procurement_case_engine_002";
     private WorkProcurementCaseEngine(){}
 
     public static ArrayList<Case> load(VaultDb vault,int limit){
@@ -22,9 +22,10 @@ public final class WorkProcurementCaseEngine {
         WorkVaultIndexSchema.ensure(db);WorkDocumentProfileStore.ensure(db);
         ArrayList<Case> out=new ArrayList<>();
         Cursor c=db.rawQuery(
-                "SELECT normalized_value,COALESCE(NULLIF(project_id,0),0),MAX(confidence) "+
-                "FROM work_procurement_refs WHERE ref_type='PR' AND normalized_value<>'' "+
-                "GROUP BY normalized_value,COALESCE(NULLIF(project_id,0),0) ORDER BY MAX(created_at) DESC LIMIT ?",
+                "SELECT r.normalized_value,COALESCE(NULLIF(r.project_id,0),0),MAX(r.confidence) "+
+                "FROM work_procurement_refs r JOIN work_files f ON f.id=r.file_id "+
+                "WHERE f.active_version_id>0 AND r.version_id=f.active_version_id AND r.ref_type='PR' AND r.normalized_value<>'' "+
+                "GROUP BY r.normalized_value,COALESCE(NULLIF(r.project_id,0),0) ORDER BY MAX(r.created_at) DESC LIMIT ?",
                 new String[]{String.valueOf(Math.max(1,limit*4))});
         while(c.moveToNext()){
             String pr=s(c,0);long projectId=c.getLong(1);double refConfidence=c.getDouble(2);
@@ -38,7 +39,7 @@ public final class WorkProcurementCaseEngine {
 
     private static Case build(SQLiteDatabase db,String pr,long projectId,double refConfidence){
         ArrayList<Long> refIds=new ArrayList<>();
-        Cursor r=db.rawQuery("SELECT id FROM work_procurement_refs WHERE ref_type='PR' AND normalized_value=? AND (?=0 OR project_id=? OR project_id=0)",new String[]{pr,String.valueOf(projectId),String.valueOf(projectId)});
+        Cursor r=db.rawQuery("SELECT r.id FROM work_procurement_refs r JOIN work_files f ON f.id=r.file_id WHERE f.active_version_id>0 AND r.version_id=f.active_version_id AND r.ref_type='PR' AND r.normalized_value=? AND (?=0 OR r.project_id=? OR r.project_id=0)",new String[]{pr,String.valueOf(projectId),String.valueOf(projectId)});
         while(r.moveToNext())refIds.add(r.getLong(0));r.close();
         if(refIds.isEmpty())return null;
 
@@ -94,8 +95,8 @@ public final class WorkProcurementCaseEngine {
         else if("DELIVERY".equals(type))s.delivery=true;
     }
 
-    private static String fileName(SQLiteDatabase db,long id){Cursor c=db.rawQuery("SELECT display_name FROM work_files WHERE id=? LIMIT 1",new String[]{String.valueOf(id)});String x=c.moveToFirst()?s(c,0):"";c.close();return x;}
-    private static String followStatus(SQLiteDatabase db,long id){Cursor c=db.rawQuery("SELECT COALESCE(NULLIF(status,''),status_normalized) FROM work_followup_records WHERE id=? LIMIT 1",new String[]{String.valueOf(id)});String x=c.moveToFirst()?s(c,0):"";c.close();return x;}
+    private static String fileName(SQLiteDatabase db,long id){Cursor c=db.rawQuery("SELECT display_name FROM work_files WHERE id=? AND active_version_id>0 LIMIT 1",new String[]{String.valueOf(id)});String x=c.moveToFirst()?s(c,0):"";c.close();return x;}
+    private static String followStatus(SQLiteDatabase db,long id){Cursor c=db.rawQuery("SELECT COALESCE(NULLIF(u.status,''),u.status_normalized) FROM work_followup_records u JOIN work_files f ON f.id=u.file_id WHERE u.id=? AND f.active_version_id>0 AND u.version_id=f.active_version_id LIMIT 1",new String[]{String.valueOf(id)});String x=c.moveToFirst()?s(c,0):"";c.close();return x;}
     private static String projectName(SQLiteDatabase db,long id){if(id<=0)return "";Cursor c=db.rawQuery("SELECT canonical_name FROM work_projects WHERE id=? LIMIT 1",new String[]{String.valueOf(id)});String x=c.moveToFirst()?s(c,0):"";c.close();return x;}
     private static String s(Cursor c,int i){return c.isNull(i)?"":c.getString(i);}
     private static final class Stage{boolean quotation,comparison,approval,po,invoice,delivery;}
