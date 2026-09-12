@@ -6,7 +6,7 @@ import java.util.*;
 
 /** Grounded lexical retrieval across the latest parsed Work Vault versions. */
 public final class WorkVaultSearch {
-    public static final String VERSION="work_vault_search_003";
+    public static final String VERSION="work_vault_search_004";
     private WorkVaultSearch(){}
 
     public static ArrayList<Hit> search(VaultDb vault,String query,int limit){
@@ -27,13 +27,13 @@ public final class WorkVaultSearch {
         c=db.rawQuery("SELECT x.file_id,f.display_name,f.document_uri,x.fact_type,x.fact_key,x.text_value,x.sheet_name,x.page_number,x.slide_number,x.row_number FROM work_facts x JOIN work_files f ON f.id=x.file_id WHERE x.fact_key LIKE ? OR x.text_value LIKE ? OR f.display_name LIKE ? LIMIT 60",new String[]{like,like,like});
         while(c.moveToNext()){Hit h=new Hit();h.kind=s(c,3);h.fileId=c.getLong(0);h.fileName=s(c,1);h.documentUri=s(c,2);h.snippet=(s(c,4).isEmpty()?"":s(c,4)+": ")+s(c,5);h.sheet=s(c,6);h.page=c.getInt(7);h.slide=c.getInt(8);h.row=c.getInt(9);h.score=score(q,h.fileName+" "+h.snippet)+.30;out.add(h);}c.close();
 
-        // Reference-like questions get graph expansion. Every added hit includes the explicit evidence rule and confidence.
         WorkProcurementLifecycleSearch.append(db,q,out,Math.max(80,limit*3));
+        WorkProcurementCaseSearch.append(vault,q,out,Math.max(20,limit));
 
         Collections.sort(out,(a,b)->Double.compare(b.score,a.score));LinkedHashMap<String,Hit> unique=new LinkedHashMap<>();for(Hit h:out){String key=h.fileId+"|"+h.location()+"|"+h.snippet;unique.putIfAbsent(key,h);if(unique.size()>=Math.max(1,limit))break;}return new ArrayList<>(unique.values());
     }
 
-    public static String groundedContext(String query,List<Hit> hits,int maxChars){StringBuilder b=new StringBuilder();b.append("WORK VAULT EVIDENCE\nQuery: ").append(query==null?"":query).append("\n\n");int i=1;for(Hit h:hits){String block="["+i+"] "+h.fileName+(h.location().isEmpty()?"":" — "+h.location())+"\n"+h.snippet+"\n\n";if(b.length()+block.length()>maxChars)break;b.append(block);i++;}b.append("Use only the grounded evidence above. Treat lifecycle links as evidence-backed associations, not stronger facts than their source rule allows. Distinguish facts from inference. Cite evidence numbers and file/location for every concrete claim. If evidence is insufficient, say so.");return b.toString();}
+    public static String groundedContext(String query,List<Hit> hits,int maxChars){StringBuilder b=new StringBuilder();b.append("WORK VAULT EVIDENCE\nQuery: ").append(query==null?"":query).append("\n\n");int i=1;for(Hit h:hits){String block="["+i+"] "+h.fileName+(h.location().isEmpty()?"":" — "+h.location())+"\n"+h.snippet+"\n\n";if(b.length()+block.length()>maxChars)break;b.append(block);i++;}b.append("Use only the grounded evidence above. CASE_GAP items are derived projections over grounded archive evidence and mean evidence was not found in the indexed archive, not proof the real-world step never happened. Treat lifecycle links as evidence-backed associations, not stronger facts than their source rule allows. Distinguish facts from inference. Cite evidence numbers and file/location for every concrete source claim. If evidence is insufficient, say so.");return b.toString();}
     private static double score(String query,String text){String q=n(query).toLowerCase(Locale.ROOT),t=n(text).toLowerCase(Locale.ROOT);if(q.isEmpty())return 0;double s=t.contains(q)?.7:0;String[] tokens=q.split("[^\\p{L}\\p{N}]+");int hit=0,total=0;for(String token:tokens){if(token.length()<2)continue;total++;if(t.contains(token))hit++;}if(total>0)s+=.3*((double)hit/total);return Math.min(1,s);}
     private static String clip(String s,int n){String x=n(s);return x.length()<=n?x:x.substring(0,n)+"…";}
     private static String s(Cursor c,int i){return c.isNull(i)?"":c.getString(i);}
