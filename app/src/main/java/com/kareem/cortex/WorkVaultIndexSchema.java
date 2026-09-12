@@ -4,7 +4,7 @@ import android.database.sqlite.SQLiteDatabase;
 
 /** Versioned parse/chunk storage layered on top of WorkVaultSchema. */
 public final class WorkVaultIndexSchema {
-    public static final String VERSION="work_vault_index_schema_002";
+    public static final String VERSION="work_vault_index_schema_003";
     private WorkVaultIndexSchema(){}
 
     public static void ensure(SQLiteDatabase db){
@@ -60,5 +60,23 @@ public final class WorkVaultIndexSchema {
         db.execSQL("CREATE INDEX IF NOT EXISTS idx_work_followup_status ON work_followup_records(status_normalized,created_at DESC)");
         db.execSQL("CREATE INDEX IF NOT EXISTS idx_work_followup_ref ON work_followup_records(reference_type,reference_value)");
         db.execSQL("CREATE INDEX IF NOT EXISTS idx_work_followup_project ON work_followup_records(project_id,status_normalized)");
+
+        db.execSQL("CREATE TABLE IF NOT EXISTS work_procurement_links("+
+                "id INTEGER PRIMARY KEY AUTOINCREMENT,"+
+                "from_kind TEXT NOT NULL,"+
+                "from_id INTEGER NOT NULL,"+
+                "to_kind TEXT NOT NULL,"+
+                "to_id INTEGER NOT NULL,"+
+                "relation TEXT NOT NULL,"+
+                "confidence REAL NOT NULL,"+
+                "evidence_rule TEXT NOT NULL,"+
+                "source_file_id INTEGER NOT NULL DEFAULT 0,"+
+                "project_id INTEGER NOT NULL DEFAULT 0,"+
+                "created_at INTEGER NOT NULL,"+
+                "UNIQUE(from_kind,from_id,to_kind,to_id,relation,evidence_rule))");
+        db.execSQL("CREATE INDEX IF NOT EXISTS idx_work_proc_links_from ON work_procurement_links(from_kind,from_id)");
+        db.execSQL("CREATE INDEX IF NOT EXISTS idx_work_proc_links_to ON work_procurement_links(to_kind,to_id)");
+        db.execSQL("CREATE INDEX IF NOT EXISTS idx_work_proc_links_file ON work_procurement_links(source_file_id,relation)");
+        db.execSQL("CREATE INDEX IF NOT EXISTS idx_work_proc_links_project ON work_procurement_links(project_id,relation)");
     }
 }
