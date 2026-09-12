@@ -3,6 +3,7 @@ package com.kareem.cortex;
 import android.content.Context;
 import android.graphics.Bitmap;
 import android.net.Uri;
+import android.os.SystemClock;
 import com.google.mlkit.vision.common.InputImage;
 import com.google.mlkit.vision.text.TextRecognition;
 import com.google.mlkit.vision.text.TextRecognizer;
@@ -19,10 +20,11 @@ import java.util.concurrent.atomic.AtomicReference;
 
 /** Digital-PDF text extraction with exact page provenance and bounded on-device OCR fallback. */
 public final class WorkPdfParser {
-    public static final String VERSION="work_pdf_parser_002";
+    public static final String VERSION="work_pdf_parser_003";
     private static volatile boolean initialized=false;
     private static final int OCR_DPI=160;
-    private static final long OCR_TIMEOUT_SECONDS=40;
+    static final long OCR_PAGE_BUDGET_MS=40_000L;
+    static final long LATIN_STAGE_BUDGET_MS=20_000L;
     private WorkPdfParser(){}
 
     public static WorkParsedDocument parse(Context context,Uri uri)throws Exception{
@@ -55,22 +57,38 @@ public final class WorkPdfParser {
     private static String ocrPage(Context context,PDFRenderer renderer,int pageIndex){
         if(context==null||renderer==null)return "";
         if(!CapabilitySupervisor.allowed(context,CapabilitySupervisor.Capability.OCR_NATIVE))return "";
+        final long startedAt=SystemClock.elapsedRealtime();
         Bitmap bitmap=null;File temp=null;
         try{
             bitmap=renderer.renderImageWithDPI(pageIndex,OCR_DPI);
             if(bitmap==null)return "";
-            String latin=latinBlocking(bitmap);
+
+            long remaining=remainingBudgetMs(startedAt,SystemClock.elapsedRealtime());
+            OcrStageResult latin=latinBlocking(bitmap,latinStageBudgetMs(remaining));
+            if(latin.failure!=null&&shouldRecordEngineFailure(latin.failure)){
+                CapabilitySupervisor.recordFailure(context,CapabilitySupervisor.Capability.OCR_NATIVE,latin.failure);
+            }
+
+            remaining=remainingBudgetMs(startedAt,SystemClock.elapsedRealtime());
             String arabic="";
-            try{
-                temp=File.createTempFile("cortex_work_pdf_", ".png", context.getCacheDir());
-                try(OutputStream out=new BufferedOutputStream(new FileOutputStream(temp))){
-                    if(!bitmap.compress(Bitmap.CompressFormat.PNG,100,out))throw new IOException("Could not encode OCR page");
+            if(remaining>0L){
+                try{
+                    temp=File.createTempFile("cortex_work_pdf_", ".png", context.getCacheDir());
+                    try(OutputStream out=new BufferedOutputStream(new FileOutputStream(temp))){
+                        if(!bitmap.compress(Bitmap.CompressFormat.PNG,100,out))throw new IOException("Could not encode OCR page");
+                    }
+                    remaining=remainingBudgetMs(startedAt,SystemClock.elapsedRealtime());
+                    if(remaining>0L)arabic=arabicBlocking(context,temp,latin.text,remaining).text;
+                }catch(IOException ignored){
+                    // A page-specific render/encode problem must not quarantine the global OCR capability.
                 }
-                arabic=arabicBlocking(context,temp,latin);
-            }catch(Throwable ignored){}
-            return mergeOcr(latin,arabic);
-        }catch(Throwable t){
-            CapabilitySupervisor.recordFailure(context,CapabilitySupervisor.Capability.OCR_NATIVE,t);
+            }
+            return mergeOcr(latin.text,arabic);
+        }catch(InterruptedException interrupted){
+            Thread.currentThread().interrupt();
+            return "";
+        }catch(Throwable ignored){
+            // PDF/page corruption is document-local evidence failure, not proof that OCR_NATIVE is unhealthy.
             return "";
         }finally{
             try{if(temp!=null&&temp.exists())temp.delete();}catch(Throwable ignored){}
@@ -78,31 +96,48 @@ public final class WorkPdfParser {
         }
     }
 
-    private static String latinBlocking(Bitmap bitmap)throws InterruptedException{
-        if(bitmap==null)return "";
+    private static OcrStageResult latinBlocking(Bitmap bitmap,long timeoutMs)throws InterruptedException{
+        if(bitmap==null||timeoutMs<=0L)return OcrStageResult.timeout();
         final CountDownLatch latch=new CountDownLatch(1);
         final AtomicReference<String> text=new AtomicReference<>("");
+        final AtomicReference<Throwable> failure=new AtomicReference<>();
         final TextRecognizer recognizer=TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS);
         try{
             recognizer.process(InputImage.fromBitmap(bitmap,0))
                     .addOnSuccessListener(result->{text.set(clean(result==null?"":result.getText()));latch.countDown();})
-                    .addOnFailureListener(error->latch.countDown());
-            latch.await(OCR_TIMEOUT_SECONDS,TimeUnit.SECONDS);
-            return clean(text.get());
+                    .addOnFailureListener(error->{failure.set(error);latch.countDown();});
+            boolean completed=latch.await(timeoutMs,TimeUnit.MILLISECONDS);
+            if(!completed)return OcrStageResult.timeout();
+            return new OcrStageResult(clean(text.get()),true,false,failure.get());
         }finally{
             try{recognizer.close();}catch(Throwable ignored){}
         }
     }
 
-    private static String arabicBlocking(Context context,File image,String latinEvidence)throws InterruptedException{
+    private static OcrStageResult arabicBlocking(Context context,File image,String latinEvidence,long timeoutMs)throws InterruptedException{
+        if(timeoutMs<=0L)return OcrStageResult.timeout();
         final CountDownLatch latch=new CountDownLatch(1);
         final AtomicReference<String> text=new AtomicReference<>("");
         ArabicOcr.recognizeDetailed(context,image,latinEvidence,result->{
             if(result!=null&&result.accepted)text.set(clean(result.text));
             latch.countDown();
         });
-        latch.await(OCR_TIMEOUT_SECONDS,TimeUnit.SECONDS);
-        return clean(text.get());
+        boolean completed=latch.await(timeoutMs,TimeUnit.MILLISECONDS);
+        if(!completed)return OcrStageResult.timeout();
+        return new OcrStageResult(clean(text.get()),true,false,null);
+    }
+
+    static long remainingBudgetMs(long startedAtMs,long nowMs){
+        long elapsed=Math.max(0L,nowMs-startedAtMs);
+        return Math.max(0L,OCR_PAGE_BUDGET_MS-elapsed);
+    }
+
+    static long latinStageBudgetMs(long remainingMs){
+        return Math.max(0L,Math.min(LATIN_STAGE_BUDGET_MS,remainingMs));
+    }
+
+    static boolean shouldRecordEngineFailure(Throwable error){
+        return error!=null&&!(error instanceof InterruptedException);
     }
 
     private static String mergeOcr(String latin,String arabic){
@@ -123,4 +158,10 @@ public final class WorkPdfParser {
         synchronized(WorkPdfParser.class){if(!initialized){PDFBoxResourceLoader.init(context.getApplicationContext());initialized=true;}}
     }
     private static String clean(String s){return s==null?"":s.replaceAll("[ \\t]+"," ").replaceAll("\\n{3,}","\\n\\n").trim();}
+
+    private static final class OcrStageResult{
+        final String text;final boolean completed,timedOut;final Throwable failure;
+        OcrStageResult(String text,boolean completed,boolean timedOut,Throwable failure){this.text=clean(text);this.completed=completed;this.timedOut=timedOut;this.failure=failure;}
+        static OcrStageResult timeout(){return new OcrStageResult("",false,true,null);}
+    }
 }
