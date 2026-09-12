@@ -143,7 +143,7 @@ public final class VoiceLibraryActivity extends Activity {
         LinearLayout top=new LinearLayout(this);
         top.setGravity(Gravity.CENTER_VERTICAL);
 
-        TextView icon=CortexUi.glyph(this,"voice",
+        CortexGlyphView icon=CortexUi.glyph(this,"voice",
                 "analyzed".equalsIgnoreCase(k.status)?CortexUi.GREEN:CortexUi.ORANGE,true);
         top.addView(icon,new LinearLayout.LayoutParams(dp(44),dp(44)));
 
