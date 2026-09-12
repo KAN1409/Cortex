@@ -9,7 +9,7 @@ import java.util.*;
 
 /** Resumable file-by-file indexer. A failed document never invalidates the rest of the archive. */
 public final class WorkVaultIndexer {
-    public static final String VERSION="work_vault_indexer_003";
+    public static final String VERSION="work_vault_indexer_004";
     private WorkVaultIndexer(){}
 
     public static Result indexPending(Context context,VaultDb vault,long sourceId){
@@ -44,7 +44,8 @@ public final class WorkVaultIndexer {
             if(versionId<=0){Cursor q=db.rawQuery("SELECT id FROM work_file_versions WHERE file_id=? AND fingerprint=? AND parser_version=? LIMIT 1",new String[]{String.valueOf(f.id),f.fingerprint.isEmpty()?"unknown-"+now:f.fingerprint,parsed.parserVersion});versionId=q.moveToFirst()?q.getLong(0):0;q.close();}
             if(versionId>0){db.delete("work_chunks","version_id=?",new String[]{String.valueOf(versionId)});int i=0;for(WorkParsedDocument.Block b:parsed.blocks){if(b==null||safe(b.text).isEmpty())continue;ContentValues x=new ContentValues();x.put("file_id",f.id);x.put("version_id",versionId);x.put("chunk_index",i++);x.put("chunk_kind",safe(b.kind));x.put("chunk_text",b.text);x.put("sheet_name",safe(b.sheetName));x.put("page_number",b.pageNumber);x.put("slide_number",b.slideNumber);x.put("row_number",b.rowNumber);JSONObject loc=new JSONObject();loc.put("cells",new JSONObject(b.cells));loc.put("formulas",new JSONObject(b.formulas));x.put("location_json",loc.toString());x.put("created_at",now);db.insert("work_chunks",null,x);}}
 
-            db.delete("work_facts","file_id=?",new String[]{String.valueOf(f.id)});db.delete("work_procurement_refs","file_id=?",new String[]{String.valueOf(f.id)});db.delete("work_price_records","file_id=?",new String[]{String.valueOf(f.id)});db.delete("work_followup_records","file_id=?",new String[]{String.valueOf(f.id)});db.delete("work_relations","source_file_id=?",new String[]{String.valueOf(f.id)});db.delete("work_procurement_links","source_file_id=?",new String[]{String.valueOf(f.id)});
+            WorkProcurementLinker.cleanupForReindex(db,f.id);
+            db.delete("work_facts","file_id=?",new String[]{String.valueOf(f.id)});db.delete("work_procurement_refs","file_id=?",new String[]{String.valueOf(f.id)});db.delete("work_price_records","file_id=?",new String[]{String.valueOf(f.id)});db.delete("work_followup_records","file_id=?",new String[]{String.valueOf(f.id)});db.delete("work_relations","source_file_id=?",new String[]{String.valueOf(f.id)});
 
             if(!structured.projects.isEmpty())projectId=upsertProject(db,structured.projects.get(0).name,now);
             for(WorkStructuredExtractor.Project p:structured.projects){long pid=upsertProject(db,p.name,now);fact(db,f.id,pid,"PROJECT","project",p.name,null,"","",p.source,.92,now);}
