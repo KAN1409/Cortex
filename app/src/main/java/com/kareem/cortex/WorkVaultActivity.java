@@ -44,10 +44,11 @@ public final class WorkVaultActivity extends Activity {
         if(destroyed||db==null)return;
         WorkVaultScanner.Counts counts=WorkVaultScanner.counts(db);
         ArrayList<WorkVaultSourceStore.Source> sources=WorkVaultSourceStore.active(db);
-        render(counts,sources);
+        ArrayList<WorkProcurementCaseEngine.Case> cases=WorkProcurementCaseEngine.load(db,6);
+        render(counts,sources,cases);
     }
 
-    private void render(WorkVaultScanner.Counts counts,ArrayList<WorkVaultSourceStore.Source> sources){
+    private void render(WorkVaultScanner.Counts counts,ArrayList<WorkVaultSourceStore.Source> sources,ArrayList<WorkProcurementCaseEngine.Case> cases){
         if(destroyed||content==null)return;content.removeAllViews();
         LinearLayout head=new LinearLayout(this);head.setOrientation(LinearLayout.VERTICAL);
         TextView title=CortexUi.plain(this,"Work Vault",31,CortexUi.TEXT);CortexUi.medium(title);head.addView(title);
@@ -64,12 +65,32 @@ public final class WorkVaultActivity extends Activity {
         TextView ask=CortexUi.action(this,"ASK WORK ARCHIVE",CortexUi.MUTED,false);LinearLayout.LayoutParams qp=new LinearLayout.LayoutParams(-1,dp(46));qp.setMargins(0,dp(8),0,0);content.addView(ask,qp);ask.setOnClickListener(v->startActivity(new Intent(this,WorkVaultAskActivity.class)));
         TextView followUp=CortexUi.action(this,"OPEN WORK FOLLOW-UP",CortexUi.MUTED,false);LinearLayout.LayoutParams fp=new LinearLayout.LayoutParams(-1,dp(46));fp.setMargins(0,dp(8),0,0);content.addView(followUp,fp);followUp.setOnClickListener(v->startActivity(new Intent(this,WorkFollowUpActivity.class)));
 
+        boolean hasAttention=false;for(WorkProcurementCaseEngine.Case x:cases)if(x.needsAttention()){hasAttention=true;break;}
+        if(hasAttention){
+            content.addView(CortexUi.section(this,"Needs Attention"));
+            int shown=0;for(WorkProcurementCaseEngine.Case x:cases){if(!x.needsAttention())continue;procurementCaseRow(x);if(++shown>=5)break;}
+            TextView note=CortexUi.text(this,"Missing-step notices mean Cortex could not find grounded evidence in the indexed archive. They do not prove the business step never happened.",10,CortexUi.MUTED);note.setPadding(dp(4),0,dp(4),dp(12));content.addView(note);
+        }
+
         content.addView(CortexUi.section(this,"Archive sources"));
         if(sources.isEmpty()){
             LinearLayout empty=CortexUi.card(this,20);empty.addView(CortexUi.text(this,"No archive source yet. Add a project/archive folder; Cortex will keep a persistent SAF reference and inventory it without copying the originals.",12,CortexUi.MUTED));content.addView(empty);return;
         }
         for(WorkVaultSourceStore.Source s:sources)sourceRow(s);
     }
+
+    private void procurementCaseRow(WorkProcurementCaseEngine.Case x){
+        LinearLayout card=CortexUi.card(this,20);LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,-2);p.setMargins(0,0,0,dp(10));
+        String title=(x.project.isEmpty()?"":x.project+"  •  ")+"PR "+x.pr;
+        TextView name=CortexUi.plain(this,title,14,CortexUi.TEXT);CortexUi.medium(name);card.addView(name);
+        TextView issue=CortexUi.text(this,x.headline(),12,CortexUi.ACCENT);issue.setPadding(0,dp(5),0,0);card.addView(issue);
+        String stages="Quotation "+mark(x.quotation)+"  •  Comparison "+mark(x.comparison)+"  •  Approval "+mark(x.approval)+"  •  PO "+mark(x.po);
+        TextView stage=CortexUi.text(this,stages,10,CortexUi.MUTED);stage.setPadding(0,dp(6),0,0);card.addView(stage);
+        if(!x.statuses.isEmpty()){TextView status=CortexUi.text(this,"Follow-up: "+x.statuses.get(0),10,CortexUi.MUTED);status.setPadding(0,dp(4),0,0);card.addView(status);}
+        content.addView(card,p);
+    }
+
+    private static String mark(boolean present){return present?"✓":"—";}
 
     private void sourceRow(WorkVaultSourceStore.Source s){
         LinearLayout card=CortexUi.card(this,20);LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,-2);p.setMargins(0,0,0,dp(10));
