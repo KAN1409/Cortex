@@ -7,6 +7,9 @@ import android.graphics.Color;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
+import android.os.SystemClock;
 import android.view.Gravity;
 import android.view.View;
 import android.widget.EditText;
@@ -16,13 +19,19 @@ import android.widget.TextView;
 import androidx.documentfile.provider.DocumentFile;
 import java.text.DecimalFormat;
 import java.util.ArrayList;
+import java.util.HashMap;
 
 /** Work intelligence home: grounded professional memory, archive evidence and document creation. */
 public final class WorkVaultActivity extends Activity {
     private static final int REQ_TREE=8601;
+    private static final long INDEX_UI_POLL_MS=700L;
+    private static final long START_HANDSHAKE_TIMEOUT_MS=5000L;
     private VaultDb db;
     private LinearLayout content;
     private volatile boolean destroyed=false;
+    private final Handler uiHandler=new Handler(Looper.getMainLooper());
+    private final HashMap<Long,Long> pendingStarts=new HashMap<>();
+    private final Runnable indexUiPoll=()->{if(!destroyed)refresh();};
 
     int dp(int v){return CortexUi.dp(this,v);}
 
@@ -31,7 +40,8 @@ public final class WorkVaultActivity extends Activity {
     }
 
     @Override protected void onResume(){super.onResume();if(!destroyed)refresh();}
-    @Override protected void onDestroy(){destroyed=true;if(db!=null)try{db.close();}catch(Throwable ignored){}super.onDestroy();}
+    @Override protected void onPause(){uiHandler.removeCallbacks(indexUiPoll);super.onPause();}
+    @Override protected void onDestroy(){destroyed=true;uiHandler.removeCallbacks(indexUiPoll);pendingStarts.clear();if(db!=null)try{db.close();}catch(Throwable ignored){}super.onDestroy();}
 
     private void build(){
         LinearLayout root=new LinearLayout(this);root.setOrientation(LinearLayout.VERTICAL);root.setBackgroundColor(CortexUi.BG);
@@ -47,6 +57,22 @@ public final class WorkVaultActivity extends Activity {
         ArrayList<WorkVaultSourceStore.Source> sources=WorkVaultSourceStore.active(db);
         ArrayList<WorkProcurementCaseEngine.Case> cases=WorkProcurementCaseEngine.load(db,6);
         render(counts,sources,cases);
+        scheduleIndexUiPoll(sources);
+    }
+
+    private void scheduleIndexUiPoll(ArrayList<WorkVaultSourceStore.Source> sources){
+        uiHandler.removeCallbacks(indexUiPoll);boolean active=false;
+        if(sources!=null)for(WorkVaultSourceStore.Source s:sources)if(indexingUiState(s.id)){active=true;break;}
+        if(active&&!destroyed)uiHandler.postDelayed(indexUiPoll,INDEX_UI_POLL_MS);
+    }
+
+    private boolean indexingUiState(long sourceId){
+        if(sourceId<=0)return false;
+        if(WorkVaultIndexService.isIndexing(sourceId)){pendingStarts.remove(sourceId);return true;}
+        Long started=pendingStarts.get(sourceId);
+        if(started==null)return false;
+        if(SystemClock.elapsedRealtime()-started<START_HANDSHAKE_TIMEOUT_MS)return true;
+        pendingStarts.remove(sourceId);return false;
     }
 
     private void render(WorkVaultScanner.Counts counts,ArrayList<WorkVaultSourceStore.Source> sources,ArrayList<WorkProcurementCaseEngine.Case> cases){
@@ -171,10 +197,11 @@ public final class WorkVaultActivity extends Activity {
     private static String mark(boolean present){return present?"✓":"—";}
 
     private void sourceRow(WorkVaultSourceStore.Source s){
+        boolean indexing=indexingUiState(s.id);
         LinearLayout card=CortexUi.card(this,22);LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,-2);p.setMargins(0,0,0,dp(10));
-        LinearLayout top=new LinearLayout(this);top.setGravity(Gravity.CENTER_VERTICAL);TextView name=CortexUi.text(this,s.displayName,15,CortexUi.TEXT);CortexUi.medium(name);top.addView(name,new LinearLayout.LayoutParams(0,-2,1));String status=s.lastError.isEmpty()?(s.lastScanAt>0?"Ready":"Not scanned"):("Error");TextView badge=CortexUi.chip(this,status,s.lastError.isEmpty()?(s.lastScanAt>0?CortexUi.GREEN:CortexUi.MUTED):CortexUi.RED,false);top.addView(badge,new LinearLayout.LayoutParams(-2,dp(28)));card.addView(top);
-        String detail=s.lastError.isEmpty()?(s.lastScanAt>0?"Indexed archive source · originals remain in place":"Ready to scan and index changes"):("Scan error · "+s.lastError);TextView meta=CortexUi.text(this,detail,11,s.lastError.isEmpty()?CortexUi.MUTED:CortexUi.RED);meta.setPadding(0,dp(6),0,0);card.addView(meta);
-        TextView scan=CortexUi.action(this,"Scan + index changes",CortexUi.LIME,false);LinearLayout.LayoutParams bp=new LinearLayout.LayoutParams(-1,dp(42));bp.setMargins(0,dp(11),0,0);card.addView(scan,bp);scan.setOnClickListener(v->startBackgroundIndex(s,scan));content.addView(card,p);
+        LinearLayout top=new LinearLayout(this);top.setGravity(Gravity.CENTER_VERTICAL);TextView name=CortexUi.text(this,s.displayName,15,CortexUi.TEXT);CortexUi.medium(name);top.addView(name,new LinearLayout.LayoutParams(0,-2,1));String status=indexing?"Indexing":(s.lastError.isEmpty()?(s.lastScanAt>0?"Ready":"Not scanned"):("Error"));TextView badge=CortexUi.chip(this,status,indexing?CortexUi.ORANGE:(s.lastError.isEmpty()?(s.lastScanAt>0?CortexUi.GREEN:CortexUi.MUTED):CortexUi.RED),false);top.addView(badge,new LinearLayout.LayoutParams(-2,dp(28)));card.addView(top);
+        String detail=indexing?"Scanning and indexing changes in background":(s.lastError.isEmpty()?(s.lastScanAt>0?"Indexed archive source · originals remain in place":"Ready to scan and index changes"):("Scan error · "+s.lastError));TextView meta=CortexUi.text(this,detail,11,indexing?CortexUi.MUTED:(s.lastError.isEmpty()?CortexUi.MUTED:CortexUi.RED));meta.setPadding(0,dp(6),0,0);card.addView(meta);
+        TextView scan=CortexUi.action(this,indexing?"Indexing in background":"Scan + index changes",CortexUi.LIME,false);scan.setEnabled(!indexing);LinearLayout.LayoutParams bp=new LinearLayout.LayoutParams(-1,dp(42));bp.setMargins(0,dp(11),0,0);card.addView(scan,bp);scan.setOnClickListener(v->startBackgroundIndex(s,scan));content.addView(card,p);
     }
 
     private void chooseTree(){Intent i=new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_WRITE_URI_PERMISSION|Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION|Intent.FLAG_GRANT_PREFIX_URI_PERMISSION);startActivityForResult(i,REQ_TREE);}
@@ -188,8 +215,13 @@ public final class WorkVaultActivity extends Activity {
 
     private void startBackgroundIndex(WorkVaultSourceStore.Source source,TextView button){
         if(destroyed||source==null||source.id<=0)return;Intent i=new Intent(this,WorkVaultIndexService.class);i.setAction(WorkVaultIndexService.ACTION_START);i.putExtra(WorkVaultIndexService.EXTRA_SOURCE_ID,source.id);i.putExtra(WorkVaultIndexService.EXTRA_TREE_URI,source.treeUri);i.putExtra(WorkVaultIndexService.EXTRA_SOURCE_NAME,source.displayName);
-        try{if(Build.VERSION.SDK_INT>=26)startForegroundService(i);else startService(i);if(button!=null){button.setText("Indexing in background");button.setEnabled(false);button.postDelayed(()->{if(!destroyed){button.setText("Scan + index changes");button.setEnabled(true);}},2500);}android.widget.Toast.makeText(this,"Work Vault indexing started in background",android.widget.Toast.LENGTH_SHORT).show();}
-        catch(Throwable e){if(button!=null){button.setText("Scan + index changes");button.setEnabled(true);}android.widget.Toast.makeText(this,"Could not start archive indexing",android.widget.Toast.LENGTH_LONG).show();}
+        try{
+            if(Build.VERSION.SDK_INT>=26)startForegroundService(i);else startService(i);
+            pendingStarts.put(source.id,SystemClock.elapsedRealtime());
+            if(button!=null){button.setText("Starting indexing…");button.setEnabled(false);}
+            uiHandler.removeCallbacks(indexUiPoll);uiHandler.postDelayed(indexUiPoll,200L);
+            android.widget.Toast.makeText(this,"Work Vault indexing started in background",android.widget.Toast.LENGTH_SHORT).show();
+        }catch(Throwable e){pendingStarts.remove(source.id);if(button!=null){button.setText("Scan + index changes");button.setEnabled(true);}android.widget.Toast.makeText(this,"Could not start archive indexing",android.widget.Toast.LENGTH_LONG).show();}
     }
 
     private LinearLayout.LayoutParams margins(int l,int t,int r,int b){LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,-2);p.setMargins(dp(l),dp(t),dp(r),dp(b));return p;}
