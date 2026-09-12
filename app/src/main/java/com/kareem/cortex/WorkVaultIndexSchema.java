@@ -5,7 +5,7 @@ import android.database.sqlite.SQLiteDatabase;
 
 /** Versioned parse/chunk storage layered on top of WorkVaultSchema. */
 public final class WorkVaultIndexSchema {
-    public static final String VERSION="work_vault_index_schema_004";
+    public static final String VERSION="work_vault_index_schema_005";
     private WorkVaultIndexSchema(){}
 
     public static void ensure(SQLiteDatabase db){
@@ -59,12 +59,23 @@ public final class WorkVaultIndexSchema {
                 "extractor_version TEXT,"+
                 "created_at INTEGER NOT NULL)");
 
-        // Additive migration for databases created before version lineage became first-class.
+        // Additive migrations for databases created before version lineage became first-class.
         addColumnIfMissing(db,"work_facts","version_id","INTEGER NOT NULL DEFAULT 0");
         addColumnIfMissing(db,"work_procurement_refs","version_id","INTEGER NOT NULL DEFAULT 0");
         addColumnIfMissing(db,"work_price_records","version_id","INTEGER NOT NULL DEFAULT 0");
         addColumnIfMissing(db,"work_followup_records","version_id","INTEGER NOT NULL DEFAULT 0");
+        addColumnIfMissing(db,"work_files","active_version_id","INTEGER NOT NULL DEFAULT 0");
 
+        // Existing installs adopt their newest successful parse as the initial active version.
+        db.execSQL("UPDATE work_files SET active_version_id=("+
+                "SELECT v.id FROM work_file_versions v "+
+                "WHERE v.file_id=work_files.id AND v.state IN ('complete','partial_needs_ocr') "+
+                "ORDER BY v.parsed_at DESC,v.id DESC LIMIT 1"+
+                ") WHERE active_version_id=0 AND EXISTS("+
+                "SELECT 1 FROM work_file_versions v2 WHERE v2.file_id=work_files.id "+
+                "AND v2.state IN ('complete','partial_needs_ocr'))");
+
+        db.execSQL("CREATE INDEX IF NOT EXISTS idx_work_files_active_version ON work_files(active_version_id)");
         db.execSQL("CREATE INDEX IF NOT EXISTS idx_work_facts_version ON work_facts(file_id,version_id,fact_type)");
         db.execSQL("CREATE INDEX IF NOT EXISTS idx_work_procurement_ref_version ON work_procurement_refs(file_id,version_id,ref_type,normalized_value)");
         db.execSQL("CREATE INDEX IF NOT EXISTS idx_work_prices_version ON work_price_records(file_id,version_id,created_at DESC)");
