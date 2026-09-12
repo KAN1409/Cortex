@@ -1,10 +1,11 @@
 package com.kareem.cortex;
 
+import android.database.Cursor;
 import android.database.sqlite.SQLiteDatabase;
 
 /** Versioned parse/chunk storage layered on top of WorkVaultSchema. */
 public final class WorkVaultIndexSchema {
-    public static final String VERSION="work_vault_index_schema_003";
+    public static final String VERSION="work_vault_index_schema_004";
     private WorkVaultIndexSchema(){}
 
     public static void ensure(SQLiteDatabase db){
@@ -40,6 +41,7 @@ public final class WorkVaultIndexSchema {
         db.execSQL("CREATE TABLE IF NOT EXISTS work_followup_records("+
                 "id INTEGER PRIMARY KEY AUTOINCREMENT,"+
                 "file_id INTEGER NOT NULL,"+
+                "version_id INTEGER NOT NULL DEFAULT 0,"+
                 "project_id INTEGER NOT NULL DEFAULT 0,"+
                 "reference_type TEXT,"+
                 "reference_value TEXT,"+
@@ -56,6 +58,17 @@ public final class WorkVaultIndexSchema {
                 "confidence REAL NOT NULL DEFAULT 0,"+
                 "extractor_version TEXT,"+
                 "created_at INTEGER NOT NULL)");
+
+        // Additive migration for databases created before version lineage became first-class.
+        addColumnIfMissing(db,"work_facts","version_id","INTEGER NOT NULL DEFAULT 0");
+        addColumnIfMissing(db,"work_procurement_refs","version_id","INTEGER NOT NULL DEFAULT 0");
+        addColumnIfMissing(db,"work_price_records","version_id","INTEGER NOT NULL DEFAULT 0");
+        addColumnIfMissing(db,"work_followup_records","version_id","INTEGER NOT NULL DEFAULT 0");
+
+        db.execSQL("CREATE INDEX IF NOT EXISTS idx_work_facts_version ON work_facts(file_id,version_id,fact_type)");
+        db.execSQL("CREATE INDEX IF NOT EXISTS idx_work_procurement_ref_version ON work_procurement_refs(file_id,version_id,ref_type,normalized_value)");
+        db.execSQL("CREATE INDEX IF NOT EXISTS idx_work_prices_version ON work_price_records(file_id,version_id,created_at DESC)");
+        db.execSQL("CREATE INDEX IF NOT EXISTS idx_work_followup_version ON work_followup_records(file_id,version_id,row_number)");
         db.execSQL("CREATE INDEX IF NOT EXISTS idx_work_followup_file ON work_followup_records(file_id,row_number)");
         db.execSQL("CREATE INDEX IF NOT EXISTS idx_work_followup_status ON work_followup_records(status_normalized,created_at DESC)");
         db.execSQL("CREATE INDEX IF NOT EXISTS idx_work_followup_ref ON work_followup_records(reference_type,reference_value)");
@@ -78,5 +91,15 @@ public final class WorkVaultIndexSchema {
         db.execSQL("CREATE INDEX IF NOT EXISTS idx_work_proc_links_to ON work_procurement_links(to_kind,to_id)");
         db.execSQL("CREATE INDEX IF NOT EXISTS idx_work_proc_links_file ON work_procurement_links(source_file_id,relation)");
         db.execSQL("CREATE INDEX IF NOT EXISTS idx_work_proc_links_project ON work_procurement_links(project_id,relation)");
+    }
+
+    private static void addColumnIfMissing(SQLiteDatabase db,String table,String column,String definition){
+        Cursor c=null;boolean found=false;
+        try{
+            c=db.rawQuery("PRAGMA table_info("+table+")",null);
+            int name=c.getColumnIndex("name");
+            while(c.moveToNext())if(name>=0&&column.equals(c.getString(name))){found=true;break;}
+        }finally{if(c!=null)c.close();}
+        if(!found)db.execSQL("ALTER TABLE "+table+" ADD COLUMN "+column+" "+definition);
     }
 }
