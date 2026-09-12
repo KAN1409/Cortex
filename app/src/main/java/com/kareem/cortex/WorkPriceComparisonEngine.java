@@ -23,8 +23,8 @@ public final class WorkPriceComparisonEngine {
         LinkedHashMap<String,Price> previous=new LinkedHashMap<>();
         Cursor c=db.rawQuery(
                 "SELECT p.id,p.file_id,p.project_id,p.item_name,p.vendor_name,p.unit,p.unit_price,p.currency,p.reference_type,p.reference_value,"+
-                "f.display_name,f.document_uri,f.modified_at,p.created_at,p.sheet_name,p.page_number,p.row_number "+
-                "FROM work_price_records p JOIN work_files f ON f.id=p.file_id "+
+                "f.display_name,f.document_uri,f.modified_at,p.created_at,p.sheet_name,p.page_number,p.row_number,COALESCE(pr.canonical_name,'') "+
+                "FROM work_price_records p JOIN work_files f ON f.id=p.file_id LEFT JOIN work_projects pr ON pr.id=p.project_id "+
                 "WHERE p.unit_price IS NOT NULL AND p.unit_price>0 AND TRIM(p.item_name)<>'' "+
                 "ORDER BY CASE WHEN f.modified_at>0 THEN f.modified_at ELSE p.created_at END DESC,p.id DESC LIMIT 1200",null);
         while(c.moveToNext()){
@@ -55,15 +55,15 @@ public final class WorkPriceComparisonEngine {
 
     static String item(String s){return norm(s).replaceAll("[^\\p{L}\\p{N}]+"," ").trim();}
     static String unit(String s){String x=norm(s).replace("²","2").replace("³","3").replaceAll("[ ._-]+","");if(x.equals("sqm")||x.equals("sqmeter")||x.equals("squaremeter")||x.equals("m2"))return "m2";if(x.equals("lm")||x.equals("linm")||x.equals("linearmeter")||x.equals("m"))return x.equals("m")?"m":"lm";if(x.equals("no")||x.equals("nos")||x.equals("nr")||x.equals("number")||x.equals("pcs")||x.equals("pc")||x.equals("piece")||x.equals("pieces"))return "pcs";return x;}
-    static String currency(String s){String x=norm(s).replaceAll("[ ._-]+","");if(x.equals("egp")||x.equals("le")||x.equals("l.e")||x.equals("جنيه")||x.equals("جنيهمصري"))return "EGP";if(x.equals("usd")||x.equals("$")||x.equals("dollar")||x.equals("dollars"))return "USD";if(x.equals("eur")||x.equals("€")||x.equals("euro"))return "EUR";return x.toUpperCase(Locale.ROOT);}
+    static String currency(String s){String x=norm(s).replaceAll("[ ._-]+","");if(x.equals("egp")||x.equals("le")||x.equals("جنيه")||x.equals("جنيهمصري"))return "EGP";if(x.equals("usd")||x.equals("$")||x.equals("dollar")||x.equals("dollars"))return "USD";if(x.equals("eur")||x.equals("€")||x.equals("euro"))return "EUR";return x.toUpperCase(Locale.ROOT);}
 
     private static String key(Price p){String i=item(p.item),u=unit(p.unit),c=currency(p.currency);if(i.isEmpty()||u.isEmpty()||c.isEmpty())return "";return i+"|"+u+"|"+c;}
     private static String norm(String s){return s==null?"":s.trim().toLowerCase(Locale.ROOT).replaceAll("\\s+"," ");}
     private static String s(Cursor c,int i){return c.isNull(i)?"":c.getString(i);}
-    private static Price read(Cursor c){Price p=new Price();p.id=c.getLong(0);p.fileId=c.getLong(1);p.projectId=c.getLong(2);p.item=s(c,3);p.vendor=s(c,4);p.unit=s(c,5);p.unitPrice=c.getDouble(6);p.currency=s(c,7);p.referenceType=s(c,8);p.referenceValue=s(c,9);p.fileName=s(c,10);p.documentUri=s(c,11);long modified=c.getLong(12),created=c.getLong(13);p.sourceTime=modified>0?modified:created;p.sheet=s(c,14);p.page=c.getInt(15);p.row=c.getInt(16);return p;}
+    private static Price read(Cursor c){Price p=new Price();p.id=c.getLong(0);p.fileId=c.getLong(1);p.projectId=c.getLong(2);p.item=s(c,3);p.vendor=s(c,4);p.unit=s(c,5);p.unitPrice=c.getDouble(6);p.currency=s(c,7);p.referenceType=s(c,8);p.referenceValue=s(c,9);p.fileName=s(c,10);p.documentUri=s(c,11);long modified=c.getLong(12),created=c.getLong(13);p.sourceTime=modified>0?modified:created;p.sheet=s(c,14);p.page=c.getInt(15);p.row=c.getInt(16);p.project=s(c,17);return p;}
 
     public static final class Price{
-        public long id,fileId,projectId,sourceTime;public String item="",vendor="",unit="",currency="",referenceType="",referenceValue="",fileName="",documentUri="",sheet="";public double unitPrice;public int page,row;
+        public long id,fileId,projectId,sourceTime;public String item="",vendor="",unit="",currency="",referenceType="",referenceValue="",fileName="",documentUri="",sheet="",project="";public double unitPrice;public int page,row;
         static Price of(String item,String unit,double value,String currency){Price p=new Price();p.item=item;p.unit=unit;p.unitPrice=value;p.currency=currency;return p;}
     }
     public static final class Comparison{
@@ -71,5 +71,6 @@ public final class WorkPriceComparisonEngine {
         Comparison(Price current,Price previous,boolean comparable,String reason,double delta,double percent){this.current=current;this.previous=previous;this.comparable=comparable;this.reason=reason;this.delta=delta;this.percent=percent;}
         static Comparison notComparable(Price a,Price b,String reason){return new Comparison(a,b,false,reason,0,0);}
         public String direction(){if(!comparable)return "NOT_COMPARABLE";if(Math.abs(percent)<.01)return "UNCHANGED";return percent>0?"INCREASE":"DECREASE";}
+        public boolean crossProject(){return current!=null&&previous!=null&&!current.project.isEmpty()&&!previous.project.isEmpty()&&!current.project.equalsIgnoreCase(previous.project);}
     }
 }
