@@ -11,11 +11,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
 
-/**
- * User-initiated long-running archive scan/index service.
- * Keeps indexing alive independently of WorkVaultActivity and never copies source originals.
- * Multiple archive roots are serialized; interrupted runs remain resumable from file state.
- */
+/** User-initiated, resource-aware, resumable archive scan/index service. */
 public final class WorkVaultIndexService extends Service {
     public static final String EXTRA_SOURCE_ID="source_id";
     public static final String EXTRA_TREE_URI="tree_uri";
@@ -41,20 +37,42 @@ public final class WorkVaultIndexService extends Service {
             db=new VaultDb(getApplicationContext());WorkVaultIndexSchema.ensure(db.getWritableDatabase());
             notifyState("Scanning archive for changes",sourceName,true);WorkVaultScanner.Result scan=WorkVaultScanner.scan(getApplicationContext(),db,sourceId,Uri.parse(tree));
             if(Thread.currentThread().isInterrupted())return;if(!scan.error.isEmpty()){notifyState("Archive scan failed",scan.error,false);return;}
-            notifyState("Parsing changed files",scan.processed+" files inventoried",true);WorkVaultIndexer.Result indexed=WorkVaultIndexer.indexPending(getApplicationContext(),db,sourceId);if(Thread.currentThread().isInterrupted())return;
+
+            WorkVaultIndexer.Result indexed=new WorkVaultIndexer.Result();long cursor=0;int batches=0;
+            while(!Thread.currentThread().isInterrupted()){
+                WorkVaultResourceGovernor.Decision decision=WorkVaultResourceGovernor.current(getApplicationContext());
+                if(decision==WorkVaultResourceGovernor.Decision.PAUSE){notifyState("Work Vault indexing paused","Device is hot or battery is low • progress is saved and can resume safely",false);return;}
+                int batchSize=WorkVaultResourceGovernor.recommendedBatchSize(decision);long batchMillis=WorkVaultResourceGovernor.recommendedBatchMillis(decision);
+                notifyState("Parsing changed files","Batch "+(batches+1)+" • "+scan.processed+" files inventoried",true);
+                WorkVaultIndexer.Result batch=WorkVaultIndexer.indexPending(getApplicationContext(),db,sourceId,batchSize,batchMillis,cursor);
+                merge(indexed,batch);batches++;
+                if(batch.pausedByGovernor){notifyState("Work Vault indexing paused","Device conditions changed • progress is saved",false);return;}
+                if(batch.lastFileId<=cursor){break;}
+                cursor=batch.lastFileId;
+                if(batch.remaining<=0)break;
+                notifyState("Archive checkpoint saved","Parsed "+indexed.indexed+" • "+batch.remaining+" pending after checkpoint",true);
+                if(decision==WorkVaultResourceGovernor.Decision.THROTTLE)try{Thread.sleep(350);}catch(InterruptedException e){Thread.currentThread().interrupt();return;}
+            }
+            if(Thread.currentThread().isInterrupted())return;
+
             notifyState("Classifying work documents","Quotation • comparison • approval • PR • PO • follow-up",true);
             int profiled=WorkDocumentProfileStore.classifySource(db.getWritableDatabase(),sourceId);if(Thread.currentThread().isInterrupted())return;
             notifyState("Linking procurement lifecycle","Using exact references + classified document roles",true);
             WorkDocumentLifecycleLinker.Result documentLinks=WorkDocumentLifecycleLinker.rebuildForSource(db.getWritableDatabase(),sourceId);if(Thread.currentThread().isInterrupted())return;
             int allLinks=indexed.procurementLinks+documentLinks.links;
-            String summary="Parsed "+indexed.indexed+" • classified "+profiled+" • follow-up "+indexed.followUpRecords+" • links "+allLinks+" • OCR pending "+indexed.needsOcr+" • failed "+indexed.failed;
+            String summary="Parsed "+indexed.indexed+" • skipped "+indexed.skippedUnchanged+" • classified "+profiled+" • follow-up "+indexed.followUpRecords+" • links "+allLinks+" • OCR pending "+indexed.needsOcr+" • failed "+indexed.failed;
+            if(indexed.linkingFailed>0)summary+=" • linker warnings "+indexed.linkingFailed;
             int ambiguous=indexed.ambiguousLinksSkipped+documentLinks.ambiguousSkipped;
             if(ambiguous>0)summary+=" • ambiguous skipped "+ambiguous;
             if(documentLinks.lowConfidenceSkipped>0)summary+=" • low-confidence docs skipped "+documentLinks.lowConfidenceSkipped;
-            notifyState(indexed.failed>0?"Work Vault indexed with warnings":"Work Vault index complete",summary,false);
+            notifyState(indexed.failed>0||indexed.linkingFailed>0?"Work Vault indexed with warnings":"Work Vault index complete",summary,false);
         }catch(Throwable t){if(!Thread.currentThread().isInterrupted())notifyState("Work Vault indexing failed",safe(t.getMessage()).isEmpty()?t.getClass().getSimpleName():safe(t.getMessage()),false);}finally{
             if(db!=null)try{db.close();}catch(Throwable ignored){}int left=pending.decrementAndGet();if(left<=0){pending.set(0);finishForeground();}else notifyState("Continuing archive indexing",left+" source"+(left==1?"":"s")+" remaining",true);
         }
+    }
+
+    private static void merge(WorkVaultIndexer.Result a,WorkVaultIndexer.Result b){
+        a.total+=b.total;a.indexed+=b.indexed;a.failed+=b.failed;a.unsupported+=b.unsupported;a.needsOcr+=b.needsOcr;a.followUpRecords+=b.followUpRecords;a.procurementLinks+=b.procurementLinks;a.ambiguousLinksSkipped+=b.ambiguousLinksSkipped;a.linkingFailed+=b.linkingFailed;a.skippedUnchanged+=b.skippedUnchanged;a.remaining=b.remaining;a.lastFileId=b.lastFileId;a.interrupted|=b.interrupted;a.pausedByGovernor|=b.pausedByGovernor;a.batchLimited|=b.batchLimited;if(!safe(b.lastError).isEmpty())a.lastError=b.lastError;
     }
 
     private void finishForeground(){if(Build.VERSION.SDK_INT>=24)stopForeground(STOP_FOREGROUND_DETACH);else stopForeground(false);stopSelf();}
