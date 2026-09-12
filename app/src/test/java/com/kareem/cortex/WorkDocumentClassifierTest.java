@@ -33,4 +33,12 @@ public class WorkDocumentClassifierTest {
         assertEquals("FOLLOW_UP",r.type);
         assertTrue(r.confidence>.75);
     }
+
+    @Test public void mapsDocumentTypesToDistinctLifecycleRoles(){
+        assertEquals("quotation_document",WorkDocumentLifecycleLinker.relationForType("QUOTATION"));
+        assertEquals("comparison_document",WorkDocumentLifecycleLinker.relationForType("COMPARISON"));
+        assertEquals("approval_document",WorkDocumentLifecycleLinker.relationForType("APPROVAL"));
+        assertEquals("purchase_order_document",WorkDocumentLifecycleLinker.relationForType("PURCHASE_ORDER"));
+        assertEquals("",WorkDocumentLifecycleLinker.relationForType("OTHER"));
+    }
 }
