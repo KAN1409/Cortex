@@ -58,4 +58,16 @@ public class WorkStructuredExtractorTest {
         assertEquals("رخام جلالة",r.prices.get(0).item);
         assertEquals(2500.0,r.prices.get(0).unitPrice,0.001);
     }
+
+    @Test public void normalizesUnicodeDashesAndArabicDigitsInReferences(){
+        WorkParsedDocument d=new WorkParsedDocument();
+        d.blocks.add(new WorkParsedDocument.Block("PARAGRAPH","PR–٠٢٦٢   PO—۱۰۴۷"));
+        WorkStructuredExtractor.Result r=WorkStructuredExtractor.extract(d);
+        assertEquals(2,r.refs.size());
+        assertEquals("PR",r.refs.get(0).type);
+        assertEquals("0262",r.refs.get(0).value);
+        assertEquals("PO",r.refs.get(1).type);
+        assertEquals("1047",r.refs.get(1).value);
+        assertEquals("AB-12/03",WorkStructuredExtractor.normalizeReference(" ab ‑ ١٢ / ٠٣ "));
+    }
 }

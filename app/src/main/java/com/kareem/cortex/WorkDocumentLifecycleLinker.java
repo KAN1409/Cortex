@@ -11,7 +11,7 @@ import java.util.*;
  * to exact PR/PO references extracted from that same active file version. Ambiguous reference sets are skipped.
  */
 public final class WorkDocumentLifecycleLinker {
-    public static final String VERSION="work_document_lifecycle_linker_002";
+    public static final String VERSION="work_document_lifecycle_linker_003";
     private static final String RULE_PREFIX="document_profile_";
     private WorkDocumentLifecycleLinker(){}
 
@@ -46,6 +46,22 @@ public final class WorkDocumentLifecycleLinker {
                 continue;
             }
 
+            // Commercial fulfilment documents normally belong to the executed order, so an
+            // unambiguous PO wins over a PR when both are present. Other document roles keep
+            // the PR-first preference because they more often precede order execution.
+            if(preferPoForType(type)){
+                if(poCount==1&&po!=null){
+                    add(db,fileId,po.id,relation+"_for_po",Math.min(.98,.84+.12*confidence),RULE_PREFIX+type.toLowerCase(Locale.ROOT)+"_plus_exact_po",fileId,po.projectId);out.links++;
+                }else if(poCount>1){
+                    out.ambiguousSkipped++;
+                }else if(prCount==1&&pr!=null){
+                    add(db,fileId,pr.id,relation+"_for_pr",Math.min(.92,.76+.12*confidence),RULE_PREFIX+type.toLowerCase(Locale.ROOT)+"_fallback_exact_pr",fileId,pr.projectId);out.links++;
+                }else if(prCount>1){
+                    out.ambiguousSkipped++;
+                }
+                continue;
+            }
+
             if(prCount==1&&pr!=null){
                 add(db,fileId,pr.id,relation+"_for_pr",Math.min(.97,.82+.12*confidence),RULE_PREFIX+type.toLowerCase(Locale.ROOT)+"_plus_exact_pr",fileId,pr.projectId);out.links++;
             }else if(prCount>1){
@@ -58,6 +74,8 @@ public final class WorkDocumentLifecycleLinker {
         }
         files.close();return out;
     }
+
+    static boolean preferPoForType(String type){return "INVOICE".equals(type)||"DELIVERY".equals(type);}
 
     static String relationForType(String type){
         if("QUOTATION".equals(type))return "quotation_document";

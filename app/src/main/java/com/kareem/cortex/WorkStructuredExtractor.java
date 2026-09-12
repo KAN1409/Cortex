@@ -5,9 +5,11 @@ import java.util.regex.*;
 
 /** Deterministic first-pass extraction for construction/procurement archives. */
 public final class WorkStructuredExtractor {
-    public static final String VERSION="work_structured_extractor_004";
-    private static final Pattern PR=Pattern.compile("(?i)(?:(?<![A-Z0-9])P\\.?R\\.?(?![A-Z0-9])|طلب شراء|طلب الشراء)\\s*[-:#/]?\\s*([A-Z0-9][A-Z0-9._/-]{1,24})");
-    private static final Pattern PO=Pattern.compile("(?i)(?:(?<![A-Z0-9])P\\.?O\\.?(?![A-Z0-9])|أمر إسناد|امر اسناد|أمر شراء|امر شراء)\\s*[-:#/]?\\s*([A-Z0-9][A-Z0-9._/-]{1,24})");
+    public static final String VERSION="work_structured_extractor_005";
+    private static final String REF_SEP="[-–—‑:#/]?";
+    private static final String REF_BODY="([\\p{L}\\p{N}][\\p{L}\\p{N}._/\\-–—‑]{1,32})";
+    private static final Pattern PR=Pattern.compile("(?iu)(?:(?<![\\p{L}\\p{N}])P\\.?R\\.?(?![\\p{L}\\p{N}])|طلب شراء|طلب الشراء)\\s*"+REF_SEP+"\\s*"+REF_BODY);
+    private static final Pattern PO=Pattern.compile("(?iu)(?:(?<![\\p{L}\\p{N}])P\\.?O\\.?(?![\\p{L}\\p{N}])|أمر إسناد|امر اسناد|أمر شراء|امر شراء)\\s*"+REF_SEP+"\\s*"+REF_BODY);
     private static final Pattern PROJECT=Pattern.compile("(?i)(?:project|المشروع)\\s*[:\\-]\\s*([^|\\n\\r]{2,120})");
 
     private WorkStructuredExtractor(){}
@@ -30,8 +32,8 @@ public final class WorkStructuredExtractor {
     }
 
     private static void refs(String text,WorkParsedDocument.Block b,Result r){
-        Matcher m=PR.matcher(text);while(m.find())r.refs.add(new Ref("PR",cleanRef(m.group(1)),b));
-        m=PO.matcher(text);while(m.find())r.refs.add(new Ref("PO",cleanRef(m.group(1)),b));
+        Matcher m=PR.matcher(text);while(m.find()){String v=normalizeReference(m.group(1));if(!v.isEmpty())r.refs.add(new Ref("PR",v,b));}
+        m=PO.matcher(text);while(m.find()){String v=normalizeReference(m.group(1));if(!v.isEmpty())r.refs.add(new Ref("PO",v,b));}
     }
 
     private static void project(String text,WorkParsedDocument.Block b,Result r){
@@ -43,7 +45,26 @@ public final class WorkStructuredExtractor {
     }
 
     private static boolean looksHeader(String s){String x=s.toLowerCase(Locale.ROOT);return x.equals("name")||x.equals("اسم المشروع")||x.length()>80;}
-    private static String cleanRef(String s){return n(s).replaceAll("^[#:/-]+|[#:/-]+$","").toUpperCase(Locale.ROOT);}
+
+    static String normalizeReference(String s){
+        String x=n(s);
+        if(x.isEmpty())return "";
+        StringBuilder out=new StringBuilder(x.length());
+        for(int i=0;i<x.length();i++){
+            char ch=x.charAt(i);
+            if(ch>='٠'&&ch<='٩')ch=(char)('0'+(ch-'٠'));
+            else if(ch>='۰'&&ch<='۹')ch=(char)('0'+(ch-'۰'));
+            else if(ch=='‐'||ch=='‑'||ch=='‒'||ch=='–'||ch=='—'||ch=='−')ch='-';
+            else if(ch=='／')ch='/';
+            else if(ch=='：')ch=':';
+            else if(ch=='．')ch='.';
+            out.append(ch);
+        }
+        x=out.toString().trim();
+        x=x.replaceAll("\\s*([._/:-])\\s*","$1");
+        x=x.replaceAll("^[#:/-]+|[#:/-]+$","");
+        return x.toUpperCase(Locale.ROOT);
+    }
 
     public static final class Result{
         public final ArrayList<Ref> refs=new ArrayList<>();
