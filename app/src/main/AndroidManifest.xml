@@ -24,6 +24,7 @@
         <activity android:name=".NexusActivity" android:exported="false" />
         <activity android:name=".CaptureHubActivity" android:exported="false" />
         <activity android:name=".VoiceLibraryActivity" android:exported="false" />
+        <activity android:name=".VoiceDetailActivity" android:exported="false" />
         <activity android:name=".CaptureOverviewActivity" android:exported="false" />
         <activity android:name=".WorkWorkspaceActivity" android:exported="false" />
         <activity android:name=".WorkVaultActivity" android:exported="false" />
