@@ -11,7 +11,7 @@ import java.util.Locale;
 
 /** Inventory-only recursive scanner. Parsing/indexing is intentionally a separate resumable stage. */
 public final class WorkVaultScanner {
-    public static final String VERSION="work_vault_scanner_002";
+    public static final String VERSION="work_vault_scanner_003";
     private WorkVaultScanner(){}
 
     public static Result scan(Context context,VaultDb vault,long sourceId,Uri treeUri){
@@ -53,12 +53,16 @@ public final class WorkVaultScanner {
     private static void upsertFile(SQLiteDatabase db,long sourceId,Uri parent,DocumentFile file){
         String uri=file.getUri().toString(),name=n(file.getName()),mime=n(file.getType());
         long size=Math.max(0,file.length()),modified=Math.max(0,file.lastModified()),now=System.currentTimeMillis();
-        Cursor c=db.rawQuery("SELECT id,size_bytes,modified_at FROM work_files WHERE document_uri=? LIMIT 1",new String[]{uri});
-        long id=0,oldSize=-1,oldModified=-1;if(c.moveToFirst()){id=c.getLong(0);oldSize=c.getLong(1);oldModified=c.getLong(2);}c.close();
+        Cursor c=db.rawQuery("SELECT id,size_bytes,modified_at,state FROM work_files WHERE document_uri=? LIMIT 1",new String[]{uri});
+        long id=0,oldSize=-1,oldModified=-1;String oldState="";if(c.moveToFirst()){id=c.getLong(0);oldSize=c.getLong(1);oldModified=c.getLong(2);oldState=n(c.getString(3));}c.close();
         ContentValues v=new ContentValues();
         v.put("source_id",sourceId);v.put("parent_uri",parent==null?"":parent.toString());v.put("display_name",name);
         v.put("mime_type",mime);v.put("extension",extension(name));v.put("size_bytes",size);v.put("modified_at",modified);v.put("updated_at",now);
-        String state=id<=0?"new":((oldSize!=size||oldModified!=modified)?"modified":"unchanged");v.put("state",state);
+        String state;
+        if(id<=0)state="new";
+        else if(oldSize!=size||oldModified!=modified)state="modified";
+        else state=oldState.isEmpty()?"unchanged":oldState;
+        v.put("state",state);
         if(id>0){db.update("work_files",v,"id=?",new String[]{String.valueOf(id)});return;}
         v.put("document_uri",uri);v.put("fingerprint","");v.put("parser_version","");v.put("indexed_at",0);v.put("created_at",now);
         db.insertOrThrow("work_files",null,v);
