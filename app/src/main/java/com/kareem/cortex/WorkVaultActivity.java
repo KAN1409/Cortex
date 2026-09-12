@@ -66,6 +66,7 @@ public final class WorkVaultActivity extends Activity {
         TextView add=CortexUi.action(this,"ADD ARCHIVE SOURCE",CortexUi.ACCENT,true);LinearLayout.LayoutParams ap=new LinearLayout.LayoutParams(-1,dp(48));ap.setMargins(0,dp(14),0,0);content.addView(add,ap);add.setOnClickListener(v->chooseTree());
         TextView ask=CortexUi.action(this,"ASK WORK ARCHIVE",CortexUi.MUTED,false);LinearLayout.LayoutParams qp=new LinearLayout.LayoutParams(-1,dp(46));qp.setMargins(0,dp(8),0,0);content.addView(ask,qp);ask.setOnClickListener(v->startActivity(new Intent(this,WorkVaultAskActivity.class)));
         TextView create=CortexUi.action(this,"CREATE FROM ARCHIVE",CortexUi.ACCENT,false);LinearLayout.LayoutParams cp=new LinearLayout.LayoutParams(-1,dp(46));cp.setMargins(0,dp(8),0,0);content.addView(create,cp);create.setOnClickListener(v->chooseDocumentToCreate());
+        TextView direct=CortexUi.action(this,"BUILD WITH CHATGPT",CortexUi.ACCENT,false);LinearLayout.LayoutParams dpv=new LinearLayout.LayoutParams(-1,dp(46));dpv.setMargins(0,dp(8),0,0);content.addView(direct,dpv);direct.setOnClickListener(v->chooseDirectChatGptDocument());
         TextView followUp=CortexUi.action(this,"OPEN WORK FOLLOW-UP",CortexUi.MUTED,false);LinearLayout.LayoutParams fp=new LinearLayout.LayoutParams(-1,dp(46));fp.setMargins(0,dp(8),0,0);content.addView(followUp,fp);followUp.setOnClickListener(v->startActivity(new Intent(this,WorkFollowUpActivity.class)));
 
         boolean hasAttention=false;for(WorkProcurementCaseEngine.Case x:cases)if(x.needsAttention()){hasAttention=true;break;}
@@ -82,18 +83,29 @@ public final class WorkVaultActivity extends Activity {
         for(WorkVaultSourceStore.Source s:sources)sourceRow(s);
     }
 
+    private WorkDocumentRecipe.Kind[] documentKinds(){return new WorkDocumentRecipe.Kind[]{
+            WorkDocumentRecipe.Kind.ASSIGNMENT_ORDER_MANUFACTURING_ONLY,
+            WorkDocumentRecipe.Kind.ASSIGNMENT_ORDER_MANUFACTURING_AND_SUPPLY,
+            WorkDocumentRecipe.Kind.SUPPLY_ORDER_SUPPLY_ONLY,
+            WorkDocumentRecipe.Kind.COMMERCIAL_COMPARISON,
+            WorkDocumentRecipe.Kind.FOLLOW_UP_REPORT,
+            WorkDocumentRecipe.Kind.PRICE_COMPARISON,
+            WorkDocumentRecipe.Kind.PROJECT_STATUS_REPORT,
+            WorkDocumentRecipe.Kind.OWNER_PRESENTATION};}
+
+    private String[] labels(WorkDocumentRecipe.Kind[] kinds){String[] labels=new String[kinds.length];for(int i=0;i<kinds.length;i++)labels[i]=WorkDocumentRecipe.displayName(kinds[i]);return labels;}
+
     private void chooseDocumentToCreate(){
-        WorkDocumentRecipe.Kind[] kinds={
-                WorkDocumentRecipe.Kind.ASSIGNMENT_ORDER_MANUFACTURING_ONLY,
-                WorkDocumentRecipe.Kind.ASSIGNMENT_ORDER_MANUFACTURING_AND_SUPPLY,
-                WorkDocumentRecipe.Kind.SUPPLY_ORDER_SUPPLY_ONLY,
-                WorkDocumentRecipe.Kind.COMMERCIAL_COMPARISON,
-                WorkDocumentRecipe.Kind.FOLLOW_UP_REPORT,
-                WorkDocumentRecipe.Kind.PRICE_COMPARISON,
-                WorkDocumentRecipe.Kind.PROJECT_STATUS_REPORT,
-                WorkDocumentRecipe.Kind.OWNER_PRESENTATION};
-        String[] labels=new String[kinds.length];for(int i=0;i<kinds.length;i++)labels[i]=WorkDocumentRecipe.displayName(kinds[i]);
-        new AlertDialog.Builder(this).setTitle("Create from Archive").setItems(labels,(d,which)->askProjectAndBuild(kinds[which])).setNegativeButton("Cancel",null).show();
+        WorkDocumentRecipe.Kind[] kinds=documentKinds();
+        new AlertDialog.Builder(this).setTitle("Create from Archive").setItems(labels(kinds),(d,which)->askProjectAndBuild(kinds[which])).setNegativeButton("Cancel",null).show();
+    }
+
+    private void chooseDirectChatGptDocument(){
+        WorkDocumentRecipe.Kind[] kinds=documentKinds();
+        new AlertDialog.Builder(this).setTitle("Build with ChatGPT").setMessage("Choose the new document type. On the next screen you can attach reference Word, PDF, Excel or PowerPoint files and describe exactly what you need.")
+                .setItems(labels(kinds),(d,which)->{
+                    Intent i=new Intent(this,WorkChatGptBuildActivity.class);i.putExtra(WorkChatGptBuildActivity.EXTRA_KIND,kinds[which].name());startActivity(i);
+                }).setNegativeButton("Cancel",null).show();
     }
 
     private void askProjectAndBuild(WorkDocumentRecipe.Kind kind){
