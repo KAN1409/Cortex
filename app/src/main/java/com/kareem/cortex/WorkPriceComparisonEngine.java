@@ -7,12 +7,12 @@ import java.util.LinkedHashMap;
 import java.util.Locale;
 
 /**
- * Read-only price comparison over grounded Work Vault price records.
+ * Read-only price comparison over grounded active Work Vault price records.
  * Comparisons are allowed only for the same normalized item, compatible unit and currency.
  * Source file modified time is used for chronology so re-indexing never makes an old price look new.
  */
 public final class WorkPriceComparisonEngine {
-    public static final String VERSION="work_price_comparison_engine_001";
+    public static final String VERSION="work_price_comparison_engine_002";
     private WorkPriceComparisonEngine(){}
 
     public static ArrayList<Comparison> recent(VaultDb vault,int limit){
@@ -25,7 +25,7 @@ public final class WorkPriceComparisonEngine {
                 "SELECT p.id,p.file_id,p.project_id,p.item_name,p.vendor_name,p.unit,p.unit_price,p.currency,p.reference_type,p.reference_value,"+
                 "f.display_name,f.document_uri,f.modified_at,p.created_at,p.sheet_name,p.page_number,p.row_number,COALESCE(pr.canonical_name,'') "+
                 "FROM work_price_records p JOIN work_files f ON f.id=p.file_id LEFT JOIN work_projects pr ON pr.id=p.project_id "+
-                "WHERE p.unit_price IS NOT NULL AND p.unit_price>0 AND TRIM(p.item_name)<>'' "+
+                "WHERE f.active_version_id>0 AND p.version_id=f.active_version_id AND p.unit_price IS NOT NULL AND p.unit_price>0 AND TRIM(p.item_name)<>'' "+
                 "ORDER BY CASE WHEN f.modified_at>0 THEN f.modified_at ELSE p.created_at END DESC,p.id DESC LIMIT 1200",null);
         while(c.moveToNext()){
             Price p=read(c);String key=key(p);
