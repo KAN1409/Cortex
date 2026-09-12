@@ -113,7 +113,7 @@ public final class CortexUi {
         addNav(a,bar,"now","Now",cur,NowActivity.class);
         addNav(a,bar,"memory","Memory",cur,VisualMemoryActivity.class);
         addCenter(a,bar);
-        addNav(a,bar,"work","Work",cur,WorkVaultActivity.class);
+        addNav(a,bar,"work","Work",cur,WorkWorkspaceActivity.class);
         addNav(a,bar,"capture","Capture",cur,CaptureOverviewActivity.class);
         LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,dp(a,72));p.setMargins(dp(a,14),dp(a,5),dp(a,14),dp(a,10));root.addView(bar,p);fitSystemBars(a,root);
     }
