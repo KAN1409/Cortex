@@ -9,7 +9,7 @@ import java.nio.charset.StandardCharsets;
 
 /** Sends a grounded document-build package to ChatGPT without making ChatGPT a source of canonical evidence. */
 public final class WorkDocumentBuilderBridge {
-    public static final String VERSION="work_document_builder_bridge_001";
+    public static final String VERSION="work_document_builder_bridge_002";
     public static final String CHATGPT_PACKAGE="com.openai.chatgpt";
     private WorkDocumentBuilderBridge(){}
 
@@ -29,6 +29,8 @@ public final class WorkDocumentBuilderBridge {
         File json=new File(dir,base+".json");
         try(OutputStream out=new FileOutputStream(json)){out.write(payload.toString(2).getBytes(StandardCharsets.UTF_8));}
         Uri uri=FileProvider.getUriForFile(context,context.getPackageName()+".feedback.files",json);
+        WorkDocumentRecipe.Recipe recipe=WorkDocumentRecipe.forKind(kind);
+        WorkGeneratedDocumentRegistry.register(vault.getWritableDatabase(),kind,recipe.outputFormat,projectFilter,json.getAbsolutePath(),uri.toString());
         String prompt=prompt(kind,payload);
         return new Prepared(json,uri,prompt,payload);
     }
