@@ -6,7 +6,7 @@ import java.util.*;
 
 /** Grounded lexical retrieval across active Work Vault file versions only. */
 public final class WorkVaultSearch {
-    public static final String VERSION="work_vault_search_008";
+    public static final String VERSION="work_vault_search_009";
     private WorkVaultSearch(){}
 
     public static ArrayList<Hit> search(VaultDb vault,String query,int limit){
@@ -67,6 +67,10 @@ public final class WorkVaultSearch {
         String[] parts=q.split("[^\\p{L}\\p{N}._/-]+");
         for(int i=0;i<parts.length;i++){
             String x=normRef(parts[i]);if(x.isEmpty())continue;
+            String joinedType="",joinedValue="";
+            if(x.matches("^(PR|PO)[._/-]+.*$")){joinedType=x.substring(0,2);joinedValue=normRef(x.substring(3));}
+            else if(x.matches("^(PR|PO)\\d.*$")){joinedType=x.substring(0,2);joinedValue=normRef(x.substring(2));}
+            if(!joinedType.isEmpty()&&hasDigit(joinedValue)){type=joinedType;value=joinedValue;break;}
             if(("PR".equals(x)||"PO".equals(x))&&i+1<parts.length){String next=normRef(parts[i+1]);if(hasDigit(next)){type=x;value=next;break;}}
             if(hasDigit(x)&&x.length()>value.length())value=x;
         }
