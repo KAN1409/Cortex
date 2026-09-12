@@ -44,8 +44,13 @@ public final class WorkVaultIndexService extends Service {
             notifyState("Parsing changed files",scan.processed+" files inventoried",true);WorkVaultIndexer.Result indexed=WorkVaultIndexer.indexPending(getApplicationContext(),db,sourceId);if(Thread.currentThread().isInterrupted())return;
             notifyState("Classifying work documents","Quotation • comparison • approval • PR • PO • follow-up",true);
             int profiled=WorkDocumentProfileStore.classifySource(db.getWritableDatabase(),sourceId);if(Thread.currentThread().isInterrupted())return;
-            String summary="Parsed "+indexed.indexed+" • classified "+profiled+" • follow-up "+indexed.followUpRecords+" • links "+indexed.procurementLinks+" • OCR pending "+indexed.needsOcr+" • failed "+indexed.failed;
-            if(indexed.ambiguousLinksSkipped>0)summary+=" • ambiguous skipped "+indexed.ambiguousLinksSkipped;
+            notifyState("Linking procurement lifecycle","Using exact references + classified document roles",true);
+            WorkDocumentLifecycleLinker.Result documentLinks=WorkDocumentLifecycleLinker.rebuildForSource(db.getWritableDatabase(),sourceId);if(Thread.currentThread().isInterrupted())return;
+            int allLinks=indexed.procurementLinks+documentLinks.links;
+            String summary="Parsed "+indexed.indexed+" • classified "+profiled+" • follow-up "+indexed.followUpRecords+" • links "+allLinks+" • OCR pending "+indexed.needsOcr+" • failed "+indexed.failed;
+            int ambiguous=indexed.ambiguousLinksSkipped+documentLinks.ambiguousSkipped;
+            if(ambiguous>0)summary+=" • ambiguous skipped "+ambiguous;
+            if(documentLinks.lowConfidenceSkipped>0)summary+=" • low-confidence docs skipped "+documentLinks.lowConfidenceSkipped;
             notifyState(indexed.failed>0?"Work Vault indexed with warnings":"Work Vault index complete",summary,false);
         }catch(Throwable t){if(!Thread.currentThread().isInterrupted())notifyState("Work Vault indexing failed",safe(t.getMessage()).isEmpty()?t.getClass().getSimpleName():safe(t.getMessage()),false);}finally{
             if(db!=null)try{db.close();}catch(Throwable ignored){}int left=pending.decrementAndGet();if(left<=0){pending.set(0);finishForeground();}else notifyState("Continuing archive indexing",left+" source"+(left==1?"":"s")+" remaining",true);
