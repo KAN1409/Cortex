@@ -99,21 +99,39 @@ public final class WorkVaultActivity extends Activity {
     private void askProjectAndBuild(WorkDocumentRecipe.Kind kind){
         EditText input=new EditText(this);input.setHint("Project name — optional");input.setSingleLine(true);input.setPadding(dp(18),dp(10),dp(18),dp(10));
         new AlertDialog.Builder(this).setTitle(WorkDocumentRecipe.displayName(kind)).setMessage("Optional project filter. Leave blank to build from all matching grounded archive evidence.").setView(input)
-                .setPositiveButton("Build package",(d,w)->buildAndShare(kind,input.getText()==null?"":input.getText().toString().trim()))
+                .setPositiveButton("Create",(d,w)->buildAndShare(kind,input.getText()==null?"":input.getText().toString().trim()))
                 .setNegativeButton("Cancel",null).show();
     }
 
     private void buildAndShare(WorkDocumentRecipe.Kind kind,String project){
-        android.widget.Toast.makeText(this,"Preparing grounded document package…",android.widget.Toast.LENGTH_SHORT).show();
+        android.widget.Toast.makeText(this,"Preparing grounded document…",android.widget.Toast.LENGTH_SHORT).show();
         new Thread(()->{
             try{
+                org.json.JSONObject payload=WorkDocumentBuildPackage.build(db,kind,project);
+                WorkDocumentGenerationDecision.Decision decision=WorkDocumentGenerationDecision.decide(kind,payload);
+                if(decision.route==WorkDocumentGenerationDecision.Route.LOCAL_GENERATION){
+                    WorkLocalXlsxGenerator.Generated generated=WorkLocalXlsxGenerator.generate(this,kind,payload);
+                    WorkGeneratedDocumentRegistry.register(db.getWritableDatabase(),kind,"XLSX",project,"LOCAL_XLSX_GENERATOR",generated.file.getAbsolutePath(),generated.contentUri.toString());
+                    runOnUiThread(()->shareLocalDocument(generated,decision));
+                    return;
+                }
                 WorkDocumentBuilderBridge.Prepared prepared=WorkDocumentBuilderBridge.prepare(this,db,kind,project);
                 runOnUiThread(()->{
                     boolean opened=WorkDocumentBuilderBridge.openChatGpt(this,prepared);
-                    android.widget.Toast.makeText(this,opened?"Build package sent to ChatGPT":"Could not open ChatGPT/share target",opened?android.widget.Toast.LENGTH_SHORT:android.widget.Toast.LENGTH_LONG).show();
+                    String msg=opened?"Sent to ChatGPT document builder":"Could not open ChatGPT/share target";
+                    android.widget.Toast.makeText(this,msg,opened?android.widget.Toast.LENGTH_SHORT:android.widget.Toast.LENGTH_LONG).show();
                 });
-            }catch(Throwable e){runOnUiThread(()->android.widget.Toast.makeText(this,"Could not prepare document package",android.widget.Toast.LENGTH_LONG).show());}
+            }catch(Throwable e){runOnUiThread(()->android.widget.Toast.makeText(this,"Could not create document",android.widget.Toast.LENGTH_LONG).show());}
         },"work-document-builder").start();
+    }
+
+    private void shareLocalDocument(WorkLocalXlsxGenerator.Generated generated,WorkDocumentGenerationDecision.Decision decision){
+        try{
+            Intent share=new Intent(Intent.ACTION_SEND);share.setType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+            share.putExtra(Intent.EXTRA_STREAM,generated.contentUri);share.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            startActivity(Intent.createChooser(share,"Share generated Work Vault file"));
+            android.widget.Toast.makeText(this,"Created locally • "+generated.rows+" grounded rows",android.widget.Toast.LENGTH_SHORT).show();
+        }catch(Throwable e){android.widget.Toast.makeText(this,"File created, but share sheet could not open",android.widget.Toast.LENGTH_LONG).show();}
     }
 
     private void procurementCaseRow(WorkProcurementCaseEngine.Case x){
