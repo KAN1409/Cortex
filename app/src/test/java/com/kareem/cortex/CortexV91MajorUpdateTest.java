@@ -129,6 +129,26 @@ public class CortexV91MajorUpdateTest {
         Cursor quick=db.rawQuery("PRAGMA quick_check(1)",null);try{assertTrue(quick.moveToFirst());assertEquals("ok",quick.getString(0).toLowerCase());}finally{quick.close();}
     }
 
+    @Test public void fileAccessRequestFlowsFromRawEvidenceToFinalLedgerWithoutReadingFile() throws Exception {
+        long now=System.currentTimeMillis();
+        String title="Supplier access request";
+        String body="Please send the quotation again. I cannot open the file because access is denied.";
+        long raw=UniversalEventStore.appendRaw(db,"notification","com.whatsapp","access-request-test",
+                "posted","android","conversation_notification",title,body,new JSONObject(),now);
+        UniversalEventEngine.Result understood=UniversalEventEngine.reprocessNotification(context,vault,raw);
+        assertEquals("action_request",understood.semanticType);
+        assertEquals(0,understood.attentionId);
+        // Actual semantic interpretation and canonical correlation, not a hand-built Candidate.
+        for(int i=0;i<3;i++)StatefulMeaningRebuilder.run(vault,100);
+        CanonicalAttentionMaterializer.run(context,vault);
+        assertEquals(1,count("SELECT COUNT(*) FROM ue_attention_items WHERE semantic_event_id=? AND state='open' AND reason LIKE 'FINAL_JUDGE:%'",String.valueOf(understood.semanticEventId)));
+        assertEquals(1,count("SELECT COUNT(*) FROM ue_raw_observations WHERE id=? AND body=?",String.valueOf(raw),body));
+        for(int repeat=0;repeat<20;repeat++)CanonicalAttentionMaterializer.run(context,vault);
+        assertEquals(1,count("SELECT COUNT(*) FROM ue_attention_items WHERE semantic_event_id=? AND state='open'",String.valueOf(understood.semanticEventId)));
+        // The obligation is to resend/access the file; no file bytes or verified content were supplied.
+        assertEquals(0,understood.memoryItemId);
+    }
+
     private Seed seed(String sourceType,String sourceKey,String technical,String semanticType,String intent,String subject,String summary,double confidence,long at)throws Exception{
         JSONObject meta=new JSONObject().put("test","v91");long raw=UniversalEventStore.appendRaw(db,sourceType,sourceKey,"v91-"+sourceKey+"-"+at,"posted","android",technical,subject,summary,meta,at);
         long stream=UniversalEventStore.upsertStream(db,sourceType,sourceKey+"|"+raw,"active",Fingerprint.text(subject+summary),subject,summary,"android",technical,at,true,meta);

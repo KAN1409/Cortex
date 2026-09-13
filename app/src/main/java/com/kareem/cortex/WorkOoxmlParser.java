@@ -12,7 +12,7 @@ import java.util.zip.ZipInputStream;
 
 /** Streaming OOXML parser. Originals stay in place; the content URI is opened directly. */
 public final class WorkOoxmlParser {
-    public static final String VERSION="work_ooxml_parser_001";
+    public static final String VERSION="work_ooxml_parser_002";
     private WorkOoxmlParser(){}
 
     public static WorkParsedDocument parse(Context context,Uri uri,String ext)throws Exception{
@@ -26,12 +26,14 @@ public final class WorkOoxmlParser {
         WorkParsedDocument out=new WorkParsedDocument();out.parserVersion=VERSION;
         ArrayList<String> shared=new ArrayList<>();
         HashMap<String,String> relTarget=new HashMap<>(), ridName=new HashMap<>(), targetName=new HashMap<>();
+        final boolean[] workbookFound={false};
 
         visit(c,uri,(name,in)->{
             if("xl/sharedStrings.xml".equals(name))parseSharedStrings(in,shared);
-            else if("xl/workbook.xml".equals(name))parseWorkbook(in,ridName);
+            else if("xl/workbook.xml".equals(name)){parseWorkbook(in,ridName);workbookFound[0]=true;}
             else if("xl/_rels/workbook.xml.rels".equals(name))parseWorkbookRels(in,relTarget);
         });
+        if(!workbookFound[0])throw new IOException("Missing XLSX workbook: corrupt or mismatched document type");
         for(Map.Entry<String,String> e:ridName.entrySet()){
             String target=relTarget.get(e.getKey());if(target==null)continue;
             String normalized=target.startsWith("/")?target.substring(1):(target.startsWith("xl/")?target:"xl/"+target.replace("../",""));
@@ -49,15 +51,24 @@ public final class WorkOoxmlParser {
 
     private static WorkParsedDocument parseDocx(Context c,Uri uri)throws Exception{
         WorkParsedDocument out=new WorkParsedDocument();out.parserVersion=VERSION;
-        visit(c,uri,(name,in)->{if("word/document.xml".equals(name))parseWordDocument(in,out);});
+        final boolean[] documentFound={false};
+        visit(c,uri,(name,in)->{if("word/document.xml".equals(name)){parseWordDocument(in,out);documentFound[0]=true;}});
+        if(!documentFound[0])throw new IOException("Missing DOCX document: corrupt or mismatched document type");
         return out;
     }
 
     private static WorkParsedDocument parsePptx(Context c,Uri uri)throws Exception{
         WorkParsedDocument out=new WorkParsedDocument();out.parserVersion=VERSION;
+        final boolean[] presentationFound={false};
         visit(c,uri,(name,in)->{
+            if("ppt/presentation.xml".equals(name)){
+                XmlPullParser p=parser(in);
+                while(p.getEventType()!=XmlPullParser.END_DOCUMENT)p.next();
+                presentationFound[0]=true;
+            }
             if(name.startsWith("ppt/slides/slide")&&name.endsWith(".xml"))parseSlide(in,slideNumber(name),out);
         });
+        if(!presentationFound[0])throw new IOException("Missing PPTX presentation: corrupt or mismatched document type");
         return out;
     }
 
