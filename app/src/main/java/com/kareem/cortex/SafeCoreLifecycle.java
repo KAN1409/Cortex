@@ -3,9 +3,18 @@ package com.kareem.cortex;
 import android.app.Activity;
 import android.app.Application;
 import android.os.Bundle;
+import java.util.concurrent.atomic.AtomicBoolean;
 
-/** Lightweight lifecycle hook: no DB/WorkManager/native work occurs until InputActivity is resumed. */
+/**
+ * Lightweight lifecycle hook.
+ *
+ * Cortex used to hard-code InputActivity as the only surface allowed to arm the runtime. The real
+ * launcher is NowActivity, so normal launches could permanently skip SafeCoreRuntime and one-time
+ * migrations. Arm from the first resumed Cortex activity instead. SafeCoreRuntime is itself
+ * idempotent, and this additional guard keeps lifecycle work strictly one-shot per process.
+ */
 public final class SafeCoreLifecycle implements Application.ActivityLifecycleCallbacks {
+    private final AtomicBoolean firstResumeHandled=new AtomicBoolean(false);
     private SafeCoreLifecycle() {}
 
     public static void install(Application app) {
@@ -13,10 +22,9 @@ public final class SafeCoreLifecycle implements Application.ActivityLifecycleCal
     }
 
     @Override public void onActivityResumed(Activity activity) {
-        if (activity instanceof InputActivity) {
-            SafeCoreRuntime.armAfterLauncherResume(activity);
-            DocumentIntelligenceMigration.runAfterLauncher(activity.getApplicationContext());
-        }
+        if (activity == null || !firstResumeHandled.compareAndSet(false,true)) return;
+        SafeCoreRuntime.armAfterLauncherResume(activity);
+        DocumentIntelligenceMigration.runAfterLauncher(activity.getApplicationContext());
     }
 
     @Override public void onActivityCreated(Activity activity, Bundle state) {}
