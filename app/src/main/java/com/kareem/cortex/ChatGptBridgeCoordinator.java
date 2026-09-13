@@ -27,13 +27,28 @@ public final class ChatGptBridgeCoordinator {
             JSONObject cortexOutput,
             JSONObject referenceEvidence) {
         try {
+            return dispatchTestWithRules(runId,testId,originalInput,cortexOutput,referenceEvidence,
+                    ChatGptBridgeProtocol.defaultJudgingRules());
+        } catch (Throwable t) {
+            return DispatchResult.failed(null, null, t.getClass().getSimpleName() + ": " + safeMessage(t), transport.name());
+        }
+    }
+
+    public DispatchResult dispatchTestWithRules(
+            String runId,
+            String testId,
+            JSONObject originalInput,
+            JSONObject cortexOutput,
+            JSONObject referenceEvidence,
+            JSONObject judgingRules) {
+        try {
             JSONObject request = ChatGptBridgeProtocol.newTestRequest(
                     runId,
                     testId,
                     originalInput,
                     cortexOutput,
                     referenceEvidence,
-                    ChatGptBridgeProtocol.defaultJudgingRules());
+                    judgingRules == null ? ChatGptBridgeProtocol.defaultJudgingRules() : judgingRules);
             File persisted = store.putPending(request);
             GmailBridgeTransport.SendResult sent = transport.sendEnvelope(request);
             if (!sent.ok) return DispatchResult.failed(request, persisted, sent.error, transport.name());
@@ -51,7 +66,7 @@ public final class ChatGptBridgeCoordinator {
             for (JSONObject verdict : candidates) {
                 seen++;
                 ChatGptBridgeStore.AcceptResult result = store.acceptVerdict(verdict);
-                if (result.accepted) accepted++; else rejected++;
+                if (result.accepted) accepted++; else if (!"DUPLICATE_IGNORED".equals(result.detail)) rejected++;
                 details.put(new JSONObject()
                         .put("requestId", verdict.optString("requestId", ""))
                         .put("accepted", result.accepted)
