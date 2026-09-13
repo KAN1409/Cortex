@@ -6,6 +6,20 @@
         <item name="android:navigationBarColor">@color/cortex_bg</item>
         <item name="android:colorAccent">@color/cortex_accent</item>
         <item name="android:windowBackground">@color/cortex_bg</item>
+        <item name="android:dialogTheme">@style/CortexDialogTheme</item>
+    </style>
+
+    <style name="CortexDialogTheme" parent="android:style/Theme.Material.Dialog.NoActionBar">
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:backgroundDimEnabled">true</item>
+        <item name="android:backgroundDimAmount">0.66</item>
+        <item name="android:windowAnimationStyle">@style/CortexDialogAnimation</item>
+    </style>
+
+    <style name="CortexDialogAnimation">
+        <item name="android:windowEnterAnimation">@anim/cortex_dialog_enter</item>
+        <item name="android:windowExitAnimation">@anim/cortex_dialog_exit</item>
     </style>
 
     <style name="CaptureSheetTheme" parent="@style/AppTheme">
