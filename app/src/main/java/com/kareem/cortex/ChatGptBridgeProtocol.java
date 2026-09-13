@@ -61,41 +61,52 @@ public final class ChatGptBridgeProtocol {
     public static Validation validateVerdictAgainstRequest(JSONObject request, JSONObject verdict) {
         Validation requestValidation = validateEnvelope(request);
         if (!requestValidation.ok) return Validation.fail("request invalid: " + requestValidation.reason);
-        return validateVerdictCore(request, verdict);
+        return validateVerdictAgainstCorrelation(
+                verdict,
+                request.optString("requestId", ""),
+                request.optString("runId", ""),
+                request.optString("testId", ""),
+                request.optString("payloadSha256", ""));
     }
 
     /**
-     * Compatibility validator for requests loaded from Cortex private storage.
-     * Older schema-v1 requests were validated before persistence, but the old canonicalizer represented
-     * integral floating-point numbers as e.g. 1.0 while JSONObject serialization could persist them as 1.
-     * This permits only that known persisted-request hash mismatch; the original stored wire hash remains
-     * the correlation fingerprint and the verdict itself is still hash-validated strictly.
+     * Legacy compatibility only. New persisted requests are validated once before persistence and
+     * verdict correlation is checked against immutable metadata, never by re-hashing stored request JSON.
      */
     public static Validation validateVerdictAgainstPersistedRequest(JSONObject request, JSONObject verdict) {
-        Validation requestValidation = validateEnvelope(request);
-        if (!requestValidation.ok) {
-            if (!"payload hash mismatch".equals(requestValidation.reason)) {
-                return Validation.fail("request invalid: " + requestValidation.reason);
-            }
-            Validation structural = validateEnvelopeStructure(request);
-            if (!structural.ok) return Validation.fail("request invalid: " + structural.reason);
-        }
-        return validateVerdictCore(request, verdict);
+        Validation structural = validateEnvelopeStructure(request);
+        if (!structural.ok) return Validation.fail("request invalid: " + structural.reason);
+        return validateVerdictAgainstCorrelation(
+                verdict,
+                request.optString("requestId", ""),
+                request.optString("runId", ""),
+                request.optString("testId", ""),
+                request.optString("payloadSha256", ""));
     }
 
-    private static Validation validateVerdictCore(JSONObject request, JSONObject verdict) {
+    /**
+     * Root correlation primitive. The request body is intentionally not re-hashed here: it was
+     * already validated at dispatch time. This makes persistence round-trips irrelevant to verdict
+     * acceptance while preserving exact requestId/runId/testId/wire-hash correlation.
+     */
+    public static Validation validateVerdictAgainstCorrelation(
+            JSONObject verdict,
+            String requestId,
+            String runId,
+            String testId,
+            String requestPayloadSha256) {
         Validation verdictValidation = validateEnvelope(verdict);
         if (!verdictValidation.ok) return Validation.fail("verdict invalid: " + verdictValidation.reason);
-        if (!MessageType.CORTEX_TEST_REQUEST.name().equals(request.optString("messageType"))) return Validation.fail("request has wrong messageType");
-        if (!MessageType.CHATGPT_TEST_VERDICT.name().equals(verdict.optString("messageType"))) return Validation.fail("response is not a test verdict");
-        for (String key : new String[]{"requestId","runId","testId"}) {
-            if (!constantTimeEquals(request.optString(key,""), verdict.optString(key,""))) return Validation.fail(key+" mismatch");
+        if (!MessageType.CHATGPT_TEST_VERDICT.name().equals(verdict.optString("messageType"))) {
+            return Validation.fail("response is not a test verdict");
         }
+        if (!constantTimeEquals(requestId, verdict.optString("requestId", ""))) return Validation.fail("requestId mismatch");
+        if (!constantTimeEquals(runId, verdict.optString("runId", ""))) return Validation.fail("runId mismatch");
+        if (!constantTimeEquals(testId, verdict.optString("testId", ""))) return Validation.fail("testId mismatch");
         JSONObject verdictPayload = verdict.optJSONObject("payload");
         if (verdictPayload == null) return Validation.fail("missing verdict payload");
-        String requestPayloadSha = request.optString("payloadSha256", "");
         String echoed = verdictPayload.optString("requestPayloadSha256", "");
-        if (!constantTimeEquals(requestPayloadSha, echoed)) return Validation.fail("requestPayloadSha256 mismatch");
+        if (!constantTimeEquals(requestPayloadSha256, echoed)) return Validation.fail("requestPayloadSha256 mismatch");
         try {
             VerdictStatus.valueOf(verdictPayload.optString("status", ""));
             Severity.valueOf(verdictPayload.optString("severity", ""));
