@@ -2,7 +2,7 @@ name: Android Debug APK
 
 on:
   push:
-    branches: [ main, v71/visual-memory-u1, v72/visual-memory-u2-provenance, v73/nav-picbrain, v74/u2-structured-knowledge, v80/cortex-major-unified, v81/nexus-inside-cortex, v82/chatgpt-policy-bridge, v83/intelligence-layer-reorg, v86/work-vault, v105/chatgpt-gmail-bridge, v106/gmail-bridge-fallback, v107/gmail-mime-decoder, v108/free-intelligence-comparison-teaching, v109/true-1000-scenarios-dashboard, v110/run-scoped-gmail-poll ]
+    branches: [ main, v71/visual-memory-u1, v72/visual-memory-u2-provenance, v73/nav-picbrain, v74/u2-structured-knowledge, v80/cortex-major-unified, v81/nexus-inside-cortex, v82/chatgpt-policy-bridge, v83/intelligence-layer-reorg, v86/work-vault, v105/chatgpt-gmail-bridge, v106/gmail-bridge-fallback, v107/gmail-mime-decoder, v108/free-intelligence-comparison-teaching, v109/true-1000-scenarios-dashboard, v110/run-scoped-gmail-poll, v111/bridge-rejection-diagnostics ]
   pull_request:
     branches: [ main ]
   workflow_dispatch:
@@ -22,16 +22,16 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Stamp v110 update-safe version
-        if: github.ref_name == 'v110/run-scoped-gmail-poll'
+      - name: Stamp v111 update-safe version
+        if: github.ref_name == 'v111/bridge-rejection-diagnostics'
         shell: bash
         run: |
           python - <<'PY'
           from pathlib import Path
           p=Path('app/build.gradle')
           s=p.read_text()
-          s=s.replace('versionCode 129', 'versionCode 130')
-          s=s.replace("versionName '2.23.0-v109-true-1000-dashboard'", "versionName '2.24.0-v110-run-scoped-gmail-poll'")
+          s=s.replace('versionCode 129', 'versionCode 131')
+          s=s.replace("versionName '2.23.0-v109-true-1000-dashboard'", "versionName '2.25.0-v111-bridge-rejection-diagnostics'")
           p.write_text(s)
           PY
           grep -E 'versionCode|versionName' app/build.gradle
@@ -67,6 +67,6 @@ jobs:
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
         with:
-          name: Cortex-v110-run-scoped-gmail-poll-ci
+          name: Cortex-v111-bridge-rejection-diagnostics-ci
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
