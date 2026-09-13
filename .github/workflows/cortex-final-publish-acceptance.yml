@@ -20,7 +20,7 @@ concurrency:
 jobs:
   publish-acceptance:
     runs-on: macos-15-intel
-    timeout-minutes: 60
+    timeout-minutes: 75
 
     steps:
       - name: Checkout exact candidate
@@ -81,28 +81,82 @@ jobs:
             echo "TEST_BYTES=$(wc -c < "$TEST" | tr -d ' ')"
           } | tee preflight.txt
 
-      - name: Full installed-runtime simulation on Android 35
-        uses: reactivecircus/android-emulator-runner@v2
+      - name: Runtime attempt 1 on Android 35
+        id: runtime1
+        continue-on-error: true
+        uses: reactivecircus/android-emulator-runner@v2.38.0
         with:
           api-level: 35
           target: google_apis
           arch: x86_64
           profile: pixel_6
-          ram-size: 4096M
-          heap-size: 768M
+          ram-size: 3072M
+          heap-size: 512M
           disable-animations: true
           disable-spellchecker: true
           enable-hw-keyboard: true
           disk-size: 8G
-          emulator-boot-timeout: 600
-          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back emulated -camera-front emulated
+          emulator-boot-timeout: 900
+          emulator-options: -no-window -no-snapshot-load -no-snapshot-save -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -camera-front none
+          pre-emulator-launch-script: |
+            adb start-server || true
+            adb devices || true
           script: sh .github/scripts/cortex-final-publish-acceptance.sh
 
-      - name: Verify runtime acceptance evidence
-        if: success()
+      - name: Classify runtime attempt 1
+        id: classify1
+        if: always()
         shell: bash
         run: |
           set -euo pipefail
+          RESULT='${{ steps.runtime1.outcome }}'
+          if [[ "$RESULT" == "success" ]]; then
+            echo 'retry=false' >> "$GITHUB_OUTPUT"
+            echo 'RUNTIME_ATTEMPT_1|PASS'
+            exit 0
+          fi
+
+          if [[ ! -s publish-artifacts/runtime_stages.txt ]]; then
+            echo 'retry=true' >> "$GITHUB_OUTPUT"
+            echo 'RUNTIME_ATTEMPT_1|INFRA_FAILURE_BEFORE_SCRIPT'
+            exit 0
+          fi
+
+          echo 'retry=false' >> "$GITHUB_OUTPUT"
+          echo 'RUNTIME_ATTEMPT_1|APP_OR_TEST_FAILURE_AFTER_SCRIPT_START'
+
+      - name: Runtime attempt 2 for infra-only boot failure
+        id: runtime2
+        if: steps.classify1.outputs.retry == 'true'
+        continue-on-error: true
+        uses: reactivecircus/android-emulator-runner@v2.38.0
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          ram-size: 3072M
+          heap-size: 512M
+          disable-animations: true
+          disable-spellchecker: true
+          enable-hw-keyboard: true
+          disk-size: 8G
+          emulator-boot-timeout: 900
+          emulator-options: -no-window -no-snapshot-load -no-snapshot-save -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -camera-front none
+          pre-emulator-launch-script: |
+            adb kill-server || true
+            adb start-server || true
+            adb devices || true
+          script: sh .github/scripts/cortex-final-publish-acceptance.sh
+
+      - name: Verify runtime acceptance evidence
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "RUNTIME1_OUTCOME=${{ steps.runtime1.outcome }}"
+          echo "RUNTIME2_OUTCOME=${{ steps.runtime2.outcome }}"
+
           test -s publish-artifacts/runtime_stages.txt
           test -s publish-artifacts/instrumentation.txt
           test -s publish-artifacts/final_result.txt
@@ -117,6 +171,7 @@ jobs:
           grep -q '^UPDATE_PERSISTENCE_PASS$' publish-artifacts/runtime_stages.txt
           grep -q '^NO_FATAL_ANR$' publish-artifacts/runtime_stages.txt
           grep -q '^FINAL_PASS$' publish-artifacts/runtime_stages.txt
+          grep -q 'INSTRUMENTATION_CODE: -1' publish-artifacts/instrumentation.txt
           grep -q 'PUBLISH_ACCEPTANCE|PASS|head=${{ github.sha }}' publish-artifacts/final_result.txt
           echo 'EVIDENCE_GATE|PASS'
 
