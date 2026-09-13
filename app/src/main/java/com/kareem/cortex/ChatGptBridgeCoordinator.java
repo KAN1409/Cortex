@@ -87,17 +87,14 @@ public final class ChatGptBridgeCoordinator {
                 if(progressed)stagnantPasses=0;else stagnantPasses++;
                 previousPending=pendingNow;
 
-                // Give an eventually-consistent mailbox one extra pass after the first miss,
-                // but remain bounded when no new verdict becomes visible.
                 if(stagnantPasses>=2)break;
             }
 
-            JSONObject convergence=new JSONObject()
+            details.put(new JSONObject()
                     .put("kind","CONVERGENCE_SUMMARY")
                     .put("passes",passes)
                     .put("activeRunId",activeRun)
-                    .put("remainingPending",pendingFor(activeRun));
-            details.put(convergence);
+                    .put("remainingPending",pendingFor(activeRun)));
 
             if(accepted==0&&rejected>0)return new PollResult(false,seen,accepted,rejected,ignored,details,rejectionSummary(details),transport.name());
             return new PollResult(true,seen,accepted,rejected,ignored,details,"",transport.name());
@@ -138,7 +135,7 @@ public final class ChatGptBridgeCoordinator {
     public static final class DispatchResult{
         public final boolean sent;public final JSONObject request;public final File persistedFile;public final String gmailMessageId,gmailThreadId,error,transport;
         private DispatchResult(boolean sent,JSONObject request,File persistedFile,String gmailMessageId,String gmailThreadId,String error,String transport){this.sent=sent;this.request=request;this.persistedFile=persistedFile;this.gmailMessageId=gmailMessageId;this.gmailThreadId=gmailThreadId;this.error=error;this.transport=transport;}
-        static DispatchResult sent(JSONObject request,File file,String id,String threadId,String transport){return new DispatchResult(true,request,file,id,threadId,"","",transport);}static DispatchResult failed(JSONObject request,File file,String error,String transport){return new DispatchResult(false,request,file,"","",error==null?"UNKNOWN":error,transport);}
+        static DispatchResult sent(JSONObject request,File file,String id,String threadId,String transport){return new DispatchResult(true,request,file,id,threadId,"",transport);}static DispatchResult failed(JSONObject request,File file,String error,String transport){return new DispatchResult(false,request,file,"","",error==null?"UNKNOWN":error,transport);}
     }
 
     public static final class PollResult{
