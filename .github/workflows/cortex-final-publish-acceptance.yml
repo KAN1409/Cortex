@@ -19,7 +19,7 @@ concurrency:
 
 jobs:
   publish-acceptance:
-    runs-on: ubuntu-latest
+    runs-on: macos-13
     timeout-minutes: 60
 
     steps:
@@ -42,6 +42,21 @@ jobs:
 
       - name: Assemble app and instrumentation APKs
         run: gradle :app:assembleDebug :app:assembleDebugAndroidTest --stacktrace
+
+      - name: Final publish preflight
+        shell: bash
+        run: |
+          set -euo pipefail
+          SCRIPT=.github/scripts/cortex-final-publish-acceptance.sh
+          APP=app/build/outputs/apk/debug/app-debug.apk
+          TEST=app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+          test -s "$SCRIPT"
+          sh -n "$SCRIPT"
+          test -s "$APP"
+          test -s "$TEST"
+          grep -q 'CortexPublishAcceptanceTest' "$SCRIPT"
+          grep -q 'com.kareem.cortex.test/androidx.test.runner.AndroidJUnitRunner' "$SCRIPT"
+          echo "PREFLIGHT|PASS|script=$(wc -c < "$SCRIPT")|app=$(wc -c < "$APP")|test=$(wc -c < "$TEST")"
 
       - name: Full installed-runtime simulation on Android 35
         uses: reactivecircus/android-emulator-runner@v2
