@@ -37,8 +37,8 @@ android {
         applicationId 'com.kareem.cortex'
         minSdk 26
         targetSdk 35
-        versionCode 123
-        versionName '2.17.0-v103-embedded-e2e-test-lab'
+        versionCode 124
+        versionName '2.18.0-v104-extreme-endurance-lab'
         testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
     }
     buildTypes { debug { signingConfig signingConfigs.debug } }
