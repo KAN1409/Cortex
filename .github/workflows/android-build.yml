@@ -59,7 +59,7 @@ jobs:
           gradle-version: '8.9'
 
       - name: Run unit tests
-        run: gradle :app:testDebugUnitTest --stacktrace
+        run: gradle :app:testDebugUnitTest --info --stacktrace
 
       - name: Build debug APK
         run: gradle :app:assembleDebug --stacktrace
