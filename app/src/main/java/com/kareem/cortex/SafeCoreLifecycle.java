@@ -8,14 +8,13 @@ import java.util.concurrent.atomic.AtomicBoolean;
 /**
  * Lightweight lifecycle hook.
  *
- * Cortex used to hard-code InputActivity as the only surface allowed to arm the runtime. The real
- * launcher is NowActivity, so normal launches could permanently skip SafeCoreRuntime and one-time
- * migrations. Arm from the first resumed Cortex activity instead. SafeCoreRuntime is itself
- * idempotent, and this additional guard keeps lifecycle work strictly one-shot per process.
+ * Runtime startup must follow the actual first resumed Cortex surface, not a hard-coded activity
+ * class. The launcher is currently NowActivity; share/deep-link entry points may differ. Safe core
+ * remains idempotent and owns all post-resume recovery once the UI is stable.
  */
 public final class SafeCoreLifecycle implements Application.ActivityLifecycleCallbacks {
     private final AtomicBoolean firstResumeHandled=new AtomicBoolean(false);
-    private SafeCoreLifecycle() {}
+    SafeCoreLifecycle() {}
 
     public static void install(Application app) {
         if (app != null) app.registerActivityLifecycleCallbacks(new SafeCoreLifecycle());
@@ -24,7 +23,6 @@ public final class SafeCoreLifecycle implements Application.ActivityLifecycleCal
     @Override public void onActivityResumed(Activity activity) {
         if (activity == null || !firstResumeHandled.compareAndSet(false,true)) return;
         SafeCoreRuntime.armAfterLauncherResume(activity);
-        DocumentIntelligenceMigration.runAfterLauncher(activity.getApplicationContext());
     }
 
     @Override public void onActivityCreated(Activity activity, Bundle state) {}
