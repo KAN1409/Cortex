@@ -10,9 +10,9 @@ import android.service.notification.NotificationListenerService;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
-/** Staged recovery bridge between a visually stable launcher and the full Cortex runtime. */
+/** Staged recovery bridge between a visually stable first activity and the full Cortex runtime. */
 public final class SafeCoreRuntime {
-    public static final String VERSION = "safe_core_runtime_006_chatgpt_bridge";
+    public static final String VERSION = "safe_core_runtime_007_entry_surface_recovery";
     private static final long POST_RESUME_SETTLE_MS = 1200L;
 
     public enum Phase { COLD_START, UI_STABLE_PROBING, CORE_READY, CORE_FAILED }
@@ -42,6 +42,10 @@ public final class SafeCoreRuntime {
             PHASE.set(Phase.CORE_READY);
 
             StartupSafetyGate.releaseAfterSafeCore();
+
+            // Versioned migrations belong behind a healthy database/runtime boundary. They must
+            // not depend on one specific Activity class being the launcher.
+            try{DocumentIntelligenceMigration.runAfterLauncher(app);}catch(Throwable t){CapabilitySupervisor.recordFailure(app,CapabilitySupervisor.Capability.BACKGROUND_SCHEDULING,t);}
 
             try{StartupMaintenance.schedule(app);}catch(Throwable t){CapabilitySupervisor.recordFailure(app,CapabilitySupervisor.Capability.BACKGROUND_SCHEDULING,t);}
             try{StatefulMeaningScheduler.kick(app);}catch(Throwable t){CapabilitySupervisor.recordFailure(app,CapabilitySupervisor.Capability.BACKGROUND_SCHEDULING,t);}
@@ -84,6 +88,7 @@ public final class SafeCoreRuntime {
                 ||capability==CapabilitySupervisor.Capability.DETERMINISTIC_COGNITION
                 ||capability==CapabilitySupervisor.Capability.BACKGROUND_SCHEDULING;
     }
+    static boolean armedForTests(){return ARMED.get();}
     static void resetForTests(){ARMED.set(false);PHASE.set(Phase.COLD_START);StartupSafetyGate.resetForTests();}
     static void forceReadyForTests(){ARMED.set(true);PHASE.set(Phase.CORE_READY);StartupSafetyGate.releaseAfterSafeCore();}
 }
