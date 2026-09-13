@@ -10,7 +10,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 /** One-time recovery for files imported before document intelligence existed. */
 public final class DocumentIntelligenceMigration {
     private static final String PREF="document_intelligence_migration";
-    private static final String KEY="v101_reindexed";
+    private static final String KEY="v102_reindexed_after_entry_surface_fix";
     private static final AtomicBoolean started=new AtomicBoolean(false);
     private static final ExecutorService work=Executors.newSingleThreadExecutor(r->{Thread t=new Thread(r,"cortex-document-migration");t.setPriority(Thread.NORM_PRIORITY-1);return t;});
     private DocumentIntelligenceMigration(){}
@@ -36,4 +36,6 @@ public final class DocumentIntelligenceMigration {
             AnalysisQueue.kick(app,null,null);
         });
     }
+
+    static String preferenceKeyForTests(){return KEY;}
 }
