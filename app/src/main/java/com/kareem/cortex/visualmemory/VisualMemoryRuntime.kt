@@ -165,40 +165,33 @@ object VisualMemoryRuntime {
         }
     }
 
+    /** Cheap count used by the UI to decide whether the first MediaStore sync is needed. */
+    @JvmStatic
+    fun pictureCount(context: Context): Int = runBlocking(Dispatchers.IO) {
+        VisualMemoryStore.database(context.applicationContext).mediaItemDao().countAll()
+    }
+
+    /**
+     * Fast dashboard snapshot. Keep this aggregate-only: never materialize the media corpus or
+     * embedding vectors just to paint counters.
+     */
     @JvmStatic
     fun stats(context: Context): VisualMemoryStats = runBlocking(Dispatchers.IO) {
         val app = context.applicationContext
         val dao = VisualMemoryStore.database(app).mediaItemDao()
-        val all = dao.getAll()
-        val screenshots = all.filter { it.isScreenshot }
-        val screenshotIds = screenshots.map { it.mediaId }.toHashSet()
-        val embeddedIds = dao.getEmbeddings(
-            EmbeddingGemmaEmbedder.MODEL_ID,
-            EmbeddingGemmaEmbedder.TARGET_DIMENSIONS
-        ).asSequence().map { it.mediaId }.filter { it in screenshotIds }.toSet()
-        val semanticSkipped = screenshots.count {
-            it.semanticState == "SKIPPED" ||
-                (it.ocrState == "DONE" && it.ocrNormalizedText.orEmpty().trim().isEmpty())
-        }
-        val semanticFailed = screenshots.count { it.semanticState == "FAILED" }
-        val semanticPending = screenshots.count {
-            it.ocrState == "DONE" &&
-                it.mediaId !in embeddedIds &&
-                it.semanticState != "FAILED" &&
-                it.semanticState != "SKIPPED" &&
-                it.ocrNormalizedText.orEmpty().isNotBlank()
-        }
+        val modelId = EmbeddingGemmaEmbedder.MODEL_ID
+        val dimensions = EmbeddingGemmaEmbedder.TARGET_DIMENSIONS
         val knowledgeCounts = KnowledgeV2Store.visualProcessingCounts(app)
         VisualMemoryStats(
-            pictures = all.size,
-            screenshots = screenshots.size,
-            ocrReady = screenshots.count { it.ocrState == "DONE" },
-            ocrPending = screenshots.count { it.ocrState == "NOT_PROCESSED" },
-            ocrFailed = screenshots.count { it.ocrState == "FAILED" },
-            semanticIndexed = embeddedIds.size,
-            semanticPending = semanticPending,
-            semanticFailed = semanticFailed,
-            semanticSkipped = semanticSkipped,
+            pictures = dao.countAll(),
+            screenshots = dao.countScreenshots(),
+            ocrReady = dao.countOcrDone(),
+            ocrPending = dao.countOcrPending(),
+            ocrFailed = dao.countOcrFailed(),
+            semanticIndexed = dao.countSemanticIndexed(modelId, dimensions),
+            semanticPending = dao.countSemanticPending(modelId, dimensions),
+            semanticFailed = dao.countSemanticFailed(),
+            semanticSkipped = dao.countSemanticSkipped(),
             modelInstalled = SemanticModelStore(app).isInstalled(),
             knowledgePending = knowledgeCounts[0],
             knowledgeRunning = knowledgeCounts[1],
@@ -209,24 +202,20 @@ object VisualMemoryRuntime {
         )
     }
 
+    /** SQL LIMIT keeps opening Memory O(limit), not O(total screenshots). */
     @JvmStatic
     fun recent(context: Context, limit: Int): List<VisualMemoryItem> = runBlocking(Dispatchers.IO) {
         val app = context.applicationContext
         val knowledgeStates = KnowledgeV2Store.visualProcessingStates(app)
-        VisualMemoryStore.database(app).mediaItemDao().getAll()
-            .asSequence()
-            .filter { it.isScreenshot }
-            .sortedByDescending { it.dateTakenMillis ?: it.dateAddedSeconds * 1000L }
-            .take(limit)
+        VisualMemoryStore.database(app).mediaItemDao().getRecentScreenshots(limit.coerceAtLeast(1))
             .map { toDto(it, knowledgeStates[it.mediaId].orEmpty()) }
-            .toList()
     }
 
     @JvmStatic
     fun search(context: Context, query: String, limit: Int): List<VisualMemoryItem> = runBlocking(Dispatchers.IO) {
         val app = context.applicationContext
         val dao = VisualMemoryStore.database(app).mediaItemDao()
-        val corpus = dao.getAll().filter { it.isScreenshot && it.ocrState == "DONE" }
+        val corpus = dao.getOcrSearchCorpus()
         val semantic = if (SemanticModelStore(app).isInstalled()) {
             EmbeddingGemmaSemanticEngine(app, dao)
         } else null

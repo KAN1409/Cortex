@@ -125,8 +125,14 @@ interface MediaItemDao {
     @Query("SELECT * FROM media_items WHERE isScreenshot = 1 ORDER BY COALESCE(dateTakenMillis, dateAddedSeconds * 1000) DESC LIMIT :limit")
     fun observeRecentScreenshots(limit: Int = 200): Flow<List<MediaItemEntity>>
 
+    @Query("SELECT * FROM media_items WHERE isScreenshot = 1 ORDER BY COALESCE(dateTakenMillis, dateAddedSeconds * 1000) DESC LIMIT :limit")
+    suspend fun getRecentScreenshots(limit: Int): List<MediaItemEntity>
+
     @Query("SELECT * FROM media_items WHERE isScreenshot = 1 AND ocrState = 'DONE' ORDER BY COALESCE(dateTakenMillis, dateAddedSeconds * 1000) DESC")
     fun observeOcrSearchCorpus(): Flow<List<MediaItemEntity>>
+
+    @Query("SELECT * FROM media_items WHERE isScreenshot = 1 AND ocrState = 'DONE' ORDER BY COALESCE(dateTakenMillis, dateAddedSeconds * 1000) DESC")
+    suspend fun getOcrSearchCorpus(): List<MediaItemEntity>
 
     @Query("SELECT * FROM media_items WHERE isScreenshot = 1 AND ocrState = 'NOT_PROCESSED' ORDER BY dateAddedSeconds DESC LIMIT :limit")
     suspend fun getScreenshotsNeedingOcr(limit: Int = 25): List<MediaItemEntity>
@@ -145,6 +151,45 @@ interface MediaItemDao {
 
     @Query("SELECT COUNT(*) FROM media_items WHERE isScreenshot = 1 AND ocrState = 'FAILED'")
     fun observeOcrFailedCount(): Flow<Int>
+
+    @Query("SELECT COUNT(*) FROM media_items")
+    suspend fun countAll(): Int
+
+    @Query("SELECT COUNT(*) FROM media_items WHERE isScreenshot = 1")
+    suspend fun countScreenshots(): Int
+
+    @Query("SELECT COUNT(*) FROM media_items WHERE isScreenshot = 1 AND ocrState = 'DONE'")
+    suspend fun countOcrDone(): Int
+
+    @Query("SELECT COUNT(*) FROM media_items WHERE isScreenshot = 1 AND ocrState = 'NOT_PROCESSED'")
+    suspend fun countOcrPending(): Int
+
+    @Query("SELECT COUNT(*) FROM media_items WHERE isScreenshot = 1 AND ocrState = 'FAILED'")
+    suspend fun countOcrFailed(): Int
+
+    @Query("SELECT COUNT(*) FROM media_items WHERE isScreenshot = 1 AND semanticState = 'FAILED'")
+    suspend fun countSemanticFailed(): Int
+
+    @Query("SELECT COUNT(*) FROM media_items WHERE isScreenshot = 1 AND (semanticState = 'SKIPPED' OR (ocrState = 'DONE' AND TRIM(COALESCE(ocrNormalizedText,'')) = ''))")
+    suspend fun countSemanticSkipped(): Int
+
+    @Query("SELECT COUNT(DISTINCT mediaId) FROM media_embeddings WHERE modelId=:modelId AND dimensions=:dimensions")
+    suspend fun countSemanticIndexed(modelId: String, dimensions: Int): Int
+
+    @Query("""
+        SELECT COUNT(*) FROM media_items m
+        WHERE m.isScreenshot = 1
+          AND m.ocrState = 'DONE'
+          AND m.semanticState NOT IN ('FAILED','SKIPPED')
+          AND TRIM(COALESCE(m.ocrNormalizedText,'')) != ''
+          AND NOT EXISTS (
+              SELECT 1 FROM media_embeddings e
+              WHERE e.mediaId = m.mediaId
+                AND e.modelId = :modelId
+                AND e.dimensions = :dimensions
+          )
+    """)
+    suspend fun countSemanticPending(modelId: String, dimensions: Int): Int
 
     @Query("SELECT MAX(dateAddedSeconds) FROM media_items")
     suspend fun latestDateAddedSeconds(): Long?
