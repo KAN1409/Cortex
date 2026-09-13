@@ -4,7 +4,6 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.io.BufferedReader;
-import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
@@ -14,7 +13,6 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
-import java.util.Locale;
 
 /**
  * Minimal Gmail REST transport for Cortex bridge traffic.
@@ -60,9 +58,11 @@ public final class GmailBridgeTransport {
     }
 
     public List<JSONObject> fetchCandidateVerdicts(long newerThanEpochMs, int maxResults) throws Exception {
-        int boundedMax = Math.max(1, Math.min(maxResults, 100));
+        int boundedMax = Math.max(1, Math.min(maxResults, 500));
         long afterSeconds = Math.max(0L, newerThanEpochMs / 1000L);
-        String query = "label:\"" + LABEL_NAME + "\" subject:CORTEX-BRIDGE after:" + afterSeconds;
+        // Inbound ChatGPT verdicts are not guaranteed to carry Cortex's custom Gmail label.
+        // Search by the protocol subject marker instead of requiring the outbound-only label.
+        String query = "subject:\"CHATGPT_TEST_VERDICT\" after:" + afterSeconds;
         String url = API + "/messages?q=" + urlEncode(query) + "&maxResults=" + boundedMax;
         JSONObject listing = requestJson("GET", url, null, true);
         JSONArray messages = listing.optJSONArray("messages");
