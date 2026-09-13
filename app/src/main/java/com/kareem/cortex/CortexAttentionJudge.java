@@ -17,7 +17,7 @@ import java.util.Locale;
  * but cannot edit evidence, knowledge, world state, or execute an action.
  */
 public final class CortexAttentionJudge {
-    public static final String VERSION = "cortex_attention_judge_002";
+    public static final String VERSION = "cortex_attention_judge_003";
 
     public static final class RuntimeContext {
         public final double contextMatch;
@@ -69,8 +69,8 @@ public final class CortexAttentionJudge {
         AttentionDecisionEngine.Decision structural = AttentionDecisionEngine.evaluate(c);
         String structuralReason = structural.reason == null ? "" : structural.reason.toLowerCase(Locale.ROOT);
 
+        // Hard semantic safety gates come before all soft scoring.
         // Resolution is canonical structured state, never inferred from natural-language reasons.
-        // In particular, "unresolved situation" contains the substring "resolved situation".
         if (!c.unresolved || isResolvedState(c.state)) {
             return new Judgment(c, false, 0, threshold, rt.interruptionCost,
                     "resolved state is never an interruption", policyVersion);
@@ -112,7 +112,9 @@ public final class CortexAttentionJudge {
         score += semanticFeatureBoost(policy, c, text, risk, urgency, deadline);
 
         boolean hardRisk = risk >= .85 && urgency >= .60;
-        boolean hardRequest = c.explicitRequest && actionability >= .65 && c.personalRelevance >= .45;
+        // Explicit actionable requests are a structured hard boundary once grounding gates passed.
+        // Freshness remains a soft ranking input and must not erase the obligation itself.
+        boolean hardRequest = c.explicitRequest && c.actionability >= .80 && c.personalRelevance >= .45;
         boolean dueCommitment = c.linkedOpenCommitment && deadline >= .60;
         boolean contextualEmergency = c.severeContextImpact && (risk >= .60 || urgency >= .60);
         boolean hard = hardRisk || hardRequest || dueCommitment || contextualEmergency;
