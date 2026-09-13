@@ -13,7 +13,10 @@ public final class SafeCoreLifecycle implements Application.ActivityLifecycleCal
     }
 
     @Override public void onActivityResumed(Activity activity) {
-        if (activity instanceof InputActivity) SafeCoreRuntime.armAfterLauncherResume(activity);
+        if (activity instanceof InputActivity) {
+            SafeCoreRuntime.armAfterLauncherResume(activity);
+            DocumentIntelligenceMigration.runAfterLauncher(activity.getApplicationContext());
+        }
     }
 
     @Override public void onActivityCreated(Activity activity, Bundle state) {}
