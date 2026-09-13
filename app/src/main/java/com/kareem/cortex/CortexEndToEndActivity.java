@@ -11,7 +11,7 @@ import java.io.File;
 
 /** Installed-device end-to-end verification surface. */
 public class CortexEndToEndActivity extends Activity {
-    LinearLayout body,events;TextView headline,sub;Button run,max,share,arm;volatile boolean running;
+    LinearLayout body,events;TextView headline,sub;Button run,max,extreme,share,arm;volatile boolean running;
     int dp(int x){return CortexUi.dp(this,x);}
     @Override public void onCreate(Bundle b){super.onCreate(b);CortexUi.applyWindow(this);build();refreshLatest();}
 
@@ -22,30 +22,35 @@ public class CortexEndToEndActivity extends Activity {
 
         LinearLayout card=CortexUi.card(this,20);card.setPadding(dp(16),dp(16),dp(16),dp(16));headline=CortexUi.plain(this,"Ready",20,CortexUi.TEXT);CortexUi.medium(headline);card.addView(headline);sub=CortexUi.text(this,"Runs production code paths, creates isolated fixtures, and produces a structured report for ChatGPT.",12,CortexUi.MUTED);sub.setPadding(0,dp(6),0,0);card.addView(sub);body.addView(card);
 
-        run=new Button(this);run.setText("RUN FULL END-TO-END TEST");run.setAllCaps(false);run.setOnClickListener(v->runFull(false));LinearLayout.LayoutParams rp=new LinearLayout.LayoutParams(-1,dp(52));rp.setMargins(0,dp(16),0,0);body.addView(run,rp);
-        max=new Button(this);max.setText("RUN MAXIMUM-INTENSITY TEST");max.setAllCaps(false);max.setOnClickListener(v->runFull(true));LinearLayout.LayoutParams mp=new LinearLayout.LayoutParams(-1,dp(54));mp.setMargins(0,dp(10),0,0);body.addView(max,mp);
+        run=new Button(this);run.setText("RUN FULL END-TO-END TEST");run.setAllCaps(false);run.setOnClickListener(v->runProfile(0));LinearLayout.LayoutParams rp=new LinearLayout.LayoutParams(-1,dp(52));rp.setMargins(0,dp(16),0,0);body.addView(run,rp);
+        max=new Button(this);max.setText("RUN MAXIMUM-INTENSITY TEST");max.setAllCaps(false);max.setOnClickListener(v->runProfile(1));LinearLayout.LayoutParams mp=new LinearLayout.LayoutParams(-1,dp(54));mp.setMargins(0,dp(10),0,0);body.addView(max,mp);
+        extreme=new Button(this);extreme.setText("RUN EXTREME-ENDURANCE TEST");extreme.setAllCaps(false);extreme.setOnClickListener(v->runProfile(2));LinearLayout.LayoutParams ep=new LinearLayout.LayoutParams(-1,dp(56));ep.setMargins(0,dp(10),0,0);body.addView(extreme,ep);
         share=new Button(this);share.setText("ANALYZE WITH CHATGPT");share.setAllCaps(false);share.setEnabled(false);share.setOnClickListener(v->shareLatest());LinearLayout.LayoutParams sp=new LinearLayout.LayoutParams(-1,dp(50));sp.setMargins(0,dp(10),0,0);body.addView(share,sp);
         arm=new Button(this);arm.setText("ARM REAL UPDATE-SURVIVAL TEST");arm.setAllCaps(false);arm.setOnClickListener(v->armUpdate());LinearLayout.LayoutParams ap=new LinearLayout.LayoutParams(-1,dp(50));ap.setMargins(0,dp(10),0,0);body.addView(arm,ap);
 
-        TextView intense=CortexUi.text(this,"Maximum intensity runs the complete embedded E2E plus 43-capability evaluation, 50 database integrity passes, 5 consecutive production self-tests, 80 repeated Office/PDF extractions, 16 MB fsync+SHA storage stress, concurrent database reads, FileProvider share validation, report round-trip validation, and before/after runtime memory/storage snapshots. Synthetic stress data stays isolated from canonical Cortex knowledge.",11,CortexUi.MUTED);intense.setPadding(0,dp(10),0,dp(4));body.addView(intense);
+        TextView intense=CortexUi.text(this,"Maximum intensity is the shorter production stress profile. Extreme Endurance adds 100 functional self-tests with per-subtest evidence, 1,000 DB quick_checks, 1,000 document extractions, 4,000 concurrent DB reads, up to ~2 GiB fsync+SHA storage torture, attachment forensics, 250 FileProvider/report round-trips, GC pressure and a 120-minute memory soak. Extreme is intentionally expensive and may use the configured external Brain repeatedly.",11,CortexUi.MUTED);intense.setPadding(0,dp(10),0,dp(4));body.addView(intense);
+        TextView honest=CortexUi.text(this,"Cold process-death/relaunch and true background↔foreground cycling are never simulated or claimed by the in-process runner. Until a durable relaunch orchestrator is installed, Extreme records those requested lifecycle cycles as unexecuted WARN evidence.",11,CortexUi.AMBER);honest.setPadding(0,dp(6),0,dp(4));body.addView(honest);
         TextView note=CortexUi.text(this,"Update test: arm this on the current version, install a strictly newer APK normally without uninstalling, then run the test again. Cortex requires both SharedPreferences and an independent private checkpoint file to survive before it reports update survival PASS.",11,CortexUi.MUTED);note.setPadding(0,dp(8),0,dp(8));body.addView(note);
         body.addView(CortexUi.section(this,"Live test stages"));events=new LinearLayout(this);events.setOrientation(LinearLayout.VERTICAL);body.addView(events);
         setContentView(root);CortexUi.fitSystemBars(this,root);
     }
 
-    void runFull(boolean maximum){
-        if(running)return;running=true;run.setEnabled(false);max.setEnabled(false);share.setEnabled(false);events.removeAllViews();headline.setText(maximum?"Maximum-intensity test running…":"Running on this phone…");sub.setText(maximum?"Keep Cortex open. This profile intentionally repeats production paths and may take several minutes.":"Do not close Cortex until the report is finished.");
+    void runProfile(int mode){
+        if(running)return;running=true;run.setEnabled(false);max.setEnabled(false);extreme.setEnabled(false);share.setEnabled(false);events.removeAllViews();
+        String label=mode==2?"Extreme Endurance":mode==1?"Maximum intensity":"Full E2E";
+        headline.setText(label+" running…");
+        sub.setText(mode==2?"Keep Cortex open. This profile is deliberately exhaustive and includes a 120-minute soak.":mode==1?"Keep Cortex open. This profile intentionally repeats production paths and may take several minutes.":"Do not close Cortex until the report is finished.");
         new Thread(()->{
             CortexEndToEndLab.Listener listener=(id,status,detail)->runOnUiThread(()->addStage(id,status,detail));
-            CortexEndToEndLab.RunResult result=maximum?CortexMaximumIntensityLab.run(getApplicationContext(),listener):CortexEndToEndLab.run(getApplicationContext(),listener);
+            CortexEndToEndLab.RunResult result=mode==2?CortexExtremeEnduranceLab.run(getApplicationContext(),listener):mode==1?CortexMaximumIntensityLab.run(getApplicationContext(),listener):CortexEndToEndLab.run(getApplicationContext(),listener);
             runOnUiThread(()->{
-                running=false;run.setEnabled(true);max.setEnabled(true);share.setEnabled(result.reportFile.isFile());
+                running=false;run.setEnabled(true);max.setEnabled(true);extreme.setEnabled(true);share.setEnabled(result.reportFile.isFile());
                 String verdict=result.fail>0?"FAIL":(result.warn>0?"PASS WITH WARNINGS":"PASS");
-                headline.setText((maximum?"MAXIMUM · ":"")+verdict);
+                headline.setText((mode==2?"EXTREME · ":mode==1?"MAXIMUM · ":"")+verdict);
                 sub.setText(result.pass+" passed · "+result.warn+" warnings · "+result.fail+" failed · report "+result.runId);
-                Toast.makeText(this,maximum?"Maximum-intensity report ready":"End-to-end report ready",Toast.LENGTH_LONG).show();
+                Toast.makeText(this,label+" report ready",Toast.LENGTH_LONG).show();
             });
-        },maximum?"cortex-maximum-e2e":"cortex-embedded-e2e").start();
+        },mode==2?"cortex-extreme-endurance":mode==1?"cortex-maximum-e2e":"cortex-embedded-e2e").start();
     }
 
     void addStage(String id,String status,String detail){
