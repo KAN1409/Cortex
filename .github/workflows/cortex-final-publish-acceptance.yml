@@ -19,7 +19,9 @@ concurrency:
 
 jobs:
   publish-acceptance:
-    runs-on: macos-13
+    # macOS 13 was retired by GitHub Actions in 2025. Pin the final x86_64
+    # hosted image so the x86_64 Android system image can use native acceleration.
+    runs-on: macos-15-intel
     timeout-minutes: 60
 
     steps:
@@ -68,7 +70,10 @@ jobs:
           ram-size: 4096M
           heap-size: 768M
           disable-animations: true
+          disable-spellchecker: true
+          enable-hw-keyboard: true
           disk-size: 8G
+          emulator-boot-timeout: 600
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back emulated -camera-front emulated
           script: sh .github/scripts/cortex-final-publish-acceptance.sh
 
