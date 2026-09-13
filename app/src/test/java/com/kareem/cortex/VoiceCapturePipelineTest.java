@@ -1,11 +1,17 @@
 package com.kareem.cortex;
 
+import android.app.Application;
 import android.content.ContentValues;
 import android.content.Context;
 import androidx.test.core.app.ApplicationProvider;
 import org.junit.Test;
+import org.junit.runner.RunWith;
+import org.robolectric.RobolectricTestRunner;
+import org.robolectric.annotation.Config;
 import static org.junit.Assert.*;
 
+@RunWith(RobolectricTestRunner.class)
+@Config(application=Application.class,sdk=35)
 public class VoiceCapturePipelineTest {
     @Test public void staleManualVoiceIsRecoveredToQueued(){
         Context ctx=ApplicationProvider.getApplicationContext();VaultDb db=new VaultDb(ctx);long id=0;
