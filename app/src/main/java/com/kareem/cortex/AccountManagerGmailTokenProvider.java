@@ -3,7 +3,9 @@ package com.kareem.cortex;
 import android.accounts.Account;
 import android.accounts.AccountManager;
 import android.content.Context;
+import android.content.Intent;
 import android.os.Bundle;
+import android.os.Parcelable;
 
 /**
  * Device-account OAuth token provider for Gmail REST.
@@ -27,16 +29,18 @@ public final class AccountManagerGmailTokenProvider implements GmailBridgeTransp
     @Override
     public String getAccessToken() throws Exception {
         Account account = findAccount();
-        if (account == null) throw new AuthRequiredException("Google account not available to Cortex: " + accountName);
+        if (account == null) throw new AuthRequiredException("Google account not available to Cortex: " + accountName, null);
         AccountManager am = AccountManager.get(context);
         Bundle result = am.getAuthToken(account, GMAIL_SCOPE, null, false, null, null).getResult();
-        if (result == null) throw new AuthRequiredException("empty AccountManager auth result");
+        if (result == null) throw new AuthRequiredException("empty AccountManager auth result", null);
         String token = result.getString(AccountManager.KEY_AUTHTOKEN);
         if (token == null || token.trim().isEmpty()) {
-            if (result.getParcelable(AccountManager.KEY_INTENT) != null) {
-                throw new AuthRequiredException("Google consent is required before Gmail bridge can run unattended");
+            Parcelable parcelable = result.getParcelable(AccountManager.KEY_INTENT);
+            Intent intent = parcelable instanceof Intent ? (Intent) parcelable : null;
+            if (intent != null) {
+                throw new AuthRequiredException("Google consent is required before Gmail bridge can run unattended", intent);
             }
-            throw new AuthRequiredException("no Gmail OAuth token returned");
+            throw new AuthRequiredException("no Gmail OAuth token returned", null);
         }
         return token;
     }
@@ -57,6 +61,10 @@ public final class AccountManagerGmailTokenProvider implements GmailBridgeTransp
     }
 
     public static final class AuthRequiredException extends Exception {
-        public AuthRequiredException(String message) { super(message); }
+        public final Intent consentIntent;
+        public AuthRequiredException(String message, Intent consentIntent) {
+            super(message);
+            this.consentIntent = consentIntent;
+        }
     }
 }
