@@ -26,6 +26,7 @@ public final class AppPasswordImapSmtpTransport implements BridgeMailTransport {
     private static final String IMAP_HOST="imap.gmail.com";
     private static final int IMAP_PORT=993;
     private static final int TIMEOUT_MS=30_000;
+    private static final int MAX_VERDICT_SCAN=500;
 
     private final String email;
     private final String appPassword;
@@ -52,7 +53,8 @@ public final class AppPasswordImapSmtpTransport implements BridgeMailTransport {
     }
 
     @Override public List<JSONObject> fetchCandidateVerdicts(long newerThanEpochMs,int maxResults)throws Exception{
-        int limit=Math.max(1,Math.min(maxResults,100));
+        int requested=Math.max(1,maxResults);
+        int limit=Math.min(requested,MAX_VERDICT_SCAN);
         ArrayList<JSONObject> out=new ArrayList<>();
         try(SSLSocket socket=open(IMAP_HOST,IMAP_PORT)){
             BufferedInputStream in=new BufferedInputStream(socket.getInputStream());
@@ -61,17 +63,23 @@ public final class AppPasswordImapSmtpTransport implements BridgeMailTransport {
             command(os,in,"A1 LOGIN "+quote(email)+" "+quote(appPassword),"A1");
             command(os,in,"A2 SELECT INBOX","A2");
             String since=new SimpleDateFormat("dd-MMM-yyyy",Locale.US).format(new Date(Math.max(0,newerThanEpochMs)));
-            String search=command(os,in,"A3 UID SEARCH SINCE "+since+" SUBJECT \"CORTEX-BRIDGE\"","A3");
+            // Verdict-only server-side search. Do not let outgoing requests, teaching requests,
+            // handshakes or specialist traffic consume the candidate window.
+            String search=command(os,in,"A3 UID SEARCH SINCE "+since+" SUBJECT \"CHATGPT_TEST_VERDICT\"","A3");
             long[] uids=parseSearchUids(search);
             int start=Math.max(0,uids.length-limit);
             int tag=4;
             for(int i=uids.length-1;i>=start;i--){
                 String t="A"+(tag++);
-                String response=commandWithLiterals(os,in,t+" UID FETCH "+uids[i]+" (BODY.PEEK[])",t);
-                String rawMime=extractFetchedMime(response);
-                String decodedText=MimeTextExtractor.extractBestText(rawMime);
-                JSONObject env=parseEnvelope(decodedText);
-                if(env!=null&&ChatGptBridgeProtocol.MessageType.CHATGPT_TEST_VERDICT.name().equals(env.optString("messageType"))) out.add(env);
+                try{
+                    String response=commandWithLiterals(os,in,t+" UID FETCH "+uids[i]+" (BODY.PEEK[])",t);
+                    String rawMime=extractFetchedMime(response);
+                    String decodedText=MimeTextExtractor.extractBestText(rawMime);
+                    JSONObject env=parseEnvelope(decodedText);
+                    if(env!=null&&ChatGptBridgeProtocol.MessageType.CHATGPT_TEST_VERDICT.name().equals(env.optString("messageType"))) out.add(env);
+                }catch(Throwable ignored){
+                    // One malformed message must never abort discovery of later valid verdicts.
+                }
             }
             write(os,"AZ LOGOUT\r\n");
         }catch(Throwable t){
@@ -145,7 +153,6 @@ public final class AppPasswordImapSmtpTransport implements BridgeMailTransport {
         String raw=literalLineEnd>=0?fetched.substring(literalLineEnd+1):fetched;
         int tagged=raw.lastIndexOf("\nA");
         if(tagged>0)raw=raw.substring(0,tagged);
-        // IMAP normally adds a closing ')' line after the literal.
         if(raw.endsWith("\n)"))raw=raw.substring(0,raw.length()-2);
         return raw.trim();
     }
