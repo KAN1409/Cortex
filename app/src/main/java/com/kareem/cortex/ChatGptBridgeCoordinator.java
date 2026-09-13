@@ -53,7 +53,14 @@ public final class ChatGptBridgeCoordinator {
     public JSONObject status(){try{return store.summary().put("transport",transport.name());}catch(JSONException e){return new JSONObject();}}
     public List<JSONObject> pending(){return store.listPending();}
     public List<JSONObject> verdicts(){return store.listVerdicts();}
-    public JSONObject runStatus(String runId){try{return store.runStatus(runId);}catch(Throwable t){return new JSONObject().put("runId",runId).put("error",safeMessage(t));}}
+    public JSONObject runStatus(String runId){
+        try{return store.runStatus(runId);}
+        catch(Throwable t){
+            JSONObject out=new JSONObject();
+            try{out.put("runId",runId).put("error",safeMessage(t));}catch(Throwable ignored){}
+            return out;
+        }
+    }
 
     private static String rejectionSummary(JSONArray details){StringBuilder sb=new StringBuilder("VERDICT_REJECTED");int added=0;for(int i=0;i<details.length()&&added<4;i++){JSONObject d=details.optJSONObject(i);if(d==null||d.optBoolean("accepted",false)||d.optBoolean("ignored",false))continue;sb.append(" · ").append(d.optString("testId","no-test")).append(": ").append(d.optString("detail","UNKNOWN"));added++;}if(added==0)sb.append(" · no rejection detail available");return sb.toString();}
     private static String safeMessage(Throwable t){return t.getMessage()==null?"":t.getMessage();}
