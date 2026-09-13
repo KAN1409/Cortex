@@ -2,7 +2,7 @@ name: Android Debug APK
 
 on:
   push:
-    branches: [ main, v71/visual-memory-u1, v72/visual-memory-u2-provenance, v73/nav-picbrain, v74/u2-structured-knowledge, v80/cortex-major-unified, v81/nexus-inside-cortex, v82/chatgpt-policy-bridge, v83/intelligence-layer-reorg, v86/work-vault, v105/chatgpt-gmail-bridge, v106/gmail-bridge-fallback ]
+    branches: [ main, v71/visual-memory-u1, v72/visual-memory-u2-provenance, v73/nav-picbrain, v74/u2-structured-knowledge, v80/cortex-major-unified, v81/nexus-inside-cortex, v82/chatgpt-policy-bridge, v83/intelligence-layer-reorg, v86/work-vault, v105/chatgpt-gmail-bridge, v106/gmail-bridge-fallback, v107/gmail-mime-decoder ]
   pull_request:
     branches: [ main ]
   workflow_dispatch:
@@ -22,16 +22,22 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Stamp v106 update-safe version
-        if: github.ref_name == 'v106/gmail-bridge-fallback'
+      - name: Stamp update-safe version
+        if: github.ref_name == 'v106/gmail-bridge-fallback' || github.ref_name == 'v107/gmail-mime-decoder'
         shell: bash
         run: |
           python - <<'PY'
           from pathlib import Path
+          import os
           p=Path('app/build.gradle')
           s=p.read_text()
-          s=s.replace('versionCode 125', 'versionCode 126')
-          s=s.replace("versionName '2.19.0-v105-chatgpt-gmail-bridge'", "versionName '2.20.0-v106-gmail-bridge-fallback'")
+          branch=os.environ.get('GITHUB_REF_NAME','')
+          if branch == 'v107/gmail-mime-decoder':
+              s=s.replace('versionCode 125', 'versionCode 127')
+              s=s.replace("versionName '2.19.0-v105-chatgpt-gmail-bridge'", "versionName '2.21.0-v107-gmail-mime-decoder'")
+          else:
+              s=s.replace('versionCode 125', 'versionCode 126')
+              s=s.replace("versionName '2.19.0-v105-chatgpt-gmail-bridge'", "versionName '2.20.0-v106-gmail-bridge-fallback'")
           p.write_text(s)
           PY
           grep -E 'versionCode|versionName' app/build.gradle
@@ -67,6 +73,6 @@ jobs:
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
         with:
-          name: Cortex-v106-gmail-bridge-fallback-ci
+          name: Cortex-v107-gmail-mime-decoder-ci
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
