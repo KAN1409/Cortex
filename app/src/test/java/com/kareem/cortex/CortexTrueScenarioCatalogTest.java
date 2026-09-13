@@ -2,12 +2,17 @@ package com.kareem.cortex;
 
 import org.json.JSONObject;
 import org.junit.Test;
+import org.junit.runner.RunWith;
+import org.robolectric.RobolectricTestRunner;
+import org.robolectric.annotation.Config;
 
 import java.util.HashSet;
 import java.util.Set;
 
 import static org.junit.Assert.*;
 
+@RunWith(RobolectricTestRunner.class)
+@Config(sdk = 35)
 public final class CortexTrueScenarioCatalogTest {
     @Test public void catalog_has1000UniqueSemanticCases() throws Exception {
         assertEquals(1000, CortexTrueScenarioCatalog.TOTAL);
