@@ -4,11 +4,13 @@ import static org.junit.Assert.assertEquals;
 
 import org.json.JSONObject;
 import org.junit.Test;
+import org.junit.runner.RunWith;
+import org.robolectric.RobolectricTestRunner;
 
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 
+@RunWith(RobolectricTestRunner.class)
 public class FailoverBridgeTransportUnionTest {
     @Test public void unionsPrimaryAndFallbackVerdictsAndDeduplicates() throws Exception {
         List<JSONObject> all = new ArrayList<>();
