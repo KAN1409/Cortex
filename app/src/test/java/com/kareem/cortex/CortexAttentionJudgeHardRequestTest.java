@@ -28,7 +28,7 @@ public final class CortexAttentionJudgeHardRequestTest {
         CortexAttentionJudge.Judgment j = CortexAttentionJudge.evaluateWithPolicy(
                 null,
                 staleCandidate(false),
-                new CortexAttentionJudge.RuntimeContext(0.20, 0.95),
+                new CortexAttentionJudge.RuntimeContext(0.50, 0.90),
                 strictPolicy());
         assertFalse(j.surfaceNow);
     }
@@ -62,7 +62,8 @@ public final class CortexAttentionJudgeHardRequestTest {
         assertTrue(j.reason.contains("technical evidence remains below the attention layer"));
     }
 
-    @Test public void translatedUserFacingBlockerCanUseHardRequestBoundary() throws Exception {
+    // Judge-level eligibility only: this does not exercise production semantic translation.
+    @Test public void preconstructedUserFacingBlockerCanUseHardRequestBoundary() throws Exception {
         CortexAttentionJudge.Judgment j = CortexAttentionJudge.evaluateWithPolicy(
                 null,
                 actionableCandidate("USER_ACTION_BLOCKER", 205L),
@@ -71,6 +72,32 @@ public final class CortexAttentionJudgeHardRequestTest {
 
         assertTrue(j.surfaceNow);
         assertTrue(j.reason.contains("explicit personally relevant request"));
+    }
+
+    @Test public void hardRequestRespectsExactThresholdsAcrossEvidenceAges() throws Exception {
+        long now = 1_800_000_000_000L;
+        double[] actions = { Math.nextDown(.80), .80, Math.nextUp(.80) };
+        double[] relevance = { Math.nextDown(.45), .45, Math.nextUp(.45) };
+        for (long ageDays : new long[] { 0, 5, 30 }) {
+            for (double action : actions) {
+                for (double personal : relevance) {
+                    for (boolean explicit : new boolean[] { false, true }) {
+                        AttentionDecisionEngine.Candidate c = new AttentionDecisionEngine.Candidate(
+                                206L, "DIRECT_MESSAGE", "OPEN", "Action requested",
+                                "Grounded request remains unresolved",
+                                .95, .10, action, personal, .02, .01,
+                                0L, now, now - ageDays * 86_400_000L, 0, 1,
+                                true, false, false, explicit, false);
+                        CortexAttentionJudge.Judgment j = CortexAttentionJudge.evaluateWithPolicy(
+                                null, c, new CortexAttentionJudge.RuntimeContext(.20, .95), strictPolicy());
+                        boolean expected = explicit && action >= .80 && personal >= .45;
+                        assertTrue("ageDays=" + ageDays + " action=" + action + " relevance="
+                                + personal + " explicit=" + explicit + " score=" + j.score
+                                + " reason=" + j.reason, expected == j.surfaceNow);
+                    }
+                }
+            }
+        }
     }
 
     private static AttentionDecisionEngine.Candidate actionableCandidate(String type, long id) {
