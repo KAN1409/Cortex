@@ -1,5 +1,8 @@
 package com.kareem.cortex;
 
+import android.Manifest;
+import android.content.pm.PackageManager;
+import android.os.Build;
 import android.view.Gravity;
 import android.view.View;
 import android.widget.LinearLayout;
@@ -8,6 +11,18 @@ import java.util.Locale;
 
 /** Voice capture variant with Cortex's circular elapsed recording gauge. */
 public class SatinCaptureActivity extends CaptureActivity {
+    /**
+     * v98 root repair: recording is an evidence operation, not a cloud-provider operation.
+     * AudioAnalyzer now prefers Android on-device ASR and only falls back to configured cloud
+     * providers. Do not block recording merely because no API key exists.
+     */
+    @Override void startVoice(){
+        if(Build.VERSION.SDK_INT>=23&&checkSelfPermission(Manifest.permission.RECORD_AUDIO)!=PackageManager.PERMISSION_GRANTED){
+            requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO},REQ_MIC);return;
+        }
+        beginVoice();
+    }
+
     @Override void showRecordingPanel(){
         choices.setVisibility(View.GONE);recordPanel=new LinearLayout(this);recordPanel.setOrientation(LinearLayout.VERTICAL);recordPanel.setGravity(Gravity.CENTER_HORIZONTAL);recordPanel.setPadding(0,dp(12),0,0);
         TextView signal=CortexUi.plain(this,"●  RECORDING SIGNAL",10,CortexUi.SIGNAL);signal.setLetterSpacing(.12f);signal.setGravity(Gravity.CENTER);recordPanel.addView(signal);
