@@ -37,8 +37,8 @@ android {
         applicationId 'com.kareem.cortex'
         minSdk 26
         targetSdk 35
-        versionCode 125
-        versionName '2.19.0-v105-chatgpt-gmail-bridge'
+        versionCode 128
+        versionName '2.22.0-v108-free-intelligence-comparison-teaching'
         testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
     }
     buildTypes { debug { signingConfig signingConfigs.debug } }
