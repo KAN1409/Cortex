@@ -90,7 +90,7 @@ public class ChatGptBridgeConvergenceTest {
         }
 
         @Override public GmailBridgeTransport.SendResult sendEnvelope(JSONObject envelope) {
-            return new GmailBridgeTransport.SendResult(true, "fake", "fake", "");
+            return GmailBridgeTransport.SendResult.ok("fake", "fake");
         }
 
         @Override public List<JSONObject> fetchCandidateVerdicts(long newerThanEpochMs, int maxResults) {
