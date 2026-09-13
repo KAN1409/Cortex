@@ -95,6 +95,8 @@ public final class CortexComparisonDashboard {
                 else s.append("\n• ").append(disagreements.optString(i,""));
             }
         }
+        String rejectionDiagnostics = BridgeRejectionDiagnostics.render(context);
+        if(!rejectionDiagnostics.isEmpty()) s.append("\n\n").append(rejectionDiagnostics);
         if(!d.optBoolean("complete",false)) s.append("\n\nStatus: waiting for remaining ChatGPT verdicts.");
         else s.append("\n\nStatus: benchmark complete.");
         return s.toString();
