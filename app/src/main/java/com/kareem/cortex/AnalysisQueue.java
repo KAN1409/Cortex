@@ -11,8 +11,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * Process-wide analysis queue.
  *
  * Recovery rule: the queue may run after SafeCoreRuntime is ready even while the emergency
- * StartupSafetyGate remains active. Native OCR remains separately quarantined; cloud audio
- * transcription may proceed because it does not enter the native ASR runtime.
+ * StartupSafetyGate remains active. Native OCR remains separately quarantined. Voice analysis
+ * prefers Android on-device ASR and may use configured cloud fallback only when privacy allows.
  */
 public final class AnalysisQueue {
     private static final AtomicBoolean running=new AtomicBoolean(false);
@@ -55,7 +55,7 @@ public final class AnalysisQueue {
         if(!safeQueueAllowed(ctx)){finishRun(ctx,db,changed);return;}
         while(true){
             KnowledgeItem item;
-            try{item=db.nextPending();}
+            try{item=AnalysisQueuePriority.next(db);}
             catch(Throwable e){finishRun(ctx,db,changed);return;}
             if(item==null){CapabilitySupervisor.recordHealthy(ctx,CapabilitySupervisor.Capability.DETERMINISTIC_COGNITION);finishRun(ctx,db,changed);return;}
 
@@ -74,8 +74,6 @@ public final class AnalysisQueue {
                 analyzeImage(ctx,db,item,changed);return;
             }
             if("AUDIO".equals(item.type)){
-                // AudioAnalyzer currently uses Gemini/Groq cloud transcription. It is safe to
-                // run while ASR_NATIVE remains quarantined.
                 analyzeAudio(ctx,db,item,changed);return;
             }
 
