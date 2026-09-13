@@ -5,8 +5,11 @@ import android.content.*;
 import android.database.Cursor;
 import android.net.Uri;
 import android.provider.CalendarContract;
+import android.webkit.MimeTypeMap;
 import android.widget.*;
+import androidx.core.content.FileProvider;
 import org.json.JSONObject;
+import java.io.File;
 import java.net.URLEncoder;
 import java.util.*;
 
@@ -16,6 +19,21 @@ public final class CortexActionExecutor {
 
     public static boolean searchWeb(Activity a,String query){try{String q=URLEncoder.encode(safe(query),"UTF-8");a.startActivity(new Intent(Intent.ACTION_VIEW,Uri.parse("https://www.google.com/search?q="+q)));return true;}catch(Throwable e){toast(a,"Could not open web search");return false;}}
     public static boolean openBrain(Activity a,long itemId,String prompt){try{Intent i=new Intent(a,ProposalAskCortexActivity.class);if(itemId>0)i.putExtra("item_id",itemId);i.putExtra("prefill",safe(prompt));a.startActivity(i);return true;}catch(Throwable e){toast(a,"Could not open Brain");return false;}}
+
+    /** Open the stored original evidence itself. Android chooses the compatible viewer by MIME type. */
+    public static boolean openEvidence(Activity a,KnowledgeItem item){
+        if(a==null||item==null||safe(item.attachmentPath).isEmpty()){toast(a,"Original file is not available");return false;}
+        try{
+            File f=new File(item.attachmentPath);if(!f.isFile()){toast(a,"Original file could not be found");return false;}
+            Uri uri=FileProvider.getUriForFile(a,a.getPackageName()+".feedback.files",f);
+            String mime=mimeFor(f.getName());
+            Intent view=new Intent(Intent.ACTION_VIEW).setDataAndType(uri,mime).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            Intent chooser=Intent.createChooser(view,"Open original file");chooser.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);a.startActivity(chooser);return true;
+        }catch(android.content.ActivityNotFoundException e){toast(a,"No compatible app is installed for this file");return false;}
+        catch(Throwable e){toast(a,"Could not open original file");return false;}
+    }
+    public static boolean openEvidence(Activity a,VaultDb db,long itemId){try{return db!=null&&itemId>0&&openEvidence(a,db.getById(itemId));}catch(Throwable e){toast(a,"Could not open original file");return false;}}
+    private static String mimeFor(String name){String x=safe(name).toLowerCase(Locale.ROOT);if(x.endsWith(".pdf"))return"application/pdf";if(x.endsWith(".xlsx"))return"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";if(x.endsWith(".xls"))return"application/vnd.ms-excel";if(x.endsWith(".docx"))return"application/vnd.openxmlformats-officedocument.wordprocessingml.document";if(x.endsWith(".doc"))return"application/msword";if(x.endsWith(".pptx"))return"application/vnd.openxmlformats-officedocument.presentationml.presentation";if(x.endsWith(".ppt"))return"application/vnd.ms-powerpoint";String ext=MimeTypeMap.getFileExtensionFromUrl(x);String m=MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext);return m==null?"application/octet-stream":m;}
 
     /** Calendar app owns the final write. Cortex only prepares the draft and the user confirms it. */
     public static boolean calendarDraft(Activity a,String title,String description,long suggestedStartMs){try{Intent i=new Intent(Intent.ACTION_INSERT);i.setData(CalendarContract.Events.CONTENT_URI);i.putExtra(CalendarContract.Events.TITLE,safe(title));i.putExtra(CalendarContract.Events.DESCRIPTION,safe(description));if(suggestedStartMs>0)i.putExtra(CalendarContract.EXTRA_EVENT_BEGIN_TIME,suggestedStartMs);a.startActivity(i);return true;}catch(Throwable e){toast(a,"No calendar app could open this draft");return false;}}
