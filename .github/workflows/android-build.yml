@@ -2,7 +2,7 @@ name: Android Debug APK
 
 on:
   push:
-    branches: [ main, v71/visual-memory-u1, v72/visual-memory-u2-provenance, v73/nav-picbrain, v74/u2-structured-knowledge, v80/cortex-major-unified, v81/nexus-inside-cortex, v82/chatgpt-policy-bridge, v83/intelligence-layer-reorg, v86/work-vault, v105/chatgpt-gmail-bridge, v106/gmail-bridge-fallback, v107/gmail-mime-decoder, v108/free-intelligence-comparison-teaching, v109/true-1000-scenarios-dashboard, v110/run-scoped-gmail-poll, v111/bridge-rejection-diagnostics, v112/persistent-bridge-diagnostics, v113/canonical-hash-roundtrip, v114/bridge-state-machine-root-fix, v115/convergent-gmail-poll, v116/imap-literal-root-fix ]
+    branches: [ main, v71/visual-memory-u1, v72/visual-memory-u2-provenance, v73/nav-picbrain, v74/u2-structured-knowledge, v80/cortex-major-unified, v81/nexus-inside-cortex, v82/chatgpt-policy-bridge, v83/intelligence-layer-reorg, v86/work-vault, v105/chatgpt-gmail-bridge, v106/gmail-bridge-fallback, v107/gmail-mime-decoder, v108/free-intelligence-comparison-teaching, v109/true-1000-scenarios-dashboard, v110/run-scoped-gmail-poll, v111/bridge-rejection-diagnostics, v112/persistent-bridge-diagnostics, v113/canonical-hash-roundtrip, v114/bridge-state-machine-root-fix, v115/convergent-gmail-poll, v116/imap-literal-root-fix, v117/dual-source-verdict-discovery ]
   pull_request:
     branches: [ main ]
   workflow_dispatch:
@@ -22,16 +22,16 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Stamp v116 update-safe version
-        if: github.ref_name == 'v116/imap-literal-root-fix'
+      - name: Stamp v117 update-safe version
+        if: github.ref_name == 'v117/dual-source-verdict-discovery'
         shell: bash
         run: |
           python - <<'PY'
           from pathlib import Path
           p=Path('app/build.gradle')
           s=p.read_text()
-          s=s.replace('versionCode 129', 'versionCode 136')
-          s=s.replace("versionName '2.23.0-v109-true-1000-dashboard'", "versionName '2.30.0-v116-imap-literal-root-fix'")
+          s=s.replace('versionCode 129', 'versionCode 137')
+          s=s.replace("versionName '2.23.0-v109-true-1000-dashboard'", "versionName '2.31.0-v117-dual-source-verdict-discovery'")
           p.write_text(s)
           PY
           grep -E 'versionCode|versionName' app/build.gradle
@@ -67,6 +67,6 @@ jobs:
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
         with:
-          name: Cortex-v116-imap-literal-root-fix-ci
+          name: Cortex-v117-dual-source-verdict-discovery-ci
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
