@@ -137,7 +137,10 @@ public final class CortexExtremeEnduranceLab {
                 CortexFunctionalSelfTest.Report r=CortexFunctionalSelfTest.run(ctx);if(r.fail==0)good++;totalPass+=r.pass;totalWarn+=r.warn;totalFail+=r.fail;
                 JSONArray tests=new JSONArray();for(String line:r.lines){String status=line.startsWith("PASS")?"PASS":line.startsWith("WARN")?"WARN":line.startsWith("FAIL")?"FAIL":"UNKNOWN";String[] p=line.split("\\n",2);String head=p.length>0?p[0]:line;String detail=p.length>1?p[1]:"";String id=head.replaceFirst("^(PASS|WARN|FAIL) · ","");tests.put(new JSONObject().put("id",id).put("status",status).put("detail",detail));}
                 it.put("iteration",i+1).put("coldStart",false).put("pass",r.pass).put("warn",r.warn).put("fail",r.fail).put("tests",tests).put("metrics",r.metrics).put("durationMs",SystemClock.elapsedRealtime()-before).put("processUptimeMs",SystemClock.uptimeMillis()).put("pssKb",Debug.getPss()).put("threadCount",Thread.getAllStackTraces().size());
-            }catch(Throwable e){totalFail++;it.put("iteration",i+1).put("fail",1).put("exception",e.getClass().getName()).put("message",safe(e.getMessage())).put("durationMs",SystemClock.elapsedRealtime()-before);}
+            }catch(Throwable e){
+                totalFail++;
+                try{it.put("iteration",i+1).put("fail",1).put("exception",e.getClass().getName()).put("message",safe(e.getMessage())).put("durationMs",SystemClock.elapsedRealtime()-before);}catch(Throwable ignored){}
+            }
             loops.put(it);
         }
         long ms=SystemClock.elapsedRealtime()-start;try{JSONObject ev=new JSONObject().put("iterations",SELF_TEST_LOOPS).put("successfulIterations",good).put("aggregatePass",totalPass).put("aggregateWarn",totalWarn).put("aggregateFail",totalFail).put("durationMs",ms);report.put("extremeFunctionalSelfTestStress",loops);if(good==SELF_TEST_LOOPS&&totalFail==0)x.pass("extreme_functional_self_test",SELF_TEST_LOOPS+"/"+SELF_TEST_LOOPS+" warm-process production self-tests had zero failures",ev);else x.fail("extreme_functional_self_test",good+"/"+SELF_TEST_LOOPS+" warm-process self-tests had zero failures",ev);}catch(Throwable e){x.fail("extreme_functional_self_test",e.toString(),null);}
