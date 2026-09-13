@@ -68,8 +68,9 @@ public final class AppPasswordImapSmtpTransport implements BridgeMailTransport {
             for(int i=uids.length-1;i>=start;i--){
                 String t="A"+(tag++);
                 String response=commandWithLiterals(os,in,t+" UID FETCH "+uids[i]+" (BODY.PEEK[])",t);
-                String body=extractPlainBody(response);
-                JSONObject env=parseEnvelope(body);
+                String rawMime=extractFetchedMime(response);
+                String decodedText=MimeTextExtractor.extractBestText(rawMime);
+                JSONObject env=parseEnvelope(decodedText);
                 if(env!=null&&ChatGptBridgeProtocol.MessageType.CHATGPT_TEST_VERDICT.name().equals(env.optString("messageType"))) out.add(env);
             }
             write(os,"AZ LOGOUT\r\n");
@@ -137,13 +138,19 @@ public final class AppPasswordImapSmtpTransport implements BridgeMailTransport {
         for(String line:response.split("\\n"))if(line.startsWith("* SEARCH")){String rest=line.substring(8).trim();if(rest.isEmpty())return new long[0];String[] p=rest.split("\\s+");long[] a=new long[p.length];int n=0;for(String x:p)try{a[n++]=Long.parseLong(x);}catch(Throwable ignored){}return Arrays.copyOf(a,n);}return new long[0];
     }
 
-    private static String extractPlainBody(String fetched){
-        int p=fetched.indexOf("\r\n\r\n");if(p<0)p=fetched.indexOf("\n\n");String body=p<0?fetched:fetched.substring(p+(fetched.startsWith("\r\n",p)?4:2));
-        int tagged=body.lastIndexOf("\nA");if(tagged>0)body=body.substring(0,tagged);
-        return body.trim();
+    /** Removes only the IMAP FETCH wrapper. MIME headers/body are kept intact for proper decoding. */
+    static String extractFetchedMime(String fetched){
+        if(fetched==null)return "";
+        int literalLineEnd=fetched.indexOf('\n');
+        String raw=literalLineEnd>=0?fetched.substring(literalLineEnd+1):fetched;
+        int tagged=raw.lastIndexOf("\nA");
+        if(tagged>0)raw=raw.substring(0,tagged);
+        // IMAP normally adds a closing ')' line after the literal.
+        if(raw.endsWith("\n)"))raw=raw.substring(0,raw.length()-2);
+        return raw.trim();
     }
 
-    private static JSONObject parseEnvelope(String body){
+    static JSONObject parseEnvelope(String body){
         if(body==null)return null;int first=body.indexOf('{'),last=body.lastIndexOf('}');if(first<0||last<=first)return null;try{JSONObject o=new JSONObject(body.substring(first,last+1));return ChatGptBridgeProtocol.validateEnvelope(o).ok?o:null;}catch(Throwable ignored){return null;}
     }
 
