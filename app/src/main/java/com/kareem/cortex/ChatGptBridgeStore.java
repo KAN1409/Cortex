@@ -41,7 +41,14 @@ public final class ChatGptBridgeStore {
     public synchronized List<JSONObject> listPending(){return readDir(pendingDir);}public synchronized List<JSONObject> listVerdicts(){return readDir(verdictDir);}
     public synchronized JSONObject summary()throws JSONException{return new JSONObject().put("pending",countJson(pendingDir)).put("verdicts",countJson(verdictDir)).put("rejected",countJson(rejectedDir)).put("root",root.getAbsolutePath());}
 
-    private void reject(JSONObject verdict,String reason)throws Exception{JSONObject wrapper=new JSONObject().put("rejectedAtEpochMs",System.currentTimeMillis()).put("reason",reason==null?"UNKNOWN":reason).put("message",verdict==null?JSONObject.NULL:verdict);String id=verdict==null?"unknown":verdict.optString("requestId","unknown");atomicWrite(new File(rejectedDir,System.currentTimeMillis()+"_"+safeName(id)+".json"),wrapper.toString());}
+    private void reject(JSONObject verdict,String reason)throws Exception{
+        String normalizedReason=reason==null?"UNKNOWN":reason;
+        JSONObject wrapper=new JSONObject().put("rejectedAtEpochMs",System.currentTimeMillis()).put("reason",normalizedReason).put("message",verdict==null?JSONObject.NULL:verdict);
+        String id=verdict==null?"unknown":verdict.optString("requestId","unknown");
+        String payloadHash=verdict==null?"nohash":verdict.optString("payloadSha256","nohash");
+        String name=safeName(id)+"__"+safeName(payloadHash)+"__"+safeName(normalizedReason)+".json";
+        atomicWrite(new File(rejectedDir,name),wrapper.toString());
+    }
     private static List<JSONObject> readDir(File dir){File[] files=dir.listFiles((d,n)->n.endsWith(".json"));if(files==null||files.length==0)return Collections.emptyList();ArrayList<File> ordered=new ArrayList<>();Collections.addAll(ordered,files);ordered.sort(Comparator.comparingLong(File::lastModified));ArrayList<JSONObject> out=new ArrayList<>();for(File file:ordered){try{out.add(new JSONObject(readAll(file)));}catch(Throwable ignored){}}return out;}
     private static int countJson(File dir){File[] files=dir.listFiles((d,n)->n.endsWith(".json"));return files==null?0:files.length;}
     private static void atomicWrite(File target,String content)throws Exception{File temp=new File(target.getParentFile(),target.getName()+".tmp");try(FileOutputStream fos=new FileOutputStream(temp);BufferedWriter writer=new BufferedWriter(new OutputStreamWriter(fos,StandardCharsets.UTF_8))){writer.write(content==null?"":content);writer.flush();fos.getFD().sync();}if(target.exists()&&!target.delete())throw new IllegalStateException("cannot replace "+target.getName());if(!temp.renameTo(target))throw new IllegalStateException("atomic rename failed for "+target.getName());}
