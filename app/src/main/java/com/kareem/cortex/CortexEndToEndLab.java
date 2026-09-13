@@ -57,7 +57,7 @@ public final class CortexEndToEndLab {
         long started=System.currentTimeMillis(); Acc a=new Acc(ctx,listener);
         JSONObject report=new JSONObject();
         try{
-            report.put("schemaVersion",1);report.put("runId",runId);report.put("startedAt",started);
+            report.put("schemaVersion",2);report.put("runId",runId);report.put("startedAt",started);
             identity(ctx,a,report);
             storage(ctx,dir,a,report);
             database(ctx,a,report);
@@ -89,14 +89,32 @@ public final class CortexEndToEndLab {
         return null;
     }
 
-    /** Phase 1 for a real APK update-survival test. */
+    /** Arms a real two-phase update test. Both SharedPreferences and an independent private file must survive. */
     public static String armUpdateCheckpoint(Context context){
+        Context ctx=context.getApplicationContext();
         String token="update-"+System.currentTimeMillis()+"-"+UUID.randomUUID();
-        context.getSharedPreferences("cortex_e2e_update",Context.MODE_PRIVATE).edit()
-                .putString("token",token).putLong("armed_at",System.currentTimeMillis())
-                .putInt("from_version_code",BuildConfig.VERSION_CODE).putString("from_version_name",BuildConfig.VERSION_NAME).apply();
+        long armedAt=System.currentTimeMillis();
+        JSONObject probe=new JSONObject();
+        try{
+            probe.put("token",token);
+            probe.put("armedAt",armedAt);
+            probe.put("fromVersionCode",BuildConfig.VERSION_CODE);
+            probe.put("fromVersionName",BuildConfig.VERSION_NAME);
+            write(updateProbeFile(ctx),probe.toString());
+            String digest=sha256(updateProbeFile(ctx));
+            boolean committed=ctx.getSharedPreferences("cortex_e2e_update",Context.MODE_PRIVATE).edit()
+                    .putString("token",token)
+                    .putLong("armed_at",armedAt)
+                    .putInt("from_version_code",BuildConfig.VERSION_CODE)
+                    .putString("from_version_name",BuildConfig.VERSION_NAME)
+                    .putString("probe_sha256",digest)
+                    .commit();
+            if(!committed)throw new IOException("Could not persist update checkpoint preferences");
+        }catch(Exception e){throw new IllegalStateException("Could not arm update checkpoint",e);}
         return token;
     }
+
+    private static File updateProbeFile(Context ctx){return new File(ctx.getFilesDir(),"cortex-e2e-update-checkpoint.json");}
 
     private static void identity(Context ctx,Acc a,JSONObject r){
         try{
@@ -144,7 +162,7 @@ public final class CortexEndToEndLab {
 
     private static void components(Context ctx,Acc a,JSONObject r){
         try{
-            PackageManager pm=ctx.getPackageManager();String[] names={"NowActivity","ProposalCaptureActivity","WorkVaultActivity","WorkVaultAskActivity","CortexAuditActivity","SettingsActivity"};int ok=0;JSONArray arr=new JSONArray();
+            PackageManager pm=ctx.getPackageManager();String[] names={"NowActivity","ProposalCaptureActivity","WorkVaultActivity","WorkVaultAskActivity","CortexAuditActivity","SettingsActivity","CortexEndToEndActivity"};int ok=0;JSONArray arr=new JSONArray();
             for(String n:names){boolean exists;try{pm.getActivityInfo(new ComponentName(ctx,Class.forName("com.kareem.cortex."+n)),0);exists=true;}catch(Throwable e){exists=false;}if(exists)ok++;arr.put(new JSONObject().put("name",n).put("registered",exists));}
             if(ok==names.length)a.pass("production_components","Critical production activities registered="+ok);else a.fail("production_components","Registered "+ok+"/"+names.length);r.put("components",arr);
         }catch(Throwable e){a.fail("production_components",e.toString());}
@@ -161,10 +179,39 @@ public final class CortexEndToEndLab {
 
     private static void updateCheckpoint(Context ctx,Acc a,JSONObject r){
         try{
-            android.content.SharedPreferences p=ctx.getSharedPreferences("cortex_e2e_update",Context.MODE_PRIVATE);String token=p.getString("token","");if(token.isEmpty()){a.warn("update_survival","No pre-update checkpoint armed. Use 'Arm update test' before installing the next APK.");return;}
-            int from=p.getInt("from_version_code",-1);long armed=p.getLong("armed_at",0);boolean survived=from>0&&BuildConfig.VERSION_CODE>=from;
-            JSONObject u=new JSONObject();u.put("token",token);u.put("armedAt",armed);u.put("fromVersionCode",from);u.put("currentVersionCode",BuildConfig.VERSION_CODE);u.put("survived",survived);r.put("updateCheckpoint",u);
-            if(survived)a.pass("update_survival","Checkpoint survived install/update · from "+from+" to "+BuildConfig.VERSION_CODE);else a.fail("update_survival","Checkpoint present but version state is inconsistent");
+            android.content.SharedPreferences p=ctx.getSharedPreferences("cortex_e2e_update",Context.MODE_PRIVATE);
+            String token=p.getString("token","");
+            if(token.isEmpty()){a.warn("update_survival","No pre-update checkpoint armed. Arm it before installing the next APK.");return;}
+            int from=p.getInt("from_version_code",-1);
+            String fromName=p.getString("from_version_name","");
+            long armed=p.getLong("armed_at",0);
+            String expectedDigest=p.getString("probe_sha256","");
+            File probeFile=updateProbeFile(ctx);
+            boolean fileExists=probeFile.isFile();
+            String fileToken="";
+            String actualDigest="";
+            if(fileExists){
+                String raw=read(probeFile);
+                JSONObject probe=new JSONObject(raw);
+                fileToken=probe.optString("token","");
+                actualDigest=sha256(probeFile);
+            }
+            boolean prefsIntact=from>0&&!token.isEmpty();
+            boolean fileIntact=fileExists&&token.equals(fileToken)&&!expectedDigest.isEmpty()&&expectedDigest.equals(actualDigest);
+            boolean newerBuild=BuildConfig.VERSION_CODE>from;
+            JSONObject u=new JSONObject();
+            u.put("token",token);u.put("armedAt",armed);u.put("fromVersionCode",from);u.put("fromVersionName",fromName);
+            u.put("currentVersionCode",BuildConfig.VERSION_CODE);u.put("currentVersionName",BuildConfig.VERSION_NAME);
+            u.put("preferencesIntact",prefsIntact);u.put("probeFileExists",fileExists);u.put("probeFileIntact",fileIntact);
+            u.put("probeSha256Expected",expectedDigest);u.put("probeSha256Actual",actualDigest);u.put("newerBuildInstalled",newerBuild);
+            r.put("updateCheckpoint",u);
+            if(!prefsIntact||!fileIntact){
+                a.fail("update_survival","Checkpoint corruption/loss detected. prefsIntact="+prefsIntact+" · fileIntact="+fileIntact);
+            }else if(!newerBuild){
+                a.warn("update_survival","Checkpoint is armed and intact, but no newer APK has been installed yet. Current="+BuildConfig.VERSION_CODE+" · armedFrom="+from);
+            }else{
+                a.pass("update_survival","Real update survival proved across a newer APK · "+from+" ("+fromName+") → "+BuildConfig.VERSION_CODE+" ("+BuildConfig.VERSION_NAME+") · preferences + independent private file both intact");
+            }
         }catch(Throwable e){a.fail("update_survival",e.toString());}
     }
 
