@@ -7,7 +7,7 @@ import org.json.JSONObject;
 
 import java.util.List;
 
-/** Aggregates comparison verdicts into one bounded teaching proposal and stages it safely. */
+/** Aggregates true-comparison verdicts into one bounded teaching proposal and stages it safely. */
 public final class CortexBridgeTeaching {
     private CortexBridgeTeaching() {}
 
@@ -19,7 +19,7 @@ public final class CortexBridgeTeaching {
             for (JSONObject verdict : verdicts) {
                 if (verdict == null) continue;
                 String testId = verdict.optString("testId", "");
-                if (!testId.startsWith("comparison-batch-")) continue;
+                if (!testId.startsWith("true-comparison-batch-")) continue;
                 JSONObject payload = verdict.optJSONObject("payload");
                 if (payload == null) continue;
                 comparisons.put(new JSONObject()
@@ -29,16 +29,20 @@ public final class CortexBridgeTeaching {
                         .put("independentAnswer", payload.opt("independentAnswer"))
                         .put("cortexAssessment", payload.opt("cortexAssessment"))
                         .put("decisionAssessment", payload.opt("decisionAssessment"))
+                        .put("aggregateAgreementMetrics", payload.optJSONObject("aggregateAgreementMetrics"))
+                        .put("metrics", payload.optJSONObject("metrics"))
                         .put("mismatches", payload.optJSONArray("mismatches"))
+                        .put("materialDisagreements", payload.optJSONArray("materialDisagreements"))
                         .put("unsupportedClaims", payload.optJSONArray("unsupportedClaims"))
-                        .put("missingExpectedFacts", payload.optJSONArray("missingExpectedFacts")));
+                        .put("missingExpectedFacts", payload.optJSONArray("missingExpectedFacts"))
+                        .put("topLessons", payload.optJSONArray("topLessons")));
             }
 
             JSONObject original = new JSONObject()
-                    .put("kind", "TEACHING_SYNTHESIS")
+                    .put("kind", "TRUE_1000_TEACHING_SYNTHESIS")
                     .put("comparisonVerdictCount", comparisons.length())
                     .put("comparisonVerdicts", comparisons)
-                    .put("instruction", "Synthesize one conservative bounded Policy Pack from the comparison evidence. Do not create facts, execute actions, or bypass CortexAttentionJudge. Return the exact bounded policy inside teachingCandidate.policy.");
+                    .put("instruction", "Synthesize one conservative bounded Policy Pack only from the true 1000-scenario comparison evidence. Prioritize reducing critical disagreements, missed urgent cases, false interruptions, grounding errors, and file-flow mistakes. Do not create facts, execute actions, or bypass CortexAttentionJudge. Return the exact bounded policy inside teachingCandidate.policy.");
 
             JSONObject cortex = new JSONObject()
                     .put("activePolicy", CortexPersonalPolicy.current(context))
@@ -47,7 +51,7 @@ public final class CortexBridgeTeaching {
                     .put("candidateWillUseRollbackSafeCanary", true);
 
             JSONObject reference = new JSONObject()
-                    .put("minimumComparisonVerdicts", 1)
+                    .put("requiredComparisonVerdicts", 10)
                     .put("requiredPolicyFields", new JSONArray()
                             .put("version").put("ttlMs").put("attentionThreshold").put("maxNowItems")
                             .put("interruptionPenaltyScale").put("featureWeights").put("boosts").put("teacherNotes"))
@@ -63,6 +67,8 @@ public final class CortexBridgeTeaching {
                             .put("executionForbidden", true)
                             .put("shadowBeforePromotion", true)
                             .put("rollbackSafeCanary", true));
+
+            if (comparisons.length() < 10) return null;
 
             JSONObject rules = ChatGptBridgeProtocol.defaultJudgingRules()
                     .put("teachingDisabled", false)
