@@ -70,19 +70,21 @@ public class CortexTrueScenarioLocalGateTest {
                     ok = j.surfaceNow;
                     break;
                 default:
-                    // OPEN_JUDGMENT and file-trust boundaries are not attention hard rules.
                     break;
             }
 
             if (!ok) {
-                failures.add(s.caseId + " | " + s.domain + " | " + s.intent + " | " + s.complication
+                String failure = s.caseId + " | " + s.domain + " | " + s.intent + " | " + s.complication
                         + " | boundary=" + boundary
                         + " | surfaceNow=" + j.surfaceNow
                         + " | score=" + j.score
-                        + " | reason=" + j.reason);
+                        + " | reason=" + j.reason;
+                failures.add(failure);
+                System.out.println("LOCAL1000_FAIL " + failure);
             }
         }
 
+        System.out.println("LOCAL1000_SUMMARY failures=" + failures.size());
         assertTrue("Hard-boundary failures (" + failures.size() + "):\n" + String.join("\n", failures), failures.isEmpty());
     }
 }
