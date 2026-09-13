@@ -51,6 +51,38 @@ public final class CortexAttentionJudgeHardRequestTest {
         assertFalse(j.surfaceNow);
     }
 
+    @Test public void rawTechnicalEvidenceCannotBecomeAttentionFromFlagsAlone() throws Exception {
+        CortexAttentionJudge.Judgment j = CortexAttentionJudge.evaluateWithPolicy(
+                null,
+                actionableCandidate("TECHNICAL_EVENT", 204L),
+                CortexAttentionJudge.RuntimeContext.neutral(),
+                strictPolicy());
+
+        assertFalse(j.surfaceNow);
+        assertTrue(j.reason.contains("technical evidence remains below the attention layer"));
+    }
+
+    @Test public void translatedUserFacingBlockerCanUseHardRequestBoundary() throws Exception {
+        CortexAttentionJudge.Judgment j = CortexAttentionJudge.evaluateWithPolicy(
+                null,
+                actionableCandidate("USER_ACTION_BLOCKER", 205L),
+                CortexAttentionJudge.RuntimeContext.neutral(),
+                strictPolicy());
+
+        assertTrue(j.surfaceNow);
+        assertTrue(j.reason.contains("explicit personally relevant request"));
+    }
+
+    private static AttentionDecisionEngine.Candidate actionableCandidate(String type, long id) {
+        long now = 1_800_000_000_000L;
+        return new AttentionDecisionEngine.Candidate(
+                id, type, "OPEN", "Verified action blocker",
+                "Grounded user-facing action is required",
+                0.95, 0.72, 0.90, 0.90, 0.20, 0.50,
+                0L, now, now, 0, 2,
+                true, true, false, true, false);
+    }
+
     private static JSONObject strictPolicy() throws Exception {
         return new JSONObject()
                 .put("version", "test-hard-explicit-request")
