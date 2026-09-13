@@ -19,8 +19,6 @@ concurrency:
 
 jobs:
   publish-acceptance:
-    # macOS 13 was retired by GitHub Actions in 2025. Pin the final x86_64
-    # hosted image so the x86_64 Android system image can use native acceleration.
     runs-on: macos-15-intel
     timeout-minutes: 60
 
@@ -52,13 +50,36 @@ jobs:
           SCRIPT=.github/scripts/cortex-final-publish-acceptance.sh
           APP=app/build/outputs/apk/debug/app-debug.apk
           TEST=app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+
           test -s "$SCRIPT"
           sh -n "$SCRIPT"
           test -s "$APP"
           test -s "$TEST"
+          unzip -tqq "$APP"
+          unzip -tqq "$TEST"
+
           grep -q 'CortexPublishAcceptanceTest' "$SCRIPT"
-          grep -q 'com.kareem.cortex.test/androidx.test.runner.AndroidJUnitRunner' "$SCRIPT"
-          echo "PREFLIGHT|PASS|script=$(wc -c < "$SCRIPT")|app=$(wc -c < "$APP")|test=$(wc -c < "$TEST")"
+          grep -q 'com.kareem.cortex.test' "$SCRIPT"
+          grep -q 'AndroidJUnitRunner' "$SCRIPT"
+          grep -q 'RUNTIME_STAGE' "$SCRIPT"
+          grep -q 'INSTRUMENTATION_CODE: -1' "$SCRIPT"
+          grep -q 'UPDATE_PERSISTENCE_PASS' "$SCRIPT"
+          grep -q 'NO_FATAL_ANR' "$SCRIPT"
+
+          APP_SHA=$(shasum -a 256 "$APP" | awk '{print $1}')
+          TEST_SHA=$(shasum -a 256 "$TEST" | awk '{print $1}')
+          SCRIPT_SHA=$(shasum -a 256 "$SCRIPT" | awk '{print $1}')
+
+          {
+            echo "PREFLIGHT|PASS"
+            echo "HEAD=${GITHUB_SHA}"
+            echo "SCRIPT_SHA256=${SCRIPT_SHA}"
+            echo "APP_SHA256=${APP_SHA}"
+            echo "TEST_SHA256=${TEST_SHA}"
+            echo "SCRIPT_BYTES=$(wc -c < "$SCRIPT" | tr -d ' ')"
+            echo "APP_BYTES=$(wc -c < "$APP" | tr -d ' ')"
+            echo "TEST_BYTES=$(wc -c < "$TEST" | tr -d ' ')"
+          } | tee preflight.txt
 
       - name: Full installed-runtime simulation on Android 35
         uses: reactivecircus/android-emulator-runner@v2
@@ -77,12 +98,35 @@ jobs:
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back emulated -camera-front emulated
           script: sh .github/scripts/cortex-final-publish-acceptance.sh
 
+      - name: Verify runtime acceptance evidence
+        if: success()
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s publish-artifacts/runtime_stages.txt
+          test -s publish-artifacts/instrumentation.txt
+          test -s publish-artifacts/final_result.txt
+          test -s publish-artifacts/fresh_launch.png
+          test -s publish-artifacts/after_update.png
+          grep -q '^DEVICE_READY$' publish-artifacts/runtime_stages.txt
+          grep -q '^FRESH_INSTALL$' publish-artifacts/runtime_stages.txt
+          grep -q '^FRESH_LAUNCH$' publish-artifacts/runtime_stages.txt
+          grep -q '^INSTRUMENTATION_DISCOVERED$' publish-artifacts/runtime_stages.txt
+          grep -q '^INSTRUMENTATION_RUNNING$' publish-artifacts/runtime_stages.txt
+          grep -q '^INSTRUMENTATION_PASS$' publish-artifacts/runtime_stages.txt
+          grep -q '^UPDATE_PERSISTENCE_PASS$' publish-artifacts/runtime_stages.txt
+          grep -q '^NO_FATAL_ANR$' publish-artifacts/runtime_stages.txt
+          grep -q '^FINAL_PASS$' publish-artifacts/runtime_stages.txt
+          grep -q 'PUBLISH_ACCEPTANCE|PASS|head=${{ github.sha }}' publish-artifacts/final_result.txt
+          echo 'EVIDENCE_GATE|PASS'
+
       - name: Upload final publish simulation evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: cortex-final-publish-acceptance-${{ github.sha }}
           path: |
+            preflight.txt
             publish-artifacts/
             app/build/reports/tests/
             app/build/test-results/
