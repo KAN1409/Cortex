@@ -69,14 +69,38 @@ public final class ChatGptBridgeCoordinator {
                 if (result.accepted) accepted++; else if (!"DUPLICATE_IGNORED".equals(result.detail)) rejected++;
                 details.put(new JSONObject()
                         .put("requestId", verdict.optString("requestId", ""))
+                        .put("runId", verdict.optString("runId", ""))
+                        .put("testId", verdict.optString("testId", ""))
                         .put("accepted", result.accepted)
                         .put("detail", result.detail));
+            }
+            if (accepted == 0 && rejected > 0) {
+                return new PollResult(false, seen, accepted, rejected, details,
+                        rejectionSummary(details), transport.name());
             }
             return new PollResult(true, seen, accepted, rejected, details, "", transport.name());
         } catch (Throwable t) {
             return new PollResult(false, seen, accepted, rejected, details,
                     t.getClass().getSimpleName() + ": " + safeMessage(t), transport.name());
         }
+    }
+
+    private static String rejectionSummary(JSONArray details) {
+        StringBuilder sb = new StringBuilder("VERDICT_REJECTED");
+        int added = 0;
+        for (int i = 0; i < details.length() && added < 4; i++) {
+            JSONObject d = details.optJSONObject(i);
+            if (d == null || d.optBoolean("accepted", false)) continue;
+            String detail = d.optString("detail", "UNKNOWN");
+            if ("DUPLICATE_IGNORED".equals(detail)) continue;
+            sb.append(" · ")
+                    .append(d.optString("testId", "no-test"))
+                    .append(": ")
+                    .append(detail);
+            added++;
+        }
+        if (added == 0) sb.append(" · no rejection detail available");
+        return sb.toString();
     }
 
     public JSONObject status() {
