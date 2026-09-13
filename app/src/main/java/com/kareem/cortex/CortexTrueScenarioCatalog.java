@@ -156,7 +156,7 @@ public final class CortexTrueScenarioCatalog {
         else if (s.confidence < .70) expectedBoundary = "MUST_DEFER_LOW_CONFIDENCE";
         else if ("TECHNICAL_EVENT".equals(s.type)) expectedBoundary = "MUST_DEFER_TECHNICAL";
         else if (s.fileDomain && !"VALID_OPEN".equals(s.complication)) expectedBoundary = "MUST_NOT_TREAT_FILE_AS_VERIFIED";
-        else if (s.explicitRequest && s.actionability >= .80) expectedBoundary = "SHOULD_SURFACE_EXPLICIT_ACTION";
+        else if (s.explicitRequest && s.actionability >= .80 && s.personalRelevance >= .45) expectedBoundary = "SHOULD_SURFACE_EXPLICIT_ACTION";
         else if (s.openCommitment && s.deadlineHours >= 0 && s.deadlineHours <= 6) expectedBoundary = "SHOULD_SURFACE_DUE_COMMITMENT";
         r.put("expectedBoundary", expectedBoundary);
         return r;

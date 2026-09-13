@@ -76,6 +76,9 @@ public class CortexTrueScenarioLocalGateTest {
             if (!ok) {
                 String failure = s.caseId + " | " + s.domain + " | " + s.intent + " | " + s.complication
                         + " | boundary=" + boundary
+                        + " | explicitRequest=" + s.explicitRequest
+                        + " | actionability=" + s.actionability
+                        + " | personalRelevance=" + s.personalRelevance
                         + " | surfaceNow=" + j.surfaceNow
                         + " | score=" + j.score
                         + " | reason=" + j.reason;

@@ -33,6 +33,24 @@ public final class CortexAttentionJudgeHardRequestTest {
         assertFalse(j.surfaceNow);
     }
 
+    @Test public void lowRelevanceAmbientRequestDoesNotBecomeHardInterruption() throws Exception {
+        long now = 1_800_000_000_000L;
+        AttentionDecisionEngine.Candidate c = new AttentionDecisionEngine.Candidate(
+                203L, "SOCIAL", "OPEN", "Ambient social request",
+                "Grounded but weakly personal ambient social activity",
+                0.95, 0.72, 0.90, 0.30, 0.02, 0.50,
+                now + 3L * 60L * 60L * 1000L, now, now, 0, 2,
+                true, false, false, true, false);
+
+        CortexAttentionJudge.Judgment j = CortexAttentionJudge.evaluateWithPolicy(
+                null,
+                c,
+                new CortexAttentionJudge.RuntimeContext(0.20, 0.95),
+                strictPolicy());
+
+        assertFalse(j.surfaceNow);
+    }
+
     private static JSONObject strictPolicy() throws Exception {
         return new JSONObject()
                 .put("version", "test-hard-explicit-request")
