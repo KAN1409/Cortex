@@ -33,7 +33,7 @@ public final class ChatGptBridgeStore {
             String requestId=verdict==null?"":verdict.optString("requestId","");String safeId=safeName(requestId);File existing=new File(verdictDir,safeId+".json");
             if(existing.isFile())return AcceptResult.duplicate(existing);
             JSONObject request=getPending(requestId);if(request==null){reject(verdict,"NO_PENDING_REQUEST");return AcceptResult.rejected("NO_PENDING_REQUEST");}
-            ChatGptBridgeProtocol.Validation v=ChatGptBridgeProtocol.validateVerdictAgainstRequest(request,verdict);if(!v.ok){reject(verdict,v.reason);return AcceptResult.rejected(v.reason);}
+            ChatGptBridgeProtocol.Validation v=ChatGptBridgeProtocol.validateVerdictAgainstPersistedRequest(request,verdict);if(!v.ok){reject(verdict,v.reason);return AcceptResult.rejected(v.reason);}
             atomicWrite(existing,verdict.toString());File pending=new File(pendingDir,safeId+".json");if(pending.exists()&&!pending.delete())return AcceptResult.acceptedWithWarning("VERDICT_ACCEPTED_PENDING_FILE_NOT_REMOVED",existing);return AcceptResult.accepted(existing);
         }catch(Throwable t){try{reject(verdict,"EXCEPTION_"+t.getClass().getSimpleName());}catch(Throwable ignored){}return AcceptResult.rejected(t.getClass().getSimpleName()+": "+safeMessage(t));}
     }
