@@ -8,7 +8,6 @@ import android.view.*;
 import android.widget.*;
 import androidx.core.content.FileProvider;
 import java.io.File;
-import java.util.Locale;
 
 /** Installed-device end-to-end verification surface. */
 public class CortexEndToEndActivity extends Activity {
@@ -27,7 +26,7 @@ public class CortexEndToEndActivity extends Activity {
         share=new Button(this);share.setText("ANALYZE WITH CHATGPT");share.setAllCaps(false);share.setEnabled(false);share.setOnClickListener(v->shareLatest());LinearLayout.LayoutParams sp=new LinearLayout.LayoutParams(-1,dp(50));sp.setMargins(0,dp(10),0,0);body.addView(share,sp);
         arm=new Button(this);arm.setText("ARM REAL UPDATE-SURVIVAL TEST");arm.setAllCaps(false);arm.setOnClickListener(v->armUpdate());LinearLayout.LayoutParams ap=new LinearLayout.LayoutParams(-1,dp(50));ap.setMargins(0,dp(10),0,0);body.addView(arm,ap);
 
-        TextView note=CortexUi.text(this,"Update test: arm this on the current version, install the next APK normally without uninstalling, then run the full test again. Cortex will verify the checkpoint survived the real update.",11,CortexUi.MUTED);note.setPadding(0,dp(10),0,dp(8));body.addView(note);
+        TextView note=CortexUi.text(this,"Update test: arm this on the current version, install a strictly newer APK normally without uninstalling, then run the full test again. Cortex requires both SharedPreferences and an independent private checkpoint file to survive before it reports update survival PASS.",11,CortexUi.MUTED);note.setPadding(0,dp(10),0,dp(8));body.addView(note);
         body.addView(CortexUi.section(this,"Live test stages"));events=new LinearLayout(this);events.setOrientation(LinearLayout.VERTICAL);body.addView(events);
         setContentView(root);CortexUi.fitSystemBars(this,root);
     }
@@ -35,7 +34,13 @@ public class CortexEndToEndActivity extends Activity {
     void runFull(){if(running)return;running=true;run.setEnabled(false);share.setEnabled(false);events.removeAllViews();headline.setText("Running on this phone…");sub.setText("Do not close Cortex until the report is finished.");
         new Thread(()->{
             CortexEndToEndLab.RunResult result=CortexEndToEndLab.run(getApplicationContext(),(id,status,detail)->runOnUiThread(()->addStage(id,status,detail)));
-            runOnUiThread(()->{running=false;run.setEnabled(true);share.setEnabled(result.reportFile.isFile());headline.setText(result.ok()?"PASS":"FAIL");sub.setText(result.pass+" passed · "+result.warn+" warnings · "+result.fail+" failed · report "+result.runId);Toast.makeText(this,"End-to-end report ready",Toast.LENGTH_LONG).show();});
+            runOnUiThread(()->{
+                running=false;run.setEnabled(true);share.setEnabled(result.reportFile.isFile());
+                String verdict=result.fail>0?"FAIL":(result.warn>0?"PASS WITH WARNINGS":"PASS");
+                headline.setText(verdict);
+                sub.setText(result.pass+" passed · "+result.warn+" warnings · "+result.fail+" failed · report "+result.runId);
+                Toast.makeText(this,"End-to-end report ready",Toast.LENGTH_LONG).show();
+            });
         },"cortex-embedded-e2e").start();
     }
 
@@ -45,7 +50,16 @@ public class CortexEndToEndActivity extends Activity {
 
     void refreshLatest(){File f=CortexEndToEndLab.latestReport(this);share.setEnabled(f!=null&&f.isFile());if(f!=null){sub.setText("Latest report ready: "+f.getParentFile().getName());}}
 
-    void armUpdate(){String token=CortexEndToEndLab.armUpdateCheckpoint(this);Toast.makeText(this,"Update checkpoint armed",Toast.LENGTH_LONG).show();sub.setText("Checkpoint armed: "+token.substring(0,Math.min(token.length(),24))+"… Install the next APK as an update, then run Full E2E again.");}
+    void armUpdate(){
+        try{
+            String token=CortexEndToEndLab.armUpdateCheckpoint(this);
+            Toast.makeText(this,"Update checkpoint armed",Toast.LENGTH_LONG).show();
+            sub.setText("Checkpoint armed: "+token.substring(0,Math.min(token.length(),24))+"… Install a newer APK as an update, then run Full E2E again.");
+        }catch(Throwable e){
+            Toast.makeText(this,"Could not arm update test: "+e.getClass().getSimpleName(),Toast.LENGTH_LONG).show();
+            sub.setText("Update checkpoint was not armed. No survival claim will be made.");
+        }
+    }
 
     void shareLatest(){
         File f=CortexEndToEndLab.latestReport(this);if(f==null||!f.isFile()){Toast.makeText(this,"Run the end-to-end test first",Toast.LENGTH_LONG).show();return;}
