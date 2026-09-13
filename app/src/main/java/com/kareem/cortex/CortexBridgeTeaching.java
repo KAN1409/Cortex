@@ -7,103 +7,46 @@ import org.json.JSONObject;
 
 import java.util.List;
 
-/** Aggregates true-comparison verdicts into one bounded teaching proposal and stages it safely. */
+/** Aggregates one complete run of true-comparison verdicts into one bounded teaching proposal. */
 public final class CortexBridgeTeaching {
     private CortexBridgeTeaching() {}
 
     public static ChatGptBridgeCoordinator.DispatchResult dispatchSynthesis(Context context, BridgeMailTransport transport) {
         try {
-            ChatGptBridgeStore store = new ChatGptBridgeStore(context.getApplicationContext());
-            List<JSONObject> verdicts = store.listVerdicts();
-            JSONArray comparisons = new JSONArray();
-            for (JSONObject verdict : verdicts) {
-                if (verdict == null) continue;
-                String testId = verdict.optString("testId", "");
-                if (!testId.startsWith("true-comparison-batch-")) continue;
-                JSONObject payload = verdict.optJSONObject("payload");
-                if (payload == null) continue;
-                comparisons.put(new JSONObject()
-                        .put("testId", testId)
-                        .put("status", payload.optString("status", ""))
-                        .put("severity", payload.optString("severity", ""))
-                        .put("independentAnswer", payload.opt("independentAnswer"))
-                        .put("cortexAssessment", payload.opt("cortexAssessment"))
-                        .put("decisionAssessment", payload.opt("decisionAssessment"))
-                        .put("aggregateAgreementMetrics", payload.optJSONObject("aggregateAgreementMetrics"))
-                        .put("metrics", payload.optJSONObject("metrics"))
-                        .put("mismatches", payload.optJSONArray("mismatches"))
-                        .put("materialDisagreements", payload.optJSONArray("materialDisagreements"))
-                        .put("unsupportedClaims", payload.optJSONArray("unsupportedClaims"))
-                        .put("missingExpectedFacts", payload.optJSONArray("missingExpectedFacts"))
-                        .put("topLessons", payload.optJSONArray("topLessons")));
+            ChatGptBridgeStore store=new ChatGptBridgeStore(context.getApplicationContext());
+            String runId=store.latestCompleteRun(CortexComparisonTeachingSuite.RUN_KIND);
+            if(runId==null||runId.isEmpty())return null;
+
+            JSONObject runStatus=store.runStatus(runId);
+            if(!runStatus.optBoolean("complete",false)||runStatus.optInt("resolved",0)!=CortexComparisonTeachingSuite.BATCHES)return null;
+
+            List<JSONObject> verdicts=store.listVerdictsForRun(runId);
+            JSONArray comparisons=new JSONArray();
+            java.util.HashSet<String> seenTests=new java.util.HashSet<>();
+            for(JSONObject verdict:verdicts){
+                if(verdict==null)continue;
+                String testId=verdict.optString("testId","");
+                if(!testId.startsWith("true-comparison-batch-")||seenTests.contains(testId))continue;
+                JSONObject payload=verdict.optJSONObject("payload");if(payload==null)continue;
+                seenTests.add(testId);
+                comparisons.put(new JSONObject().put("testId",testId).put("status",payload.optString("status","")).put("severity",payload.optString("severity","")).put("independentAnswer",payload.opt("independentAnswer")).put("cortexAssessment",payload.opt("cortexAssessment")).put("decisionAssessment",payload.opt("decisionAssessment")).put("aggregateAgreementMetrics",payload.optJSONObject("aggregateAgreementMetrics")).put("metrics",payload.optJSONObject("metrics")).put("mismatches",payload.optJSONArray("mismatches")).put("materialDisagreements",payload.optJSONArray("materialDisagreements")).put("unsupportedClaims",payload.optJSONArray("unsupportedClaims")).put("missingExpectedFacts",payload.optJSONArray("missingExpectedFacts")).put("topLessons",payload.optJSONArray("topLessons")));
             }
+            if(comparisons.length()!=CortexComparisonTeachingSuite.BATCHES)return null;
 
-            JSONObject original = new JSONObject()
-                    .put("kind", "TRUE_1000_TEACHING_SYNTHESIS")
-                    .put("comparisonVerdictCount", comparisons.length())
-                    .put("comparisonVerdicts", comparisons)
-                    .put("instruction", "Synthesize one conservative bounded Policy Pack only from the true 1000-scenario comparison evidence. Prioritize reducing critical disagreements, missed urgent cases, false interruptions, grounding errors, and file-flow mistakes. Do not create facts, execute actions, or bypass CortexAttentionJudge. Return the exact bounded policy inside teachingCandidate.policy.");
-
-            JSONObject cortex = new JSONObject()
-                    .put("activePolicy", CortexPersonalPolicy.current(context))
-                    .put("judgeVersion", CortexAttentionJudge.VERSION)
-                    .put("candidateWillRunShadowComparison", true)
-                    .put("candidateWillUseRollbackSafeCanary", true);
-
-            JSONObject reference = new JSONObject()
-                    .put("requiredComparisonVerdicts", 10)
-                    .put("requiredPolicyFields", new JSONArray()
-                            .put("version").put("ttlMs").put("attentionThreshold").put("maxNowItems")
-                            .put("interruptionPenaltyScale").put("featureWeights").put("boosts").put("teacherNotes"))
-                    .put("bounds", new JSONObject()
-                            .put("ttlMs", "60000..2592000000")
-                            .put("attentionThreshold", "0..1")
-                            .put("maxNowItems", "1..12")
-                            .put("interruptionPenaltyScale", "0..0.55")
-                            .put("featureWeights", "0..0.45")
-                            .put("boostWeight", "-1..1"))
-                    .put("safety", new JSONObject()
-                            .put("canonicalWritesForbidden", true)
-                            .put("executionForbidden", true)
-                            .put("shadowBeforePromotion", true)
-                            .put("rollbackSafeCanary", true));
-
-            if (comparisons.length() < 10) return null;
-
-            JSONObject rules = ChatGptBridgeProtocol.defaultJudgingRules()
-                    .put("teachingDisabled", false)
-                    .put("teachingMode", "PROPOSAL_ONLY")
-                    .put("requireSingleSynthesisPolicy", true);
-
-            return new ChatGptBridgeCoordinator(context, transport).dispatchTestWithRules(
-                    "teaching-synthesis-" + System.currentTimeMillis(),
-                    "teaching-synthesis",
-                    original,
-                    cortex,
-                    reference,
-                    rules);
-        } catch (Throwable t) {
-            return null;
-        }
+            JSONObject original=new JSONObject().put("kind","TRUE_1000_TEACHING_SYNTHESIS").put("sourceRunId",runId).put("comparisonVerdictCount",comparisons.length()).put("comparisonVerdicts",comparisons).put("instruction","Synthesize one conservative bounded Policy Pack only from this single complete true 1000-scenario run. Prioritize reducing critical disagreements, missed urgent cases, false interruptions, grounding errors, and file-flow mistakes. Do not create facts, execute actions, or bypass CortexAttentionJudge. Return the exact bounded policy inside teachingCandidate.policy.");
+            JSONObject cortex=new JSONObject().put("activePolicy",CortexPersonalPolicy.current(context)).put("judgeVersion",CortexAttentionJudge.VERSION).put("candidateWillRunShadowComparison",true).put("candidateWillUseRollbackSafeCanary",true);
+            JSONObject reference=new JSONObject().put("requiredComparisonRunId",runId).put("requiredComparisonVerdicts",10).put("requiredPolicyFields",new JSONArray().put("version").put("ttlMs").put("attentionThreshold").put("maxNowItems").put("interruptionPenaltyScale").put("featureWeights").put("boosts").put("teacherNotes")).put("bounds",new JSONObject().put("ttlMs","60000..2592000000").put("attentionThreshold","0..1").put("maxNowItems","1..12").put("interruptionPenaltyScale","0..0.55").put("featureWeights","0..0.45").put("boostWeight","-1..1")).put("safety",new JSONObject().put("canonicalWritesForbidden",true).put("executionForbidden",true).put("shadowBeforePromotion",true).put("rollbackSafeCanary",true));
+            JSONObject rules=ChatGptBridgeProtocol.defaultJudgingRules().put("teachingDisabled",false).put("teachingMode","PROPOSAL_ONLY").put("requireSingleSynthesisPolicy",true);
+            return new ChatGptBridgeCoordinator(context,transport).dispatchTestWithRules("teaching-synthesis-"+System.currentTimeMillis(),"teaching-synthesis",original,cortex,reference,rules);
+        }catch(Throwable t){return null;}
     }
 
     /** Explicit user action only. Existing teacher validates, shadows, and canary-promotes. */
-    public static CortexChatGptAppTeacher.ImportResult stageLatestCandidate(Context context) {
-        try {
-            List<JSONObject> verdicts = new ChatGptBridgeStore(context.getApplicationContext()).listVerdicts();
-            for (int i = verdicts.size() - 1; i >= 0; i--) {
-                JSONObject verdict = verdicts.get(i);
-                if (!"teaching-synthesis".equals(verdict.optString("testId", ""))) continue;
-                JSONObject payload = verdict.optJSONObject("payload");
-                JSONObject candidate = payload == null ? null : payload.optJSONObject("teachingCandidate");
-                if (candidate == null) return new CortexChatGptAppTeacher.ImportResult(false, "", "Teaching synthesis has no teachingCandidate");
-                JSONObject policy = candidate.optJSONObject("policy");
-                if (policy == null) policy = candidate;
-                return CortexChatGptAppTeacher.importText(context, policy.toString());
-            }
-            return new CortexChatGptAppTeacher.ImportResult(false, "", "No teaching synthesis verdict available yet");
-        } catch (Throwable t) {
-            return new CortexChatGptAppTeacher.ImportResult(false, "", t.getClass().getSimpleName() + ": " + (t.getMessage() == null ? "" : t.getMessage()));
-        }
+    public static CortexChatGptAppTeacher.ImportResult stageLatestCandidate(Context context){
+        try{
+            List<JSONObject> verdicts=new ChatGptBridgeStore(context.getApplicationContext()).listVerdicts();
+            for(int i=verdicts.size()-1;i>=0;i--){JSONObject verdict=verdicts.get(i);if(!"teaching-synthesis".equals(verdict.optString("testId","")))continue;JSONObject payload=verdict.optJSONObject("payload");JSONObject candidate=payload==null?null:payload.optJSONObject("teachingCandidate");if(candidate==null)return new CortexChatGptAppTeacher.ImportResult(false,"","Teaching synthesis has no teachingCandidate");JSONObject policy=candidate.optJSONObject("policy");if(policy==null)policy=candidate;return CortexChatGptAppTeacher.importText(context,policy.toString());}
+            return new CortexChatGptAppTeacher.ImportResult(false,"","No teaching synthesis verdict available yet");
+        }catch(Throwable t){return new CortexChatGptAppTeacher.ImportResult(false,"",t.getClass().getSimpleName()+": "+(t.getMessage()==null?"":t.getMessage()));}
     }
 }
