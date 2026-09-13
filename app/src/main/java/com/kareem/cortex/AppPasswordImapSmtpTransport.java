@@ -79,11 +79,7 @@ public final class AppPasswordImapSmtpTransport implements BridgeMailTransport {
         return out;
     }
 
-    /**
-     * Executes one UID FETCH and returns only the IMAP literal bytes declared by {N}.
-     * No wrapper stripping or sentinel substring matching is used, so MIME/base64 lines
-     * beginning with characters such as 'A' can never truncate the message.
-     */
+    /** Executes one UID FETCH and returns only the IMAP literal bytes declared by {N}. */
     static byte[] fetchSingleLiteral(BufferedOutputStream out,BufferedInputStream in,String cmd,String tag)throws Exception{
         write(out,cmd+"\r\n");
         byte[] literal=null;
@@ -102,6 +98,27 @@ public final class AppPasswordImapSmtpTransport implements BridgeMailTransport {
                 return literal==null?new byte[0]:literal;
             }
         }
+    }
+
+    /**
+     * Compatibility helper for existing tests. Extracts exactly the declared IMAP literal
+     * length from a captured FETCH response; never searches for a textual tag sentinel.
+     */
+    static String extractFetchedMime(String fetched){
+        if(fetched==null||fetched.isEmpty())return "";
+        int markerOpen=fetched.indexOf('{');
+        int markerClose=markerOpen<0?-1:fetched.indexOf('}',markerOpen+1);
+        if(markerOpen<0||markerClose<=markerOpen)return "";
+        int length;
+        try{length=Integer.parseInt(fetched.substring(markerOpen+1,markerClose).trim());}
+        catch(Throwable ignored){return "";}
+        int literalStart=fetched.indexOf('\n',markerClose);
+        if(literalStart<0)return "";
+        literalStart++;
+        while(literalStart<fetched.length()&&fetched.charAt(literalStart)=='\r')literalStart++;
+        byte[] bytes=fetched.substring(literalStart).getBytes(StandardCharsets.UTF_8);
+        if(length<0||bytes.length<length)return "";
+        return new String(Arrays.copyOf(bytes,length),StandardCharsets.UTF_8);
     }
 
     private void smtpSend(String subject,String body)throws Exception{
