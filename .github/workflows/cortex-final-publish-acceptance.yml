@@ -1,0 +1,144 @@
+name: Cortex Final Publish Acceptance
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - v86/work-vault
+    paths:
+      - 'app/**'
+      - '.github/workflows/cortex-final-publish-acceptance.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cortex-final-publish-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  publish-acceptance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@v4
+
+      - name: JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Android SDK / Gradle cache
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Unit and architecture gate
+        run: |
+          chmod +x ./gradlew 2>/dev/null || true
+          gradle :app:testDebugUnitTest --stacktrace
+
+      - name: Assemble app and instrumentation APKs
+        run: gradle :app:assembleDebug :app:assembleDebugAndroidTest --stacktrace
+
+      - name: Full installed-runtime simulation on Android 35
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          ram-size: 4096M
+          heap-size: 768M
+          disable-animations: true
+          disk-size: 8G
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back emulated -camera-front emulated
+          script: |
+            set -euo pipefail
+            mkdir -p publish-artifacts
+            adb wait-for-device
+            adb shell input keyevent 82 || true
+            adb shell settings put global window_animation_scale 0
+            adb shell settings put global transition_animation_scale 0
+            adb shell settings put global animator_duration_scale 0
+
+            APP=app/build/outputs/apk/debug/app-debug.apk
+            TEST=app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+
+            echo '=== FRESH INSTALL ==='
+            adb uninstall com.kareem.cortex >/dev/null 2>&1 || true
+            adb install "$APP"
+            adb shell pm clear com.kareem.cortex
+            adb install -r "$APP"
+            adb install -r "$TEST"
+
+            echo '=== LAUNCH TIMING ==='
+            adb shell am start -W -S -n com.kareem.cortex/.NowActivity | tee publish-artifacts/launch_timing.txt
+
+            echo '=== INSTRUMENTED FINAL PUBLISH SUITE ==='
+            set +e
+            adb shell am instrument -w -r \
+              -e class com.kareem.cortex.CortexPublishAcceptanceTest \
+              com.kareem.cortex.test/androidx.test.runner.AndroidJUnitRunner \
+              | tee publish-artifacts/instrumentation.txt
+            TEST_EXIT=${PIPESTATUS[0]}
+            set -e
+
+            echo '=== PERSISTENCE BEFORE REPLACE INSTALL ==='
+            adb shell run-as com.kareem.cortex cat shared_prefs/cortex_publish_acceptance.xml \
+              | tee publish-artifacts/persistence_before.xml
+            grep -q 'PERSIST_ME_ACROSS_REINSTALL' publish-artifacts/persistence_before.xml
+
+            echo '=== UPDATE-IN-PLACE / SAME SIGNING IDENTITY ==='
+            adb install -r "$APP" | tee publish-artifacts/reinstall.txt
+            adb shell am force-stop com.kareem.cortex
+            adb shell am start -W -n com.kareem.cortex/.NowActivity | tee publish-artifacts/relaunch_after_update.txt
+            adb shell run-as com.kareem.cortex cat shared_prefs/cortex_publish_acceptance.xml \
+              | tee publish-artifacts/persistence_after.xml
+            grep -q 'PERSIST_ME_ACROSS_REINSTALL' publish-artifacts/persistence_after.xml
+            cmp publish-artifacts/persistence_before.xml publish-artifacts/persistence_after.xml
+
+            echo '=== PACKAGE / DB / MEMORY DIAGNOSTICS ==='
+            adb shell dumpsys package com.kareem.cortex > publish-artifacts/package.txt
+            adb shell dumpsys meminfo com.kareem.cortex > publish-artifacts/meminfo.txt || true
+            adb shell dumpsys activity activities > publish-artifacts/activities.txt || true
+            adb shell run-as com.kareem.cortex sh -c 'ls -la databases files shared_prefs 2>/dev/null' > publish-artifacts/app_storage.txt || true
+
+            echo '=== SCREENSHOTS + FIXTURES ==='
+            adb pull /sdcard/Android/data/com.kareem.cortex/files/publish-simulation publish-artifacts/publish-simulation || true
+
+            echo '=== LOGCAT SAFETY GATE ==='
+            adb logcat -d -v threadtime > publish-artifacts/logcat.txt
+            grep -E 'FATAL EXCEPTION|ANR in com\.kareem\.cortex|Process: com\.kareem\.cortex.*AndroidRuntime' publish-artifacts/logcat.txt \
+              > publish-artifacts/fatal_scan.txt || true
+            if [ -s publish-artifacts/fatal_scan.txt ]; then
+              echo 'Cortex fatal runtime event detected:'
+              cat publish-artifacts/fatal_scan.txt
+              exit 91
+            fi
+
+            if [ "$TEST_EXIT" -ne 0 ]; then
+              echo "Instrumentation failed with exit $TEST_EXIT"
+              exit "$TEST_EXIT"
+            fi
+
+            grep -q 'PUBLISH_SIM|PASS|fresh_runtime_launcher' publish-artifacts/instrumentation.txt
+            grep -q 'PUBLISH_SIM|PASS|ui_surface_matrix' publish-artifacts/instrumentation.txt
+            grep -q 'PUBLISH_SIM|PASS|office_document_extractors' publish-artifacts/instrumentation.txt
+            grep -q 'PUBLISH_SIM|PASS|database_quick_check_and_production_self_test' publish-artifacts/instrumentation.txt
+            echo "PUBLISH_ACCEPTANCE|PASS|head=${GITHUB_SHA}" | tee publish-artifacts/final_result.txt
+
+      - name: Upload final publish simulation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cortex-final-publish-acceptance-${{ github.sha }}
+          path: |
+            publish-artifacts/
+            app/build/reports/tests/
+            app/build/test-results/
+            app/build/reports/androidTests/
+            app/build/outputs/androidTest-results/
+          if-no-files-found: warn
+          retention-days: 30
