@@ -17,7 +17,7 @@ import java.util.Locale;
  * but cannot edit evidence, knowledge, world state, or execute an action.
  */
 public final class CortexAttentionJudge {
-    public static final String VERSION = "cortex_attention_judge_001";
+    public static final String VERSION = "cortex_attention_judge_002";
 
     public static final class RuntimeContext {
         public final double contextMatch;
@@ -69,7 +69,9 @@ public final class CortexAttentionJudge {
         AttentionDecisionEngine.Decision structural = AttentionDecisionEngine.evaluate(c);
         String structuralReason = structural.reason == null ? "" : structural.reason.toLowerCase(Locale.ROOT);
 
-        if (!c.unresolved || structuralReason.contains("resolved situation")) {
+        // Resolution is canonical structured state, never inferred from natural-language reasons.
+        // In particular, "unresolved situation" contains the substring "resolved situation".
+        if (!c.unresolved || isResolvedState(c.state)) {
             return new Judgment(c, false, 0, threshold, rt.interruptionCost,
                     "resolved state is never an interruption", policyVersion);
         }
@@ -249,6 +251,11 @@ public final class CortexAttentionJudge {
         if (s == null || xs == null) return false;
         for (String x : xs) if (x != null && s.contains(x)) return true;
         return false;
+    }
+
+    private static boolean isResolvedState(String state) {
+        String s = normalize(state);
+        return "resolved".equals(s) || "closed".equals(s) || "completed".equals(s) || "dismissed".equals(s);
     }
 
     private static double deadlineScore(long deadlineAt, long nowAt) {
