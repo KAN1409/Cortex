@@ -57,7 +57,10 @@ public final class AppPasswordImapSmtpTransport implements BridgeMailTransport {
             command(os,in,"A1 LOGIN "+quote(email)+" "+quote(appPassword),"A1");
             command(os,in,"A2 SELECT INBOX","A2");
             String since=new SimpleDateFormat("dd-MMM-yyyy",Locale.US).format(new Date(Math.max(0,newerThanEpochMs)));
-            String search=command(os,in,"A3 UID SEARCH SINCE "+since+" SUBJECT \"CHATGPT_TEST_VERDICT\"","A3");
+            // Do not rely on SUBJECT search here. Gmail/API generated subjects may be MIME encoded
+            // and transport search semantics are not part of Cortex's trust boundary. Narrow to
+            // recent self-to-self messages, then let the signed/correlated JSON protocol decide.
+            String search=command(os,in,"A3 UID SEARCH SINCE "+since+" FROM "+quote(email)+" TO "+quote(email),"A3");
             long[] uids=parseSearchUids(search);
             int start=Math.max(0,uids.length-limit);
             int tag=4;
@@ -100,10 +103,6 @@ public final class AppPasswordImapSmtpTransport implements BridgeMailTransport {
         }
     }
 
-    /**
-     * Compatibility helper for existing tests. Extracts exactly the declared IMAP literal
-     * length from a captured FETCH response; never searches for a textual tag sentinel.
-     */
     static String extractFetchedMime(String fetched){
         if(fetched==null||fetched.isEmpty())return "";
         int markerOpen=fetched.indexOf('{');
@@ -120,6 +119,8 @@ public final class AppPasswordImapSmtpTransport implements BridgeMailTransport {
         if(length<0||bytes.length<length)return "";
         return new String(Arrays.copyOf(bytes,length),StandardCharsets.UTF_8);
     }
+
+    static String buildDiscoverySearchForTest(String since,String email){return "UID SEARCH SINCE "+since+" FROM "+quote(email)+" TO "+quote(email);}
 
     private void smtpSend(String subject,String body)throws Exception{
         try(SSLSocket socket=open(SMTP_HOST,SMTP_PORT)){
