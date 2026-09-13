@@ -1,13 +1,17 @@
 package com.kareem.cortex;
 
+import android.Manifest;
 import android.content.ContentValues;
 import android.content.Intent;
+import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.net.Uri;
 import android.os.Build;
 import android.provider.MediaStore;
 import android.view.*;
 import android.widget.*;
+import org.json.JSONObject;
+import java.io.File;
 
 /** Premium capture composer: neutral graphite surfaces with localized lime/amber signal color. */
 public final class ProposalCaptureActivity extends SatinCaptureActivity {
@@ -23,9 +27,22 @@ public final class ProposalCaptureActivity extends SatinCaptureActivity {
         choices=new LinearLayout(this);choices.setOrientation(LinearLayout.VERTICAL);choices.setPadding(0,dp(12),0,0);LinearLayout top=new LinearLayout(this);top.setOrientation(LinearLayout.HORIZONTAL);captureTile(top,"Voice","Speak naturally","wave",CortexUi.LIME,this::startVoice,0);captureTile(top,"Text","Type or paste","text",CortexUi.TEXT,this::quickNote,8);choices.addView(top,new LinearLayout.LayoutParams(-1,dp(116)));LinearLayout bottom=new LinearLayout(this);bottom.setOrientation(LinearLayout.HORIZONTAL);captureTile(bottom,"File","Import evidence","file",CortexUi.TEXT,this::pickFile,0);captureTile(bottom,"Photo","Visual evidence","photo",CortexUi.YELLOW,this::pickPhoto,8);LinearLayout.LayoutParams bp=new LinearLayout.LayoutParams(-1,dp(116));bp.setMargins(0,dp(8),0,0);choices.addView(bottom,bp);sheet.addView(choices);
         FrameLayout.LayoutParams sp=new FrameLayout.LayoutParams(-1,-2,Gravity.BOTTOM);sp.setMargins(dp(12),0,dp(12),dp(12));root.addView(sheet,sp);setContentView(root);applyInsets();
         if(CortexMotion.allowed(this)){sheet.setTranslationY(dp(36));sheet.setAlpha(0f);sheet.animate().translationY(0).alpha(1f).setDuration(320).start();CortexMotion.enter(top,1);CortexMotion.enter(bottom,2);}CortexMotion.breathe(dot);
+        VoiceCapturePipeline.recoverAndResume(getApplicationContext());
     }
 
     void captureTile(LinearLayout row,String title,String sub,String icon,int color,Runnable action,int left){LinearLayout tile=new LinearLayout(this);tile.setOrientation(LinearLayout.VERTICAL);tile.setGravity(Gravity.CENTER_VERTICAL);tile.setPadding(dp(12),dp(10),dp(12),dp(10));CortexUi.pressable(this,tile,CortexUi.round(this,CortexUi.SURFACE_2,CortexUi.BORDER_SOFT,20));tile.addView(CortexUi.glyph(this,icon,color,true),new LinearLayout.LayoutParams(dp(42),dp(42)));TextView t=CortexUi.plain(this,title,15,CortexUi.TEXT);CortexUi.medium(t);t.setPadding(0,dp(7),0,0);tile.addView(t);TextView s=CortexUi.plain(this,sub,10,CortexUi.MUTED);s.setPadding(0,dp(3),0,0);tile.addView(s);tile.setOnClickListener(v->{CortexMotion.haptic(v,false);action.run();});LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,-1,1);p.setMargins(dp(left),0,0,0);row.addView(tile,p);}
+
+    /** Recording is local-first. A cloud key is optional fallback, never a prerequisite to record. */
+    @Override void startVoice(){
+        VoiceCapturePipeline.recoverAndResume(getApplicationContext());
+        if(Build.VERSION.SDK_INT>=23&&checkSelfPermission(Manifest.permission.RECORD_AUDIO)!=PackageManager.PERMISSION_GRANTED){requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO},REQ_MIC);return;}
+        beginVoice();
+    }
+
+    /** Manual voice bypasses passive backlog and receives its own bounded processing lifecycle. */
+    @Override void persistVoiceAsync(File f){
+        io.execute(()->{VaultDb local=null;long id=0;Throwable error=null;try{JSONObject m=new JSONObject();m.put("mime","audio/wav");m.put("bytes",f.length());m.put("recorded_at",System.currentTimeMillis());m.put("pipeline","voice_capture_bounded_v1");local=new VaultDb(getApplicationContext());id=local.insert("AUDIO","manual_recording","Voice recording","","Voice & Audio","voice,audio,transcript",f.getAbsolutePath(),Fingerprint.file(f.getAbsolutePath()),m.toString());if(id<0)f.delete();}catch(Throwable t){error=t;}finally{if(local!=null)try{local.close();}catch(Throwable ignored){}}final long itemId=id;final Throwable failure=error;runOnUiThread(()->{if(destroyed||isFinishing()||isDestroyed())return;if(itemId>0){VoiceCapturePipeline.submit(getApplicationContext(),itemId,null);showResult(itemId);}else{setImporting(false,"");Toast.makeText(this,failure==null?"Already in Cortex":"Could not save recording",Toast.LENGTH_LONG).show();}});});
+    }
 
     @Override void pickPhoto(){
         if(photoPanel!=null)return;
@@ -35,7 +52,7 @@ public final class ProposalCaptureActivity extends SatinCaptureActivity {
         TextView sub=CortexUi.text(this,"Take a new photo or choose an existing image. Cortex keeps the original as evidence before understanding it.",11,CortexUi.MUTED);sub.setPadding(0,dp(5),0,dp(12));photoPanel.addView(sub);
         photoChoice("Open camera","Take a new photo","camera",CortexUi.YELLOW,this::openCamera);
         photoChoice("Choose from gallery","Select an existing image","photo",CortexUi.TEXT,this::openGallery);
-        TextView cancel=CortexUi.action(this,"Back",CortexUi.MUTED,false);LinearLayout.LayoutParams cp=new LinearLayout.LayoutParams(-1,dp(44));cp.setMargins(0,dp(10),0,0);photoPanel.addView(cancel,cp);cancel.setOnClickListener(v->closePhotoPanel());
+        TextView cancel=CortexUi.action(this,"Back",CortexUi.MUTED,false);LinearLayout.LayoutParams cp2=new LinearLayout.LayoutParams(-1,dp(44));cp2.setMargins(0,dp(10),0,0);photoPanel.addView(cancel,cp2);cancel.setOnClickListener(v->closePhotoPanel());
         sheet.addView(photoPanel);
         if(CortexMotion.allowed(this))CortexMotion.enter(photoPanel,1);
     }
