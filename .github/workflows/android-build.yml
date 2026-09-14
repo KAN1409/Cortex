@@ -59,7 +59,11 @@ jobs:
           gradle-version: '8.9'
 
       - name: Run unit tests
-        run: gradle :app:testDebugUnitTest --info --stacktrace
+        shell: bash
+        run: |
+          mkdir -p app/build/diagnostics
+          set -o pipefail
+          gradle :app:testDebugUnitTest --info --stacktrace 2>&1 | tee app/build/diagnostics/unit-test-console.log
 
       - name: Upload unit-test diagnostics on failure
         if: failure()
@@ -67,9 +71,10 @@ jobs:
         with:
           name: Cortex-v145-unit-test-diagnostics
           path: |
+            app/build/diagnostics/unit-test-console.log
             app/build/test-results/testDebugUnitTest/**
             app/build/reports/tests/testDebugUnitTest/**
-          if-no-files-found: warn
+          if-no-files-found: error
           retention-days: 3
 
       - name: Build debug APK
