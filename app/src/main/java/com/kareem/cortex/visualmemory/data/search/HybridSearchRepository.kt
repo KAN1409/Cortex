@@ -127,7 +127,7 @@ class HybridSearchRepository(
             ORDER BY COALESCE(m.dateTakenMillis, m.dateAddedSeconds * 1000) DESC
             LIMIT ?
         """.trimIndent()
-        return dao.searchMediaIds(SimpleSQLiteQuery(sql, arrayOf(matchExpression, limit)))
+        return dao.searchMediaIds(SimpleSQLiteQuery(sql, arrayOf<Any?>(matchExpression, limit)))
     }
 
     private fun fuzzyCandidates(
