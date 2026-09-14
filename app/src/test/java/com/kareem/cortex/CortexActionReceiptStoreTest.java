@@ -71,6 +71,26 @@ public class CortexActionReceiptStoreTest {
         assertEquals(a,b);
     }
 
+    @Test public void staleDispatchCanBeMarkedUnknownBeforeCreatingRetryReceipt(){
+        long first=CortexActionReceiptStore.begin(db,"req-retry","email.prepare",0,"CortexActionExecutor.emailDraft","hash","idem-retry",false,"{}");
+        assertTrue(CortexActionReceiptStore.markValidated(db,first));
+        assertTrue(CortexActionReceiptStore.markApproved(db,first));
+        assertTrue(CortexActionReceiptStore.markDispatching(db,first));
+        CortexActionReceiptStore.Receipt dispatching=CortexActionReceiptStore.get(db,first);
+        assertEquals(CortexActionReceiptStore.DISPATCHING,dispatching.executionStatus);
+        assertTrue(dispatching.updatedAt>0);
+
+        assertTrue(CortexActionReceiptStore.markUnknown(db,first,"stale external dispatch"));
+        CortexActionReceiptStore.Receipt unknown=CortexActionReceiptStore.get(db,first);
+        assertEquals(CortexActionReceiptStore.UNKNOWN,unknown.executionStatus);
+        assertEquals(CortexActionReceiptStore.V_NOT_VERIFIED,unknown.verificationStatus);
+
+        long retry=CortexActionReceiptStore.begin(db,"req-retry","email.prepare",0,"CortexActionExecutor.emailDraft","hash","idem-retry-2",false,"{\\\"user_confirmed_retry\\\":true}");
+        assertTrue(retry>0);
+        assertNotEquals(first,retry);
+        assertEquals(CortexActionReceiptStore.CREATED,CortexActionReceiptStore.get(db,retry).executionStatus);
+    }
+
     @Test public void cancelledSelectionCannotBecomeVerified(){
         long id=CortexActionReceiptStore.begin(db,"req-project","project.link",4,"CognitiveStore.linkChecked","hash","idem-project",true,"{}");
         assertTrue(CortexActionReceiptStore.markValidated(db,id));
