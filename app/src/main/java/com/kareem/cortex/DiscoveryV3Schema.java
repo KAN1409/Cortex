@@ -4,7 +4,7 @@ import android.database.sqlite.SQLiteDatabase;
 
 /** Additive storage for Discovery Engine v3. Raw evidence remains authoritative. */
 public final class DiscoveryV3Schema {
-    public static final String VERSION="discovery_v3_002_extreme_local";
+    public static final String VERSION="discovery_v3_003_cognitive_council";
     private static volatile boolean ready=false;
     private DiscoveryV3Schema(){}
 
@@ -129,6 +129,32 @@ public final class DiscoveryV3Schema {
                 "last_model TEXT,"+
                 "last_error TEXT,"+
                 "updated_at INTEGER NOT NULL)");
+
+        db.execSQL("CREATE TABLE IF NOT EXISTS discovery_v3_council_runs("+
+                "id INTEGER PRIMARY KEY AUTOINCREMENT,"+
+                "situation_id INTEGER NOT NULL,"+
+                "state TEXT NOT NULL,"+
+                "models_used TEXT,"+
+                "evidence_count INTEGER NOT NULL DEFAULT 0,"+
+                "final_output TEXT,"+
+                "error TEXT,"+
+                "started_at INTEGER NOT NULL,"+
+                "completed_at INTEGER NOT NULL DEFAULT 0,"+
+                "updated_at INTEGER NOT NULL)");
+        db.execSQL("CREATE INDEX IF NOT EXISTS idx_dv3_council_run ON discovery_v3_council_runs(situation_id,started_at DESC)");
+
+        db.execSQL("CREATE TABLE IF NOT EXISTS discovery_v3_council_passes("+
+                "id INTEGER PRIMARY KEY AUTOINCREMENT,"+
+                "run_id INTEGER NOT NULL,"+
+                "role TEXT NOT NULL,"+
+                "model_id TEXT NOT NULL,"+
+                "model_name TEXT NOT NULL,"+
+                "output_text TEXT NOT NULL,"+
+                "duration_ms INTEGER NOT NULL DEFAULT 0,"+
+                "tokens INTEGER NOT NULL DEFAULT 0,"+
+                "tokens_per_second REAL NOT NULL DEFAULT 0,"+
+                "created_at INTEGER NOT NULL)");
+        db.execSQL("CREATE INDEX IF NOT EXISTS idx_dv3_council_pass ON discovery_v3_council_passes(run_id,id)");
 
         db.execSQL("CREATE TABLE IF NOT EXISTS discovery_v3_meta(key TEXT PRIMARY KEY,value TEXT NOT NULL,updated_at INTEGER NOT NULL)");
         db.execSQL("INSERT OR REPLACE INTO discovery_v3_meta(key,value,updated_at) VALUES('schema_version',?,?)",
