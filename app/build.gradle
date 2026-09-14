@@ -37,8 +37,8 @@ android {
         applicationId 'com.kareem.cortex'
         minSdk 26
         targetSdk 35
-        versionCode 129
-        versionName '2.23.0-v109-true-1000-dashboard'
+        versionCode 147
+        versionName '2.34.0-discovery-core-v1'
         testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
     }
     buildTypes { debug { signingConfig signingConfigs.debug } }
