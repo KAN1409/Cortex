@@ -10,17 +10,17 @@ import java.util.Locale;
 
 /** Cortex-owned local-model transfer state. The actual HTTP transfer runs in LocalModelDownloadService. */
 public final class LocalModelManager {
-    public static final String MODEL_NAME="Qwen3-4B Q4_K_M";
-    public static final String MODEL_FILE="Qwen3-4B-Q4_K_M.gguf";
-    public static final String MODEL_URL="https://huggingface.co/Qwen/Qwen3-4B-GGUF/resolve/main/Qwen3-4B-Q4_K_M.gguf?download=true";
-    public static final String SHA256="7485fe6f11af29433bc51cab58009521f205840f5b4ae3a32fa7f92e8534fdf5";
+    public static final String MODEL_NAME="Qwen3-30B-A3B-Thinking-2507 Q2_K · Extreme Local Brain";
+    public static final String MODEL_FILE="Qwen3-30B-A3B-Thinking-2507-Q2_K.gguf";
+    public static final String MODEL_URL="https://huggingface.co/tensorblock/Qwen_Qwen3-30B-A3B-Thinking-2507-GGUF/resolve/main/Qwen3-30B-A3B-Thinking-2507-Q2_K.gguf?download=true";
+    public static final String SHA256="e6e29d06127f6773a4a3097b756c42fadfd9dc075101b7be55dd64d42e4585b6";
     static final String PREF="cortex_local_model";
     static final String K_STATE="transfer_state",K_DONE="transfer_done",K_TOTAL="transfer_total",K_SPEED="transfer_speed",K_ERROR="transfer_error",K_HTTP="transfer_http",K_URL="transfer_url",K_RANGE="transfer_range",K_RETRY="transfer_retry",K_PROGRESS_AT="transfer_progress_at",K_VERIFIED="verified_sha",K_LEGACY_ID="download_id";
     private LocalModelManager(){}
 
     public static File modelFile(Context c){File d=c.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS);return d==null?new File(c.getFilesDir(),MODEL_FILE):new File(d,MODEL_FILE);}
     public static File partFile(Context c){File f=modelFile(c);return new File(f.getParentFile(),MODEL_FILE+".part");}
-    public static boolean filePresent(Context c){File f=modelFile(c);return f.exists()&&f.length()>2_000_000_000L;}
+    public static boolean filePresent(Context c){File f=modelFile(c);return f.exists()&&f.length()>10_000_000_000L;}
     public static boolean verified(Context c){return SHA256.equalsIgnoreCase(p(c).getString(K_VERIFIED,""))&&filePresent(c);}
     public static boolean runtimeInstalled(Context c){return LocalLlmRuntime.ready(c);}
     public static boolean installed(Context c){return verified(c)&&runtimeInstalled(c);}
@@ -30,7 +30,7 @@ public final class LocalModelManager {
     public static void startDownload(Context c){
         clearLegacyDownload(c);
         if(verified(c))return;
-        File finalFile=modelFile(c);if(finalFile.exists()&&finalFile.length()<2_000_000_000L)finalFile.delete();
+        File finalFile=modelFile(c);if(finalFile.exists()&&finalFile.length()<10_000_000_000L)finalFile.delete();
         LocalLlmRuntime.invalidate(c);
         setState(c,"connecting",partialSize(c),Math.max(0,p(c).getLong(K_TOTAL,0)),0,"",0,MODEL_URL,false,0);
         startTransferService(c,LocalModelDownloadService.ACTION_START);
@@ -64,7 +64,7 @@ public final class LocalModelManager {
 
     public static Verification verify(Context c){
         File f=modelFile(c);if(!f.exists())return new Verification(false,"Model file is missing","");
-        if(f.length()<2_000_000_000L)return new Verification(false,"Model file is incomplete","");
+        if(f.length()<10_000_000_000L)return new Verification(false,"Extreme 30B model file is incomplete","");
         try{
             if(!ggufHeader(f))return failVerify(c,"Invalid GGUF header","");
             String actual=sha256(f);
