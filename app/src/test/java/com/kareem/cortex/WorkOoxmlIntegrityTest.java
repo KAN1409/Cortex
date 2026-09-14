@@ -6,6 +6,7 @@ import androidx.test.core.app.ApplicationProvider;
 import java.io.*;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.util.Arrays;
 import java.util.zip.*;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -57,6 +58,13 @@ public class WorkOoxmlIntegrityTest {
         }
     }
 
+    @Test public void decompressionBombAndEntryFloodFailClosedWithoutMutatingOriginal() throws Exception {
+        File expansion=packageWithInflatedFiller(WorkOoxmlParser.MAX_ENTRY_UNCOMPRESSED_BYTES+8192L);
+        reject(expansion,"docx");
+        File entryFlood=packageWithEmptyEntries(WorkOoxmlParser.MAX_ZIP_ENTRIES+1);
+        reject(entryFlood,"docx");
+    }
+
     private void reject(File file,String ext)throws Exception{
         byte[] before=file.exists()?Files.readAllBytes(file.toPath()):null;
         try {WorkDocumentParser.parse(context,Uri.fromFile(file),ext);fail("Unexpected parse success: "+ext);}
@@ -68,6 +76,34 @@ public class WorkOoxmlIntegrityTest {
         File f=File.createTempFile("package-",".zip",context.getCacheDir());
         try(ZipOutputStream z=new ZipOutputStream(new FileOutputStream(f))){
             z.putNextEntry(new ZipEntry(entry));z.write(xml.getBytes(StandardCharsets.UTF_8));z.closeEntry();
+        }
+        return f;
+    }
+
+    private File packageWithInflatedFiller(long uncompressedBytes)throws Exception{
+        File f=File.createTempFile("expansion-",".zip",context.getCacheDir());
+        byte[] chunk=new byte[64*1024];Arrays.fill(chunk,(byte)'A');
+        try(ZipOutputStream z=new ZipOutputStream(new FileOutputStream(f))){
+            z.putNextEntry(new ZipEntry("custom/expansion.bin"));
+            long remaining=uncompressedBytes;
+            while(remaining>0){int n=(int)Math.min((long)chunk.length,remaining);z.write(chunk,0,n);remaining-=n;}
+            z.closeEntry();
+            z.putNextEntry(new ZipEntry("word/document.xml"));
+            z.write("<document><body><p><r><t>safe</t></r></p></body></document>".getBytes(StandardCharsets.UTF_8));
+            z.closeEntry();
+        }
+        return f;
+    }
+
+    private File packageWithEmptyEntries(int count)throws Exception{
+        File f=File.createTempFile("entry-flood-",".zip",context.getCacheDir());
+        try(ZipOutputStream z=new ZipOutputStream(new FileOutputStream(f))){
+            for(int i=0;i<count;i++){
+                z.putNextEntry(new ZipEntry("custom/entry-"+i+".xml"));z.closeEntry();
+            }
+            z.putNextEntry(new ZipEntry("word/document.xml"));
+            z.write("<document><body><p><r><t>safe</t></r></p></body></document>".getBytes(StandardCharsets.UTF_8));
+            z.closeEntry();
         }
         return f;
     }

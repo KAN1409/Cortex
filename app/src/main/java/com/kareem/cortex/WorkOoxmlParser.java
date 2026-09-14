@@ -12,7 +12,10 @@ import java.util.zip.ZipInputStream;
 
 /** Streaming OOXML parser. Originals stay in place; the content URI is opened directly. */
 public final class WorkOoxmlParser {
-    public static final String VERSION="work_ooxml_parser_003";
+    public static final String VERSION="work_ooxml_parser_004";
+    static final int MAX_ZIP_ENTRIES=4096;
+    static final long MAX_ENTRY_UNCOMPRESSED_BYTES=64L*1024L*1024L;
+    static final long MAX_VISIT_UNCOMPRESSED_BYTES=256L*1024L*1024L;
     private WorkOoxmlParser(){}
 
     public static WorkParsedDocument parse(Context context,Uri uri,String ext)throws Exception{
@@ -174,10 +177,39 @@ public final class WorkOoxmlParser {
         void requireComplete()throws IOException{if(root==null||!closed)throw new IOException("Malformed "+part+": incomplete XML document");}
     }
 
+    /**
+     * ZipInputStream.closeEntry() drains unread entries through read(). Guard the stream itself so
+     * ignored OOXML parts are bounded too, not only the XML parts consumed by the parser.
+     */
+    private static final class GuardedZipInputStream extends ZipInputStream{
+        private long entryBytes,totalBytes;private int entryCount;private String entryName="<none>";
+        GuardedZipInputStream(InputStream in){super(in);}
+
+        @Override public ZipEntry getNextEntry()throws IOException{
+            ZipEntry next=super.getNextEntry();
+            if(next==null){entryName="<none>";return null;}
+            if(++entryCount>MAX_ZIP_ENTRIES)throw new IOException("OOXML package has too many ZIP entries: "+entryCount);
+            entryBytes=0L;entryName=next.getName()==null?"<unnamed>":next.getName();
+            long declared=next.getSize();
+            if(declared>MAX_ENTRY_UNCOMPRESSED_BYTES)throw new IOException("OOXML ZIP entry is too large: "+entryName);
+            return next;
+        }
+
+        @Override public int read(byte[] b,int off,int len)throws IOException{
+            int n=super.read(b,off,len);if(n>0)count(n);return n;
+        }
+
+        private void count(int n)throws IOException{
+            entryBytes+=n;totalBytes+=n;
+            if(entryBytes>MAX_ENTRY_UNCOMPRESSED_BYTES)throw new IOException("OOXML ZIP entry exceeded expansion limit: "+entryName);
+            if(totalBytes>MAX_VISIT_UNCOMPRESSED_BYTES)throw new IOException("OOXML package exceeded total expansion limit");
+        }
+    }
+
     private interface EntryVisitor{void visit(String name,InputStream in)throws Exception;}
     private static void visit(Context c,Uri uri,EntryVisitor visitor)throws Exception{
         InputStream opened=c.getContentResolver().openInputStream(uri);if(opened==null)throw new FileNotFoundException("Unable to open "+uri);
-        try(InputStream raw=opened;ZipInputStream zip=new ZipInputStream(new BufferedInputStream(raw))){
+        try(InputStream raw=opened;GuardedZipInputStream zip=new GuardedZipInputStream(new BufferedInputStream(raw))){
             ZipEntry e;while((e=zip.getNextEntry())!=null){if(!e.isDirectory())visitor.visit(e.getName(),zip);zip.closeEntry();}
         }
     }
