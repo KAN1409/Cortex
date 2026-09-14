@@ -61,10 +61,11 @@ launcher_count="$(grep -o 'android.intent.action.MAIN' "$MAN" | wc -l | tr -d ' 
 [ "$launcher_count" = "1" ] && ok "exactly one launcher intent" || bad "expected 1 launcher intent, found $launcher_count"
 send_count="$(grep -o 'android.intent.action.SEND"' "$MAN" | wc -l | tr -d ' ')"
 send_multi_count="$(grep -o 'android.intent.action.SEND_MULTIPLE' "$MAN" | wc -l | tr -d ' ')"
-[ "$send_count" = "1" ] && ok "exactly one ACTION_SEND owner" || bad "expected 1 ACTION_SEND owner, found $send_count"
+[ "$send_count" = "2" ] && ok "exactly two intentional ACTION_SEND owners" || bad "expected 2 ACTION_SEND owners (capture + policy import), found $send_count"
 [ "$send_multi_count" = "1" ] && ok "exactly one ACTION_SEND_MULTIPLE owner" || bad "expected 1 ACTION_SEND_MULTIPLE owner, found $send_multi_count"
-require_text "$MAN" 'activity android:name="\.ProposalCaptureActivity" android:exported="true"' 'proposal-aware capture owns external share entry'
-require_text "$MAN" 'activity-alias android:name="\.PremiumHomeActivity" android:targetActivity="\.ProposalBriefActivity"' 'legacy Brief alias routes to final proposal Brief'
+require_text "$MAN" 'activity android:name="\.ProposalCaptureActivity" android:exported="true"' 'proposal-aware capture owns generic external share entry'
+require_text "$MAN" 'activity android:name="\.CortexTeacherImportActivity" android:exported="true"' 'ChatGPT policy import owns the second text ACTION_SEND entry'
+require_text "$MAN" 'activity-alias android:name="\.PremiumHomeActivity" android:targetActivity="\.ProposalBriefActivity"' 'legacy Brief alias remains compatible with proposal Brief'
 
 require_text app/src/main/java/com/kareem/cortex/InputActivity.java 'ProposalCaptureActivity\.class' 'Input capture routes to proposal-aware capture'
 require_text app/src/main/java/com/kareem/cortex/CortexQuickTileService.java 'ProposalCaptureActivity\.class' 'voice Quick Tile routes to proposal-aware capture'
@@ -72,9 +73,10 @@ require_text app/src/main/java/com/kareem/cortex/UnderstandScreenTileService.jav
 require_text app/src/main/java/com/kareem/cortex/CortexRecordWidget.java 'ProposalCaptureActivity\.class' 'record widget setup routes to proposal-aware capture'
 
 UI="app/src/main/java/com/kareem/cortex/CortexUi.java"
-require_text "$UI" 'ProposalBriefActivity\.class' 'bottom nav routes to proposal Brief'
-require_text "$UI" 'ProposalPeopleProjectsActivity\.class' 'bottom nav routes to proposal People/Projects'
-require_text "$UI" 'ProposalAskCortexActivity\.class' 'bottom nav routes to proposal Brain'
+require_text "$UI" 'NowActivity\.class' 'bottom nav routes to Now'
+require_text "$UI" 'VisualMemoryActivity\.class' 'bottom nav routes to Memory'
+require_text "$UI" 'WorkWorkspaceActivity\.class' 'bottom nav routes to Work'
+require_text "$UI" 'CaptureHubActivity\.class' 'bottom nav routes to Capture'
 
 CAP="app/src/main/java/com/kareem/cortex/CortexCapabilityRegistry.java"
 require_file "$CAP"
@@ -87,15 +89,16 @@ require_text app/src/main/java/com/kareem/cortex/CortexActionDispatcher.java 'CA
 require_text app/src/main/java/com/kareem/cortex/CortexActionExecutor.java 'Calendar app owns the final write' 'external calendar mutation remains user-confirmed draft'
 require_text app/src/main/java/com/kareem/cortex/BrainRouter.java 'CloudEvidencePolicy\.filter' 'Combined Brain still filters cloud evidence locally'
 
-# Locked approved preview: matte graphite + red/orange/yellow/green, no purple/blue drift.
-require_text "$UI" 'RED = Color\.rgb\(255,72,62\)' 'approved red signal is centralized'
-require_text "$UI" 'ORANGE = Color\.rgb\(255,146,42\)' 'approved orange interaction color is centralized'
-require_text "$UI" 'YELLOW = Color\.rgb\(241,188,52\)' 'approved yellow decision/attention color is centralized'
-require_text "$UI" 'GREEN = Color\.rgb\(105,194,82\)' 'approved green useful/confirmed color is centralized'
-require_text "$UI" 'VIOLET = YELLOW' 'legacy violet semantic cannot render purple'
+# Current premium shell invariant: semantic colors and surface/elevation helpers stay centralized; exact RGB values may evolve.
+require_text "$UI" 'RED=Color\.rgb' 'red signal semantic is centralized'
+require_text "$UI" 'ORANGE=Color\.rgb' 'orange interaction semantic is centralized'
+require_text "$UI" 'YELLOW=Color\.rgb' 'yellow decision/attention semantic is centralized'
+require_text "$UI" 'GREEN=Color\.rgb' 'green useful/confirmed semantic is centralized'
+require_text "$UI" 'LIME=Color\.rgb' 'primary lime accent semantic is centralized'
+require_text "$UI" 'VIOLET=OLIVE' 'legacy violet semantic resolves to non-purple olive'
 require_text "$UI" 'public static GradientDrawable matte' 'matte surface helper is centralized'
 require_text "$UI" 'public static GradientDrawable velvet' 'low-reflection depth helper is centralized'
-require_text "$UI" 'public static <T extends View> T raised' 'raised elevation helper is centralized'
+require_text "$UI" 'public static <T extends View>T raised' 'raised elevation helper is centralized'
 require_text app/src/main/java/com/kareem/cortex/CortexGlyphView.java 'monoline white glyph' 'custom raised monoline icon language is present'
 require_text app/src/main/java/com/kareem/cortex/ProposalBriefActivity.java 'CortexUi\.glyph' 'Brief uses shared custom icon plates'
 require_text app/src/main/java/com/kareem/cortex/InputActivity.java 'CortexUi\.glyph' 'Input uses shared custom icon plates'

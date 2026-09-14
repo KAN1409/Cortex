@@ -99,7 +99,7 @@ if [ -f chatgpt-bridge/package.json ]; then
 fi
 
 if command -v semgrep >/dev/null 2>&1; then
-  run_gate semgrep_scan semgrep scan --config auto --metrics=off --json --output audit/semgrep.json app/src chatgpt-bridge/src scripts .github
+  run_gate semgrep_scan semgrep scan --config p/default --config p/security-audit --config p/secrets --metrics=off --json --output audit/semgrep.json app/src chatgpt-bridge/src scripts .github
   run_gate semgrep_error_gate python3 - <<'PY'
 import json
 from pathlib import Path
