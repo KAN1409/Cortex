@@ -23,18 +23,24 @@ public final class DiscoveryHistoryWriter {
         if(rows.isEmpty())return 0;
 
         StringBuilder h=new StringBuilder();
-        h.append("History\n");
+        h.append("Current history\n");
+        h.append("This is Cortex's readable reconstruction from ").append(rows.size()).append(" linked evidence item(s).\n");
         SimpleDateFormat day=new SimpleDateFormat("dd MMM yyyy · HH:mm",Locale.getDefault());
+        String previousState="";
         for(Row r:rows){
             String body=!r.summary.isEmpty()?r.summary:r.extracted;
-            if(body.length()>500)body=body.substring(0,500)+"…";
-            h.append("\n").append(day.format(new Date(r.when))).append("\n");
-            h.append(r.title.isEmpty()?"Evidence":r.title);
+            body=body.replaceAll("\\s+"," ").trim();
+            if(body.length()>420)body=body.substring(0,420)+"…";
+            String state=DiscoveryPolicy.claimState(new KnowledgeItem(r.id,"",r.source,r.title,"",r.extracted,r.summary,"","","","analyzed","","","",r.when,r.when));
+            h.append("\n").append(day.format(new Date(r.when))).append(" — ").append(r.title.isEmpty()?"Evidence":r.title);
+            if(!state.isEmpty()&&!state.equals(previousState)){h.append(" [").append(state).append("]");previousState=state;}
             if(!body.isEmpty())h.append("\n").append(body);
-            if(!r.source.isEmpty())h.append("\nSource: ").append(r.source);
-            h.append("\nEvidence #").append(r.id).append("\n");
+            h.append("\nEvidence #").append(r.id);
+            if(!r.source.isEmpty())h.append(" · ").append(r.source);
+            h.append("\n");
         }
-
+        h.append("\nCortex assessment\n");
+        h.append("This history separates observed evidence from inference. Missing evidence is not treated as proof that an event did not happen.");
         String text=h.toString().trim();
         Cursor last=db.rawQuery("SELECT id,revision,history_text,evidence_count FROM discovery_history_revisions WHERE situation_id=? ORDER BY revision DESC LIMIT 1",new String[]{String.valueOf(situationId)});
         long lastId=0;int revision=0,oldCount=0;String oldText="";
