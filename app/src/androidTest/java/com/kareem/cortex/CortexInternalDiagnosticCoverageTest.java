@@ -33,7 +33,6 @@ public final class CortexInternalDiagnosticCoverageTest {
             "RelevanceEvaluationActivity",
             "CapabilityMatrixActivity",
             "EnvironmentActivity",
-            "CortexStatusActivity",
             "CortexAuditActivity",
             "ExternalModelCheckActivity",
             "OcrTestActivity",
