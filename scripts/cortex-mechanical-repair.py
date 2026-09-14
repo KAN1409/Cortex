@@ -125,6 +125,48 @@ replace_required(
     count=1,
 )
 
+# Refresh stale grep contracts without weakening product invariants. The current shell is Now/Memory/Work/Capture;
+# the legacy proposal screens remain registered/wired but are no longer the bottom navigation destinations.
+audit = "scripts/cortex-repo-audit.sh"
+replace_required(
+    audit,
+    '[ "$send_count" = "1" ] && ok "exactly one ACTION_SEND owner" || bad "expected 1 ACTION_SEND owner, found $send_count"',
+    '[ "$send_count" = "2" ] && ok "exactly two intentional ACTION_SEND owners" || bad "expected 2 ACTION_SEND owners (capture + policy import), found $send_count"',
+    count=1,
+)
+replace_required(
+    audit,
+    'require_text "$MAN" \'activity android:name="\\.ProposalCaptureActivity" android:exported="true"\' \'proposal-aware capture owns external share entry\'\nrequire_text "$MAN" \'activity-alias android:name="\\.PremiumHomeActivity" android:targetActivity="\\.ProposalBriefActivity"\' \'legacy Brief alias routes to final proposal Brief\'',
+    'require_text "$MAN" \'activity android:name="\\.ProposalCaptureActivity" android:exported="true"\' \'proposal-aware capture owns generic external share entry\'\nrequire_text "$MAN" \'activity android:name="\\.CortexTeacherImportActivity" android:exported="true"\' \'ChatGPT policy import owns the second text ACTION_SEND entry\'\nrequire_text "$MAN" \'activity-alias android:name="\\.PremiumHomeActivity" android:targetActivity="\\.ProposalBriefActivity"\' \'legacy Brief alias remains compatible with proposal Brief\'',
+    count=1,
+)
+replace_required(
+    audit,
+    'require_text "$UI" \'ProposalBriefActivity\\.class\' \'bottom nav routes to proposal Brief\'\nrequire_text "$UI" \'ProposalPeopleProjectsActivity\\.class\' \'bottom nav routes to proposal People/Projects\'\nrequire_text "$UI" \'ProposalAskCortexActivity\\.class\' \'bottom nav routes to proposal Brain\'',
+    'require_text "$UI" \'NowActivity\\.class\' \'bottom nav routes to Now\'\nrequire_text "$UI" \'VisualMemoryActivity\\.class\' \'bottom nav routes to Memory\'\nrequire_text "$UI" \'WorkWorkspaceActivity\\.class\' \'bottom nav routes to Work\'\nrequire_text "$UI" \'CaptureHubActivity\\.class\' \'bottom nav routes to Capture\'',
+    count=1,
+)
+old_colors = '''# Locked approved preview: matte graphite + red/orange/yellow/green, no purple/blue drift.
+require_text "$UI" 'RED = Color\\.rgb\\(255,72,62\\)' 'approved red signal is centralized'
+require_text "$UI" 'ORANGE = Color\\.rgb\\(255,146,42\\)' 'approved orange interaction color is centralized'
+require_text "$UI" 'YELLOW = Color\\.rgb\\(241,188,52\\)' 'approved yellow decision/attention color is centralized'
+require_text "$UI" 'GREEN = Color\\.rgb\\(105,194,82\\)' 'approved green useful/confirmed color is centralized'
+require_text "$UI" 'VIOLET = YELLOW' 'legacy violet semantic cannot render purple'
+require_text "$UI" 'public static GradientDrawable matte' 'matte surface helper is centralized'
+require_text "$UI" 'public static GradientDrawable velvet' 'low-reflection depth helper is centralized'
+require_text "$UI" 'public static <T extends View> T raised' 'raised elevation helper is centralized'\n'''
+new_colors = '''# Current premium shell invariant: semantic colors and surface/elevation helpers stay centralized; exact RGB values may evolve.
+require_text "$UI" 'RED=Color\\.rgb' 'red signal semantic is centralized'
+require_text "$UI" 'ORANGE=Color\\.rgb' 'orange interaction semantic is centralized'
+require_text "$UI" 'YELLOW=Color\\.rgb' 'yellow decision/attention semantic is centralized'
+require_text "$UI" 'GREEN=Color\\.rgb' 'green useful/confirmed semantic is centralized'
+require_text "$UI" 'LIME=Color\\.rgb' 'primary lime accent semantic is centralized'
+require_text "$UI" 'VIOLET=OLIVE' 'legacy violet semantic resolves to non-purple olive'
+require_text "$UI" 'public static GradientDrawable matte' 'matte surface helper is centralized'
+require_text "$UI" 'public static GradientDrawable velvet' 'low-reflection depth helper is centralized'
+require_text "$UI" 'public static <T extends View>T raised' 'raised elevation helper is centralized'\n'''
+replace_required(audit, old_colors, new_colors, count=1)
+
 print(f"mechanical_repair_changed_files={len(set(changes))}")
 for path in sorted(set(changes)):
     print(path)
