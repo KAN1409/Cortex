@@ -35,6 +35,7 @@ public final class NotificationEventEngine {
         s.execSQL("CREATE INDEX IF NOT EXISTS idx_notif_raw_hash ON notification_raw_observations(package_name,content_hash,occurred_at DESC)");
         s.execSQL("CREATE TABLE IF NOT EXISTS notification_delivery_dedup(delivery_key TEXT PRIMARY KEY,raw_observation_id INTEGER NOT NULL,created_at INTEGER NOT NULL)");
         s.execSQL("CREATE INDEX IF NOT EXISTS idx_notif_delivery_raw ON notification_delivery_dedup(raw_observation_id)");
+        NotificationIngestDiagnostics.ensure(s);
 
         s.execSQL("CREATE TABLE IF NOT EXISTS notification_streams(id INTEGER PRIMARY KEY AUTOINCREMENT,stream_key TEXT UNIQUE NOT NULL,package_name TEXT NOT NULL,app_label TEXT,title TEXT,body TEXT,content_hash TEXT,platform_hint TEXT,technical_type TEXT,state TEXT NOT NULL DEFAULT 'active',progress INTEGER DEFAULT 0,progress_max INTEGER DEFAULT 0,observation_count INTEGER DEFAULT 0,meaningful_count INTEGER DEFAULT 0,first_seen_at INTEGER NOT NULL,last_seen_at INTEGER NOT NULL,last_meaningful_at INTEGER DEFAULT 0,metadata_json TEXT,created_at INTEGER NOT NULL,updated_at INTEGER NOT NULL)");
         s.execSQL("CREATE INDEX IF NOT EXISTS idx_notif_stream_recent ON notification_streams(last_seen_at DESC)");
@@ -59,7 +60,7 @@ public final class NotificationEventEngine {
         if(c.moveToFirst()){streamId=c.getLong(0);oldHash=safe(c.getString(1));oldState=safe(c.getString(2));oldTech=safe(c.getString(3));oldProgress=c.getInt(4);oldProgressMax=c.getInt(5);oldMeaningful=c.getInt(6);}c.close();
 
         String deliveryKey=deliveryKey(streamKey,ev,hash,when);long existing=existingDeliveryId(s,deliveryKey,streamKey,ev,hash,when);
-        if(existing>0)return new Result(existing,streamId,0,"DUPLICATE_DELIVERY",tech,hint,false,true);
+        if(existing>0){NotificationIngestDiagnostics.recordDuplicate(s);return new Result(existing,streamId,0,"DUPLICATE_DELIVERY",tech,hint,false,true);}
 
         int progress=m.optInt("progress",0),progressMax=m.optInt("progress_max",0);
         String transition=transition(streamId,ev,hash,oldHash,tech,oldTech,progress,progressMax,oldProgress,oldProgressMax,oldState);
@@ -70,7 +71,7 @@ public final class NotificationEventEngine {
         try{
             s.beginTransaction();began=true;
             existing=existingDeliveryId(s,deliveryKey,streamKey,ev,hash,when);
-            if(existing>0){s.setTransactionSuccessful();return new Result(existing,streamId,0,"DUPLICATE_DELIVERY",tech,hint,false,true);}
+            if(existing>0){NotificationIngestDiagnostics.recordDuplicate(s);s.setTransactionSuccessful();return new Result(existing,streamId,0,"DUPLICATE_DELIVERY",tech,hint,false,true);}
             ContentValues raw=new ContentValues();raw.put("stream_key",streamKey);raw.put("package_name",p);raw.put("app_label",app);raw.put("event_type",ev);raw.put("title",t);raw.put("body",b);raw.put("content_hash",hash);raw.put("platform_hint",hint);raw.put("technical_type",tech);raw.put("metadata_json",m.toString());raw.put("occurred_at",when);raw.put("created_at",now);
             rawId=s.insertOrThrow("notification_raw_observations",null,raw);
             rememberDelivery(s,deliveryKey,rawId,now);
