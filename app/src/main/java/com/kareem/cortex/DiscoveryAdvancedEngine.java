@@ -22,6 +22,7 @@ public final class DiscoveryAdvancedEngine {
         String space=situationSpace(db,situationId);
         String domain=DiscoveryDomainReasoner.domain(history,title,space);
         persistDomain(db,situationId,domain,history);
+        DiscoveryGraphEngine.rebuildForSituation(db,situationId);
         List<String> questions=DiscoveryDomainReasoner.questions(domain,title);
         for(String q:questions){
             long hId=upsertHypothesis(db,situationId,domain,q,DiscoveryDomainReasoner.researchUseful(domain,q));
