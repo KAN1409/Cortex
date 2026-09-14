@@ -8,8 +8,8 @@ import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
 import com.kareem.cortex.visualmemory.VisualMemoryStore
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
-import kotlin.coroutines.coroutineContext
 
 class EmbeddingWorker(
     appContext: Context,
@@ -51,7 +51,7 @@ class EmbeddingWorker(
             var current = 0
 
             for (item in screenshots) {
-                coroutineContext.ensureActive()
+                currentCoroutineContext().ensureActive()
                 current++
                 val now = System.currentTimeMillis()
                 dao.markSemanticRunning(item.mediaId, now)
