@@ -5,9 +5,13 @@ import android.database.sqlite.SQLiteDatabase;
 /** Additive storage for Discovery Engine v3. Raw evidence remains authoritative. */
 public final class DiscoveryV3Schema {
     public static final String VERSION="discovery_v3_001";
+    private static volatile boolean ready=false;
     private DiscoveryV3Schema(){}
 
     public static void ensure(SQLiteDatabase db){
+        if(ready)return;
+        synchronized(DiscoveryV3Schema.class){
+            if(ready)return;
         db.execSQL("CREATE TABLE IF NOT EXISTS discovery_v3_situations("+
                 "id INTEGER PRIMARY KEY AUTOINCREMENT,"+
                 "situation_key TEXT NOT NULL UNIQUE,"+
@@ -107,5 +111,7 @@ public final class DiscoveryV3Schema {
         db.execSQL("CREATE TABLE IF NOT EXISTS discovery_v3_meta(key TEXT PRIMARY KEY,value TEXT NOT NULL,updated_at INTEGER NOT NULL)");
         db.execSQL("INSERT OR REPLACE INTO discovery_v3_meta(key,value,updated_at) VALUES('schema_version',?,?)",
                 new Object[]{VERSION,System.currentTimeMillis()});
+        ready=true;
+        }
     }
 }
