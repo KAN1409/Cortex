@@ -38,16 +38,15 @@ import java.io.FileOutputStream;
 import java.io.OutputStreamWriter;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
-import java.util.Locale;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 
 /**
- * Final publish acceptance suite. This runs on a real Android runtime/emulator,
- * not Robolectric. It deliberately exercises installed UI surfaces, production
- * document extractors, local storage, synthetic media, OCR, and persistence markers.
+ * Final production publish acceptance suite. This runs on a real Android runtime/emulator,
+ * not Robolectric. Product-surface acceptance is derived from the canonical destination
+ * registry; internal engineering diagnostics are covered by a separate suite.
  */
 @RunWith(AndroidJUnit4.class)
 @FixMethodOrder(MethodSorters.NAME_ASCENDING)
@@ -88,41 +87,28 @@ public final class CortexPublishAcceptanceTest {
         System.out.println("PUBLISH_SIM|PASS|fresh_runtime_launcher");
     }
 
-    @Test public void test02_everyDeclaredUserSurfaceRenders() throws Exception {
-        // Every activity/alias declared by the current production manifest. Detail
-        // screens are intentionally included: they must degrade gracefully when opened
-        // without a selected record rather than crashing the app process.
-        String[] surfaces = {
-                "NowActivity","NexusActivity","CaptureHubActivity","VoiceLibraryActivity","VoiceDetailActivity",
-                "CaptureOverviewActivity","WorkWorkspaceActivity","WorkVaultActivity","WorkVaultBrowseActivity",
-                "WorkVaultAskActivity","WorkFollowUpActivity","WorkChatGptBuildActivity","CognitiveShadowActivity",
-                "CrashReportActivity","SatinBriefActivity","CortexOrbBriefActivity","ProposalBriefActivity",
-                "PremiumHomeActivity","SatinCaptureActivity","CaptureActivity","ProposalCaptureActivity",
-                "CaptureResultActivity","ProposalCaptureResultActivity","PinRecordWidgetActivity","PeopleProjectsActivity",
-                "ProposalPeopleProjectsActivity","SmartInboxActivity","VaultActivity","PromptLibraryActivity",
-                "AskCortexActivity","ProposalAskCortexActivity","SettingsActivity","ReviewQueueActivity",
-                "RelevanceEvaluationActivity","CorrectionLearningActivity","FeatureHubActivity","PhoneContextAccessActivity",
-                "CapabilityMatrixActivity","EnvironmentActivity","CortexStatusActivity","CortexAuditActivity",
-                "ExternalModelCheckActivity","VisualIntelligenceActivity","VisualMemoryActivity","VisualMemoryDetailActivity",
-                "KnowledgeExplorerActivity","OcrTestActivity","AsrSettingsActivity","CortexAsrLabActivity","BrainActivity",
-                "OpenRouterSettingsActivity","GeminiSettingsActivity","ChatGptTeacherActivity","CortexTeacherImportActivity",
-                "MainActivity","InputActivity"
-        };
+    @Test public void test02_primaryProductDestinationsRender() throws Exception {
+        CortexDestinationRegistry.validateOrThrow();
+        assertEquals("Production acceptance must have exactly four primary product areas", 4,
+                CortexDestinationRegistry.primary().size());
         int passed = 0;
-        for (String simple : surfaces) {
-            launchComponent(simple);
+        for (CortexDestinationRegistry.Destination destination : CortexDestinationRegistry.primary()) {
+            Class<?> activity = CortexNavigation.activityFor(destination.destinationId);
+            launchComponent(activity.getSimpleName());
             if (!device.wait(Until.hasObject(By.pkg(PKG)), 8000)) {
-                fail("Surface did not render in Cortex package: " + simple + " current=" + device.getCurrentPackageName());
+                fail("Primary destination did not render: " + destination.destinationId
+                        + " current=" + device.getCurrentPackageName());
             }
             device.waitForIdle();
-            if (crashDialog()) fail("Crash dialog while rendering " + simple);
-            assertTrue("Screenshot failed for " + simple, shot(String.format(Locale.US,"surface_%02d_%s",passed,simple)));
+            if (crashDialog()) fail("Crash dialog while rendering primary destination " + destination.destinationId);
+            assertTrue("Screenshot failed for " + destination.destinationId,
+                    shot("primary_" + destination.route + "_" + activity.getSimpleName()));
             passed++;
             device.pressBack();
             SystemClock.sleep(120);
         }
-        assertEquals("Not all manifest UI surfaces were exercised", surfaces.length, passed);
-        System.out.println("PUBLISH_SIM|PASS|ui_surface_matrix|count=" + passed);
+        assertEquals("Not all canonical primary destinations were exercised", 4, passed);
+        System.out.println("PUBLISH_SIM|PASS|primary_product_destinations|count=" + passed);
     }
 
     @Test public void test03_syntheticOfficeFilesUseProductionExtractors() throws Exception {

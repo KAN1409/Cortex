@@ -12,6 +12,8 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 MANIFEST = ROOT / "app/src/main/AndroidManifest.xml"
 BUILD = ROOT / "app/build.gradle"
 WORKFLOW = ROOT / ".github/workflows/android-build.yml"
+PRODUCTION_ACCEPTANCE = ROOT / "app/src/androidTest/java/com/kareem/cortex/CortexPublishAcceptanceTest.java"
+INTERNAL_DIAGNOSTIC_ACCEPTANCE = ROOT / "app/src/androidTest/java/com/kareem/cortex/CortexInternalDiagnosticCoverageTest.java"
 ANDROID = "{http://schemas.android.com/apk/res/android}"
 
 EXPECTED_APP_ID = "com.kareem.cortex"
@@ -119,6 +121,7 @@ def verify_identity_document() -> None:
         "`com.kareem.cortex`",
         "Visible app label: `Cortex`",
         "Main launcher: `NowActivity`",
+        "CortexInternalDiagnosticCoverageTest",
     ]
     for token in required:
         if token not in doc:
@@ -137,6 +140,23 @@ def verify_release_workflow() -> None:
         fail("Android CI no longer enforces the product identity contract")
 
 
+def verify_acceptance_split() -> None:
+    production = text(PRODUCTION_ACCEPTANCE)
+    internal = text(INTERNAL_DIAGNOSTIC_ACCEPTANCE)
+    if "CortexDestinationRegistry.primary()" not in production:
+        fail("production surface acceptance is not derived from canonical primary destinations")
+    if "test02_everyDeclaredUserSurfaceRenders" in production:
+        fail("legacy every-manifest-activity production acceptance philosophy returned")
+    for activity in FORBIDDEN_EXPORTED_DIAGNOSTICS:
+        simple = activity.removeprefix(".")
+        if simple in production:
+            fail(f"internal diagnostic leaked into production surface acceptance: {simple}")
+        if simple not in internal:
+            fail(f"internal diagnostic lost runtime coverage: {simple}")
+    if "assertFalse(\"Internal diagnostic must not be exported:" not in internal:
+        fail("internal diagnostic runtime suite no longer asserts non-exported status")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--expected-version-code", type=int)
@@ -146,7 +166,8 @@ def main() -> int:
     verify_build(args.expected_version_code, args.expected_version_name)
     verify_identity_document()
     verify_release_workflow()
-    print("CORTEX_CONTRACT_PASS: identity, launcher, signing, v146 release and diagnostic export boundaries")
+    verify_acceptance_split()
+    print("CORTEX_CONTRACT_PASS: identity, launcher, signing, v146 release, diagnostic export and acceptance boundaries")
     return 0
 
 

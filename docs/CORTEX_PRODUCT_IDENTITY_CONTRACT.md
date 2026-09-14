@@ -43,6 +43,8 @@ Production navigation is defined by `CortexDestinationRegistry`.
 
 User intent identity is defined by `CortexActionRegistry`.
 
+Production Surface Acceptance derives its primary UI matrix from `CortexDestinationRegistry.primary()` instead of treating every manifest Activity as a product surface. Internal diagnostic runtime coverage lives in `CortexInternalDiagnosticCoverageTest` and does not grant production visibility.
+
 Internal diagnostic activities may remain available for engineering or deliberately hidden Developer Mode, but normal production UX gets one understandable `System Health` entry.
 
 ## Release verification
@@ -57,5 +59,6 @@ Before any APK is handed to Karim, automated gates and artifact inspection must 
 6. no uninstall or user-data reset is required;
 7. canonical destination/action registries contain no duplicate IDs or conflicting ownership;
 8. production navigation does not expose forbidden internal test/lab surfaces;
-9. VERIFIED action states have acceptable evidence;
-10. upgrade/install, critical navigation, accessibility, performance and embedded E2E gates meet the release acceptance criteria.
+9. production surface acceptance and internal diagnostic coverage remain separate gates;
+10. VERIFIED action states have acceptable evidence;
+11. upgrade/install, critical navigation, accessibility, performance and embedded E2E gates meet the release acceptance criteria.
