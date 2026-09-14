@@ -6,7 +6,6 @@ import argparse
 import pathlib
 import re
 import sys
-import xml.etree.ElementTree as ET
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 MANIFEST = ROOT / "app/src/main/AndroidManifest.xml"
@@ -16,7 +15,6 @@ NAVIGATION = ROOT / "app/src/main/java/com/kareem/cortex/CortexNavigation.java"
 PRODUCTION_ACCEPTANCE = ROOT / "app/src/androidTest/java/com/kareem/cortex/CortexPublishAcceptanceTest.java"
 PRODUCTION_SECONDARY_ACCEPTANCE = ROOT / "app/src/androidTest/java/com/kareem/cortex/CortexProductionSecondaryAcceptanceTest.java"
 INTERNAL_DIAGNOSTIC_ACCEPTANCE = ROOT / "app/src/androidTest/java/com/kareem/cortex/CortexInternalDiagnosticCoverageTest.java"
-ANDROID = "{http://schemas.android.com/apk/res/android}"
 
 EXPECTED_APP_ID = "com.kareem.cortex"
 EXPECTED_LABEL = "Cortex"
@@ -56,7 +54,10 @@ def fail(message: str) -> None:
 def text(path: pathlib.Path) -> str:
     if not path.is_file():
         fail(f"missing required file: {path.relative_to(ROOT)}")
-    return path.read_text(encoding="utf-8")
+    data = path.read_text(encoding="utf-8")
+    if len(data) > 2_000_000:
+        fail(f"contract input unexpectedly large: {path.relative_to(ROOT)}")
+    return data
 
 
 def one(pattern: str, source: str, label: str) -> str:
@@ -66,57 +67,75 @@ def one(pattern: str, source: str, label: str) -> str:
     return match.group(1)
 
 
-def launcher(root: ET.Element) -> str:
-    app = root.find("application")
-    if app is None:
-        fail("manifest has no application element")
+def android_attrs(raw: str) -> dict[str, str]:
+    """Parse the small quoted android:* attribute surface used by the checked-in manifest.
+
+    Product CI only needs declarative manifest attributes and intent-filter literals; using a
+    bounded textual parser avoids loading XML features (DTD/entities/external references) at all.
+    """
+    return dict(re.findall(r'\bandroid:([A-Za-z0-9_]+)\s*=\s*"([^"]*)"', raw))
+
+
+def manifest_source() -> str:
+    source = text(MANIFEST)
+    lowered = source.lower()
+    if "<!doctype" in lowered or "<!entity" in lowered:
+        fail("manifest must not contain DTD/entity declarations")
+    return source
+
+
+def manifest_opening_tags(source: str, tag: str) -> list[dict[str, str]]:
+    pattern = rf"<{re.escape(tag)}\s+([^>]*?)(?:/?>)"
+    return [android_attrs(m.group(1)) for m in re.finditer(pattern, source, re.IGNORECASE | re.DOTALL)]
+
+
+def launcher(source: str) -> str:
     launchers: list[str] = []
-    for node in list(app):
-        if node.tag not in {"activity", "activity-alias"}:
+    pattern = r"<(activity|activity-alias)\s+([^>]*)>(.*?)</\1\s*>"
+    for match in re.finditer(pattern, source, re.IGNORECASE | re.DOTALL):
+        attrs = android_attrs(match.group(2))
+        body = match.group(3)
+        if "android.intent.action.MAIN" not in body or "android.intent.category.LAUNCHER" not in body:
             continue
-        name = node.attrib.get(ANDROID + "name", "")
-        target = node.attrib.get(ANDROID + "targetActivity", name)
-        for intent in node.findall("intent-filter"):
-            actions = {x.attrib.get(ANDROID + "name", "") for x in intent.findall("action")}
-            categories = {x.attrib.get(ANDROID + "name", "") for x in intent.findall("category")}
-            if "android.intent.action.MAIN" in actions and "android.intent.category.LAUNCHER" in categories:
-                launchers.append(target)
+        name = attrs.get("name", "")
+        launchers.append(attrs.get("targetActivity", name))
     if len(launchers) != 1:
         fail(f"expected exactly one launcher, found {launchers}")
     return launchers[0]
 
 
 def verify_manifest() -> None:
-    root = ET.parse(MANIFEST).getroot()
-    app = root.find("application")
-    if app is None:
+    source = manifest_source()
+    app_match = re.search(r"<application\s+([^>]*)>", source, re.IGNORECASE | re.DOTALL)
+    if app_match is None:
         fail("manifest has no application")
-    label = app.attrib.get(ANDROID + "label", "")
+    app_attrs = android_attrs(app_match.group(1))
+    label = app_attrs.get("label", "")
     if label != EXPECTED_LABEL:
         fail(f"visible app label drifted: {label!r}")
-    resolved_launcher = launcher(root)
+    resolved_launcher = launcher(source)
     if resolved_launcher != EXPECTED_LAUNCHER:
         fail(f"launcher drifted: {resolved_launcher}; expected {EXPECTED_LAUNCHER}")
 
-    activity_by_name = {x.attrib.get(ANDROID + "name", ""): x for x in app.findall("activity")}
+    activities = manifest_opening_tags(source, "activity")
+    activity_by_name = {attrs.get("name", ""): attrs for attrs in activities}
     for name in FORBIDDEN_EXPORTED_DIAGNOSTICS | PRODUCTION_SECONDARY_INTERNAL_ONLY:
         activity = activity_by_name.get(name)
         if activity is None:
             fail(f"required activity missing from manifest: {name}")
-        exported = activity.attrib.get(ANDROID + "exported", "false").lower() == "true"
-        if exported:
+        if activity.get("exported", "false").lower() == "true":
             fail(f"internal-only activity is externally exported: {name}")
 
-    aliases = {
-        x.attrib.get(ANDROID + "name", ""): x.attrib.get(ANDROID + "targetActivity", "")
-        for x in app.findall("activity-alias")
-    }
+    aliases = manifest_opening_tags(source, "activity-alias")
+    alias_by_name = {attrs.get("name", ""): attrs for attrs in aliases}
     for alias, target in EXPECTED_LEGACY_ALIASES.items():
-        actual = aliases.get(alias)
+        alias_node = alias_by_name.get(alias)
+        if alias_node is None:
+            fail(f"required legacy compatibility alias missing: {alias}")
+        actual = alias_node.get("targetActivity", "")
         if actual != target:
             fail(f"legacy surface alias drifted: {alias} -> {actual!r}; expected {target}")
-        alias_node = next(x for x in app.findall("activity-alias") if x.attrib.get(ANDROID + "name", "") == alias)
-        if alias_node.attrib.get(ANDROID + "exported", "false").lower() == "true":
+        if alias_node.get("exported", "false").lower() == "true":
             fail(f"legacy compatibility alias must stay internal: {alias}")
 
 
@@ -143,12 +162,7 @@ def verify_build(expected_code: int | None, expected_name: str | None) -> None:
 
 def verify_identity_document() -> None:
     doc = text(ROOT / "docs/CORTEX_PRODUCT_IDENTITY_CONTRACT.md")
-    required = [
-        "`com.kareem.cortex`",
-        "Visible app label: `Cortex`",
-        "Main launcher: `CortexShellActivity`",
-        "CortexInternalDiagnosticCoverageTest",
-    ]
+    required = ["`com.kareem.cortex`", "Visible app label: `Cortex`", "Main launcher: `CortexShellActivity`", "CortexInternalDiagnosticCoverageTest"]
     for token in required:
         if token not in doc:
             fail(f"identity document is stale; missing {token}")
@@ -170,13 +184,7 @@ def verify_release_workflow() -> None:
 
 def verify_navigation_contract() -> None:
     navigation = text(NAVIGATION)
-    required = [
-        "CortexShellActivity.class",
-        "EXTRA_DESTINATION_ID",
-        "EXTRA_OPEN_DOCK",
-        "openDock(Activity from)",
-        "CortexStatusActivity.class",
-    ]
+    required = ["CortexShellActivity.class", "EXTRA_DESTINATION_ID", "EXTRA_OPEN_DOCK", "openDock(Activity from)", "CortexStatusActivity.class"]
     for token in required:
         if token not in navigation:
             fail(f"canonical shell navigation drifted; missing {token}")
