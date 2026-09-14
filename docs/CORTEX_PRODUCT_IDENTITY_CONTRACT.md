@@ -6,13 +6,13 @@ This line is for **Cortex**, not Cortex Prime and not LifeOS.
 
 - Android application id: `com.kareem.cortex`
 - Visible app label: `Cortex`
-- Main launcher: `NowActivity`
+- Main launcher: `CortexShellActivity`
 - Primary product destinations: `NOW`, `WORK`, `MEMORY`, `CAPTURE`
 - Global interaction surface: Cortex Dock; it is an interaction surface, not a fifth permanent navigation destination.
 - Product interaction: observe/capture -> understand -> connect -> judge -> surface -> propose/execute with explicit action truth.
 - Existing user data must remain update-compatible.
 
-`NowActivity` is the intentional v146 launcher because the new product opens on the decision surface: what deserves attention now. Capture remains a primary destination, while quick input/Ask Cortex are unified contextually through the Cortex Dock. This replaces the older document-only expectation that `InputActivity` must own the launcher.
+`CortexShellActivity` is the intentional v146 launcher. It owns the four primary destinations and Cortex Dock in one Compose product path. Legacy Activities may remain temporarily as detail/workflow implementations while their unique behavior is migrated; they are not parallel tabs.
 
 ## Forbidden release drift
 
@@ -33,15 +33,17 @@ A release must fail review if any of the following becomes true:
 
 `v146/hard-explicit-request-boundary` was created directly from the green v145 head `237756e35c057f90effaaf710c5e1bbc38aaf6d2`.
 
-The v146 product architecture is incremental: reliable storage, attention, capture, Work Vault and intelligence engines remain in place while the user-facing shell migrates toward Compose and the canonical destination/action contracts.
+The v146 product architecture is incremental: reliable storage, attention, capture, Work Vault and intelligence engines remain in place while the user-facing shell migrates to Compose and canonical destination/action contracts.
 
 ## Surface policy
 
 Activities are implementation details, not product taxonomy.
 
-Production navigation is defined by `CortexDestinationRegistry`.
+Production navigation is defined by `CortexDestinationRegistry` and primary navigation resolves into `CortexShellActivity` with a semantic destination ID.
 
 User intent identity is defined by `CortexActionRegistry`.
+
+Cortex Dock is the only permanent primary interaction surface for Ask + text + voice + photo + file + screen context. Existing capture/ask Activities can remain as bounded workflow/detail executors until their unique behavior is migrated behind the Dock.
 
 Production Surface Acceptance derives its primary UI matrix from `CortexDestinationRegistry.primary()` instead of treating every manifest Activity as a product surface. Internal diagnostic runtime coverage lives in `CortexInternalDiagnosticCoverageTest` and does not grant production visibility.
 
@@ -53,7 +55,7 @@ Before any APK is handed to Karim, automated gates and artifact inspection must 
 
 1. package id is `com.kareem.cortex`;
 2. app label is `Cortex`;
-3. launcher resolves to the currently approved product contract (`NowActivity` for v146 until an intentional shell migration updates code, tests and this document together);
+3. launcher resolves to `CortexShellActivity` and each primary semantic destination renders inside the shell;
 4. version code is update-compatible with the installed Cortex baseline;
 5. APK uses the permanent Cortex signing identity;
 6. no uninstall or user-data reset is required;

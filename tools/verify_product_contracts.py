@@ -12,13 +12,14 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 MANIFEST = ROOT / "app/src/main/AndroidManifest.xml"
 BUILD = ROOT / "app/build.gradle"
 WORKFLOW = ROOT / ".github/workflows/android-build.yml"
+NAVIGATION = ROOT / "app/src/main/java/com/kareem/cortex/CortexNavigation.java"
 PRODUCTION_ACCEPTANCE = ROOT / "app/src/androidTest/java/com/kareem/cortex/CortexPublishAcceptanceTest.java"
 INTERNAL_DIAGNOSTIC_ACCEPTANCE = ROOT / "app/src/androidTest/java/com/kareem/cortex/CortexInternalDiagnosticCoverageTest.java"
 ANDROID = "{http://schemas.android.com/apk/res/android}"
 
 EXPECTED_APP_ID = "com.kareem.cortex"
 EXPECTED_LABEL = "Cortex"
-EXPECTED_LAUNCHER = ".NowActivity"
+EXPECTED_LAUNCHER = ".CortexShellActivity"
 EXPECTED_V146_BRANCH = "v146/hard-explicit-request-boundary"
 EXPECTED_V146_VERSION_CODE = 146
 EXPECTED_V146_VERSION_NAME = "2.34.0-v146-ui-action-truth"
@@ -120,7 +121,7 @@ def verify_identity_document() -> None:
     required = [
         "`com.kareem.cortex`",
         "Visible app label: `Cortex`",
-        "Main launcher: `NowActivity`",
+        "Main launcher: `CortexShellActivity`",
         "CortexInternalDiagnosticCoverageTest",
     ]
     for token in required:
@@ -138,6 +139,19 @@ def verify_release_workflow() -> None:
         fail("v146 CI versionName stamp drifted")
     if "python tools/verify_product_contracts.py" not in workflow:
         fail("Android CI no longer enforces the product identity contract")
+
+
+def verify_navigation_contract() -> None:
+    navigation = text(NAVIGATION)
+    required = [
+        "CortexShellActivity.class",
+        "EXTRA_DESTINATION_ID",
+        "EXTRA_OPEN_DOCK",
+        "openDock(Activity from)",
+    ]
+    for token in required:
+        if token not in navigation:
+            fail(f"canonical shell navigation drifted; missing {token}")
 
 
 def verify_acceptance_split() -> None:
@@ -166,8 +180,9 @@ def main() -> int:
     verify_build(args.expected_version_code, args.expected_version_name)
     verify_identity_document()
     verify_release_workflow()
+    verify_navigation_contract()
     verify_acceptance_split()
-    print("CORTEX_CONTRACT_PASS: identity, launcher, signing, v146 release, diagnostic export and acceptance boundaries")
+    print("CORTEX_CONTRACT_PASS: identity, shell launcher, signing, v146 release, diagnostic export and acceptance boundaries")
     return 0
 
 

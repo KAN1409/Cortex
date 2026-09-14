@@ -8,8 +8,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 /**
  * Lightweight lifecycle hook.
  *
- * Runtime startup must follow the actual first resumed Cortex surface, not a hard-coded activity
- * class. The launcher is currently NowActivity; share/deep-link entry points may differ. Safe core
+ * Runtime startup follows the actual first resumed Cortex surface rather than a hard-coded class.
+ * The v146 launcher is CortexShellActivity; share/deep-link entry points may differ. Safe core
  * remains idempotent and owns all post-resume recovery once the UI is stable.
  */
 public final class SafeCoreLifecycle implements Application.ActivityLifecycleCallbacks {

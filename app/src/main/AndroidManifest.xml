@@ -20,7 +20,8 @@
         <provider android:name="rikka.shizuku.ShizukuProvider" android:authorities="${applicationId}.shizuku" android:multiprocess="false" android:enabled="true" android:exported="true" android:permission="android.permission.INTERACT_ACROSS_USERS_FULL" />
 
         <activity android:name=".InputActivity" android:exported="false" />
-        <activity android:name=".NowActivity" android:exported="true"><intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter></activity>
+        <activity android:name=".CortexShellActivity" android:exported="true" android:windowSoftInputMode="adjustResize"><intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter></activity>
+        <activity android:name=".NowActivity" android:exported="false" />
         <activity android:name=".NexusActivity" android:exported="false" />
         <activity android:name=".CaptureHubActivity" android:exported="false" />
         <activity android:name=".VoiceLibraryActivity" android:exported="false" />

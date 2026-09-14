@@ -43,11 +43,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 
-/**
- * Final production publish acceptance suite. This runs on a real Android runtime/emulator,
- * not Robolectric. Product-surface acceptance is derived from the canonical destination
- * registry; internal engineering diagnostics are covered by a separate suite.
- */
+/** Final production publish acceptance suite; internal diagnostics are covered separately. */
 @RunWith(AndroidJUnit4.class)
 @FixMethodOrder(MethodSorters.NAME_ASCENDING)
 public final class CortexPublishAcceptanceTest {
@@ -75,16 +71,20 @@ public final class CortexPublishAcceptanceTest {
         assertEquals(PKG, app.getPackageName());
         Intent launcher = app.getPackageManager().getLaunchIntentForPackage(PKG);
         assertNotNull("No launcher intent", launcher);
+        ComponentName component=launcher.getComponent();
+        assertNotNull("Launcher component missing",component);
+        assertEquals("CortexShellActivity",component.getClassName().substring(component.getClassName().lastIndexOf('.')+1));
         app.startActivity(launcher.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK));
         assertTrue("Launcher never became visible", device.wait(Until.hasObject(By.pkg(PKG)), 10000));
+        assertTrue("Now destination not visible in shell launcher",device.wait(Until.hasObject(By.text("Now")),8000));
         device.waitForIdle();
         assertEquals(PKG, device.getCurrentPackageName());
-        assertTrue("Launcher screenshot failed", shot("00_launcher_now"));
+        assertTrue("Launcher screenshot failed", shot("00_launcher_shell_now"));
         assertFalse("Crash dialog detected", crashDialog());
         app.getSharedPreferences("cortex_publish_acceptance", Context.MODE_PRIVATE).edit()
                 .putString("marker", "PERSIST_ME_ACROSS_REINSTALL")
                 .putLong("created_at", System.currentTimeMillis()).commit();
-        System.out.println("PUBLISH_SIM|PASS|fresh_runtime_launcher");
+        System.out.println("PUBLISH_SIM|PASS|fresh_runtime_shell_launcher");
     }
 
     @Test public void test02_primaryProductDestinationsRender() throws Exception {
@@ -93,18 +93,18 @@ public final class CortexPublishAcceptanceTest {
                 CortexDestinationRegistry.primary().size());
         int passed = 0;
         for (CortexDestinationRegistry.Destination destination : CortexDestinationRegistry.primary()) {
-            Class<?> activity = CortexNavigation.activityFor(destination.destinationId);
-            launchComponent(activity.getSimpleName());
-            if (!device.wait(Until.hasObject(By.pkg(PKG)), 8000)) {
-                fail("Primary destination did not render: " + destination.destinationId
-                        + " current=" + device.getCurrentPackageName());
-            }
+            Intent intent=CortexNavigation.primaryIntent(app,destination.destinationId)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+            app.startActivity(intent);
+            assertTrue("Primary destination shell did not render: "+destination.destinationId,
+                    device.wait(Until.hasObject(By.pkg(PKG)),8000));
+            assertTrue("Primary destination label missing: "+destination.label,
+                    device.wait(Until.hasObject(By.text(destination.label)),8000));
             device.waitForIdle();
             if (crashDialog()) fail("Crash dialog while rendering primary destination " + destination.destinationId);
             assertTrue("Screenshot failed for " + destination.destinationId,
-                    shot("primary_" + destination.route + "_" + activity.getSimpleName()));
+                    shot("primary_" + destination.route + "_shell"));
             passed++;
-            device.pressBack();
             SystemClock.sleep(120);
         }
         assertEquals("Not all canonical primary destinations were exercised", 4, passed);
@@ -200,14 +200,14 @@ public final class CortexPublishAcceptanceTest {
         Intent share = new Intent(Intent.ACTION_SEND);
         share.setType("text/plain");
         share.putExtra(Intent.EXTRA_TEXT, "CORTEX FINAL PUBLISH SHARE SAMPLE — متابعة أمر الإسناد PO-0262");
-        share.setComponent(new ComponentName(PKG, PKG + ".InputActivity"));
+        share.setComponent(new ComponentName(PKG, PKG + ".ProposalCaptureActivity"));
         share.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
         app.startActivity(share);
         assertTrue("Share entry did not render", device.wait(Until.hasObject(By.pkg(PKG)), 8000));
         assertFalse(crashDialog());
-        assertTrue(shot("share_text_entry"));
+        assertTrue(shot("share_capture_entry"));
         device.pressBack();
-        System.out.println("PUBLISH_SIM|PASS|share_and_input_entry");
+        System.out.println("PUBLISH_SIM|PASS|share_and_capture_entry");
     }
 
     @Test public void test08_permissionsAndSettingsSurfacesAreSafe() throws Exception {
