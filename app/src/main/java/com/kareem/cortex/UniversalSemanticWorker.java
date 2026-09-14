@@ -2,7 +2,6 @@ package com.kareem.cortex;
 
 import android.content.ContentValues;
 import android.content.Context;
-import android.database.Cursor;
 import androidx.annotation.NonNull;
 import androidx.work.Worker;
 import androidx.work.WorkerParameters;
@@ -10,11 +9,12 @@ import org.json.JSONObject;
 
 /**
  * Refines ambiguous semantic events with a local background-capable model.
- * This worker updates semantic interpretation only. It never materializes a situation, memory,
- * or attention item directly; canonical downstream workers own those decisions.
+ * Execution is lease-based and poison events cannot block the rest of the queue.
+ * This worker updates semantic interpretation only; canonical downstream workers own state,
+ * memory and attention decisions.
  */
 public final class UniversalSemanticWorker extends Worker {
-    public static final String VERSION="universal_semantic_worker_002";
+    public static final String VERSION="universal_semantic_worker_003";
 
     public UniversalSemanticWorker(@NonNull Context c,@NonNull WorkerParameters p){super(c,p);}
 
@@ -24,32 +24,33 @@ public final class UniversalSemanticWorker extends Worker {
         try{
             Context app=getApplicationContext();
             vault=new VaultDb(app);
-            UniversalEventStore.ensure(vault.getWritableDatabase());
+            UniversalSemanticQueueStore.ensure(vault.getWritableDatabase());
+            UniversalSemanticQueueStore.recoverExpiredClaims(vault.getWritableDatabase());
             if(!LocalModelManager.verified(app))return Result.success();
             if(!LocalModelManager.installed(app)){
                 LocalLlmRuntime.maybeAutoSelfTest(app,null);
                 LocalLlmRuntime.State st=LocalLlmRuntime.state(app);
                 if("failed".equals(st.state)){
-                    markQueueBlocked(vault,"Local runtime self-test failed: "+st.error);
+                    UniversalSemanticQueueStore.markRuntimeBlocked(vault.getWritableDatabase(),"Local runtime self-test failed: "+st.error);
                     return Result.success();
                 }
                 return Result.retry();
             }
-            ContentValues recover=new ContentValues();
-            recover.put("semantic_state","waiting");
-            recover.put("reason","Local runtime recovered; semantic refinement resumed");
-            vault.getWritableDatabase().update("ue_semantic_events",recover,
-                    "semantic_state='blocked' AND superseded_by=0",null);
+            UniversalSemanticQueueStore.resumeRuntimeBlocked(vault.getWritableDatabase());
 
-            int processed=0;
+            int processed=0,completed=0;
             while(processed<12){
-                Row row=next(vault);
+                UniversalSemanticQueueStore.Row row=UniversalSemanticQueueStore.claimNext(vault.getWritableDatabase());
                 if(row==null)break;
-                process(vault,row);
+                if(isStopped()){
+                    UniversalSemanticQueueStore.fail(vault.getWritableDatabase(),row,new InterruptedException("WorkManager stopped semantic worker"));
+                    break;
+                }
+                if(process(vault,row))completed++;
                 processed++;
             }
-            if(processed>0)StatefulMeaningScheduler.kick(app);
-            return hasWaiting(vault)?Result.retry():Result.success();
+            if(completed>0)StatefulMeaningScheduler.kick(app);
+            return UniversalSemanticQueueStore.hasPending(vault.getReadableDatabase())?Result.retry():Result.success();
         }catch(Throwable t){
             return Result.retry();
         }finally{
@@ -57,36 +58,9 @@ public final class UniversalSemanticWorker extends Worker {
         }
     }
 
-    private boolean hasWaiting(VaultDb v){
-        Cursor c=v.getReadableDatabase().rawQuery(
-                "SELECT 1 FROM ue_semantic_events WHERE semantic_state='waiting' AND superseded_by=0 LIMIT 1",null);
-        boolean yes=c.moveToFirst();c.close();return yes;
-    }
-
-    private void markQueueBlocked(VaultDb v,String detail){
-        ContentValues e=new ContentValues();
-        e.put("semantic_state","blocked");
-        e.put("model_route","local_background_model");
-        e.put("reason",detail);
-        v.getWritableDatabase().update("ue_semantic_events",e,
-                "semantic_state='waiting' AND superseded_by=0",null);
-    }
-
-    private Row next(VaultDb v){
-        Cursor c=v.getReadableDatabase().rawQuery(
-                "SELECT e.id,e.raw_observation_id,e.stream_id,e.semantic_type,e.subject,e.summary," +
-                        "r.source_key,r.title,r.body,r.payload_json,r.occurred_at " +
-                        "FROM ue_semantic_events e JOIN ue_raw_observations r ON r.id=e.raw_observation_id " +
-                        "WHERE e.semantic_state='waiting' AND e.superseded_by=0 ORDER BY e.occurred_at ASC LIMIT 1",null);
-        Row r=null;
-        if(c.moveToFirst())r=new Row(c.getLong(0),c.getLong(1),c.getLong(2),c.getString(3),c.getString(4),
-                c.getString(5),c.getString(6),c.getString(7),c.getString(8),c.getString(9),c.getLong(10));
-        c.close();return r;
-    }
-
-    private void process(VaultDb v,Row r){
+    private boolean process(VaultDb v,UniversalSemanticQueueStore.Row r){
         UniversalEventStore.stage(v.getWritableDatabase(),r.rawId,r.eventId,"UNDERSTANDING","running",
-                "local_qwen","Local semantic refinement running","");
+                "local_qwen","Local semantic refinement running • attempt "+r.attempt,"");
         long started=System.currentTimeMillis();
         try{
             String system="Classify ONE already-captured Cortex event using ONLY supplied evidence. Return JSON only with keys semantic_type,intent,subject,summary,attention_kind,priority,memory_score,confidence,reason. attention_kind is ACTION, WAITING, DECISION, INFO or NONE. ACTION is allowed only when the evidence contains an explicit request, required response, task, deadline, payment/security issue, or other concrete user obligation. Social updates, reactions, likes, follows, friend additions, typing indicators, ordinary incoming messages and informational notifications are INFO or NONE unless they contain a concrete request. WAITING requires a real dependency or commitment. DECISION requires an actual decision. Never infer an action merely because the user could optionally respond. memory_score 0..1. Do not invent facts, people, deadlines, translations or actions. Preserve Arabic/English wording. /no_think";
@@ -111,7 +85,6 @@ public final class UniversalSemanticWorker extends Worker {
             e.put("subject",subject);
             e.put("summary",summary);
             e.put("confidence",conf);
-            e.put("semantic_state","complete");
             e.put("model_route","local_background_model");
             e.put("reason",reason);
             v.getWritableDatabase().update("ue_semantic_events",e,"id=?",new String[]{String.valueOf(r.eventId)});
@@ -125,20 +98,27 @@ public final class UniversalSemanticWorker extends Worker {
             v.getWritableDatabase().update("ue_attention_items",old,
                     "semantic_event_id=? AND state='open'",new String[]{String.valueOf(r.eventId)});
 
-            AiJobStore.modelRun(v,0,1,"semantic_classifier","local",LocalModelManager.MODEL_NAME,
+            AiJobStore.modelRun(v,0,r.attempt,"semantic_classifier","local",LocalModelManager.MODEL_NAME,
                     "universal_event_semantic","complete",Fingerprint.text(prompt),
                     System.currentTimeMillis()-started,0,out.getTokensGenerated(),conf,j.toString(),"");
+            UniversalSemanticQueueStore.complete(v.getWritableDatabase(),r);
             UniversalEventStore.stage(v.getWritableDatabase(),r.rawId,r.eventId,"UNDERSTANDING","complete",
-                    "local_qwen","Semantic refinement complete; canonical correlation required","");
+                    "local_qwen","Semantic refinement complete on attempt "+r.attempt+"; canonical correlation required","");
             UniversalEventStore.stage(v.getWritableDatabase(),r.rawId,r.eventId,"ATTENTION_BOUNDARY","complete",
                     "canonical_stateful_pipeline","No direct projection; CortexAttentionJudge remains final authority","");
             UniversalEventStore.stage(v.getWritableDatabase(),r.rawId,r.eventId,"COMPLETE","complete",VERSION,
                     "Semantic event ready for canonical world-state correlation","");
+            return true;
         }catch(Throwable t){
+            long latency=System.currentTimeMillis()-started;
+            UniversalSemanticQueueStore.fail(v.getWritableDatabase(),r,t);
+            AiJobStore.modelRun(v,0,r.attempt,"semantic_classifier","local",LocalModelManager.MODEL_NAME,
+                    "universal_event_semantic","failed",Fingerprint.text(r.source+"|"+r.title+"|"+r.body),
+                    latency,0,0,0,"",t.getClass().getSimpleName()+": "+String.valueOf(t.getMessage()));
             UniversalEventStore.stage(v.getWritableDatabase(),r.rawId,r.eventId,"UNDERSTANDING","failed",
-                    "local_qwen","Local semantic refinement failed",
+                    "local_qwen","Local semantic refinement failed on attempt "+r.attempt,
                     t.getClass().getSimpleName()+": "+String.valueOf(t.getMessage()));
-            throw new RuntimeException(t);
+            return false;
         }
     }
 
@@ -149,13 +129,4 @@ public final class UniversalSemanticWorker extends Worker {
     }
     private static double clamp(double d){return Math.max(0,Math.min(1,d));}
     private static String clip(String s,int n){String x=s==null?"":s;return x.length()<=n?x:x.substring(0,n);}
-
-    private static final class Row{
-        final long eventId,rawId,streamId,occurredAt;
-        final String type,subject,summary,source,title,body,payload;
-        Row(long e,long r,long s,String t,String sub,String sum,String src,String ti,String b,String p,long at){
-            eventId=e;rawId=r;streamId=s;type=t==null?"":t;subject=sub==null?"":sub;summary=sum==null?"":sum;
-            source=src==null?"":src;title=ti==null?"":ti;body=b==null?"":b;payload=p==null?"{}":p;occurredAt=at;
-        }
-    }
 }
