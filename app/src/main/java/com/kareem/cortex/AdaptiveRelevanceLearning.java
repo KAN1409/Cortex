@@ -28,17 +28,17 @@ public final class AdaptiveRelevanceLearning {
         if(!p.enough())return d;
         if(d.reviewable()&&p.strongPositive()){MasterRelevanceFilter.Disposition target=parse(candidate);if(target!=null){double c=Math.max(0.83,Math.min(0.90,d.confidence+0.18));return new MasterRelevanceFilter.Decision(target,Math.max(58,d.importance),"learned from repeated confirmed similar reviews • "+p.summary(),"",c);}}
         if(d.reviewable()&&p.strongNegative())return new MasterRelevanceFilter.Decision(MasterRelevanceFilter.Disposition.CONTEXT,Math.min(39,d.importance),"learned from repeated rejected similar reviews • "+p.summary(),"",0.78);
-        if(d.durable()&&p.strongNegative())return new MasterRelevanceFilter.Decision(MasterRelevanceFilter.Disposition.REVIEW,Math.max(48,d.importance),"historically rejected similar "+candidate.toLowerCase()+" items • confirmation required",candidate,Math.min(0.69,d.confidence));
+        if(d.durable()&&p.strongNegative())return new MasterRelevanceFilter.Decision(MasterRelevanceFilter.Disposition.REVIEW,Math.max(48,d.importance),"historically rejected similar "+candidate.toLowerCase(java.util.Locale.ROOT)+" items • confirmation required",candidate,Math.min(0.69,d.confidence));
         return d;
     }
 
     /** Indexed hot-path query; no JOIN and no per-row JSON parsing. */
     public static Profile profile(VaultDb db,String source,String candidateKind){
-        CognitiveStore.ensure(db);String src=n(source),kind=n(candidateKind).toUpperCase();int confirm=0,reject=0,ignore=0;
+        CognitiveStore.ensure(db);String src=n(source),kind=n(candidateKind).toUpperCase(java.util.Locale.ROOT);int confirm=0,reject=0,ignore=0;
         Cursor c=db.getReadableDatabase().query("feedback_events",new String[]{"event_type"},"candidate_kind=? AND source_key=?",new String[]{kind,src},null,null,"created_at DESC","50");
         while(c.moveToNext()){String event=n(c.getString(0));if("confirm".equals(event))confirm++;else if("dismiss".equals(event)||"not_action".equals(event)||"not_important".equals(event))reject++;else if("ignore_similar".equals(event)){reject++;ignore++;}}c.close();return new Profile(src,kind,confirm,reject,ignore);
     }
 
-    private static MasterRelevanceFilter.Disposition parse(String x){try{return MasterRelevanceFilter.Disposition.valueOf(n(x).toUpperCase());}catch(Exception e){return null;}}
+    private static MasterRelevanceFilter.Disposition parse(String x){try{return MasterRelevanceFilter.Disposition.valueOf(n(x).toUpperCase(java.util.Locale.ROOT));}catch(Exception e){return null;}}
     private static String n(String s){return s==null?"":s.trim();}
 }

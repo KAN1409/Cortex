@@ -25,7 +25,7 @@ public final class WorkDocumentBuilderBridge {
         JSONObject payload=WorkDocumentBuildPackage.build(vault,kind,projectFilter);
         File dir=new File(context.getFilesDir(),"document_build_packages");
         if(!dir.exists()&&!dir.mkdirs())throw new IOException("Could not create build package directory");
-        String base="cortex_"+kind.name().toLowerCase()+"_"+System.currentTimeMillis();
+        String base="cortex_"+kind.name().toLowerCase(java.util.Locale.ROOT)+"_"+System.currentTimeMillis();
         File json=new File(dir,base+".json");
         try(OutputStream out=new FileOutputStream(json)){out.write(payload.toString(2).getBytes(StandardCharsets.UTF_8));}
         Uri uri=FileProvider.getUriForFile(context,context.getPackageName()+".feedback.files",json);

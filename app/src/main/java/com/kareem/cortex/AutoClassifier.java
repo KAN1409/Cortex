@@ -5,7 +5,7 @@ import java.util.LinkedHashSet;
 
 public class AutoClassifier {
     public static String category(String text,String mime){
-        String t=text==null?"":text.toLowerCase();
+        String t=text==null?"":text.toLowerCase(java.util.Locale.ROOT);
         if(mime!=null&&mime.startsWith("image/")) return "Screenshots & Images";
         if(t.contains("prompt")||t.contains("negative prompt")||t.contains("system prompt"))return "AI Prompts";
         if(t.contains("select ")||t.contains("function ")||t.contains(" class ")||t.contains("#!/")||t.contains("exception")||t.contains("stacktrace"))return "Code & Logs";
@@ -19,8 +19,8 @@ public class AutoClassifier {
         String one=text.trim().replace('\n',' ').replaceAll("\\s+"," ");return one.length()>72?one.substring(0,72)+"…":one;
     }
     public static String tags(String text,String category){
-        String t=text==null?"":text.toLowerCase();LinkedHashSet<String> set=new LinkedHashSet<>();
-        for(String x:category.toLowerCase().replace(" & ",",").split(","))if(!x.trim().isEmpty())set.add(x.trim());
+        String t=text==null?"":text.toLowerCase(java.util.Locale.ROOT);LinkedHashSet<String> set=new LinkedHashSet<>();
+        for(String x:category.toLowerCase(java.util.Locale.ROOT).replace(" & ",",").split(","))if(!x.trim().isEmpty())set.add(x.trim());
         if(t.contains("chatgpt")||t.contains("gpt"))set.add("chatgpt");
         if(t.contains("prompt"))set.add("prompt");
         if(t.contains("photo")||t.contains("image")||t.contains("lighting"))set.add("photo");

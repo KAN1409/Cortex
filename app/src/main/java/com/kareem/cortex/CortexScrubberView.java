@@ -9,7 +9,7 @@ import android.view.View;
 /** Approved waveform-first playback control: matte, red/orange active audio, white playhead, no purple/glass. */
 public final class CortexScrubberView extends View {
     public interface Listener { void onSeek(float fraction,boolean finished); }
-    private final Paint bars=new Paint(Paint.ANTI_ALIAS_FLAG),active=new Paint(Paint.ANTI_ALIAS_FLAG),head=new Paint(Paint.ANTI_ALIAS_FLAG),track=new Paint(Paint.ANTI_ALIAS_FLAG),thumb=new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint bars=new Paint(Paint.ANTI_ALIAS_FLAG),active=new Paint(Paint.ANTI_ALIAS_FLAG),head=new Paint(Paint.ANTI_ALIAS_FLAG),track=new Paint(Paint.ANTI_ALIAS_FLAG),progressTrack=new Paint(Paint.ANTI_ALIAS_FLAG),thumb=new Paint(Paint.ANTI_ALIAS_FLAG);
     private final float d;private float progress=0f;private boolean dragging=false;private Listener listener;
 
     public CortexScrubberView(Context c){this(c,null);}
@@ -17,7 +17,7 @@ public final class CortexScrubberView extends View {
         bars.setColor(Color.rgb(73,73,77));bars.setStrokeWidth(1.55f*d);bars.setStrokeCap(Paint.Cap.ROUND);
         active.setColor(CortexUi.RED);active.setStrokeWidth(1.75f*d);active.setStrokeCap(Paint.Cap.ROUND);
         head.setColor(Color.rgb(244,243,239));head.setStrokeWidth(1.2f*d);head.setStrokeCap(Paint.Cap.ROUND);head.setShadowLayer(4*d,0,0,Color.argb(105,255,255,255));
-        track.setColor(Color.rgb(44,44,47));track.setStrokeWidth(3*d);track.setStrokeCap(Paint.Cap.ROUND);
+        track.setColor(Color.rgb(44,44,47));track.setStrokeWidth(3*d);track.setStrokeCap(Paint.Cap.ROUND);progressTrack.setColor(CortexUi.RED);progressTrack.setStrokeWidth(3*d);progressTrack.setStrokeCap(Paint.Cap.ROUND);
         thumb.setColor(CortexUi.RED);thumb.setStyle(Paint.Style.FILL);thumb.setShadowLayer(5*d,0,2*d,Color.argb(135,0,0,0));
     }
     public void setListener(Listener l){listener=l;}public void setProgress(float p){if(dragging)return;progress=clamp(p);invalidate();}public float getProgress(){return progress;}
@@ -30,7 +30,7 @@ public final class CortexScrubberView extends View {
             else if(p==active)p.setColor(CortexUi.RED);
             c.drawLine(x,cy-hh,x,cy+hh,p);
         }
-        float y=getHeight()*.88f;c.drawLine(pad,y,pad+w,y,track);if(progress>0){Paint pr=new Paint(track);pr.setColor(CortexUi.RED);c.drawLine(pad,y,xp,y,pr);}c.drawLine(xp,Math.max(1*d,cy-getHeight()*.34f),xp,cy+getHeight()*.34f,head);c.drawCircle(xp,y,(dragging?5.5f:4f)*d,thumb);
+        float y=getHeight()*.88f;c.drawLine(pad,y,pad+w,y,track);if(progress>0)c.drawLine(pad,y,xp,y,progressTrack);c.drawLine(xp,Math.max(1*d,cy-getHeight()*.34f),xp,cy+getHeight()*.34f,head);c.drawCircle(xp,y,(dragging?5.5f:4f)*d,thumb);
     }
 
     private float fraction(float x){float pad=9*d,w=Math.max(1,getWidth()-2*pad);return clamp((x-pad)/w);}private static float clamp(float x){return Math.max(0f,Math.min(1f,x));}

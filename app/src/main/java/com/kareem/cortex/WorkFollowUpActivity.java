@@ -53,7 +53,7 @@ public final class WorkFollowUpActivity extends Activity {
         TextView ask=CortexUi.action(this,"ASK ARCHIVE ABOUT THIS",CortexUi.MUTED,false);LinearLayout.LayoutParams ap=new LinearLayout.LayoutParams(-1,dp(40));ap.setMargins(0,dp(8),0,0);card.addView(ask,ap);ask.setOnClickListener(v->{Intent i=new Intent(this,WorkVaultAskActivity.class);String q=!r.ref.isEmpty()?"Show me the latest grounded status and related evidence for "+r.refType+" "+r.ref:"Show me the grounded follow-up evidence for "+label;i.putExtra("query",q);startActivity(i);});content.addView(card,cp);
     }
 
-    private static String statusLabel(Row r){if(!r.status.isEmpty())return r.status;return r.normalized.isEmpty()?"UNKNOWN":r.normalized.toUpperCase().replace('_',' ');}
+    private static String statusLabel(Row r){if(!r.status.isEmpty())return r.status;return r.normalized.isEmpty()?"UNKNOWN":r.normalized.toUpperCase(java.util.Locale.ROOT).replace('_',' ');}
     private static String location(Row r){StringBuilder b=new StringBuilder();if(!r.sheet.isEmpty())b.append(" • Sheet ").append(r.sheet);if(r.page>0)b.append(" • Page ").append(r.page);if(r.row>0)b.append(" • Row ").append(r.row);return b.toString();}
     private static void append(StringBuilder b,String x){if(x==null||x.trim().isEmpty())return;if(b.length()>0)b.append(" • ");b.append(x.trim());}
     private static String s(Cursor c,int i){return c.isNull(i)?"":c.getString(i);}

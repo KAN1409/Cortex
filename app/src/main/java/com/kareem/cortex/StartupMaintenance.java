@@ -48,7 +48,7 @@ public final class StartupMaintenance {
     }
 
     private static void runStage(VaultDb db,String name,UnsafeStage stage){
-        long start=System.currentTimeMillis();try{stage.run();DiagnosticsLog.info(db,"StartupMaintenance",name,"success",0,0,0,0,0,System.currentTimeMillis()-start,null);}catch(Throwable t){DiagnosticsLog.error(db,"StartupMaintenance",name,t,"STARTUP_STAGE_"+name.toUpperCase(),0,0,0,0,0,null);}
+        long start=System.currentTimeMillis();try{stage.run();DiagnosticsLog.info(db,"StartupMaintenance",name,"success",0,0,0,0,0,System.currentTimeMillis()-start,null);}catch(Throwable t){DiagnosticsLog.error(db,"StartupMaintenance",name,t,"STARTUP_STAGE_"+name.toUpperCase(java.util.Locale.ROOT),0,0,0,0,0,null);}
     }
     private interface UnsafeStage{void run() throws Throwable;}
 

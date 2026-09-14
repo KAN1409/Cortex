@@ -106,6 +106,6 @@ public final class StatefulMeaningStore {
     }
 
     private static String transitionKind(String from,String to){if(n(from).isEmpty())return "OPENED";if(to.startsWith("removed:"))return "REMOVED";if(from.equals(to))return "CONTENT_UPDATE";if("completed".equals(to)||"ended".equals(to)||"missed".equals(to)||"failed".equals(to))return "TERMINAL";return "STATE_CHANGE";}
-    private static int priority(String type){String x=n(type).toLowerCase();if(x.contains("security")||x.contains("request"))return 90;if(x.contains("decision")||x.contains("commitment"))return 75;return 40;}
+    private static int priority(String type){String x=n(type).toLowerCase(java.util.Locale.ROOT);if(x.contains("security")||x.contains("request"))return 90;if(x.contains("decision")||x.contains("commitment"))return 75;return 40;}
     private static String n(String s){return s==null?"":s.trim();}
 }

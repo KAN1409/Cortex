@@ -14,6 +14,8 @@ public final class CortexGlyphView extends View {
     private final Paint edge=new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint glyph=new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint accentPaint=new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Path glyphPath=new Path();
+    private final RectF glyphRect=new RectF();
     private final String kind;
     private final float d;
     private boolean showDot;
@@ -39,13 +41,13 @@ public final class CortexGlyphView extends View {
     }
 
     private void drawGlyph(Canvas c,float cx,float cy,float s){
-        Path p=new Path();RectF r;
+        Path p=glyphPath;p.reset();RectF r=glyphRect;
         switch(kind){
             case "wave":case "voice":{
                 for(int i=-2;i<=2;i++){float x=cx+i*s*.42f;float hh=s*(i==0?1f:(Math.abs(i)==1?.70f:.42f));c.drawLine(x,cy-hh,x,cy+hh,glyph);}break;
             }
             case "phone":{
-                r=new RectF(cx-s*.90f,cy-s*.95f,cx-s*.35f,cy-s*.20f);c.drawArc(r,120,85,false,glyph);r=new RectF(cx+s*.28f,cy+s*.18f,cx+s*.88f,cy+s*.92f);c.drawArc(r,-55,88,false,glyph);p.moveTo(cx-s*.55f,cy-s*.45f);p.cubicTo(cx-s*.05f,cy+s*.15f,cx+s*.05f,cy+s*.30f,cx+s*.55f,cy+s*.50f);c.drawPath(p,glyph);break;
+                r.set(cx-s*.90f,cy-s*.95f,cx-s*.35f,cy-s*.20f);c.drawArc(r,120,85,false,glyph);r.set(cx+s*.28f,cy+s*.18f,cx+s*.88f,cy+s*.92f);c.drawArc(r,-55,88,false,glyph);p.moveTo(cx-s*.55f,cy-s*.45f);p.cubicTo(cx-s*.05f,cy+s*.15f,cx+s*.05f,cy+s*.30f,cx+s*.55f,cy+s*.50f);c.drawPath(p,glyph);break;
             }
             case "clock":case "waiting":{
                 c.drawCircle(cx,cy,s*.95f,glyph);c.drawLine(cx,cy,cx,cy-s*.55f,glyph);c.drawLine(cx,cy,cx+s*.48f,cy+s*.12f,glyph);break;
@@ -57,19 +59,19 @@ public final class CortexGlyphView extends View {
                 p.moveTo(cx+s*.12f,cy-s);p.lineTo(cx-s*.55f,cy+s*.05f);p.lineTo(cx-s*.05f,cy+s*.05f);p.lineTo(cx-s*.20f,cy+s);p.lineTo(cx+s*.62f,cy-s*.16f);p.lineTo(cx+s*.12f,cy-s*.16f);p.close();c.drawPath(p,glyph);break;
             }
             case "brief":case "note":case "info":case "file":{
-                r=new RectF(cx-s*.78f,cy-s,cx+s*.62f,cy+s);c.drawRoundRect(r,s*.12f,s*.12f,glyph);c.drawLine(cx-s*.47f,cy-s*.45f,cx+s*.25f,cy-s*.45f,glyph);c.drawLine(cx-s*.47f,cy,cx+s*.38f,cy,glyph);c.drawLine(cx-s*.47f,cy+s*.45f,cx+s*.10f,cy+s*.45f,glyph);break;
+                r.set(cx-s*.78f,cy-s,cx+s*.62f,cy+s);c.drawRoundRect(r,s*.12f,s*.12f,glyph);c.drawLine(cx-s*.47f,cy-s*.45f,cx+s*.25f,cy-s*.45f,glyph);c.drawLine(cx-s*.47f,cy,cx+s*.38f,cy,glyph);c.drawLine(cx-s*.47f,cy+s*.45f,cx+s*.10f,cy+s*.45f,glyph);break;
             }
             case "open":{
-                r=new RectF(cx-s*.85f,cy-s*.72f,cx+s*.38f,cy+s*.72f);c.drawRect(r,glyph);c.drawLine(cx,cy,cx+s*.92f,cy-s*.92f,glyph);c.drawLine(cx+s*.43f,cy-s*.92f,cx+s*.92f,cy-s*.92f,glyph);c.drawLine(cx+s*.92f,cy-s*.92f,cx+s*.92f,cy-s*.43f,glyph);break;
+                r.set(cx-s*.85f,cy-s*.72f,cx+s*.38f,cy+s*.72f);c.drawRect(r,glyph);c.drawLine(cx,cy,cx+s*.92f,cy-s*.92f,glyph);c.drawLine(cx+s*.43f,cy-s*.92f,cx+s*.92f,cy-s*.92f,glyph);c.drawLine(cx+s*.92f,cy-s*.92f,cx+s*.92f,cy-s*.43f,glyph);break;
             }
             case "search":{
                 c.drawCircle(cx-s*.18f,cy-s*.18f,s*.62f,glyph);c.drawLine(cx+s*.28f,cy+s*.28f,cx+s*.85f,cy+s*.85f,glyph);break;
             }
             case "person":case "people":{
-                c.drawCircle(cx,cy-s*.48f,s*.38f,glyph);r=new RectF(cx-s*.76f,cy+s*.05f,cx+s*.76f,cy+s*.86f);c.drawArc(r,190,160,false,glyph);break;
+                c.drawCircle(cx,cy-s*.48f,s*.38f,glyph);r.set(cx-s*.76f,cy+s*.05f,cx+s*.76f,cy+s*.86f);c.drawArc(r,190,160,false,glyph);break;
             }
             case "photo":{
-                r=new RectF(cx-s,cy-s*.78f,cx+s,cy+s*.78f);c.drawRoundRect(r,s*.12f,s*.12f,glyph);c.drawCircle(cx+s*.45f,cy-s*.35f,s*.16f,glyph);p.moveTo(cx-s*.72f,cy+s*.40f);p.lineTo(cx-s*.22f,cy-s*.08f);p.lineTo(cx+s*.12f,cy+s*.25f);p.lineTo(cx+s*.42f,cy-s*.02f);p.lineTo(cx+s*.75f,cy+s*.42f);c.drawPath(p,glyph);break;
+                r.set(cx-s,cy-s*.78f,cx+s,cy+s*.78f);c.drawRoundRect(r,s*.12f,s*.12f,glyph);c.drawCircle(cx+s*.45f,cy-s*.35f,s*.16f,glyph);p.moveTo(cx-s*.72f,cy+s*.40f);p.lineTo(cx-s*.22f,cy-s*.08f);p.lineTo(cx+s*.12f,cy+s*.25f);p.lineTo(cx+s*.42f,cy-s*.02f);p.lineTo(cx+s*.75f,cy+s*.42f);c.drawPath(p,glyph);break;
             }
             case "text":{
                 c.drawLine(cx-s*.82f,cy-s*.62f,cx+s*.82f,cy-s*.62f,glyph);c.drawLine(cx,cy-s*.62f,cx,cy+s*.72f,glyph);c.drawLine(cx-s*.30f,cy+s*.72f,cx+s*.30f,cy+s*.72f,glyph);break;

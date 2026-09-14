@@ -129,7 +129,7 @@ public final class NotificationEventEngine {
 
     private static String platformHint(JSONObject m){String x=safe(m.optString("platform_hint",""));if(!x.isEmpty())return x;x=safe(m.optString("notification_kind",""));if(!x.isEmpty())return x;return safe(m.optString("category",""));}
     private static String technicalType(String pkg,JSONObject m,String hint){
-        int max=m.optInt("progress_max",0);boolean ind=m.optBoolean("progress_indeterminate",false);String h=safe(hint).toLowerCase();String template=safe(m.optString("template","")).toLowerCase();
+        int max=m.optInt("progress_max",0);boolean ind=m.optBoolean("progress_indeterminate",false);String h=safe(hint).toLowerCase(java.util.Locale.ROOT);String template=safe(m.optString("template","")).toLowerCase(java.util.Locale.ROOT);
         if(max>0||ind||"progress".equals(h))return"progress_state";
         if(template.contains("messagingstyle")||"message".equals(h))return"conversation_notification";
         if("call".equals(h))return"call_hint";

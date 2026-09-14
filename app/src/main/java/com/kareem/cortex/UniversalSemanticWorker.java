@@ -74,7 +74,7 @@ public final class UniversalSemanticWorker extends Worker {
             String subject=CanonicalPresentation.cleanTitle("event",type,j.optString("subject",r.subject),r.title);
             String summary=CanonicalPresentation.cleanBody(j.optString("summary",r.summary));
             double conf=clamp(j.optDouble("confidence",0.65));
-            String proposed=j.optString("attention_kind","NONE").toUpperCase();
+            String proposed=j.optString("attention_kind","NONE").toUpperCase(java.util.Locale.ROOT);
             String guarded=UniversalProjectionPolicy.validateAttention(type,intent,proposed,conf);
             String reason=j.optString("reason","local grounded semantic refinement");
             if(!guarded.equals(proposed))reason="Projection guard changed "+proposed+" to "+guarded+". "+reason;

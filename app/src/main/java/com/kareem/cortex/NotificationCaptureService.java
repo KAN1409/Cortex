@@ -54,7 +54,7 @@ public class NotificationCaptureService extends NotificationListenerService {
         if("waiting".equals(semantic.state))UniversalSemanticScheduler.kick(this);StatefulMeaningScheduler.kick(this);
         meta.put("pipeline_transition",platform.transition).put("technical_type",platform.technicalType).put("platform_hint",platform.platformHint).put("raw_observation_id",semantic.rawId).put("notification_stream_id",semantic.streamId).put("semantic_event_id",semantic.semanticEventId).put("semantic_type",semantic.semanticType).put("semantic_state",semantic.state).put("semantic_route",semantic.route);
 
-        if(platform.semanticEventId>0)PhoneContextStore.record(db,"notification_context","notification_listener",pkg,app,"","notification_"+platform.transition.toLowerCase(),visible,sbn.getPostTime(),meta);
+        if(platform.semanticEventId>0)PhoneContextStore.record(db,"notification_context","notification_listener",pkg,app,"","notification_"+platform.transition.toLowerCase(java.util.Locale.ROOT),visible,sbn.getPostTime(),meta);
         CapabilitySupervisor.recordHealthy(this,CapabilitySupervisor.Capability.RAW_NOTIFICATION_CAPTURE);
     }catch(Throwable error){logFailure(error,sbn);}finally{if(db!=null)try{db.close();}catch(Throwable ignored){}}}
 

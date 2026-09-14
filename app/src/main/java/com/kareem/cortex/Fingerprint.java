@@ -8,7 +8,7 @@ public final class Fingerprint {
     private Fingerprint(){}
 
     public static String text(String value){
-        String normalized=value==null?"":value.trim().replaceAll("\\s+"," ").toLowerCase();
+        String normalized=value==null?"":value.trim().replaceAll("\\s+"," ").toLowerCase(java.util.Locale.ROOT);
         return sha(normalized.getBytes(StandardCharsets.UTF_8));
     }
 

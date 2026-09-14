@@ -44,7 +44,7 @@ public final class WorkChatGptDirectBridge {
 
         File dir=new File(context.getFilesDir(),"document_build_packages");
         if(!dir.exists()&&!dir.mkdirs())throw new IOException("Could not create build package directory");
-        File json=new File(dir,"cortex_direct_chatgpt_"+kind.name().toLowerCase()+"_"+System.currentTimeMillis()+".json");
+        File json=new File(dir,"cortex_direct_chatgpt_"+kind.name().toLowerCase(java.util.Locale.ROOT)+"_"+System.currentTimeMillis()+".json");
         try(OutputStream out=new FileOutputStream(json)){out.write(payload.toString(2).getBytes(StandardCharsets.UTF_8));}
         Uri jsonUri=FileProvider.getUriForFile(context,context.getPackageName()+".feedback.files",json);
 

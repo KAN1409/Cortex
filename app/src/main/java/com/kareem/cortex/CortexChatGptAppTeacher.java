@@ -16,6 +16,7 @@ public final class CortexChatGptAppTeacher {
     private static final String KEY_PENDING="pending";
     private static final String KEY_PROMPT="prompt";
     private static final String KEY_LAUNCHED_AT="launched_at";
+    static final int MAX_POLICY_TEXT_CHARS=262_144;
 
     private CortexChatGptAppTeacher(){}
 
@@ -136,6 +137,7 @@ public final class CortexChatGptAppTeacher {
     }
 
     public static ImportResult importText(Context context,String raw){
+        if(raw==null||raw.length()>MAX_POLICY_TEXT_CHARS)return new ImportResult(false,"","Policy text outside bounds");
         try{
             JSONObject policy=extractPolicy(raw);
             validate(policy);
@@ -167,6 +169,7 @@ public final class CortexChatGptAppTeacher {
 
     static JSONObject extractPolicy(String raw)throws Exception{
         String x=safe(raw).trim();
+        if(x.length()>MAX_POLICY_TEXT_CHARS)throw new IllegalArgumentException("Policy text outside bounds");
         int first=x.indexOf('{');
         int last=x.lastIndexOf('}');
         if(first<0||last<=first)throw new IllegalArgumentException("No JSON Policy Pack found");
