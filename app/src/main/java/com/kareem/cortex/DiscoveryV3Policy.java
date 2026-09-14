@@ -1,6 +1,5 @@
 package com.kareem.cortex;
 
-import org.json.JSONObject;
 import java.util.*;
 import java.util.regex.*;
 
@@ -18,11 +17,8 @@ public final class DiscoveryV3Policy {
 
     public static String space(KnowledgeItem k){
         if(k==null)return "UNKNOWN";
-        try{
-            JSONObject o=new JSONObject(k.metadataJson==null?"{}":k.metadataJson);
-            String x=o.optString("space","").trim().toUpperCase(Locale.ROOT);
-            if("WORK".equals(x)||"LIFE".equals(x))return x;
-        }catch(Throwable ignored){}
+        String explicit=explicitSpace(k.metadataJson);
+        if(!explicit.isEmpty())return explicit;
         String x=norm(k.category+" "+k.tags+" "+k.source+" "+k.title);
         int work=hits(x,"project","procurement","quotation","vendor","supplier","contractor","boq","work","مشروع","مقاول","مورد","توريد","تنفيذ","عرض سعر");
         int life=hits(x,"health","medical","doctor","hospital","medicine","personal","family","تحليل","تحاليل","دكتور","مستشفى","دواء","شخصي","عائلة");
@@ -69,6 +65,12 @@ public final class DiscoveryV3Policy {
         if(confidence<.68||score<.66)return false;
         if(("CONTRADICTION".equals(family)||"CROSS_SOURCE_CONNECTION".equals(family))&&evidenceCount<2)return false;
         return evidenceCount>=1;
+    }
+
+    private static String explicitSpace(String metadata){
+        String raw=metadata==null?"":metadata;
+        Matcher m=Pattern.compile("(?i)[\\\"']?space[\\\"']?\\s*[:=]\\s*[\\\"']?(WORK|LIFE)[\\\"']?").matcher(raw);
+        return m.find()?m.group(1).toUpperCase(Locale.ROOT):"";
     }
 
     private static int hits(String s,String... xs){int n=0;for(String x:xs)if(s.contains(norm(x)))n++;return n;}
