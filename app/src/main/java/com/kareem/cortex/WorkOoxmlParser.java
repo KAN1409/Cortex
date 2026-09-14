@@ -12,7 +12,7 @@ import java.util.zip.ZipInputStream;
 
 /** Streaming OOXML parser. Originals stay in place; the content URI is opened directly. */
 public final class WorkOoxmlParser {
-    public static final String VERSION="work_ooxml_parser_004";
+    public static final String VERSION="work_ooxml_parser_005";
     static final int MAX_ZIP_ENTRIES=4096;
     static final long MAX_ENTRY_UNCOMPRESSED_BYTES=64L*1024L*1024L;
     static final long MAX_VISIT_UNCOMPRESSED_BYTES=256L*1024L*1024L;
@@ -213,7 +213,12 @@ public final class WorkOoxmlParser {
             ZipEntry e;while((e=zip.getNextEntry())!=null){if(!e.isDirectory())visitor.visit(e.getName(),zip);zip.closeEntry();}
         }
     }
-    private static XmlPullParser parser(InputStream in)throws Exception{XmlPullParser p=XmlPullParserFactory.newInstance().newPullParser();p.setInput(in,"UTF-8");return p;}
+    private static XmlPullParser parser(InputStream in)throws Exception{
+        XmlPullParserFactory factory=XmlPullParserFactory.newInstance();
+        // OOXML uses w:/p:/a: elements and r:id attributes; match their local names.
+        factory.setNamespaceAware(true);
+        XmlPullParser p=factory.newPullParser();p.setInput(in,"UTF-8");return p;
+    }
     private static String localName(String name){if(name==null)return "";int i=name.lastIndexOf(':');return i>=0?name.substring(i+1):name;}
     private static String attr(XmlPullParser p,String name){String v=p.getAttributeValue(null,name);return v==null?"":v;}
     private static String attrAny(XmlPullParser p,String local){for(int i=0;i<p.getAttributeCount();i++)if(local.equals(p.getAttributeName(i)))return p.getAttributeValue(i);return "";}

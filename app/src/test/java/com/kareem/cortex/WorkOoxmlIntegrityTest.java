@@ -65,6 +65,70 @@ public class WorkOoxmlIntegrityTest {
         reject(entryFlood,"docx");
     }
 
+    @Test public void namespacedWordPreservesParagraphsAndTableCells() throws Exception {
+        File file=packageFile("word/document.xml",
+                "<w:document xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\"><w:body>"
+                +"<w:p><w:r><w:t>Approved Negma quote</w:t></w:r></w:p>"
+                +"<w:tbl><w:tr><w:tc><w:p><w:r><w:t>Galala</w:t></w:r></w:p></w:tc>"
+                +"<w:tc><w:p><w:r><w:t>1250</w:t></w:r></w:p></w:tc></w:tr></w:tbl>"
+                +"</w:body></w:document>");
+        byte[] before=Files.readAllBytes(file.toPath());
+        WorkParsedDocument result=WorkDocumentParser.parse(context,Uri.fromFile(file),"docx");
+        assertEquals(2,result.blocks.size());
+        assertEquals("Approved Negma quote",result.blocks.get(0).text);
+        assertEquals("Galala",result.blocks.get(1).cells.get("C1"));
+        assertEquals("1250",result.blocks.get(1).cells.get("C2"));
+        assertArrayEquals(before,Files.readAllBytes(file.toPath()));
+    }
+
+    @Test public void namespacedPowerPointPreservesSlideTextAndLocation() throws Exception {
+        File file=packageFile("ppt/presentation.xml",
+                "<p:presentation xmlns:p=\"http://schemas.openxmlformats.org/presentationml/2006/main\"/>",
+                "ppt/slides/slide7.xml",
+                "<p:sld xmlns:p=\"http://schemas.openxmlformats.org/presentationml/2006/main\" "
+                +"xmlns:a=\"http://schemas.openxmlformats.org/drawingml/2006/main\">"
+                +"<p:cSld><p:spTree><p:sp><p:txBody><a:bodyPr/><a:lstStyle/>"
+                +"<a:p><a:r><a:t>Ceiling option approved</a:t></a:r></a:p>"
+                +"</p:txBody></p:sp></p:spTree></p:cSld></p:sld>");
+        byte[] before=Files.readAllBytes(file.toPath());
+        WorkParsedDocument result=WorkDocumentParser.parse(context,Uri.fromFile(file),"pptx");
+        assertEquals(1,result.blocks.size());
+        assertEquals("Ceiling option approved",result.blocks.get(0).text);
+        assertEquals(7,result.blocks.get(0).slideNumber);
+        assertArrayEquals(before,Files.readAllBytes(file.toPath()));
+    }
+
+    @Test public void namespacedExcelPreservesRelationshipSheetNamesCellsAndFormulas() throws Exception {
+        String ns="http://schemas.openxmlformats.org/spreadsheetml/2006/main";
+        File file=packageFile("xl/workbook.xml",
+                "<s:workbook xmlns:s=\""+ns+"\" xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\">"
+                +"<s:sheets><s:sheet name=\"Negma Prices\" sheetId=\"4\" r:id=\"rId9\"/></s:sheets></s:workbook>",
+                "xl/_rels/workbook.xml.rels",
+                "<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">"
+                +"<Relationship Id=\"rId9\" Target=\"worksheets/sheet2.xml\" "
+                +"Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet\"/></Relationships>",
+                "xl/sharedStrings.xml","<s:sst xmlns:s=\""+ns+"\"><s:si><s:t>Galala</s:t></s:si></s:sst>",
+                "xl/worksheets/sheet2.xml","<s:worksheet xmlns:s=\""+ns+"\"><s:sheetData><s:row r=\"3\">"
+                +"<s:c r=\"A3\" t=\"s\"><s:v>0</s:v></s:c><s:c r=\"B3\"><s:f>625*2</s:f><s:v>1250</s:v></s:c>"
+                +"</s:row></s:sheetData></s:worksheet>");
+        byte[] before=Files.readAllBytes(file.toPath());
+        WorkParsedDocument result=WorkDocumentParser.parse(context,Uri.fromFile(file),"xlsx");
+        assertEquals(1,result.blocks.size());
+        WorkParsedDocument.Block row=result.blocks.get(0);
+        assertEquals("Negma Prices",row.sheetName);
+        assertEquals(3,row.rowNumber);
+        assertEquals("Galala",row.cells.get("A"));
+        assertEquals("1250",row.cells.get("B"));
+        assertEquals("625*2",row.formulas.get("B"));
+        assertArrayEquals(before,Files.readAllBytes(file.toPath()));
+    }
+
+    @Test public void undeclaredNamespacePrefixesFailClosed() throws Exception {
+        reject(packageFile("word/document.xml","<w:document><w:body/></w:document>"),"docx");
+        reject(packageFile("xl/workbook.xml","<s:workbook><s:sheets/></s:workbook>"),"xlsx");
+        reject(packageFile("ppt/presentation.xml","<p:presentation/>"),"pptx");
+    }
+
     private void reject(File file,String ext)throws Exception{
         byte[] before=file.exists()?Files.readAllBytes(file.toPath()):null;
         try {WorkDocumentParser.parse(context,Uri.fromFile(file),ext);fail("Unexpected parse success: "+ext);}
@@ -72,10 +136,12 @@ public class WorkOoxmlIntegrityTest {
         if(before!=null)assertArrayEquals(before,Files.readAllBytes(file.toPath()));
     }
 
-    private File packageFile(String entry,String xml)throws Exception{
+    private File packageFile(String... parts)throws Exception{
         File f=File.createTempFile("package-",".zip",context.getCacheDir());
         try(ZipOutputStream z=new ZipOutputStream(new FileOutputStream(f))){
-            z.putNextEntry(new ZipEntry(entry));z.write(xml.getBytes(StandardCharsets.UTF_8));z.closeEntry();
+            for(int i=0;i<parts.length;i+=2){
+                z.putNextEntry(new ZipEntry(parts[i]));z.write(parts[i+1].getBytes(StandardCharsets.UTF_8));z.closeEntry();
+            }
         }
         return f;
     }
