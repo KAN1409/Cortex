@@ -4,7 +4,7 @@ import android.database.sqlite.SQLiteDatabase;
 
 /** Additive storage for Cortex Discovery Engine. Raw evidence remains authoritative. */
 public final class DiscoverySchema {
-    public static final String VERSION = "discovery_schema_001";
+    public static final String VERSION = "discovery_schema_002";
     private DiscoverySchema(){}
 
     public static void ensure(SQLiteDatabase db){
@@ -76,5 +76,6 @@ public final class DiscoverySchema {
         long now=System.currentTimeMillis();
         db.execSQL("INSERT OR REPLACE INTO discovery_meta(key,value,updated_at) VALUES('schema_version',?,?)",
                 new Object[]{VERSION,now});
+        DiscoveryAdvancedSchema.ensure(db);
     }
 }
