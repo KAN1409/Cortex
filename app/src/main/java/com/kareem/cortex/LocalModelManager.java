@@ -33,12 +33,34 @@ public final class LocalModelManager {
         File finalFile=modelFile(c);if(finalFile.exists()&&finalFile.length()<2_000_000_000L)finalFile.delete();
         LocalLlmRuntime.invalidate(c);
         setState(c,"connecting",partialSize(c),Math.max(0,p(c).getLong(K_TOTAL,0)),0,"",0,MODEL_URL,false,0);
-        Intent i=new Intent(c,LocalModelDownloadService.class).setAction(LocalModelDownloadService.ACTION_START);
-        if(Build.VERSION.SDK_INT>=26)c.startForegroundService(i);else c.startService(i);
+        startTransferService(c,LocalModelDownloadService.ACTION_START);
     }
-    public static void resumeDownload(Context c){Intent i=new Intent(c,LocalModelDownloadService.class).setAction(LocalModelDownloadService.ACTION_RESUME);if(Build.VERSION.SDK_INT>=26)c.startForegroundService(i);else c.startService(i);}
+    public static void resumeDownload(Context c){startTransferService(c,LocalModelDownloadService.ACTION_RESUME);}
     public static void pauseDownload(Context c){c.startService(new Intent(c,LocalModelDownloadService.class).setAction(LocalModelDownloadService.ACTION_PAUSE));}
     public static void cancelDownload(Context c){c.startService(new Intent(c,LocalModelDownloadService.class).setAction(LocalModelDownloadService.ACTION_CANCEL));}
+
+    private static void startTransferService(Context c,String action){
+        Intent i=new Intent(c,LocalModelDownloadService.class).setAction(action);
+        if(Build.VERSION.SDK_INT>=26)c.startForegroundService(i);else c.startService(i);
+    }
+
+    /**
+     * Repairs transient transfer state left behind by process death. Call only after Cortex safe-core
+     * startup has released the startup gate (the app is visibly foregrounded at that point).
+     * Returns true when an interrupted transfer was detected.
+     */
+    public static boolean recoverInterruptedTransfer(Context c,boolean autoResume){
+        if(c==null||verified(c)||LocalModelDownloadService.isRunning())return false;
+        Status s=status(c);String st=s.state;
+        boolean transientState="connecting".equals(st)||"downloading".equals(st)||"retrying".equals(st)||"verifying".equals(st);
+        if(!transientState)return false;
+        long done=Math.max(partialSize(c),s.done);
+        setState(c,"paused",done,s.total,0,"Recovered interrupted transfer state after process restart",s.httpStatus,s.currentUrl,s.rangeSupported,s.retryCount);
+        if(autoResume&&!StartupSafetyGate.active()){
+            try{resumeDownload(c);}catch(Throwable t){setState(c,"paused",done,s.total,0,"Resume deferred: "+t.getClass().getSimpleName()+": "+safe(t.getMessage()),s.httpStatus,s.currentUrl,s.rangeSupported,s.retryCount);}
+        }
+        return true;
+    }
 
     public static Verification verify(Context c){
         File f=modelFile(c);if(!f.exists())return new Verification(false,"Model file is missing","");
@@ -63,7 +85,7 @@ public final class LocalModelManager {
         return new Status(label,pct,done,total,false,failed,state,detail,http,url,retry,ranges,speed,progressAt,part);
     }
     private static String label(String s){switch(s){case"connecting":return"Connecting";case"downloading":return"Downloading";case"retrying":return"Retrying";case"paused":return"Paused";case"canceled":return"Canceled";case"downloaded":return"Download complete";case"verifying":return"Verifying SHA-256 + GGUF";case"verification_failed":return"Verification failed";case"failed":return"Download failed";case"verified":return"Verified model asset";default:return"Not downloaded";}}
-    private static String detail(String state,String err,int http,int retry,long speed,boolean range,long progressAt){StringBuilder s=new StringBuilder();if(!err.isEmpty())s.append(err);if(http>0){if(s.length()>0)s.append(" • ");s.append("HTTP ").append(http);}if(retry>0){if(s.length()>0)s.append(" • ");s.append("retry ").append(retry);}if(speed>0){if(s.length()>0)s.append("\n");s.append(human(speed)).append("/s");}if("downloading".equals(state)||"retrying".equals(state)){if(s.length()>0)s.append(" • ");s.append(range?"resume supported":"range support pending");}return s.toString();}
+    private static String detail(String state,String err,int http,int retry,long speed,boolean range,long progressAt){StringBuilder s=new StringBuilder();if(!err.isEmpty())s.append(err);if(http>0){if(s.length()>0)s.append(" • ");s.append("HTTP ").append(http);}if(retry>0){if(s.length()>0)s.append(" • ");s.append("retry ").append(retry);}if(speed>0){if(s.length()>0)s.append("\n");s.append(human(speed)).append("/s");}if("downloading".equals(state)||"retrying".equals(state)){if(s.length()>0)s.append(" • ");s.append(range?"resume supported":"range support pending");}if(progressAt>0&&(state.equals("downloading")||state.equals("retrying")||state.equals("connecting"))){if(s.length()>0)s.append(" • ");long age=Math.max(0,System.currentTimeMillis()-progressAt);if(age>60_000L)s.append("last progress ").append(age/1000L).append("s ago");}return s.toString();}
 
     static void setState(Context c,String state,long done,long total,long speed,String error,int http,String url,boolean ranges,int retry){SharedPreferences.Editor e=p(c).edit().putString(K_STATE,state).putLong(K_DONE,done).putLong(K_TOTAL,total).putLong(K_SPEED,speed).putString(K_ERROR,error==null?"":error).putInt(K_HTTP,http).putString(K_URL,url==null?MODEL_URL:url).putBoolean(K_RANGE,ranges).putInt(K_RETRY,retry);if(done>0)e.putLong(K_PROGRESS_AT,System.currentTimeMillis());e.apply();}
     static String transferState(Context c){return p(c).getString(K_STATE,"");}
@@ -72,6 +94,7 @@ public final class LocalModelManager {
     static void clearLegacyDownload(Context c){long id=p(c).getLong(K_LEGACY_ID,-1);if(id>=0)try{((DownloadManager)c.getSystemService(Context.DOWNLOAD_SERVICE)).remove(id);}catch(Exception ignored){}p(c).edit().remove(K_LEGACY_ID).apply();}
     public static void remove(Context c){cancelDownload(c);File f=modelFile(c),part=partFile(c);if(f.exists())f.delete();if(part.exists())part.delete();p(c).edit().clear().apply();LocalLlmRuntime.invalidate(c);}
     public static String human(long b){if(b<=0)return"0 B";double g=b/1073741824.0;if(g>=1)return String.format(Locale.US,"%.2f GB",g);double m=b/1048576.0;if(m>=1)return String.format(Locale.US,"%.1f MB",m);return String.format(Locale.US,"%.0f KB",b/1024.0);}
+    private static String safe(String s){return s==null?"":s.length()>180?s.substring(0,180):s;}
 
     public static final class Status{public final String label,state,detail,currentUrl;public final int percent,httpStatus,retryCount;public final long done,total,speedBytesPerSec,lastProgressAt,partialBytes;public final boolean verified,failed,rangeSupported;Status(String l,int p,long d,long t,boolean v,boolean f,String st,String x,int http,String url,int retry,boolean range,long speed,long at,long part){label=l;percent=p;done=d;total=t;verified=v;failed=f;state=st;detail=x==null?"":x;httpStatus=http;currentUrl=url==null?"":url;retryCount=retry;rangeSupported=range;speedBytesPerSec=speed;lastProgressAt=at;partialBytes=part;}}
     public static final class Verification{public final boolean ok;public final String message,actualSha;Verification(boolean o,String m,String a){ok=o;message=m;actualSha=a;}}
