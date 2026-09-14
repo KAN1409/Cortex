@@ -8,7 +8,7 @@ import kotlin.math.min
 
 /** Thin JVM bridge around the prebuilt llama.cpp Android AAR. */
 object LocalLlmBridge {
-    const val RUNTIME_VERSION = "llama-android 0.1.1 • llama.cpp b9878"
+    const val RUNTIME_VERSION = "llama-android 0.1.1 • llama.cpp b9878 • 30B extreme profile"
 
     data class SelfTestResult(
         val ok: Boolean,
@@ -53,7 +53,7 @@ object LocalLlmBridge {
             return SelfTestResult(false,"","",0,0f,0L,"Local LLM native bridge is quarantined in this recovery build")
         }
         return runBlocking {
-            val threads = min(4, max(2, Runtime.getRuntime().availableProcessors() - 2))
+            val threads = min(6, max(4, Runtime.getRuntime().availableProcessors() - 2))
             val config = LlamaConfig(
                 contextSize = 1024,
                 threads = threads,
@@ -113,7 +113,7 @@ object LocalLlmBridge {
         requireNativeAllowed()
         runBlocking {
             val threads = min(4, max(2, Runtime.getRuntime().availableProcessors() - 2))
-            val config = LlamaConfig(contextSize = 3072, threads = threads, gpuLayers = 0, temperature = 0.25f, topP = 0.9f, topK = 40)
+            val config = LlamaConfig(contextSize = 2048, threads = threads, gpuLayers = 0, temperature = 0.25f, topP = 0.92f, topK = 40)
             val totalStarted = System.currentTimeMillis()
             var loadMs = 0L
             var hit = cachedModel != null && cachedModelPath == modelPath
@@ -165,6 +165,54 @@ object LocalLlmBridge {
             } finally {
                 model?.let { try { Llama.releaseModel(it) } catch (_: Throwable) {} }
             }
+        }
+    }
+
+    /**
+     * High-cost local reasoning path for Cortex reflection/investigation.
+     * Reuses the same 30B model handle but allocates a larger context for deep analysis.
+     * Calls remain serialized to protect the native runtime.
+     */
+    @JvmStatic
+    fun completeDeepCached(modelPath: String, prompt: String, systemPrompt: String, maxTokens: Int): CompletionResult = synchronized(cacheLock) {
+        requireNativeAllowed()
+        runBlocking {
+            val threads = min(6, max(4, Runtime.getRuntime().availableProcessors() - 2))
+            val config = LlamaConfig(
+                contextSize = 4096,
+                threads = threads,
+                gpuLayers = 0,
+                temperature = 0.35f,
+                topP = 0.95f,
+                topK = 50,
+            )
+            val totalStarted = System.currentTimeMillis()
+            var loadMs = 0L
+            var hit = cachedModel != null && cachedModelPath == modelPath
+            if (!hit) {
+                cachedModel?.let { try { Llama.releaseModel(it) } catch (_: Throwable) {} }
+                cachedModel = null
+                cachedModelPath = ""
+                val loadStarted = System.currentTimeMillis()
+                cachedModel = Llama.loadModel(modelPath, config)
+                loadMs = System.currentTimeMillis() - loadStarted
+                cachedModelPath = modelPath
+                cachedAtMs = System.currentTimeMillis()
+                hit = false
+            }
+            val model = cachedModel ?: throw IllegalStateException("Extreme local model cache is empty after load")
+            val generationStarted = System.currentTimeMillis()
+            val result = Llama.complete(model, prompt, systemPrompt, maxTokens)
+            val generationMs = System.currentTimeMillis() - generationStarted
+            CompletionResult(
+                text = result.text.trim(),
+                tokensGenerated = result.tokensGenerated,
+                tokensPerSecond = result.tokensPerSecond,
+                durationMs = System.currentTimeMillis() - totalStarted,
+                modelLoadMs = loadMs,
+                generationMs = generationMs,
+                cacheHit = hit,
+            )
         }
     }
 
