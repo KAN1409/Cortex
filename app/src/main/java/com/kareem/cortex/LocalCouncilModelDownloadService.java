@@ -15,7 +15,7 @@ public final class LocalCouncilModelDownloadService extends Service {
     public static final String EXTRA_MODEL_ID="model_id";
     private static final String CHANNEL="cortex_council_model_download";
     private static final AtomicBoolean RUNNING=new AtomicBoolean(false);
-    private volatile boolean stop=false;
+    private volatile boolean stop=false;private volatile boolean chain=false;
 
     @Override public void onCreate(){
         super.onCreate();
@@ -24,7 +24,7 @@ public final class LocalCouncilModelDownloadService extends Service {
     }
 
     @Override public int onStartCommand(Intent intent,int flags,int startId){
-        String id=intent==null?"":intent.getStringExtra(EXTRA_MODEL_ID);
+        String id=intent==null?"":intent.getStringExtra(EXTRA_MODEL_ID);chain=intent!=null&&intent.getBooleanExtra("chain",false);
         LocalCouncilModelRegistry.Model model=model(id);
         if(model==null||LocalCouncilModelRegistry.PRIMARY.equals(model.id)){stopSelf(startId);return START_NOT_STICKY;}
         try{ServiceCompat.startForeground(this,43000+Math.abs(model.id.hashCode()%500),notification(model,"Preparing",0,0,0),ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC);}
@@ -64,13 +64,30 @@ public final class LocalCouncilModelDownloadService extends Service {
             notify(model,"Download failed: "+t.getClass().getSimpleName(),0,LocalCouncilModelRegistry.partFile(this,model).length(),0);
         }finally{
             if(wake!=null&&wake.isHeld())try{wake.release();}catch(Throwable ignored){}
-            RUNNING.set(false);stopForeground(false);stopSelf();
+            RUNNING.set(false);stopForeground(false);
+            if(chain){
+                LocalCouncilModelRegistry.Model next=nextMissing(this);
+                if(next!=null){try{start(this,next.id,true);}catch(Throwable ignored){}}
+            }
+            stopSelf();
         }
     }
 
-    public static void start(Context c,String modelId){
-        Intent i=new Intent(c,LocalCouncilModelDownloadService.class).setAction(ACTION_START).putExtra(EXTRA_MODEL_ID,modelId);
+    public static void start(Context c,String modelId){start(c,modelId,false);}
+    private static void start(Context c,String modelId,boolean chain){
+        Intent i=new Intent(c,LocalCouncilModelDownloadService.class).setAction(ACTION_START).putExtra(EXTRA_MODEL_ID,modelId).putExtra("chain",chain);
         if(Build.VERSION.SDK_INT>=26)c.startForegroundService(i);else c.startService(i);
+    }
+    public static void startAll(Context c){
+        LocalCouncilModelRegistry.Model next=nextMissing(c);
+        if(next!=null)start(c,next.id,true);
+    }
+    private static LocalCouncilModelRegistry.Model nextMissing(Context c){
+        for(LocalCouncilModelRegistry.Model m:LocalCouncilModelRegistry.council()){
+            if(LocalCouncilModelRegistry.PRIMARY.equals(m.id))continue;
+            if(!LocalCouncilModelRegistry.ready(c,m))return m;
+        }
+        return null;
     }
 
     private HttpURLConnection open(String start,long offset)throws Exception{
