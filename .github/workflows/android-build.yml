@@ -2,7 +2,7 @@ name: Android Debug APK
 
 on:
   push:
-    branches: [ main, v71/visual-memory-u1, v72/visual-memory-u2-provenance, v73/nav-picbrain, v74/u2-structured-knowledge, v80/cortex-major-unified, v81/nexus-inside-cortex, v82/chatgpt-policy-bridge, v83/intelligence-layer-reorg, v86/work-vault, v105/chatgpt-gmail-bridge, v106/gmail-bridge-fallback, v107/gmail-mime-decoder, v108/free-intelligence-comparison-teaching, v109/true-1000-scenarios-dashboard, v110/run-scoped-gmail-poll, v111/bridge-rejection-diagnostics, v112/persistent-bridge-diagnostics, v113/canonical-hash-roundtrip, v114/bridge-state-machine-root-fix, v115/convergent-gmail-poll, v116/imap-literal-root-fix, v117/dual-source-verdict-discovery, v118/structured-resolution-judge, v119/hard-explicit-request-boundary ]
+    branches: [ main, v71/visual-memory-u1, v72/visual-memory-u2-provenance, v73/nav-picbrain, v74/u2-structured-knowledge, v80/cortex-major-unified, v81/nexus-inside-cortex, v82/chatgpt-policy-bridge, v83/intelligence-layer-reorg, v86/work-vault, v105/chatgpt-gmail-bridge, v106/gmail-bridge-fallback, v107/gmail-mime-decoder, v108/free-intelligence-comparison-teaching, v109/true-1000-scenarios-dashboard, v110/run-scoped-gmail-poll, v111/bridge-rejection-diagnostics, v112/persistent-bridge-diagnostics, v113/canonical-hash-roundtrip, v114/bridge-state-machine-root-fix, v115/convergent-gmail-poll, v116/imap-literal-root-fix, v117/dual-source-verdict-discovery, v118/structured-resolution-judge, v119/hard-explicit-request-boundary, feature/discovery-engine-v1-core ]
   pull_request:
     branches: [ main ]
   workflow_dispatch:
