@@ -1,6 +1,5 @@
 package com.kareem.cortex;
 
-import org.json.JSONObject;
 import java.util.*;
 import java.util.regex.*;
 
@@ -21,11 +20,8 @@ public final class DiscoveryPolicy {
 
     public static String inferSpace(KnowledgeItem item){
         if(item==null)return "UNKNOWN";
-        try{
-            JSONObject o=new JSONObject(n(item.metadataJson));
-            String explicit=n(o.optString("space","")).toUpperCase(Locale.ROOT);
-            if("WORK".equals(explicit)||"LIFE".equals(explicit))return explicit;
-        }catch(Exception ignored){}
+        String explicit=explicitSpaceHint(item.metadataJson);
+        if(!explicit.isEmpty())return explicit;
         String text=norm(n(item.category)+" "+n(item.tags)+" "+n(item.source)+" "+n(item.title));
         int work=hits(text,WORK_WORDS),life=hits(text,LIFE_WORDS);
         if(work>0&&life==0)return "WORK";
@@ -109,6 +105,13 @@ public final class DiscoveryPolicy {
         Collections.sort(words);
         return String.join(" ",words);
     }
+    private static String explicitSpaceHint(String metadata){
+        String raw=n(metadata);
+        if(raw.isEmpty())return "";
+        Matcher m=Pattern.compile("(?i)[\\\"']?space[\\\"']?\\s*[:=]\\s*[\\\"']?(WORK|LIFE)[\\\"']?").matcher(raw);
+        return m.find()?m.group(1).toUpperCase(Locale.ROOT):"";
+    }
+
     private static int hits(String text,Set<String> words){int n=0;for(String w:words)if(text.contains(w))n++;return n;}
     private static boolean any(String s,String... xs){for(String x:xs)if(s.contains(norm(x)))return true;return false;}
     private static String n(String s){return s==null?"":s.trim();}
