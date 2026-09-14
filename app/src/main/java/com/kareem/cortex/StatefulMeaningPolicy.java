@@ -2,9 +2,9 @@ package com.kareem.cortex;
 
 import java.util.*;
 
-/** Pure policy for v69 identity -> state -> meaning -> correlation -> projection. No Android/UI side effects. */
+/** Pure policy for identity -> state -> meaning -> correlation -> projection. No Android/UI side effects. */
 public final class StatefulMeaningPolicy {
-    public static final String VERSION="stateful_meaning_policy_001";
+    public static final String VERSION="stateful_meaning_policy_002";
     private StatefulMeaningPolicy(){}
 
     public static final class ProjectionDecision {
@@ -50,12 +50,36 @@ public final class StatefulMeaningPolicy {
     }
 
     public static String correlationKey(String semanticType,String subject,String summary,String source,long occurredAt){
+        return correlationKey(semanticType,subject,summary,source,occurredAt,0);
+    }
+
+    /**
+     * Stable correlation identity for current-state facts. Content changes must revise one world
+     * state, not create a new active situation merely because temperature/progress text changed.
+     */
+    public static String correlationKey(String semanticType,String subject,String summary,String source,long occurredAt,long sourceInstanceId){
         String type=n(semanticType).toLowerCase(Locale.ROOT),sub=norm(subject),sum=norm(summary),all=(sub+" "+sum).trim();
         if(isSecurity(all))return "security|"+securitySubject(all)+"|"+securityAction(all);
         String phone=phone(all);if(!phone.isEmpty()&&(type.contains("call")||type.contains("phone")))return "call|"+phone+"|"+(occurredAt/(10L*60L*1000L));
         if(type.contains("conversation")||type.contains("request")||type.contains("commitment")||type.contains("decision"))return "conversation|"+Fingerprint.text(topic(sub.isEmpty()?sum:sub));
-        if(isWeather(type,all))return "weather|"+weatherPlace(all);
+        String transientKey=transientDomain(semanticType,subject,summary,source,sourceInstanceId);
+        if(!transientKey.isEmpty())return transientKey;
         return "semantic|"+type+"|"+Fingerprint.text(topic(sub+" "+sum));
+    }
+
+    /** Empty means this event is not a replaceable current-state domain. */
+    public static String transientDomain(String semanticType,String subject,String summary,String source,long sourceInstanceId){
+        String type=n(semanticType).toLowerCase(Locale.ROOT),all=norm(subject+" "+summary),src=sourceIdentity(source);
+        if(isWeather(type,all)){
+            String place=weatherPlace(subject);
+            if("local".equals(place)&&!src.isEmpty())place="local_"+src;
+            return "weather|"+place;
+        }
+        if(isBatteryState(all))return "device_state|battery|"+(src.isEmpty()?"local":src);
+        if(isBackupState(all))return "device_state|backup|"+(src.isEmpty()?"local":src);
+        if(isOrderState(all)&&sourceInstanceId>0)return "delivery_state|"+(src.isEmpty()?"unknown":src)+"|"+sourceInstanceId;
+        if(type.contains("technical")&&sourceInstanceId>0)return "technical_state|"+(src.isEmpty()?"unknown":src)+"|"+sourceInstanceId;
+        return "";
     }
 
     public static ProjectionDecision projection(String semanticType,String intent,double confidence,String transitionKind,int repeatedCount,String subject,String summary){
@@ -80,10 +104,20 @@ public final class StatefulMeaningPolicy {
     public static boolean isWeather(String type,String text){String s=(n(type)+" "+n(text)).toLowerCase(Locale.ROOT);return s.contains("weather")||s.contains("temperature")||s.matches(".*\\b-?\\d{1,2}°.*");}
     public static boolean isSevereWeather(String text){String s=n(text).toLowerCase(Locale.ROOT);return any(s,"warning","alert","storm","thunder","heavy rain","flood","hail","dust storm","extreme heat","severe","تحذير","عاصفة","أمطار غزيرة","سيول","حر شديد");}
     public static boolean isSecurity(String text){String s=n(text).toLowerCase(Locale.ROOT);return any(s,"security alert","critical security","password","compromised","found online","breach","saved passwords","تسريب","كلمة مرور","كلمات المرور","تنبيه أمني");}
+    public static boolean isBatteryState(String text){String s=n(text).toLowerCase(Locale.ROOT);return s.contains("battery")&&(s.contains("%")||s.contains("power")||s.contains("charging")||s.contains("remaining"));}
+    public static boolean isBackupState(String text){String s=n(text).toLowerCase(Locale.ROOT);return s.contains("backup")||s.contains("back up")||s.contains("نسخ احتياطي");}
+    public static boolean isOrderState(String text){String s=n(text).toLowerCase(Locale.ROOT);return (s.contains("order")||s.contains("طلب"))&&any(s,"on the way","nearby","arriving","delivered","here early","rider","delivery","في الطريق","وصل","التوصيل");}
 
     private static String securitySubject(String s){if(s.contains("google"))return "google_account";if(s.contains("microsoft"))return "microsoft_account";if(s.contains("facebook")||s.contains("meta"))return "meta_account";return "account_security";}
     private static String securityAction(String s){if(any(s,"password","كلمة مرور","كلمات المرور"))return "password_remediation";return "security_review";}
-    private static String weatherPlace(String s){String x=s.replaceAll(".*\\bin\\s+","").replaceAll("[^\\p{L}\\p{N} ]"," ").trim();return x.isEmpty()?"local":Fingerprint.text(topic(x));}
+    private static String weatherPlace(String subject){
+        String x=norm(subject);if(x.isEmpty())return"local";
+        int i=x.lastIndexOf(" in ");if(i>=0&&i+4<x.length())x=x.substring(i+4).trim();
+        else{int ar=x.lastIndexOf(" في ");if(ar>=0&&ar+4<x.length())x=x.substring(ar+4).trim();}
+        x=x.replaceAll("^-?\\d{1,3}\\s*°\\s*","").replaceAll("\\b(feels like|weather|temperature)\\b.*$","").trim();
+        String t=topic(x);return t.isEmpty()?"local":Fingerprint.text(t);
+    }
+    private static String sourceIdentity(String source){String s=n(source).toLowerCase(Locale.ROOT);return s.isEmpty()?"":Fingerprint.text(s);}
     private static String phone(String s){String digits=s.replaceAll("[^0-9+]","");String only=digits.replaceAll("\\D","");return only.length()>=7&&only.length()<=15?only:"";}
     private static String topic(String s){ArrayList<String> out=new ArrayList<>();for(String x:n(s).split("[^\\p{L}\\p{N}]+")){String w=x.toLowerCase(Locale.ROOT);if(w.length()<3||STOP.contains(w))continue;out.add(w);}Collections.sort(out);return String.join(" ",out);}
     private static Set<String> tokens(String s){return new HashSet<>(Arrays.asList(topic(s).split("\\s+")));}
