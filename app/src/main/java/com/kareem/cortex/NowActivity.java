@@ -43,7 +43,7 @@ public final class NowActivity extends PremiumHomeActivity {
         LinearLayout row=new LinearLayout(this);row.setGravity(Gravity.CENTER_VERTICAL);row.setPadding(dp(1),dp(8),dp(1),dp(11));
         LinearLayout brand=new LinearLayout(this);brand.setOrientation(LinearLayout.VERTICAL);row.addView(brand,new LinearLayout.LayoutParams(0,-2,1));
         brand.addView(CortexUi.eyebrow(this,"CORTEX · PERSONAL INTELLIGENCE",CortexUi.LIME));TextView title=CortexUi.plain(this,"Now",34,CortexUi.TEXT);CortexUi.medium(title);title.setPadding(0,dp(1),0,0);brand.addView(title);
-        TextView settings=CortexUi.chip(this,"Settings",CortexUi.MUTED,false);settings.setOnClickListener(v->open(SettingsActivity.class));row.addView(settings,new LinearLayout.LayoutParams(-2,dp(36)));return row;
+        TextView brains=CortexUi.chip(this,"Brains",CortexUi.LIME,false);brains.setOnClickListener(v->open(CognitiveCouncilActivity.class));LinearLayout.LayoutParams bp=new LinearLayout.LayoutParams(-2,dp(36));bp.setMargins(0,0,dp(8),0);row.addView(brains,bp);TextView settings=CortexUi.chip(this,"Settings",CortexUi.MUTED,false);settings.setOnClickListener(v->open(SettingsActivity.class));row.addView(settings,new LinearLayout.LayoutParams(-2,dp(36)));return row;
     }
 
     @Override void render(PrimeBriefStore.Snapshot s){
