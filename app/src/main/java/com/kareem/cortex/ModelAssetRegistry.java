@@ -38,7 +38,10 @@ public final class ModelAssetRegistry {
         boolean ocr=ArabicOcr.modelReady(c);
         out.add(new Asset("arabic_ocr","ocr_arabic","Arabic OCR","tesseract","traineddata",ocr?State.READY:State.UNAVAILABLE,ocr?ocrBytes(c):0,true,false,ocr?"Bundled offline Arabic OCR model ready":"Bundled Arabic OCR asset unavailable"));
 
-        out.add(new Asset("secondary_llm","second_opinion_llm","Independent second local LLM","benchmark-gated","GGUF/compatible",State.PLANNED,0,true,false,"Exact model/quantization will be selected after on-device benchmark"));
+        LocalCouncilModelRegistry.Model analyst=LocalCouncilModelRegistry.analyst();
+        LocalCouncilModelRegistry.Model critic=LocalCouncilModelRegistry.critic();
+        out.add(new Asset("secondary_llm","second_opinion_llm",analyst.name,"local-council","GGUF",LocalCouncilModelRegistry.ready(c,analyst)?State.READY:(LocalCouncilModelRegistry.present(c,analyst)?State.PRESENT_UNVERIFIED:State.MISSING),LocalCouncilModelRegistry.bytes(c,analyst),true,false,"Independent analyst in the three-brain local cognitive council"));
+        out.add(new Asset("critic_llm","adversarial_critic_llm",critic.name,"local-council","GGUF",LocalCouncilModelRegistry.ready(c,critic)?State.READY:(LocalCouncilModelRegistry.present(c,critic)?State.PRESENT_UNVERIFIED:State.MISSING),LocalCouncilModelRegistry.bytes(c,critic),true,false,"Adversarial critic/falsifier in the three-brain local cognitive council"));
         out.add(new Asset("router_llm","routing_filter","Fast local router/filter model","benchmark-gated","GGUF/compatible",State.PLANNED,0,true,false,"Small model role reserved; exact model not locked"));
         out.add(new Asset("learned_embedding","embedding","Multilingual learned embedding model","benchmark-gated","runtime TBD",State.PLANNED,0,true,false,"Will replace/augment the deterministic semantic baseline after benchmark"));
         out.add(new Asset("reranker","reranker","Local retrieval reranker","benchmark-gated","runtime TBD",State.PLANNED,0,true,false,"Optional; enabled only if retrieval evaluation shows measurable value"));
