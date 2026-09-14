@@ -26,6 +26,12 @@ public final class ExternalBrainProvider {
         Result(String t,String raw,long ms,String m,String p){text=t;rawResponse=raw;durationMs=ms;model=m;provider=p;}
     }
 
+    public static final class WebResearchResult {
+        public final String text,citationsJson,model,provider;
+        public final long durationMs;
+        WebResearchResult(String t,String citations,long ms,String m,String p){text=t;citationsJson=citations;durationMs=ms;model=m;provider=p;}
+    }
+
     public static final class HealthReport {
         public final boolean configured,ok;
         public final String provider,model,status,error,responsePreview;
@@ -66,6 +72,42 @@ public final class ExternalBrainProvider {
         }
         if(GeminiKeyStore.has(context))return askGemini(context,question,grounded,combined,focal,phoneContext);
         throw new IllegalStateException("No external Brain provider configured. Add an OpenRouter API key in Settings.");
+    }
+
+    public static boolean webResearchConfigured(Context context){return OpenRouterKeyStore.has(context);}
+
+    /** Real web-grounded research using OpenRouter's web plugin. */
+    public static WebResearchResult webResearch(Context context,String prompt)throws Exception{
+        String key=OpenRouterKeyStore.get(context);
+        if(key.isEmpty())throw new IllegalStateException("OpenRouter API key not configured for web research");
+        String model=OpenRouterModelConfig.generationModel(context);
+        JSONArray messages=new JSONArray();
+        messages.put(new JSONObject().put("role","system").put("content",
+                "You are Cortex Research. Use web-grounded evidence, distinguish external facts from user-provided private evidence, cite sources, avoid diagnosis or unsupported causal claims, and state uncertainty."));
+        messages.put(new JSONObject().put("role","user").put("content",prompt));
+        JSONArray plugins=new JSONArray().put(new JSONObject().put("id","web").put("max_results",5));
+        JSONObject req=new JSONObject().put("model",model).put("messages",messages).put("plugins",plugins).put("max_tokens",1800);
+        long started=SystemClock.elapsedRealtime();
+        HttpURLConnection conn=openOpenRouter(key);write(conn,req);int code=conn.getResponseCode();
+        String body=read(code>=200&&code<300?conn.getInputStream():conn.getErrorStream());conn.disconnect();
+        long ms=SystemClock.elapsedRealtime()-started;
+        if(code<200||code>=300)throw new ProviderException("OpenRouter web research HTTP "+code+" ["+model+"]: "+compact(body),code,model,"openrouter-web",ms);
+        JSONObject root=new JSONObject(body);String text=cleanModelText(extractOpenRouterText(root));
+        if(text.isEmpty())throw new ProviderException("OpenRouter web research returned an empty answer ["+model+"]",200,model,"openrouter-web",ms);
+        JSONArray citations=new JSONArray();
+        JSONArray choices=root.optJSONArray("choices");
+        if(choices!=null&&choices.length()>0){
+            JSONObject choice=choices.optJSONObject(0);
+            JSONObject message=choice==null?null:choice.optJSONObject("message");
+            JSONArray anns=message==null?null:message.optJSONArray("annotations");
+            if(anns!=null)for(int i=0;i<anns.length();i++){
+                JSONObject ann=anns.optJSONObject(i);if(ann==null)continue;
+                JSONObject u=ann.optJSONObject("url_citation");if(u==null)continue;
+                JSONObject x=new JSONObject();x.put("url",u.optString("url",""));x.put("title",u.optString("title",""));
+                String content=u.optString("content","");if(content.length()>1200)content=content.substring(0,1200)+"…";x.put("content",content);citations.put(x);
+            }
+        }
+        return new WebResearchResult(text,citations.toString(),ms,model,"openrouter-web");
     }
 
     public static HealthReport healthCheck(Context context){
