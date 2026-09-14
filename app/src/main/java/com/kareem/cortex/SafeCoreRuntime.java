@@ -12,7 +12,7 @@ import java.util.concurrent.atomic.AtomicReference;
 
 /** Staged recovery bridge between a visually stable first activity and the full Cortex runtime. */
 public final class SafeCoreRuntime {
-    public static final String VERSION = "safe_core_runtime_009_semantic_resume";
+    public static final String VERSION = "safe_core_runtime_010_all_snag_recovery";
     private static final long POST_RESUME_SETTLE_MS = 1200L;
 
     public enum Phase { COLD_START, UI_STABLE_PROBING, CORE_READY, CORE_FAILED }
@@ -36,9 +36,6 @@ public final class SafeCoreRuntime {
     private static void probeSafeCore(Context app){
         VaultDb db=null;
         try{
-            // Persist Android's authoritative reason for the previous process death before any
-            // heavier recovery work starts. This complements CrashRecorder for native crashes,
-            // ANRs, LMK/resource kills and initialization failures.
             ProcessExitRecorder.captureHistoricalExit(app);
 
             db=new VaultDb(app);Cursor c=db.getReadableDatabase().rawQuery("SELECT 1",null);boolean ok=c.moveToFirst()&&c.getInt(0)==1;c.close();
@@ -48,15 +45,20 @@ public final class SafeCoreRuntime {
 
             StartupSafetyGate.releaseAfterSafeCore();
 
-            // Waiting semantic evidence must never remain stranded across process restarts. If the
-            // verified private runtime is ready, resume the real semantic worker. If it is not,
-            // drain a bounded batch through Cortex's conservative deterministic recovery path and
-            // continue canonical state/judgment processing. This avoids an infinite "paused"
-            // state while preserving the evidence/model-route provenance of every recovered item.
+            // Normalize the two authoritative Vault integrity failures from the physical-device
+            // report before the capability matrix is evaluated. This is idempotent and preserves
+            // original missing paths / duplicate provenance in metadata instead of deleting rows.
+            try{RuntimeIntegrityRepair.run(app,db);}catch(Throwable t){CapabilitySupervisor.recordFailure(app,CapabilitySupervisor.Capability.DATABASE,t);}
+
+            // A process crash may leave a durable transfer_state such as connecting/downloading.
+            // Resume only those transient states; explicit paused/canceled/failed states stay put.
+            try{LocalModelManager.recoverInterruptedTransfer(app,true);}catch(Throwable t){CapabilitySupervisor.recordFailure(app,CapabilitySupervisor.Capability.BACKGROUND_SCHEDULING,t);}
+
+            // Waiting semantic evidence must never remain stranded across process restarts. Native
+            // inference is preferred when ready; otherwise deterministic recovery drains every
+            // reachable row and explicitly blocks orphan rows rather than inventing evidence.
             try{recoverSemanticPipeline(app,db);}catch(Throwable t){CapabilitySupervisor.recordFailure(app,CapabilitySupervisor.Capability.DETERMINISTIC_COGNITION,t);}
 
-            // Versioned migrations belong behind a healthy database/runtime boundary. They must
-            // not depend on one specific Activity class being the launcher.
             try{DocumentIntelligenceMigration.runAfterLauncher(app);}catch(Throwable t){CapabilitySupervisor.recordFailure(app,CapabilitySupervisor.Capability.BACKGROUND_SCHEDULING,t);}
 
             try{StartupMaintenance.schedule(app);}catch(Throwable t){CapabilitySupervisor.recordFailure(app,CapabilitySupervisor.Capability.BACKGROUND_SCHEDULING,t);}
@@ -85,8 +87,12 @@ public final class SafeCoreRuntime {
             UniversalSemanticScheduler.kick(app);
             return;
         }
-        int recovered=DeterministicSemanticRecovery.recover(db,64);
-        if(recovered>0)StatefulMeaningScheduler.kick(app);
+        int total=0;
+        for(int i=0;i<4&&DeterministicSemanticRecovery.hasBacklog(db);i++){
+            int n=DeterministicSemanticRecovery.recover(db,100);total+=n;if(n<=0)break;
+        }
+        if(total>0)StatefulMeaningScheduler.kick(app);
+        if(DeterministicSemanticRecovery.hasBacklog(db))throw new IllegalStateException("semantic backlog remained after bounded deterministic recovery");
     }
 
     private static void recoverVisualFailuresOnce(Context app){
