@@ -31,6 +31,7 @@ jobs:
       - name: Apply evidence-backed mechanical repairs
         run: |
           python3 scripts/cortex-mechanical-repair.py
+          python3 scripts/pin-github-actions.py
           git diff --check
 
       - name: Commit repair batch when needed
@@ -42,7 +43,7 @@ jobs:
           fi
           git config user.name 'cortex-audit-bot'
           git config user.email 'cortex-audit-bot@users.noreply.github.com'
-          git add app/src scripts/cortex-full-code-gate.sh scripts/cortex-repo-audit.sh
+          git add app/src scripts/cortex-full-code-gate.sh scripts/cortex-repo-audit.sh scripts/pin-github-actions.py .github/workflows
           git diff --cached --check
           git commit -m 'fix: apply deterministic Android lint repairs [mechanical-fix]'
           git push origin HEAD:audit/full-code-fix-v145
