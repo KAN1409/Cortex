@@ -69,6 +69,7 @@ dependencies {
     implementation 'dev.rikka.shizuku:api:13.1.5'
     implementation 'dev.rikka.shizuku:provider:13.1.5'
     implementation 'com.google.mlkit:genai-prompt:1.0.0-beta2'
+    implementation 'androidx.exifinterface:exifinterface:1.4.2'
 
     // Cortex deliberately stays on AGP 8.7.3 / compileSdk 35 for this release line.
     // Compose 1.12+ requires newer AGP/compileSdk; keep a stable compatible stack
