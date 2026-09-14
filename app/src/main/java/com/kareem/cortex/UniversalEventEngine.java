@@ -14,7 +14,7 @@ import java.util.Locale;
  * CortexAttentionJudge.
  */
 public final class UniversalEventEngine {
-    public static final String VERSION = "universal_event_engine_002";
+    public static final String VERSION = "universal_event_engine_003";
 
     public static final class Result {
         public final long rawId,streamId,semanticEventId,situationId,attentionId,memoryItemId,aiJobId;
@@ -200,6 +200,18 @@ public final class UniversalEventEngine {
         } else if("alarm".equals(tech)||"reminder".equals(tech)||"event".equals(tech)){
             x.type=tech+"_event";x.intent=tech;x.priority=65;x.confidence=.91;
             x.reason="explicit time-sensitive Android event";
+        } else if(isExplicitStorageRemediation(low)){
+            x.type="action_request";x.intent="request";x.priority=88;x.confidence=.94;x.needsModel=false;
+            x.reason="explicit storage remediation required to complete backup";
+        } else if(isDeterministicTechnicalInfo(low,meta)){
+            x.type="technical_state";x.intent="state_change";x.priority=6;x.confidence=.98;x.needsModel=false;
+            x.reason="deterministic informational/technical notification; model refinement unnecessary";
+        } else if(StatefulMeaningPolicy.isOrderState(low)){
+            x.type="technical_state";x.intent="state_change";x.priority=8;x.confidence=.94;x.needsModel=false;
+            x.reason="deterministic delivery state update; model refinement unnecessary";
+        } else if(StatefulMeaningPolicy.isSocial("notification_event",low)){
+            x.type="notification_event";x.intent="info";x.priority=5;x.confidence=.9;x.needsModel=false;
+            x.reason="routine social update is deterministic low-salience information";
         } else {
             x.type="notification_event";x.intent="notification";x.priority=30;x.confidence=.55;
             x.needsModel=!text.isEmpty();
@@ -207,6 +219,16 @@ public final class UniversalEventEngine {
         }
         if("removed".equals(eventType)&&"technical_state".equals(x.type))x.priority=4;
         return x;
+    }
+
+    private static boolean isExplicitStorageRemediation(String low){return containsAny(low,"storage is full","storage full","مساحة التخزين ممتلئة")&&containsAny(low,"clear up space","free up space","clear space","إخلاء مساحة","افرغ مساحة");}
+    private static boolean isDeterministicTechnicalInfo(String low,JSONObject meta){
+        String pkg=n(meta.optString("package","")).toLowerCase(Locale.ROOT),channel=n(meta.optString("channel_id","")).toLowerCase(Locale.ROOT);
+        if(containsAny(low,"screenshot saved","screenshot captured","تم حفظ لقطة الشاشة"))return true;
+        if(containsAny(low,"download complete","download completed","downloaded successfully","تم التنزيل","اكتمل التنزيل"))return true;
+        if(containsAny(low,"backup in progress","preparing backup","backing up","جارٍ النسخ الاحتياطي","جاري النسخ الاحتياطي"))return true;
+        if(pkg.contains("smartcapture")&&low.contains("screenshot"))return true;
+        return channel.contains("download")&&containsAny(low,"complete","completed","downloaded");
     }
 
     private static boolean matchesRequest(String s){
