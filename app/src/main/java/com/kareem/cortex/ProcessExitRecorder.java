@@ -13,9 +13,10 @@ import java.util.List;
 import java.util.Locale;
 
 /**
- * Persists Android's latest process-exit diagnosis separately from the Java uncaught-exception recorder.
- * This catches the classes of failures CrashRecorder cannot see: native crashes, ANRs, LMK/system
- * termination and initialization failures. It never touches the Cortex database.
+ * Persists Android process-exit diagnosis separately from the Java uncaught-exception recorder.
+ * This catches failures CrashRecorder cannot see: native crashes, ANRs, LMK/system termination and
+ * initialization failures. The newest exit and the newest actionable failure are both preserved so
+ * an APK update cannot hide a crash that happened immediately before the update.
  */
 @SuppressLint("NewApi")
 public final class ProcessExitRecorder {
@@ -29,11 +30,12 @@ public final class ProcessExitRecorder {
             if (am == null) return;
             List<ApplicationExitInfo> exits = am.getHistoricalProcessExitReasons(context.getPackageName(), 0, 8);
             if (exits == null || exits.isEmpty()) return;
-            // Android returns these newest first. Always persist the newest exit even if it is OTHER,
-            // USER_REQUESTED or a system kill; selecting an older "more interesting" crash would hide
-            // the exact failure that just happened on the device.
-            ApplicationExitInfo selected = exits.get(0);
-            if (selected != null) write(context.getApplicationContext(), selected);
+            ApplicationExitInfo newest = exits.get(0);
+            ApplicationExitInfo actionable = null;
+            for (ApplicationExitInfo x : exits) {
+                if (x != null && isActionableFailure(x.getReason())) { actionable = x; break; }
+            }
+            write(context.getApplicationContext(), exits, newest, actionable);
         } catch (Throwable ignored) {
             // Diagnostics must never become a startup dependency.
         }
@@ -61,30 +63,51 @@ public final class ProcessExitRecorder {
         } catch (Throwable ignored) {}
     }
 
-    private static void write(Context context, ApplicationExitInfo info) throws Exception {
+    private static void write(Context context, List<ApplicationExitInfo> exits, ApplicationExitInfo newest,
+                              ApplicationExitInfo actionable) throws Exception {
         File target = new File(context.getFilesDir(), FILE);
         File tmp = new File(context.getFilesDir(), FILE + ".part");
         try (FileOutputStream fos = new FileOutputStream(tmp, false);
              PrintWriter p = new PrintWriter(new OutputStreamWriter(fos, "UTF-8"))) {
-            p.println("CORTEX_PROCESS_EXIT_V1");
-            p.println("recorded_at=" + new SimpleDateFormat("yyyy-MM-dd HH:mm:ss Z", Locale.US).format(new Date()));
-            p.println("exit_time=" + new SimpleDateFormat("yyyy-MM-dd HH:mm:ss Z", Locale.US).format(new Date(info.getTimestamp())));
-            p.println("reason=" + reasonName(info.getReason()));
-            p.println("reason_code=" + info.getReason());
-            p.println("status=" + info.getStatus());
-            p.println("importance=" + info.getImportance());
-            p.println("pss_kb=" + info.getPss());
-            p.println("rss_kb=" + info.getRss());
-            p.println("process=" + safe(info.getProcessName()));
-            p.println("description=" + safe(info.getDescription()));
+            p.println("CORTEX_PROCESS_EXIT_V2");
+            p.println("recorded_at=" + time(System.currentTimeMillis()));
+            p.println("current_version_name=" + BuildConfig.VERSION_NAME);
+            p.println("current_version_code=" + BuildConfig.VERSION_CODE);
             p.println("sdk=" + Build.VERSION.SDK_INT);
             p.println("device=" + safe(Build.MANUFACTURER) + " " + safe(Build.MODEL));
+            p.println("history_count=" + (exits == null ? 0 : exits.size()));
 
-            if (Build.VERSION.SDK_INT >= 31) {
-                try (InputStream in = info.getTraceInputStream()) {
+            p.println();
+            p.println("--- NEWEST EXIT ---");
+            writeSummary(p, newest);
+
+            p.println();
+            p.println("--- NEWEST ACTIONABLE FAILURE ---");
+            if (actionable == null) p.println("none"); else writeSummary(p, actionable);
+
+            p.println();
+            p.println("--- RECENT EXIT HISTORY ---");
+            if (exits != null) {
+                int i = 0;
+                for (ApplicationExitInfo info : exits) {
+                    if (info == null) continue;
+                    p.println("#" + i++ + " time=" + time(info.getTimestamp()) +
+                            " reason=" + reasonName(info.getReason()) +
+                            " status=" + info.getStatus() +
+                            " importance=" + info.getImportance() +
+                            " pss_kb=" + info.getPss() +
+                            " rss_kb=" + info.getRss() +
+                            " process=" + safe(info.getProcessName()) +
+                            " description=" + safe(info.getDescription()));
+                }
+            }
+
+            ApplicationExitInfo traceSource = actionable != null ? actionable : newest;
+            if (traceSource != null && Build.VERSION.SDK_INT >= 31) {
+                try (InputStream in = traceSource.getTraceInputStream()) {
                     if (in != null) {
                         p.println();
-                        p.println("--- ANDROID EXIT TRACE ---");
+                        p.println("--- ANDROID EXIT TRACE (" + reasonName(traceSource.getReason()) + ") ---");
                         BufferedReader reader = new BufferedReader(new InputStreamReader(in));
                         String line;
                         int chars = 0;
@@ -108,6 +131,29 @@ public final class ProcessExitRecorder {
         }
     }
 
+    private static void writeSummary(PrintWriter p, ApplicationExitInfo info) {
+        if (info == null) { p.println("none"); return; }
+        p.println("exit_time=" + time(info.getTimestamp()));
+        p.println("reason=" + reasonName(info.getReason()));
+        p.println("reason_code=" + info.getReason());
+        p.println("status=" + info.getStatus());
+        p.println("importance=" + info.getImportance());
+        p.println("pss_kb=" + info.getPss());
+        p.println("rss_kb=" + info.getRss());
+        p.println("process=" + safe(info.getProcessName()));
+        p.println("description=" + safe(info.getDescription()));
+    }
+
+    private static boolean isActionableFailure(int reason) {
+        return reason == ApplicationExitInfo.REASON_CRASH
+                || reason == ApplicationExitInfo.REASON_CRASH_NATIVE
+                || reason == ApplicationExitInfo.REASON_ANR
+                || reason == ApplicationExitInfo.REASON_LOW_MEMORY
+                || reason == ApplicationExitInfo.REASON_INITIALIZATION_FAILURE
+                || reason == ApplicationExitInfo.REASON_EXCESSIVE_RESOURCE_USAGE
+                || reason == ApplicationExitInfo.REASON_SIGNALED;
+    }
+
     static String reasonName(int reason) {
         switch (reason) {
             case ApplicationExitInfo.REASON_CRASH: return "CRASH";
@@ -121,8 +167,14 @@ public final class ProcessExitRecorder {
             case ApplicationExitInfo.REASON_PERMISSION_CHANGE: return "PERMISSION_CHANGE";
             case ApplicationExitInfo.REASON_DEPENDENCY_DIED: return "DEPENDENCY_DIED";
             case ApplicationExitInfo.REASON_OTHER: return "OTHER";
+            case ApplicationExitInfo.REASON_SIGNALED: return "SIGNALED";
+            case ApplicationExitInfo.REASON_EXIT_SELF: return "EXIT_SELF";
             default: return "UNKNOWN_" + reason;
         }
+    }
+
+    private static String time(long at) {
+        return new SimpleDateFormat("yyyy-MM-dd HH:mm:ss Z", Locale.US).format(new Date(at));
     }
 
     private static String safe(String s) {
