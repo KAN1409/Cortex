@@ -5,9 +5,9 @@ import android.database.Cursor;
 import android.database.sqlite.SQLiteDatabase;
 import org.junit.Test;
 import org.junit.runner.RunWith;
-import androidx.test.ext.junit.runners.AndroidJUnit4;
+import org.robolectric.RobolectricTestRunner;
 
-@RunWith(AndroidJUnit4.class)
+@RunWith(RobolectricTestRunner.class)
 public class DiscoveryCoreTest {
     private KnowledgeItem item(String category,String title,String metadata){
         return new KnowledgeItem(1,"TEXT","manual",title,"","",title,category,"","","analyzed","","",metadata,1000,1000);
