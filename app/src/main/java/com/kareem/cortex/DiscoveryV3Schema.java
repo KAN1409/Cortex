@@ -4,7 +4,7 @@ import android.database.sqlite.SQLiteDatabase;
 
 /** Additive storage for Discovery Engine v3. Raw evidence remains authoritative. */
 public final class DiscoveryV3Schema {
-    public static final String VERSION="discovery_v3_001";
+    public static final String VERSION="discovery_v3_002_extreme_local";
     private static volatile boolean ready=false;
     private DiscoveryV3Schema(){}
 
@@ -106,6 +106,28 @@ public final class DiscoveryV3Schema {
                 "provider TEXT,"+
                 "error TEXT,"+
                 "created_at INTEGER NOT NULL,"+
+                "updated_at INTEGER NOT NULL)");
+
+        db.execSQL("CREATE TABLE IF NOT EXISTS discovery_v3_reflections("+
+                "id INTEGER PRIMARY KEY AUTOINCREMENT,"+
+                "scope TEXT NOT NULL,"+
+                "scope_id INTEGER NOT NULL DEFAULT 0,"+
+                "model TEXT NOT NULL,"+
+                "analyst_output TEXT,"+
+                "critic_output TEXT,"+
+                "state TEXT NOT NULL,"+
+                "accepted_count INTEGER NOT NULL DEFAULT 0,"+
+                "duration_ms INTEGER NOT NULL DEFAULT 0,"+
+                "error TEXT,"+
+                "created_at INTEGER NOT NULL)");
+        db.execSQL("CREATE INDEX IF NOT EXISTS idx_dv3_reflection_scope ON discovery_v3_reflections(scope,scope_id,created_at DESC)");
+
+        db.execSQL("CREATE TABLE IF NOT EXISTS discovery_v3_deep_state("+
+                "scope_key TEXT PRIMARY KEY,"+
+                "last_run_at INTEGER NOT NULL DEFAULT 0,"+
+                "last_evidence_at INTEGER NOT NULL DEFAULT 0,"+
+                "last_model TEXT,"+
+                "last_error TEXT,"+
                 "updated_at INTEGER NOT NULL)");
 
         db.execSQL("CREATE TABLE IF NOT EXISTS discovery_v3_meta(key TEXT PRIMARY KEY,value TEXT NOT NULL,updated_at INTEGER NOT NULL)");
