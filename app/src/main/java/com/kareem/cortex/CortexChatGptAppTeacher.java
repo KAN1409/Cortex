@@ -170,7 +170,6 @@ public final class CortexChatGptAppTeacher {
     static JSONObject extractPolicy(String raw)throws Exception{
         String x=safe(raw).trim();
         if(x.length()>MAX_POLICY_TEXT_CHARS)throw new IllegalArgumentException("Policy text outside bounds");
-        if(x.length()>MAX_POLICY_TEXT_CHARS)throw new IllegalArgumentException("Policy text outside bounds");
         int first=x.indexOf('{');
         int last=x.lastIndexOf('}');
         if(first<0||last<=first)throw new IllegalArgumentException("No JSON Policy Pack found");
