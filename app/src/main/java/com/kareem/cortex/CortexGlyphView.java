@@ -16,6 +16,7 @@ public final class CortexGlyphView extends View {
     private final Paint accentPaint=new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Path glyphPath=new Path();
     private final RectF glyphRect=new RectF();
+    private final RectF plateRect=new RectF();
     private final String kind;
     private final float d;
     private boolean showDot;
@@ -34,8 +35,8 @@ public final class CortexGlyphView extends View {
     public void setShowDot(boolean show){showDot=show;invalidate();}
 
     @Override protected void onDraw(Canvas c){
-        super.onDraw(c);float w=getWidth(),h=getHeight(),r=Math.min(w,h);RectF box=new RectF(1.5f*d,1.5f*d,w-1.5f*d,h-1.5f*d);float cr=r*.22f;
-        c.drawRoundRect(box,cr,cr,plate);c.drawRoundRect(box,cr,cr,edge);
+        super.onDraw(c);float w=getWidth(),h=getHeight(),r=Math.min(w,h);plateRect.set(1.5f*d,1.5f*d,w-1.5f*d,h-1.5f*d);float cr=r*.22f;
+        c.drawRoundRect(plateRect,cr,cr,plate);c.drawRoundRect(plateRect,cr,cr,edge);
         float cx=w*.50f,cy=h*.51f,s=r*.23f;drawGlyph(c,cx,cy,s);
         if(showDot)c.drawCircle(w*.77f,h*.24f,Math.max(2.5f*d,r*.055f),accentPaint);
     }
