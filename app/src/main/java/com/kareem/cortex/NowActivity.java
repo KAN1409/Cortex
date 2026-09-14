@@ -10,6 +10,7 @@ import java.util.*;
 /** Premium top-level intelligence surface. Presentation never re-decides attention. */
 public final class NowActivity extends PremiumHomeActivity {
     @Override void build(){
+        DiscoveryBackfillWorker.enqueue(this);
         LinearLayout root=new LinearLayout(this);root.setOrientation(LinearLayout.VERTICAL);root.setBackgroundColor(CortexUi.BG);
         ScrollView sv=new ScrollView(this);sv.setFillViewport(true);sv.setClipToPadding(false);sv.setVerticalScrollBarEnabled(false);
         content=new LinearLayout(this);content.setOrientation(LinearLayout.VERTICAL);content.setPadding(dp(18),dp(8),dp(18),dp(30));sv.addView(content);root.addView(sv,new LinearLayout.LayoutParams(-1,0,1));
@@ -25,23 +26,124 @@ public final class NowActivity extends PremiumHomeActivity {
     }
 
     @Override void render(PrimeBriefStore.Snapshot s){
-        if(destroyed||content==null)return;while(content.getChildCount()>1)content.removeViewAt(1);
-        ArrayList<PrimeBriefStore.Item> judged=new ArrayList<>();LinkedHashSet<String> seen=new LinkedHashSet<>();
-        addUnique(judged,seen,s.actions,16);addUnique(judged,seen,s.waiting,16);addUnique(judged,seen,s.decisions,16);
-        judged.removeIf(x->NowQualityPolicy.suppress(x.kind,x.source,x.title,x.body)||AttentionNoisePolicy.suppress(x.source,x.title,x.body,x.kind,""));
-        int actions=count(judged,"ACTION"),waiting=count(judged,"WAITING"),decisions=count(judged,"DECISION"),maxNow=CortexPersonalPolicy.maxNowItems(this),active=Math.min(maxNow,actions+waiting+decisions);
-        WorkVaultScanner.Counts work;try{work=WorkVaultScanner.counts(db);}catch(Throwable ignored){work=new WorkVaultScanner.Counts();}
+        if(destroyed||content==null)return;
+        while(content.getChildCount()>1)content.removeViewAt(1);
 
-        content.addView(attentionHero(active,actions,waiting,decisions),margins(0,4,0,0));content.addView(commandStrip(work),margins(0,11,0,0));
-        ArrayList<Situation> situations=buildSituations(judged);if(!situations.isEmpty()){content.addView(sectionHeader("Situations",situations.size(),CortexUi.OLIVE));for(int i=0;i<Math.min(3,situations.size());i++)situationRow(situations.get(i));}
+        ArrayList<DiscoveryFeedAssembler.Item> discoveries=new ArrayList<>();
+        try{discoveries=DiscoveryFeedAssembler.build(db,8);}catch(Throwable ignored){}
 
-        int shown=0;for(String kind:new String[]{"ACTION","WAITING","DECISION"}){if(shown>=maxNow)break;int c=count(judged,kind);if(c==0)continue;String heading="ACTION".equals(kind)?"Needs you":("WAITING".equals(kind)?"Waiting":"Decisions");int color="ACTION".equals(kind)?CortexUi.LIME:("WAITING".equals(kind)?CortexUi.YELLOW:CortexUi.OLIVE);content.addView(sectionHeader(heading,c,color));for(PrimeBriefStore.Item x:judged){if(shown>=maxNow)break;if(!kind.equalsIgnoreCase(x.kind))continue;intelligenceRow(x,color);shown++;}}
-        if(shown==0)content.addView(clearState(),margins(0,18,0,0));
+        WorkVaultScanner.Counts work;
+        try{work=WorkVaultScanner.counts(db);}catch(Throwable ignored){work=new WorkVaultScanner.Counts();}
 
-        ArrayList<PrimeBriefStore.Item> worth=new ArrayList<>();if(s.worthKnowing!=null)for(PrimeBriefStore.Item x:s.worthKnowing){if(x==null||NowQualityPolicy.suppress(x.kind,x.source,x.title,x.body)||AttentionNoisePolicy.suppress(x.source,x.title,x.body,x.kind,""))continue;worth.add(x);if(worth.size()>=4)break;}
-        if(!worth.isEmpty()){content.addView(sectionHeader("Worth knowing",worth.size(),CortexUi.GREEN));for(PrimeBriefStore.Item x:worth)intelligenceRow(x,CortexUi.GREEN);}
+        if(!discoveries.isEmpty()){
+            content.addView(discoveryHero(discoveries.size()),margins(0,4,0,0));
+            content.addView(commandStrip(work),margins(0,11,0,0));
+            content.addView(sectionHeader("Cortex noticed",discoveries.size(),CortexUi.LIME));
+            for(DiscoveryFeedAssembler.Item x:discoveries)discoveryRow(x);
+        }else{
+            ArrayList<PrimeBriefStore.Item> judged=new ArrayList<>();
+            LinkedHashSet<String> seen=new LinkedHashSet<>();
+            addUnique(judged,seen,s.actions,16);addUnique(judged,seen,s.waiting,16);addUnique(judged,seen,s.decisions,16);
+            judged.removeIf(x->NowQualityPolicy.suppress(x.kind,x.source,x.title,x.body)||AttentionNoisePolicy.suppress(x.source,x.title,x.body,x.kind,""));
+            int actions=count(judged,"ACTION"),waiting=count(judged,"WAITING"),decisions=count(judged,"DECISION");
+            int maxNow=CortexPersonalPolicy.maxNowItems(this),active=Math.min(maxNow,actions+waiting+decisions);
+
+            content.addView(attentionHero(active,actions,waiting,decisions),margins(0,4,0,0));
+            content.addView(commandStrip(work),margins(0,11,0,0));
+
+            int shown=0;
+            for(String kind:new String[]{"ACTION","WAITING","DECISION"}){
+                if(shown>=maxNow)break;
+                int count=count(judged,kind);if(count==0)continue;
+                String heading="ACTION".equals(kind)?"Needs you":("WAITING".equals(kind)?"Waiting":"Decisions");
+                int color="ACTION".equals(kind)?CortexUi.LIME:("WAITING".equals(kind)?CortexUi.YELLOW:CortexUi.OLIVE);
+                content.addView(sectionHeader(heading,count,color));
+                for(PrimeBriefStore.Item x:judged){
+                    if(shown>=maxNow)break;
+                    if(!kind.equalsIgnoreCase(x.kind))continue;
+                    intelligenceRow(x,color);shown++;
+                }
+            }
+            if(shown==0)content.addView(clearState(),margins(0,18,0,0));
+        }
+
         if(s.reviews!=null&&!s.reviews.isEmpty())content.addView(reviewSurface(s.reviews.size()),margins(0,18,0,0));
-        LinearLayout status=CortexPipelineStatusBar.build(this,db);LinearLayout.LayoutParams sp=new LinearLayout.LayoutParams(-1,-2);sp.setMargins(0,dp(18),0,0);content.addView(status,sp);
+        LinearLayout status=CortexPipelineStatusBar.build(this,db);
+        LinearLayout.LayoutParams sp=new LinearLayout.LayoutParams(-1,-2);sp.setMargins(0,dp(18),0,0);content.addView(status,sp);
+    }
+
+    private LinearLayout discoveryHero(int count){
+        LinearLayout card=CortexUi.card(this,30);
+        card.setPadding(dp(20),dp(19),dp(20),dp(18));
+        card.setBackground(CortexUi.gradient(this,CortexUi.SURFACE_3,CortexUi.SURFACE,CortexUi.HAIRLINE,30));
+        LinearLayout top=new LinearLayout(this);top.setGravity(Gravity.CENTER_VERTICAL);
+        top.addView(CortexUi.eyebrow(this,"DISCOVERY · JUDGED",CortexUi.LIME),new LinearLayout.LayoutParams(0,-2,1));
+        top.addView(CortexUi.chip(this,count+" worth knowing",CortexUi.LIME,true),new LinearLayout.LayoutParams(-2,dp(30)));card.addView(top);
+        TextView h=CortexUi.plain(this,count==1?"Cortex found something worth your attention":count+" things earned your attention",24,CortexUi.TEXT);
+        CortexUi.medium(h);h.setPadding(0,dp(14),0,0);card.addView(h);
+        TextView b=CortexUi.text(this,"These are not raw records or activity counts. Each item survived evidence, novelty and usefulness checks.",12,CortexUi.MUTED);
+        b.setPadding(0,dp(6),0,0);card.addView(b);
+        return card;
+    }
+
+    private void discoveryRow(DiscoveryFeedAssembler.Item x){
+        LinearLayout card=CortexUi.card(this,22);card.setPadding(dp(16),dp(15),dp(16),dp(15));
+        CortexUi.pressable(this,card,CortexUi.velvet(this,22));
+        LinearLayout top=new LinearLayout(this);top.setGravity(Gravity.CENTER_VERTICAL);
+        top.addView(CortexUi.eyebrow(this,x.domain+" · "+x.family,CortexUi.LIME),new LinearLayout.LayoutParams(0,-2,1));
+        top.addView(CortexUi.plain(this,Math.round(x.confidence*100)+"%",9,CortexUi.FAINT));
+        card.addView(top);
+
+        TextView title=CortexUi.text(this,x.title,15,CortexUi.TEXT);CortexUi.medium(title);title.setPadding(0,dp(7),0,0);card.addView(title);
+        TextView found=CortexUi.text(this,clipLocal(x.whatFound,260),12,CortexUi.TEXT);found.setPadding(0,dp(5),0,0);card.addView(found);
+
+        if(!nz(x.whyMatters).isEmpty()){
+            TextView why=CortexUi.text(this,"Why it matters · "+clipLocal(x.whyMatters,220),11,CortexUi.MUTED);
+            why.setPadding(0,dp(7),0,0);card.addView(why);
+        }
+        if(!nz(x.whyNow).isEmpty()){
+            TextView now=CortexUi.text(this,"Why now · "+clipLocal(x.whyNow,220),10,CortexUi.FAINT);
+            now.setPadding(0,dp(4),0,0);card.addView(now);
+        }
+
+        TextView meta=CortexUi.plain(this,x.evidenceCount+" evidence item"+(x.evidenceCount==1?"":"s")+" · score "+Math.round(x.score*100),9,CortexUi.FAINT);
+        meta.setPadding(0,dp(7),0,0);card.addView(meta);
+        card.setOnClickListener(v->{try{DiscoveryAdvancedEngine.signal(db,x.id,x.situationId,x.family,"opened");}catch(Throwable ignored){}discoveryDetail(x);});
+        LinearLayout.LayoutParams cp=new LinearLayout.LayoutParams(-1,-2);cp.setMargins(0,0,0,dp(8));content.addView(card,cp);
+    }
+
+    private void discoveryDetail(DiscoveryFeedAssembler.Item x){
+        Dialog d=new Dialog(this);
+        ScrollView sv=new ScrollView(this);
+        LinearLayout box=CortexUi.card(this,25);box.setPadding(dp(18),dp(18),dp(18),dp(18));sv.addView(box);
+
+        TextView h=CortexUi.text(this,x.title,21,CortexUi.TEXT);CortexUi.medium(h);box.addView(h);
+        TextView meta=CortexUi.plain(this,x.domain+" · "+x.family+" · confidence "+Math.round(x.confidence*100)+"%",10,CortexUi.MUTED);
+        meta.setPadding(0,dp(5),0,dp(12));box.addView(meta);
+
+        box.addView(CortexUi.section(this,"What Cortex found"));
+        TextView body=CortexUi.text(this,x.whatFound,13,CortexUi.TEXT);body.setTextIsSelectable(true);body.setPadding(0,dp(6),0,0);box.addView(body);
+
+        if(!nz(x.whyMatters).isEmpty()){box.addView(CortexUi.section(this,"Why it matters"));box.addView(CortexUi.text(this,x.whyMatters,12,CortexUi.MUTED));}
+        if(!nz(x.whyNow).isEmpty()){box.addView(CortexUi.section(this,"Why now"));box.addView(CortexUi.text(this,x.whyNow,12,CortexUi.MUTED));}
+        if(!nz(x.research).isEmpty()){box.addView(CortexUi.section(this,"External research"));TextView r=CortexUi.text(this,clipLocal(x.research,5000),12,CortexUi.TEXT);r.setTextIsSelectable(true);box.addView(r);}
+        if(!nz(x.history).isEmpty()){box.addView(CortexUi.section(this,"History"));TextView hist=CortexUi.text(this,clipLocal(x.history,8000),12,CortexUi.MUTED);hist.setTextIsSelectable(true);box.addView(hist);}
+
+        if(!x.evidenceIds.isEmpty()){
+            TextView evidence=CortexUi.action(this,"Open source evidence",CortexUi.MUTED,false);
+            LinearLayout.LayoutParams ep=new LinearLayout.LayoutParams(-1,dp(44));ep.setMargins(0,dp(14),0,0);box.addView(evidence,ep);
+            long itemId=x.evidenceIds.get(0);
+            evidence.setOnClickListener(v->{d.dismiss();try{Intent i=new Intent(this,VaultActivity.class);i.putExtra("item_id",itemId);startActivity(i);}catch(Throwable ignored){}});
+        }
+
+        LinearLayout feedback=new LinearLayout(this);feedback.setOrientation(LinearLayout.HORIZONTAL);feedback.setPadding(0,dp(10),0,0);
+        TextView useful=CortexUi.action(this,"Useful",CortexUi.LIME,false),irrelevant=CortexUi.action(this,"Not useful",CortexUi.MUTED,false);
+        feedback.addView(useful,new LinearLayout.LayoutParams(0,dp(42),1));LinearLayout.LayoutParams ip=new LinearLayout.LayoutParams(0,dp(42),1);ip.setMargins(dp(8),0,0,0);feedback.addView(irrelevant,ip);box.addView(feedback);
+        useful.setOnClickListener(v->{try{DiscoveryAdvancedEngine.signal(db,x.id,x.situationId,x.family,"saved");}catch(Throwable ignored){}d.dismiss();});
+        irrelevant.setOnClickListener(v->{try{DiscoveryAdvancedEngine.signal(db,x.id,x.situationId,x.family,"irrelevant");}catch(Throwable ignored){}d.dismiss();refreshAsync();});
+
+        TextView close=CortexUi.action(this,"Close",CortexUi.MUTED,false);LinearLayout.LayoutParams cp=new LinearLayout.LayoutParams(-1,dp(44));cp.setMargins(0,dp(8),0,0);box.addView(close,cp);close.setOnClickListener(v->d.dismiss());
+        d.setContentView(sv);try{d.show();if(d.getWindow()!=null)d.getWindow().setLayout((int)(getResources().getDisplayMetrics().widthPixels*.94f),(int)(getResources().getDisplayMetrics().heightPixels*.84f));}catch(Throwable ignored){}
     }
 
     private LinearLayout attentionHero(int active,int actions,int waiting,int decisions){
