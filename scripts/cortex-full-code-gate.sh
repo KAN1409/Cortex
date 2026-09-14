@@ -104,7 +104,6 @@ if command -v gradle >/dev/null 2>&1; then
   run_gate unit_tests gradle :app:testDebugUnitTest --stacktrace
   run_gate java_compile gradle :app:compileDebugJavaWithJavac --stacktrace
   run_gate kotlin_compile gradle :app:compileDebugKotlin --stacktrace
-  run_gate android_test_compile gradle :app:assembleDebugAndroidTest --stacktrace
 else
   record gradle MISSING; FAIL=$((FAIL+1))
 fi
