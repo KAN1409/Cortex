@@ -12,7 +12,7 @@ import java.util.zip.ZipInputStream;
 
 /** Streaming OOXML parser. Originals stay in place; the content URI is opened directly. */
 public final class WorkOoxmlParser {
-    public static final String VERSION="work_ooxml_parser_002";
+    public static final String VERSION="work_ooxml_parser_003";
     private WorkOoxmlParser(){}
 
     public static WorkParsedDocument parse(Context context,Uri uri,String ext)throws Exception{
@@ -61,11 +61,7 @@ public final class WorkOoxmlParser {
         WorkParsedDocument out=new WorkParsedDocument();out.parserVersion=VERSION;
         final boolean[] presentationFound={false};
         visit(c,uri,(name,in)->{
-            if("ppt/presentation.xml".equals(name)){
-                XmlPullParser p=parser(in);
-                while(p.getEventType()!=XmlPullParser.END_DOCUMENT)p.next();
-                presentationFound[0]=true;
-            }
+            if("ppt/presentation.xml".equals(name)){consumeRequiredXml(in,"PPTX presentation","presentation");presentationFound[0]=true;}
             if(name.startsWith("ppt/slides/slide")&&name.endsWith(".xml"))parseSlide(in,slideNumber(name),out);
         });
         if(!presentationFound[0])throw new IOException("Missing PPTX presentation: corrupt or mismatched document type");
@@ -73,33 +69,42 @@ public final class WorkOoxmlParser {
     }
 
     private static void parseSharedStrings(InputStream in,ArrayList<String> out)throws Exception{
-        XmlPullParser p=parser(in);StringBuilder cur=null;
+        XmlPullParser p=parser(in);XmlRootGuard guard=new XmlRootGuard("XLSX shared strings","sst");StringBuilder cur=null;
         for(int ev=p.getEventType();ev!=XmlPullParser.END_DOCUMENT;ev=p.next()){
-            String n=p.getName();
+            guard.observe(p,ev);String n=p.getName();
             if(ev==XmlPullParser.START_TAG&&"si".equals(n))cur=new StringBuilder();
             else if(ev==XmlPullParser.START_TAG&&"t".equals(n)&&cur!=null){String t=p.nextText();if(!t.isEmpty()){if(cur.length()>0)cur.append(' ');cur.append(t);}}
             else if(ev==XmlPullParser.END_TAG&&"si".equals(n)&&cur!=null){out.add(clean(cur.toString()));cur=null;}
         }
+        guard.requireComplete();
     }
 
     private static void parseWorkbook(InputStream in,Map<String,String> ridName)throws Exception{
-        XmlPullParser p=parser(in);
-        for(int ev=p.getEventType();ev!=XmlPullParser.END_DOCUMENT;ev=p.next())if(ev==XmlPullParser.START_TAG&&"sheet".equals(p.getName())){
-            String name=attr(p,"name"),rid=attrAny(p,"id");if(!rid.isEmpty())ridName.put(rid,name);
+        XmlPullParser p=parser(in);XmlRootGuard guard=new XmlRootGuard("XLSX workbook","workbook");
+        for(int ev=p.getEventType();ev!=XmlPullParser.END_DOCUMENT;ev=p.next()){
+            guard.observe(p,ev);
+            if(ev==XmlPullParser.START_TAG&&"sheet".equals(p.getName())){
+                String name=attr(p,"name"),rid=attrAny(p,"id");if(!rid.isEmpty())ridName.put(rid,name);
+            }
         }
+        guard.requireComplete();
     }
 
     private static void parseWorkbookRels(InputStream in,Map<String,String> relTarget)throws Exception{
-        XmlPullParser p=parser(in);
-        for(int ev=p.getEventType();ev!=XmlPullParser.END_DOCUMENT;ev=p.next())if(ev==XmlPullParser.START_TAG&&"Relationship".equals(p.getName())){
-            String id=attr(p,"Id"),target=attr(p,"Target");if(!id.isEmpty()&&!target.isEmpty())relTarget.put(id,target);
+        XmlPullParser p=parser(in);XmlRootGuard guard=new XmlRootGuard("XLSX workbook relationships","Relationships");
+        for(int ev=p.getEventType();ev!=XmlPullParser.END_DOCUMENT;ev=p.next()){
+            guard.observe(p,ev);
+            if(ev==XmlPullParser.START_TAG&&"Relationship".equals(p.getName())){
+                String id=attr(p,"Id"),target=attr(p,"Target");if(!id.isEmpty()&&!target.isEmpty())relTarget.put(id,target);
+            }
         }
+        guard.requireComplete();
     }
 
     private static void parseSheet(InputStream in,String sheet,List<String> shared,WorkParsedDocument out)throws Exception{
-        XmlPullParser p=parser(in);WorkParsedDocument.Block row=null;String ref="",type="",formula="",value="";int rowNum=0;
+        XmlPullParser p=parser(in);XmlRootGuard guard=new XmlRootGuard("XLSX worksheet","worksheet");WorkParsedDocument.Block row=null;String ref="",type="",formula="",value="";int rowNum=0;
         for(int ev=p.getEventType();ev!=XmlPullParser.END_DOCUMENT;ev=p.next()){
-            String n=p.getName();
+            guard.observe(p,ev);String n=p.getName();
             if(ev==XmlPullParser.START_TAG&&"row".equals(n)){
                 row=new WorkParsedDocument.Block();row.kind="TABLE_ROW";row.sheetName=sheet;rowNum=intVal(attr(p,"r"),rowNum+1);row.rowNumber=rowNum;
             }else if(ev==XmlPullParser.START_TAG&&"c".equals(n)){ref=attr(p,"r");type=attr(p,"t");formula="";value="";
@@ -114,12 +119,13 @@ public final class WorkOoxmlParser {
                 row.text=text.toString();if(!row.cells.isEmpty())out.blocks.add(row);row=null;
             }
         }
+        guard.requireComplete();
     }
 
     private static void parseWordDocument(InputStream in,WorkParsedDocument out)throws Exception{
-        XmlPullParser p=parser(in);StringBuilder para=new StringBuilder(),cell=new StringBuilder();ArrayList<String> rowCells=new ArrayList<>();boolean inRow=false,inCell=false;
+        XmlPullParser p=parser(in);XmlRootGuard guard=new XmlRootGuard("DOCX main document","document");StringBuilder para=new StringBuilder(),cell=new StringBuilder();ArrayList<String> rowCells=new ArrayList<>();boolean inRow=false,inCell=false;
         for(int ev=p.getEventType();ev!=XmlPullParser.END_DOCUMENT;ev=p.next()){
-            String n=p.getName();
+            guard.observe(p,ev);String n=p.getName();
             if(ev==XmlPullParser.START_TAG&&"tr".equals(n)){inRow=true;rowCells.clear();}
             else if(ev==XmlPullParser.START_TAG&&"tc".equals(n)){inCell=true;cell.setLength(0);}
             else if(ev==XmlPullParser.START_TAG&&"p".equals(n)&&!inRow)para.setLength(0);
@@ -131,21 +137,52 @@ public final class WorkOoxmlParser {
                 StringBuilder text=new StringBuilder();for(int i=0;i<rowCells.size();i++){String v=rowCells.get(i);if(v.isEmpty())continue;b.cells.put("C"+(i+1),v);if(text.length()>0)text.append(" | ");text.append(v);}b.text=text.toString();if(!b.cells.isEmpty())out.blocks.add(b);inRow=false;
             }else if(ev==XmlPullParser.END_TAG&&"p".equals(n)&&!inRow){String t=clean(para.toString());if(!t.isEmpty())out.blocks.add(new WorkParsedDocument.Block("PARAGRAPH",t));}
         }
+        guard.requireComplete();
     }
 
     private static void parseSlide(InputStream in,int slide,WorkParsedDocument out)throws Exception{
-        XmlPullParser p=parser(in);StringBuilder s=new StringBuilder();
-        for(int ev=p.getEventType();ev!=XmlPullParser.END_DOCUMENT;ev=p.next())if(ev==XmlPullParser.START_TAG&&"t".equals(p.getName())){String t=p.nextText();if(!t.isEmpty()){if(s.length()>0)s.append("\n");s.append(t);}}
+        XmlPullParser p=parser(in);XmlRootGuard guard=new XmlRootGuard("PPTX slide","sld");StringBuilder s=new StringBuilder();
+        for(int ev=p.getEventType();ev!=XmlPullParser.END_DOCUMENT;ev=p.next()){
+            guard.observe(p,ev);
+            if(ev==XmlPullParser.START_TAG&&"t".equals(p.getName())){String t=p.nextText();if(!t.isEmpty()){if(s.length()>0)s.append("\n");s.append(t);}}
+        }
+        guard.requireComplete();
         String text=cleanLines(s.toString());if(!text.isEmpty()){WorkParsedDocument.Block b=new WorkParsedDocument.Block("SLIDE",text);b.slideNumber=slide;out.blocks.add(b);}
+    }
+
+    private static void consumeRequiredXml(InputStream in,String part,String expectedRoot)throws Exception{
+        XmlPullParser p=parser(in);XmlRootGuard guard=new XmlRootGuard(part,expectedRoot);
+        for(int ev=p.getEventType();ev!=XmlPullParser.END_DOCUMENT;ev=p.next())guard.observe(p,ev);
+        guard.requireComplete();
+    }
+
+    private static final class XmlRootGuard{
+        private final String part,expectedRoot;private String root;private boolean closed;
+        XmlRootGuard(String part,String expectedRoot){this.part=part;this.expectedRoot=expectedRoot;}
+        void observe(XmlPullParser p,int ev)throws IOException{
+            if(ev==XmlPullParser.START_TAG&&p.getDepth()==1){
+                String name=localName(p.getName());
+                if(root!=null)throw new IOException("Malformed "+part+": multiple root elements");
+                if(!expectedRoot.equals(name))throw new IOException("Malformed "+part+": expected <"+expectedRoot+"> root but found <"+name+">");
+                root=name;
+            }else if(ev==XmlPullParser.END_TAG&&p.getDepth()==1){
+                String name=localName(p.getName());
+                if(root==null||!root.equals(name))throw new IOException("Malformed "+part+": mismatched root end tag");
+                closed=true;
+            }
+        }
+        void requireComplete()throws IOException{if(root==null||!closed)throw new IOException("Malformed "+part+": incomplete XML document");}
     }
 
     private interface EntryVisitor{void visit(String name,InputStream in)throws Exception;}
     private static void visit(Context c,Uri uri,EntryVisitor visitor)throws Exception{
-        try(InputStream raw=c.getContentResolver().openInputStream(uri);ZipInputStream zip=new ZipInputStream(new BufferedInputStream(raw))){
+        InputStream opened=c.getContentResolver().openInputStream(uri);if(opened==null)throw new FileNotFoundException("Unable to open "+uri);
+        try(InputStream raw=opened;ZipInputStream zip=new ZipInputStream(new BufferedInputStream(raw))){
             ZipEntry e;while((e=zip.getNextEntry())!=null){if(!e.isDirectory())visitor.visit(e.getName(),zip);zip.closeEntry();}
         }
     }
     private static XmlPullParser parser(InputStream in)throws Exception{XmlPullParser p=XmlPullParserFactory.newInstance().newPullParser();p.setInput(in,"UTF-8");return p;}
+    private static String localName(String name){if(name==null)return "";int i=name.lastIndexOf(':');return i>=0?name.substring(i+1):name;}
     private static String attr(XmlPullParser p,String name){String v=p.getAttributeValue(null,name);return v==null?"":v;}
     private static String attrAny(XmlPullParser p,String local){for(int i=0;i<p.getAttributeCount();i++)if(local.equals(p.getAttributeName(i)))return p.getAttributeValue(i);return "";}
     private static int intVal(String s,int d){try{return Integer.parseInt(s);}catch(Exception e){return d;}}

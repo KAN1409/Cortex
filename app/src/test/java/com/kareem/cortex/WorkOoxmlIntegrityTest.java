@@ -46,9 +46,15 @@ public class WorkOoxmlIntegrityTest {
         }
     }
 
-    @Test public void missingFileAndMalformedXmlFailClosed() throws Exception {
+    @Test public void missingFilesWrongRootsAndMalformedXmlFailClosed() throws Exception {
         reject(new File(context.getCacheDir(),"absent-document.docx"),"docx");
-        reject(packageFile("word/document.xml","<document><body>"),"docx");
+        String[] extensions={"docx","xlsx","pptx"};
+        String[] entries={"word/document.xml","xl/workbook.xml","ppt/presentation.xml"};
+        String[] malformed={"<document><body>","<workbook><sheets>","<presentation><sldIdLst>"};
+        for(int i=0;i<extensions.length;i++){
+            reject(packageFile(entries[i],malformed[i]),extensions[i]);
+            reject(packageFile(entries[i],"<wrongRoot/>"),extensions[i]);
+        }
     }
 
     private void reject(File file,String ext)throws Exception{
