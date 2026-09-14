@@ -1,6 +1,7 @@
 package com.kareem.cortex;
 
 import android.app.Activity;
+import android.content.Intent;
 import android.database.Cursor;
 import android.database.sqlite.SQLiteDatabase;
 import android.view.Gravity;
@@ -19,7 +20,13 @@ public final class CortexPipelineStatusBar {
         TextView label=CortexUi.plain(a,statusLabel(s),10,color);CortexUi.medium(label);LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,-2,1);lp.setMargins(CortexUi.dp(a,8),0,0,0);top.addView(label,lp);
         String right=s.processing>0?s.processing+" processing":(s.paused>0?s.paused+" paused":(s.visibleNow>0?s.visibleNow+" judged now":"all caught up"));TextView numbers=CortexUi.plain(a,right,9,CortexUi.MUTED);top.addView(numbers);card.addView(top);
         long denom=Math.max(1,s.complete+s.processing);ProgressBar p=new ProgressBar(a,null,android.R.attr.progressBarStyleHorizontal);p.setMax((int)Math.min(Integer.MAX_VALUE,denom));p.setProgress((int)Math.min(p.getMax(),s.complete));p.setProgressTintList(android.content.res.ColorStateList.valueOf(color));p.setProgressBackgroundTintList(android.content.res.ColorStateList.valueOf(CortexUi.BORDER_SOFT));LinearLayout.LayoutParams pp=new LinearLayout.LayoutParams(-1,CortexUi.dp(a,3));pp.setMargins(0,CortexUi.dp(a,8),0,0);card.addView(p,pp);
-        String summaryText=s.processing>0?"Cortex is still understanding recent evidence. You can keep using the app.":(s.paused>0?"Some understanding is paused until its required capability is available. Your evidence remains intact.":"Current evidence is processed. Cortex will surface only what earns attention.");TextView summary=CortexUi.plain(a,summaryText,9,CortexUi.MUTED);summary.setPadding(0,CortexUi.dp(a,7),0,0);card.addView(summary);
+        String summaryText=s.processing>0?"Cortex is still understanding recent evidence. You can keep using the app.":(s.paused>0?"Some understanding is paused because the private background semantic model is unavailable. Your evidence remains intact.":"Current evidence is processed. Cortex will surface only what earns attention.");TextView summary=CortexUi.plain(a,summaryText,9,CortexUi.MUTED);summary.setPadding(0,CortexUi.dp(a,7),0,0);card.addView(summary);
+        if(s.paused>0&&!s.semanticCapabilityReady){
+            TextView setup=CortexUi.action(a,"SET UP LOCAL INTELLIGENCE",CortexUi.YELLOW,false);LinearLayout.LayoutParams slp=new LinearLayout.LayoutParams(-1,CortexUi.dp(a,40));slp.setMargins(0,CortexUi.dp(a,8),0,0);card.addView(setup,slp);setup.setOnClickListener(v->{CortexMotion.haptic(v,false);try{a.startActivity(new Intent(a,EnvironmentActivity.class));}catch(Throwable ignored){}});
+        }
+        String crash=CrashRecorder.read(a,2000),exit=ProcessExitRecorder.read(a,2000);if(!crash.trim().isEmpty()||!exit.trim().isEmpty()){
+            TextView diag=CortexUi.action(a,"PROCESS FAILURE EVIDENCE CAPTURED",CortexUi.ORANGE,false);LinearLayout.LayoutParams dlp=new LinearLayout.LayoutParams(-1,CortexUi.dp(a,40));dlp.setMargins(0,CortexUi.dp(a,7),0,0);card.addView(diag,dlp);diag.setOnClickListener(v->{CortexMotion.haptic(v,false);try{a.startActivity(new Intent(a,CrashReportActivity.class));}catch(Throwable ignored){}});
+        }
         TextView detail=CortexUi.plain(a,"Observed "+s.raw+"  •  semantic waiting "+s.semanticWaiting+"  •  semantic blocked "+s.semanticBlocked+"  •  media queued "+s.mediaQueued+"\nActive "+s.processing+"  •  paused "+s.paused+"  •  semantic capability "+(s.semanticCapabilityReady?"ready":"unavailable")+"\nJudged Now "+s.visibleNow+" / "+s.maxNow+"  •  evaluated "+s.judgedEvaluated+"  •  deferred "+s.judgedDeferred+"\nPolicy "+s.policyVersion+"  •  Brain memory "+s.brainMemory,9,CortexUi.FAINT);detail.setPadding(0,CortexUi.dp(a,9),0,0);detail.setVisibility(View.GONE);card.addView(detail);
         TextView hint=CortexUi.plain(a,"Pipeline details",9,CortexUi.FAINT);hint.setPadding(0,CortexUi.dp(a,6),0,0);card.addView(hint);
         card.setOnClickListener(v->{boolean open=detail.getVisibility()!=View.VISIBLE;detail.setVisibility(open?View.VISIBLE:View.GONE);hint.setText(open?"Hide details":"Pipeline details");CortexMotion.haptic(v,false);CortexMotion.enter(detail,0);});
