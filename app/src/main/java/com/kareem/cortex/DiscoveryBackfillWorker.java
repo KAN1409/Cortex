@@ -47,6 +47,6 @@ public final class DiscoveryBackfillWorker extends Worker {
                 .setBackoffCriteria(BackoffPolicy.EXPONENTIAL,15,TimeUnit.MINUTES);
         if(delaySeconds>0)b.setInitialDelay(delaySeconds,TimeUnit.SECONDS);
         WorkManager.getInstance(context.getApplicationContext())
-                .enqueueUniqueWork(UNIQUE+(delaySeconds>0?"-continuation":""),ExistingWorkPolicy.KEEP,b.build());
+                .enqueueUniqueWork(UNIQUE,delaySeconds>0?ExistingWorkPolicy.APPEND_OR_REPLACE:ExistingWorkPolicy.KEEP,b.build());
     }
 }
