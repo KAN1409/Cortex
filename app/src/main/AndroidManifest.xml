@@ -35,7 +35,7 @@
         <activity android:name=".WorkVaultAskActivity" android:exported="false" android:windowSoftInputMode="adjustResize" />
         <activity android:name=".WorkFollowUpActivity" android:exported="false" />
         <activity android:name=".WorkChatGptBuildActivity" android:exported="false" android:windowSoftInputMode="adjustResize" />
-        <activity android:name=".CognitiveShadowActivity" android:exported="true" />
+        <activity android:name=".CognitiveShadowActivity" android:exported="false" />
         <activity android:name=".CrashReportActivity" android:exported="false" />
         <activity android:name=".SatinBriefActivity" android:exported="false" />
         <activity android:name=".CortexOrbBriefActivity" android:exported="false" />
@@ -46,7 +46,7 @@
         <activity android:name=".ProposalCaptureActivity" android:exported="true" android:theme="@style/CaptureSheetTheme" android:windowSoftInputMode="adjustResize"><intent-filter><action android:name="android.intent.action.SEND" /><category android:name="android.intent.category.DEFAULT" /><data android:mimeType="*/*" /></intent-filter><intent-filter><action android:name="android.intent.action.SEND_MULTIPLE" /><category android:name="android.intent.category.DEFAULT" /><data android:mimeType="*/*" /></intent-filter></activity>
         <activity android:name=".CaptureResultActivity" android:exported="false" />
         <activity android:name=".ProposalCaptureResultActivity" android:exported="false" />
-        <activity android:name=".PinRecordWidgetActivity" android:exported="true" android:label="Add Cortex Voice widget" />
+        <activity android:name=".PinRecordWidgetActivity" android:exported="false" android:label="Add Cortex Voice widget" />
         <activity android:name=".PeopleProjectsActivity" android:exported="false" />
         <activity android:name=".ProposalPeopleProjectsActivity" android:exported="false" />
         <activity android:name=".SmartInboxActivity" android:exported="false" />
