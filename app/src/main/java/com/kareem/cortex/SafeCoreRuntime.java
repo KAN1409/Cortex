@@ -12,7 +12,7 @@ import java.util.concurrent.atomic.AtomicReference;
 
 /** Staged recovery bridge between a visually stable first activity and the full Cortex runtime. */
 public final class SafeCoreRuntime {
-    public static final String VERSION = "safe_core_runtime_007_entry_surface_recovery";
+    public static final String VERSION = "safe_core_runtime_008_exit_diagnostics";
     private static final long POST_RESUME_SETTLE_MS = 1200L;
 
     public enum Phase { COLD_START, UI_STABLE_PROBING, CORE_READY, CORE_FAILED }
@@ -36,6 +36,11 @@ public final class SafeCoreRuntime {
     private static void probeSafeCore(Context app){
         VaultDb db=null;
         try{
+            // Persist Android's authoritative reason for the previous process death before any
+            // heavier recovery work starts. This complements CrashRecorder for native crashes,
+            // ANRs, LMK/resource kills and initialization failures.
+            ProcessExitRecorder.captureHistoricalExit(app);
+
             db=new VaultDb(app);Cursor c=db.getReadableDatabase().rawQuery("SELECT 1",null);boolean ok=c.moveToFirst()&&c.getInt(0)==1;c.close();
             if(!ok)throw new IllegalStateException("database health probe returned no row");
             CapabilitySupervisor.recordHealthy(app,CapabilitySupervisor.Capability.DATABASE);
