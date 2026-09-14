@@ -36,9 +36,11 @@ public final class CrashRecorder {
     private static void write(Context context,Thread thread,Throwable error)throws Exception{
         File target=file(context),tmp=new File(context.getFilesDir(),FILE+".part");
         try(FileOutputStream fos=new FileOutputStream(tmp,false);PrintWriter p=new PrintWriter(new OutputStreamWriter(fos,"UTF-8"))){
-            p.println("CORTEX_LAST_CRASH_V1");
+            p.println("CORTEX_LAST_CRASH_V2");
             p.println("time="+new SimpleDateFormat("yyyy-MM-dd HH:mm:ss Z",Locale.US).format(new Date()));
             p.println("thread="+(thread==null?"unknown":thread.getName()));
+            p.println("version_name="+BuildConfig.VERSION_NAME);
+            p.println("version_code="+BuildConfig.VERSION_CODE);
             p.println("sdk="+Build.VERSION.SDK_INT);
             p.println("device="+safe(Build.MANUFACTURER)+" "+safe(Build.MODEL));
             p.println("process="+android.os.Process.myPid());
