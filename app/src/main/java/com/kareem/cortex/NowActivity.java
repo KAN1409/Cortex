@@ -30,6 +30,8 @@ public final class NowActivity extends PremiumHomeActivity {
     @Override void build(){
         DiscoveryV3BackfillWorker.enqueue(this);
         DiscoveryV3ResearchWorker.enqueue(this);
+        DiscoveryV3DeepScheduler.enable(this);
+        DiscoveryV3DeepScheduler.kick(this);
         LinearLayout root=new LinearLayout(this);root.setOrientation(LinearLayout.VERTICAL);root.setBackgroundColor(CortexUi.BG);
         ScrollView sv=new ScrollView(this);sv.setFillViewport(true);sv.setClipToPadding(false);sv.setVerticalScrollBarEnabled(false);
         content=new LinearLayout(this);content.setOrientation(LinearLayout.VERTICAL);content.setPadding(dp(18),dp(8),dp(18),dp(30));sv.addView(content);root.addView(sv,new LinearLayout.LayoutParams(-1,0,1));
