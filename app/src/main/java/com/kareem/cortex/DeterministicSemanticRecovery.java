@@ -7,7 +7,7 @@ import java.util.Locale;
 
 /** Recovery-only deterministic drain for semantic events parked while native inference is quarantined. */
 public final class DeterministicSemanticRecovery {
-    public static final String VERSION = "deterministic_semantic_recovery_004";
+    public static final String VERSION = "deterministic_semantic_recovery_005";
     private DeterministicSemanticRecovery() {}
 
     public static int recover(VaultDb vault, int maxRows) {
@@ -16,20 +16,28 @@ public final class DeterministicSemanticRecovery {
         UniversalEventStore.ensure(db);
         int limit = Math.max(1, Math.min(400, maxRows));
         Cursor c = db.rawQuery(
-                "SELECT e.id,r.source_key,r.technical_type,r.title,r.body,r.occurred_at " +
-                "FROM ue_semantic_events e JOIN ue_raw_observations r ON r.id=e.raw_observation_id " +
+                "SELECT e.id,r.id,r.source_key,r.technical_type,r.title,r.body,r.occurred_at " +
+                "FROM ue_semantic_events e LEFT JOIN ue_raw_observations r ON r.id=e.raw_observation_id " +
                 "WHERE e.semantic_state='waiting' AND e.superseded_by=0 " +
                 "ORDER BY e.occurred_at ASC LIMIT ?",
                 new String[]{String.valueOf(limit)});
-        int done = 0;
+        int handled = 0;
         try {
             while (c.moveToNext()) {
-                apply(db,c.getLong(0),nz(c.getString(1)),nz(c.getString(2)),nz(c.getString(3)),nz(c.getString(4)),false);
-                done++;
+                long eventId=c.getLong(0);boolean rawExists=!c.isNull(1);
+                if(!rawExists){blockOrphan(db,eventId);handled++;continue;}
+                apply(db,eventId,nz(c.getString(2)),nz(c.getString(3)),nz(c.getString(4)),nz(c.getString(5)),false);handled++;
             }
         } finally { c.close(); }
         repairLegacyDeterministicCommitments(db,5000);
-        return done;
+        return handled;
+    }
+
+    private static void blockOrphan(SQLiteDatabase db,long eventId){
+        ContentValues v=new ContentValues();v.put("semantic_type","unknown");v.put("intent","none");v.put("subject","");v.put("summary","");v.put("confidence",0.0);v.put("semantic_state","blocked");v.put("model_route",VERSION);v.put("reason","Raw observation is missing; blocked rather than inventing semantic evidence");
+        db.update("ue_semantic_events",v,"id=?",new String[]{String.valueOf(eventId)});
+        db.delete("ue_attention_items","semantic_event_id=?",new String[]{String.valueOf(eventId)});
+        try{UniversalEventStore.stage(db,0,eventId,"UNDERSTANDING","blocked",VERSION,"Raw observation missing; no semantic claim created","");}catch(Throwable ignored){}
     }
 
     private static void repairLegacyDeterministicCommitments(SQLiteDatabase db,int limit){
