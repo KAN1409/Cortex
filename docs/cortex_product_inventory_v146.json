@@ -1,0 +1,304 @@
+{
+  "schema_version": "cortex_product_inventory_v146_001",
+  "baseline": {
+    "repository": "KAN1409/Cortex",
+    "branch": "v146/hard-explicit-request-boundary",
+    "head_before_inventory": "237756e35c057f90effaaf710c5e1bbc38aaf6d2",
+    "application_id": "com.kareem.cortex",
+    "visible_label": "Cortex",
+    "manifest_launcher": "NowActivity",
+    "source_version_code": 129,
+    "source_version_name": "2.23.0-v109-true-1000-dashboard",
+    "ci_v146_supported_at_baseline": false
+  },
+  "metrics": {
+    "surface_count": 57,
+    "activity_count": 56,
+    "activity_alias_count": 1,
+    "primary_surface_count": 4,
+    "internal_surface_count": 11,
+    "duplicate_surface_groups": 6,
+    "canonical_action_count": 56,
+    "duplicate_action_candidates": 10,
+    "duplicate_settings_entries": 4,
+    "duplicate_diagnostic_entries": 10,
+    "declared_service_count": 7,
+    "declared_receiver_count": 1,
+    "declared_provider_count": 2,
+    "worker_class_count_observed": 25
+  },
+  "surface_classification": {
+    "PRODUCTION_PRIMARY": [
+      "NowActivity",
+      "WorkWorkspaceActivity",
+      "VisualMemoryActivity",
+      "CaptureHubActivity"
+    ],
+    "PRODUCTION_SECONDARY": [
+      "InputActivity",
+      "VoiceLibraryActivity",
+      "WorkVaultActivity",
+      "WorkVaultBrowseActivity",
+      "WorkVaultAskActivity",
+      "WorkFollowUpActivity",
+      "WorkChatGptBuildActivity",
+      "SmartInboxActivity",
+      "VaultActivity",
+      "PromptLibraryActivity",
+      "ProposalAskCortexActivity",
+      "VisualIntelligenceActivity",
+      "KnowledgeExplorerActivity"
+    ],
+    "DETAIL": [
+      "VoiceDetailActivity",
+      "CaptureResultActivity",
+      "ProposalCaptureResultActivity",
+      "ReviewQueueActivity",
+      "VisualMemoryDetailActivity"
+    ],
+    "SETTINGS": [
+      "CaptureOverviewActivity",
+      "SettingsActivity",
+      "CorrectionLearningActivity",
+      "FeatureHubActivity",
+      "PhoneContextAccessActivity",
+      "AsrSettingsActivity",
+      "OpenRouterSettingsActivity",
+      "GeminiSettingsActivity",
+      "ChatGptTeacherActivity"
+    ],
+    "EXTERNAL_ENTRY": [
+      "ProposalCaptureActivity",
+      "PinRecordWidgetActivity",
+      "CortexTeacherImportActivity"
+    ],
+    "INTERNAL_DIAGNOSTIC": [
+      "CognitiveShadowActivity",
+      "CrashReportActivity",
+      "CortexEndToEndActivity",
+      "RelevanceEvaluationActivity",
+      "CapabilityMatrixActivity",
+      "EnvironmentActivity",
+      "CortexStatusActivity",
+      "CortexAuditActivity",
+      "ExternalModelCheckActivity",
+      "OcrTestActivity",
+      "CortexAsrLabActivity"
+    ],
+    "DUPLICATE_CANDIDATE": [
+      "NexusActivity",
+      "SatinBriefActivity",
+      "CortexOrbBriefActivity",
+      "ProposalBriefActivity",
+      "PremiumHomeActivity (activity-alias -> ProposalBriefActivity)",
+      "SatinCaptureActivity",
+      "CaptureActivity",
+      "PeopleProjectsActivity",
+      "ProposalPeopleProjectsActivity",
+      "AskCortexActivity",
+      "BrainActivity"
+    ],
+    "LEGACY": [
+      "MainActivity"
+    ],
+    "UNKNOWN": []
+  },
+  "declared_components": {
+    "services": [
+      "LocalModelDownloadService",
+      "WorkVaultIndexService",
+      "CortexRecordService",
+      "NotificationCaptureService",
+      "CortexQuickTileService",
+      "UnderstandScreenTileService",
+      "CortexScreenAccessibilityService"
+    ],
+    "receivers": ["CortexRecordWidget"],
+    "providers": ["androidx.core.content.FileProvider", "rikka.shizuku.ShizukuProvider"],
+    "workers_observed": [
+      "AdjudicationRecoveryWorker",
+      "CortexAuditFinalizeWorker",
+      "CortexAuditSoakFinalizeWorker",
+      "CortexAuditSoakWorker",
+      "CortexAuditWorker",
+      "CortexChatGptBridgeWorker",
+      "CortexFunctionalAuditWorker",
+      "KnowledgeV2EnrichmentWorker",
+      "KnowledgeV2ExtractionWorker",
+      "KnowledgeV2ProjectionWorker",
+      "KnowledgeV2QualityWorker",
+      "NexusWorker",
+      "PhoneContextSyncWorker",
+      "ProactiveWorker",
+      "ReminderWorker",
+      "ScreenshotAnalysisWorker",
+      "ScreenshotDeepOcrWorker",
+      "StatefulMeaningWorker",
+      "UniversalReplayWorker",
+      "UniversalSemanticWorker",
+      "VisualIntelligenceWorker",
+      "VisualEvidenceBackfillWorker",
+      "OcrWorker",
+      "EmbeddingWorker",
+      "SemanticModelInstallWorker"
+    ]
+  },
+  "duplicate_surface_groups": [
+    {
+      "group_id": "now_brief_home",
+      "canonical_target": "NOW",
+      "members": ["NowActivity", "PremiumHomeActivity (alias)", "ProposalBriefActivity", "SatinBriefActivity", "CortexOrbBriefActivity", "NexusActivity"]
+    },
+    {
+      "group_id": "capture_entry",
+      "canonical_target": "CAPTURE + Cortex Dock",
+      "members": ["CaptureHubActivity", "InputActivity", "ProposalCaptureActivity", "CaptureActivity", "SatinCaptureActivity", "CaptureOverviewActivity", "MainActivity"]
+    },
+    {
+      "group_id": "ask_brain",
+      "canonical_target": "Cortex Dock / cortex.ask",
+      "members": ["ProposalAskCortexActivity", "AskCortexActivity", "BrainActivity", "WorkVaultAskActivity"]
+    },
+    {
+      "group_id": "people_projects",
+      "canonical_target": "WORK contextual knowledge",
+      "members": ["PeopleProjectsActivity", "ProposalPeopleProjectsActivity", "WorkWorkspaceActivity"]
+    },
+    {
+      "group_id": "memory_vault",
+      "canonical_target": "MEMORY",
+      "members": ["VisualMemoryActivity", "VaultActivity", "KnowledgeExplorerActivity", "MainActivity"]
+    },
+    {
+      "group_id": "diagnostics_health",
+      "canonical_target": "SYSTEM_HEALTH",
+      "members": ["CortexAuditActivity", "CortexStatusActivity", "CapabilityMatrixActivity", "EnvironmentActivity", "ExternalModelCheckActivity", "CortexEndToEndActivity", "RelevanceEvaluationActivity", "OcrTestActivity", "CortexAsrLabActivity", "CognitiveShadowActivity", "CrashReportActivity"]
+    }
+  ],
+  "action_inventory": [
+    "destination.now.open",
+    "destination.work.open",
+    "destination.memory.open",
+    "destination.capture.open",
+    "settings.open",
+    "dock.open",
+    "cortex.ask",
+    "capture.voice",
+    "capture.text",
+    "capture.image",
+    "capture.file",
+    "capture.share_import",
+    "capture.screen.setup",
+    "capture.pipeline.open",
+    "capture.evidence.open",
+    "capture.library.voice.open",
+    "capture.library.visual.open",
+    "capture.library.files.open",
+    "work.archive.open",
+    "work.ask",
+    "work.projects.open",
+    "work.followup.open",
+    "work.prices.open",
+    "work.files.open",
+    "work.build_chatgpt",
+    "memory.search",
+    "memory.sync",
+    "memory.ocr.retry",
+    "memory.semantic.enable_or_repair",
+    "memory.refresh",
+    "memory.knowledge.open",
+    "task.create",
+    "follow_up.create",
+    "wait_for.create",
+    "knowledge_note.create",
+    "calendar.prepare",
+    "call.prepare",
+    "message.prepare",
+    "email.prepare",
+    "project.link",
+    "web.search",
+    "app.open",
+    "evidence.open_original",
+    "feedback.record",
+    "system_health.open",
+    "diagnostics.crash.export",
+    "diagnostics.process_exit.export",
+    "diagnostics.attention_trace.export",
+    "diagnostics.e2e.run",
+    "permissions.accessibility.open",
+    "settings.asr.open",
+    "settings.reasoning_model.open",
+    "settings.gemini.open",
+    "settings.teacher.open",
+    "settings.learning.open",
+    "settings.privacy_integrations.open"
+  ],
+  "duplicate_action_groups": [
+    {
+      "action": "destination.work.open",
+      "controls": ["Bottom nav Work", "Now shortcut Work"]
+    },
+    {
+      "action": "destination.memory.open",
+      "controls": ["Bottom nav Memory", "Now shortcut Memory", "Capture library Visual Memory"]
+    },
+    {
+      "action": "destination.capture.open",
+      "controls": ["Bottom nav Capture", "Center + -> InputActivity", "CaptureHub primary surface"]
+    },
+    {
+      "action": "cortex.ask",
+      "controls": ["Now Ask Cortex", "ProposalAskCortexActivity", "Brain naming/path"]
+    },
+    {
+      "action": "capture.voice",
+      "controls": ["Input Voice tile", "Input Quick voice", "CaptureHub Voice", "MainActivity VOICE legacy"]
+    },
+    {
+      "action": "capture.image",
+      "controls": ["Input Photo", "CaptureHub Camera -> mode=photo", "CaptureHub Image -> mode=photo"]
+    },
+    {
+      "action": "capture.file",
+      "controls": ["Input File", "CaptureHub File", "MainActivity add/import legacy"]
+    },
+    {
+      "action": "settings.open",
+      "controls": ["Now Settings", "Input Settings", "ProposalAskCortex settings"]
+    },
+    {
+      "action": "work.archive.open",
+      "controls": ["Work header Archive", "Work hero OPEN ARCHIVE", "Work Create from archive"]
+    },
+    {
+      "action": "system_health.open",
+      "controls": ["Settings Cortex Test Lab", "Settings Cortex System Status", "Crash report export", "Process-exit export", "Attention trace export"]
+    }
+  ],
+  "known_contract_conflicts": [
+    {
+      "id": "launcher_contract_drift",
+      "runtime": "AndroidManifest launcher is NowActivity",
+      "documentation": "docs/CORTEX_PRODUCT_IDENTITY_CONTRACT.md says InputActivity"
+    },
+    {
+      "id": "publish_surface_model_drift",
+      "runtime": "Manifest mixes production, detail, settings, external, legacy and diagnostic activities",
+      "test": "CortexPublishAcceptanceTest treats every declared activity as a user surface"
+    },
+    {
+      "id": "ci_branch_version_drift",
+      "runtime": "v146 branch exists from the green v145 HEAD",
+      "ci": "android-build.yml has no v146 trigger/stamp and still names v145/v119 artifacts"
+    },
+    {
+      "id": "external_action_truth_gap",
+      "runtime": "External intent helpers report boolean transport success after startActivity; no durable receipt proves final effect"
+    }
+  ],
+  "rules": {
+    "deletion_policy": "No duplicate candidate is deleted until references, external entry points, tests, stored class-name risks and unique functionality are checked.",
+    "normal_primary_model": ["NOW", "WORK", "MEMORY", "CAPTURE"],
+    "diagnostic_policy": "Engineering diagnostics remain available internally but collapse to one production System Health entry."
+  }
+}
