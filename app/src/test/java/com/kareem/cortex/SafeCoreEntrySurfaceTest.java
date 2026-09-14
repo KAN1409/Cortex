@@ -15,16 +15,16 @@ import org.robolectric.RobolectricTestRunner;
 public class SafeCoreEntrySurfaceTest {
     @After public void cleanup(){SafeCoreRuntime.resetForTests();}
 
-    @Test public void actualLauncherIsNowActivityAndItsResumeArmsSafeCore(){
+    @Test public void actualLauncherIsCanonicalShellAndItsResumeArmsSafeCore(){
         Context context=ApplicationProvider.getApplicationContext();
         Intent launch=context.getPackageManager().getLaunchIntentForPackage(context.getPackageName());
         assertNotNull("Cortex must expose a launcher intent",launch);
         ComponentName component=launch.getComponent();
         assertNotNull("Launcher component must resolve",component);
-        assertEquals(NowActivity.class.getName(),component.getClassName());
+        assertEquals(CortexShellActivity.class.getName(),component.getClassName());
 
         SafeCoreRuntime.resetForTests();
-        NowActivity activity=Robolectric.buildActivity(NowActivity.class).get();
+        CortexShellActivity activity=Robolectric.buildActivity(CortexShellActivity.class).get();
         new SafeCoreLifecycle().onActivityResumed(activity);
         assertTrue("The actual launcher resume must arm SafeCoreRuntime",SafeCoreRuntime.armedForTests());
     }
