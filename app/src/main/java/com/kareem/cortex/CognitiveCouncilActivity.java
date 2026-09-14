@@ -61,7 +61,7 @@ public final class CognitiveCouncilActivity extends Activity {
     }
 
     void renderRuns(){
-        while(body.getChildCount()>8)body.removeViewAt(8);
+        while(body.getChildCount()>7)body.removeViewAt(7);
         SQLiteDatabase r=db.getReadableDatabase();DiscoveryV3Schema.ensure(r);
         Cursor c=r.rawQuery("SELECT r.id,r.situation_id,r.state,r.models_used,r.evidence_count,r.error,r.started_at,r.completed_at,s.label,s.domain "+
                 "FROM discovery_v3_council_runs r LEFT JOIN discovery_v3_situations s ON s.id=r.situation_id ORDER BY r.id DESC LIMIT 6",null);
