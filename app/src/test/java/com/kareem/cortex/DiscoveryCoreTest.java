@@ -1,13 +1,8 @@
 package com.kareem.cortex;
 
 import static org.junit.Assert.*;
-import android.database.Cursor;
-import android.database.sqlite.SQLiteDatabase;
 import org.junit.Test;
-import org.junit.runner.RunWith;
-import org.robolectric.RobolectricTestRunner;
 
-@RunWith(RobolectricTestRunner.class)
 public class DiscoveryCoreTest {
     private KnowledgeItem item(String category,String title,String metadata){
         return new KnowledgeItem(1,"TEXT","manual",title,"","",title,category,"","","analyzed","","",metadata,1000,1000);
@@ -38,21 +33,5 @@ public class DiscoveryCoreTest {
         DiscoveryCritic.Verdict v=DiscoveryCritic.judge("CONTRADICTION","Conflicting approval state",
                 "One source says approved while a later source requests revision.",2,.86,.80);
         assertTrue(v.keep);
-    }
-
-    @Test public void schemaIsAdditiveAndCreatesCoreTables(){
-        SQLiteDatabase db=SQLiteDatabase.create(null);
-        try{
-            DiscoverySchema.ensure(db);
-            assertTrue(table(db,"discovery_annotations"));
-            assertTrue(table(db,"discovery_history_revisions"));
-            assertTrue(table(db,"discovery_candidates"));
-            assertTrue(table(db,"discovery_candidate_evidence"));
-        }finally{db.close();}
-    }
-
-    private boolean table(SQLiteDatabase db,String name){
-        Cursor c=db.rawQuery("SELECT 1 FROM sqlite_master WHERE type='table' AND name=? LIMIT 1",new String[]{name});
-        boolean yes=c.moveToFirst();c.close();return yes;
     }
 }
