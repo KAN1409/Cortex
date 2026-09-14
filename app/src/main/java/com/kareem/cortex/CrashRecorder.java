@@ -11,12 +11,17 @@ import java.util.Locale;
 public final class CrashRecorder {
     private static volatile boolean installed=false;
     private static final String FILE="last_crash.txt";
+    private static final String PREVIOUS_FILE="last_crash_previous_build.txt";
     private CrashRecorder(){}
 
     public static synchronized void install(Context context){
         if(installed||context==null)return;
         installed=true;
         final Context app=context.getApplicationContext();
+        // A crash marker survives an in-place APK update by design. Keep that evidence, but rotate
+        // it away from the current-build slot so a fixed build is not permanently reported as
+        // crashing because of an exception produced by an older version.
+        try{rotateStaleBuildCrash(app);}catch(Throwable ignored){}
         final Thread.UncaughtExceptionHandler previous=Thread.getDefaultUncaughtExceptionHandler();
         Thread.setDefaultUncaughtExceptionHandler((thread,error)->{
             try{write(app,thread,error);}catch(Throwable ignored){}
@@ -27,11 +32,35 @@ public final class CrashRecorder {
     }
 
     public static File file(Context context){return new File(context.getFilesDir(),FILE);}
-    public static String read(Context context,int maxChars){
-        File f=file(context);if(!f.exists())return"";
+    public static File previousBuildFile(Context context){return new File(context.getFilesDir(),PREVIOUS_FILE);}
+    public static String read(Context context,int maxChars){return readFile(file(context),maxChars);}
+    public static String readPreviousBuild(Context context,int maxChars){return readFile(previousBuildFile(context),maxChars);}
+    public static void clear(Context context){try{File f=file(context);if(f.exists())f.delete();}catch(Throwable ignored){}}
+
+    private static String readFile(File f,int maxChars){
+        if(f==null||!f.exists())return"";
         try(BufferedReader r=new BufferedReader(new FileReader(f))){StringBuilder b=new StringBuilder();String line;while((line=r.readLine())!=null&&b.length()<Math.max(1000,maxChars)){b.append(line).append('\n');}String s=b.toString();return s.length()<=maxChars?s:s.substring(0,maxChars)+"\n…";}catch(Throwable ignored){return"";}
     }
-    public static void clear(Context context){try{File f=file(context);if(f.exists())f.delete();}catch(Throwable ignored){}}
+
+    private static void rotateStaleBuildCrash(Context context)throws Exception{
+        File current=file(context);if(!current.isFile())return;
+        int recorded=recordedVersionCode(current);
+        if(recorded<=0||recorded==BuildConfig.VERSION_CODE)return;
+        File previous=previousBuildFile(context);
+        if(previous.exists()&&!previous.delete())return;
+        if(!current.renameTo(previous)){copy(current,previous);if(!current.delete())return;}
+    }
+
+    private static int recordedVersionCode(File f){
+        try(BufferedReader r=new BufferedReader(new FileReader(f))){
+            String line;int n=0;
+            while((line=r.readLine())!=null&&n++<24){
+                if(line.startsWith("version_code="))return Integer.parseInt(line.substring("version_code=".length()).trim());
+                if(line.isEmpty())break;
+            }
+        }catch(Throwable ignored){}
+        return -1;
+    }
 
     private static void write(Context context,Thread thread,Throwable error)throws Exception{
         File target=file(context),tmp=new File(context.getFilesDir(),FILE+".part");
