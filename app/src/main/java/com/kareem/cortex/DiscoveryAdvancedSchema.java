@@ -40,6 +40,13 @@ public final class DiscoveryAdvancedSchema {
                 "UNIQUE(space,canonical_key,alias_norm))");
         db.execSQL("CREATE INDEX IF NOT EXISTS idx_discovery_alias_norm ON discovery_entity_aliases(space,alias_norm)");
 
+        db.execSQL("CREATE TABLE IF NOT EXISTS discovery_situation_links("+
+                "from_situation_id INTEGER NOT NULL,to_situation_id INTEGER NOT NULL,relation TEXT NOT NULL,reason TEXT,"+
+                "confidence REAL NOT NULL DEFAULT 0,created_at INTEGER NOT NULL,updated_at INTEGER NOT NULL,"+
+                "PRIMARY KEY(from_situation_id,to_situation_id,relation))");
+        db.execSQL("CREATE INDEX IF NOT EXISTS idx_discovery_situation_links_from ON discovery_situation_links(from_situation_id,confidence DESC)");
+        db.execSQL("CREATE INDEX IF NOT EXISTS idx_discovery_situation_links_to ON discovery_situation_links(to_situation_id,confidence DESC)");
+
         db.execSQL("INSERT OR REPLACE INTO discovery_meta(key,value,updated_at) VALUES('advanced_schema_version',?,?)",
                 new Object[]{VERSION,System.currentTimeMillis()});
     }
