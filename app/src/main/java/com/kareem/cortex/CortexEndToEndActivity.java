@@ -68,18 +68,20 @@ public class CortexEndToEndActivity extends Activity {
             String javaCrash=CrashRecorder.read(getApplicationContext(),60000),processExit=ProcessExitRecorder.read(getApplicationContext(),120000);
             runtime.put("lastJavaCrash",javaCrash);runtime.put("lastProcessExit",processExit);
 
-            vault=new VaultDb(getApplicationContext());
+            Context app=getApplicationContext();
+            vault=new VaultDb(app);
             long semanticWaiting=scalar(vault,"SELECT COUNT(*) FROM ue_semantic_events WHERE semantic_state='waiting' AND superseded_by=0");
             long semanticBlocked=scalar(vault,"SELECT COUNT(*) FROM ue_semantic_events WHERE semantic_state='blocked' AND superseded_by=0");
-            boolean localReady=LocalModelManager.installed(getApplicationContext());LocalModelManager.Status localStatus=LocalModelManager.status(getApplicationContext());
-            runtime.put("semanticWaiting",semanticWaiting);runtime.put("semanticBlocked",semanticBlocked);runtime.put("semanticCapabilityReady",localReady);runtime.put("localModelState",localStatus.state);runtime.put("localModelDetail",localStatus.detail);
-            if(semanticWaiting>0&&!localReady){tests.put(test("semantic_pipeline_readiness","FAIL",semanticWaiting+" semantic event(s) are waiting but the private background model is unavailable. Local model state="+localStatus.state));fail++;}
-            else if(!localReady){tests.put(test("semantic_pipeline_readiness","WARN","No semantic backlog is waiting now, but the private background model is unavailable. Local model state="+localStatus.state));warn++;}
-            else{tests.put(test("semantic_pipeline_readiness","PASS","Private background semantic model is ready; waiting="+semanticWaiting+" · blocked="+semanticBlocked));pass++;}
+            boolean localInstalled=LocalModelManager.installed(app),localVerified=LocalModelManager.verified(app),localReady=LocalLlmRuntime.ready(app);LocalModelManager.Status localStatus=LocalModelManager.status(app);LocalLlmRuntime.State localRuntime=LocalLlmRuntime.state(app);CapabilitySupervisor.Status localCapability=CapabilitySupervisor.status(app,CapabilitySupervisor.Capability.LOCAL_LLM_NATIVE);
+            runtime.put("semanticWaiting",semanticWaiting);runtime.put("semanticBlocked",semanticBlocked);runtime.put("semanticCapabilityReady",localReady);runtime.put("localModelInstalled",localInstalled);runtime.put("localModelVerified",localVerified);runtime.put("localModelState",localStatus.state);runtime.put("localModelDetail",localStatus.detail);runtime.put("localRuntimeState",localRuntime.state);runtime.put("localRuntimeError",localRuntime.error);runtime.put("localCapabilityState",localCapability.state.name());runtime.put("localCapabilityReason",localCapability.reason);
+            String semanticDetail="installed="+localInstalled+" · verified="+localVerified+" · runtime="+localRuntime.state+" · capability="+localCapability.state;
+            if(semanticWaiting>0&&!localReady){tests.put(test("semantic_pipeline_readiness","FAIL",semanticWaiting+" semantic event(s) are waiting but the private semantic runtime is not execution-ready. "+semanticDetail));fail++;}
+            else if(!localReady){tests.put(test("semantic_pipeline_readiness","WARN","No semantic backlog is waiting now, but the private semantic runtime is not execution-ready. "+semanticDetail));warn++;}
+            else{tests.put(test("semantic_pipeline_readiness","PASS","Private background semantic runtime is verified and inference-ready; waiting="+semanticWaiting+" · blocked="+semanticBlocked));pass++;}
 
             JSONArray capabilityStates=new JSONArray(),failedCaps=new JSONArray();int failedCount=0;
             for(CortexCapabilityRegistry.Capability c:CortexCapabilityRegistry.all()){
-                CortexCapabilityRegistry.State s=CortexCapabilityRegistry.evaluate(getApplicationContext(),vault,c);
+                CortexCapabilityRegistry.State s=CortexCapabilityRegistry.evaluate(app,vault,c);
                 if(CortexCapabilityRegistry.FAILED.equals(s.status)){failedCount++;JSONObject x=new JSONObject();x.put("number",c.number);x.put("key",c.key);x.put("title",c.title);x.put("status",s.status);x.put("detail",s.detail);failedCaps.put(x);capabilityStates.put(x);}
                 else if(!CortexCapabilityRegistry.ACTIVE.equals(s.status)&&!CortexCapabilityRegistry.READY.equals(s.status)){JSONObject x=new JSONObject();x.put("number",c.number);x.put("key",c.key);x.put("title",c.title);x.put("status",s.status);x.put("detail",s.detail);capabilityStates.put(x);}
             }
@@ -100,7 +102,7 @@ public class CortexEndToEndActivity extends Activity {
 
     JSONObject test(String id,String status,String detail)throws JSONException{return new JSONObject().put("id",id).put("status",status).put("detail",detail);}
     long scalar(VaultDb db,String sql){Cursor c=null;try{c=db.getReadableDatabase().rawQuery(sql,null);return c.moveToFirst()?c.getLong(0):0;}finally{if(c!=null)c.close();}}
-    boolean isFailureExit(String text){if(text==null)return false;return text.contains("reason=CRASH\n")||text.contains("reason=CRASH_NATIVE\n")||text.contains("reason=ANR\n")||text.contains("reason=INITIALIZATION_FAILURE\n")||text.contains("reason=EXCESSIVE_RESOURCE_USAGE\n")||text.contains("reason=LOW_MEMORY\n");}
+    boolean isFailureExit(String text){if(text==null)return false;return text.contains("reason=CRASH\n")||text.contains("reason=CRASH_NATIVE\n")||text.contains("reason=ANR\n")||text.contains("reason=INITIALIZATION_FAILURE\n")||text.contains("reason=EXCESSIVE_RESOURCE_USAGE\n")||text.contains("reason=LOW_MEMORY\n")||text.contains("reason=SIGNALED\n");}
     String readFile(File f)throws IOException{try(InputStream in=new FileInputStream(f);ByteArrayOutputStream out=new ByteArrayOutputStream()){byte[] b=new byte[8192];for(int n;(n=in.read(b))!=-1;)out.write(b,0,n);return new String(out.toByteArray(),StandardCharsets.UTF_8);}}
     void writeFile(File f,String text)throws IOException{File tmp=new File(f.getParentFile(),f.getName()+".part");try(OutputStream out=new FileOutputStream(tmp,false)){out.write(text.getBytes(StandardCharsets.UTF_8));out.flush();}if(f.exists()&&!f.delete())throw new IOException("Could not replace report");if(!tmp.renameTo(f))throw new IOException("Could not finalize report");}
 
