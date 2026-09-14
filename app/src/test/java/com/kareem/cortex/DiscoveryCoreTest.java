@@ -34,4 +34,16 @@ public class DiscoveryCoreTest {
                 "One source says approved while a later source requests revision.",2,.86,.80);
         assertTrue(v.keep);
     }
+
+    @Test public void domainReasonerRecognizesHealthAndProcurement(){
+        assertEquals("HEALTH",DiscoveryDomainReasoner.domain("LDL cholesterol lab result","lipid profile","LIFE"));
+        assertEquals("WORK_PROCUREMENT",DiscoveryDomainReasoner.domain("quotation supplier PO execution","Negma","WORK"));
+    }
+
+    @Test public void benchmarkSmokePassesPolicyChecks(){
+        DiscoveryBenchmark.Report r=DiscoveryBenchmark.policySmoke();
+        assertEquals(r.total,r.passed);
+        assertTrue(r.failures.isEmpty());
+    }
+
 }
