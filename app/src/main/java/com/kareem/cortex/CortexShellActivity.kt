@@ -6,6 +6,7 @@ import android.util.Log
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
+import androidx.activity.compose.ReportDrawnWhen
 import androidx.activity.compose.setContent
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -47,6 +48,13 @@ class CortexShellActivity : ComponentActivity() {
         setContent {
             val uiState by shellViewModel.uiState.collectAsStateWithLifecycle()
             val dockState by shellViewModel.dockState.collectAsStateWithLifecycle()
+            ReportDrawnWhen {
+                uiState.refreshedAt > 0L &&
+                    uiState.now.state != CortexShellViewModel.LoadState.LOADING &&
+                    uiState.work.state != CortexShellViewModel.LoadState.LOADING &&
+                    uiState.memory.state != CortexShellViewModel.LoadState.LOADING &&
+                    uiState.capture.state != CortexShellViewModel.LoadState.LOADING
+            }
             CortexTheme {
                 CortexShell(
                     selectedDestination = selectedDestination,
