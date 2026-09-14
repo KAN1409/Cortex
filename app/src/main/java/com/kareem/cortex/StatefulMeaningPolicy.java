@@ -114,8 +114,18 @@ public final class StatefulMeaningPolicy {
         String x=norm(subject);if(x.isEmpty())return"local";
         int i=x.lastIndexOf(" in ");if(i>=0&&i+4<x.length())x=x.substring(i+4).trim();
         else{int ar=x.lastIndexOf(" في ");if(ar>=0&&ar+4<x.length())x=x.substring(ar+4).trim();}
-        x=x.replaceAll("^-?\\d{1,3}\\s*°\\s*","").replaceAll("\\b(feels like|weather|temperature)\\b.*$","").trim();
-        String t=topic(x);return t.isEmpty()?"local":Fingerprint.text(t);
+        for(String part:x.split("[·•|]+")){
+            String candidate=weatherLocationCandidate(part);
+            if(!candidate.isEmpty())return Fingerprint.text(candidate);
+        }
+        String t=weatherLocationCandidate(x);return t.isEmpty()?"local":Fingerprint.text(t);
+    }
+    private static String weatherLocationCandidate(String value){
+        String x=norm(value);
+        x=x.replaceAll("-?\\d{1,3}\\s*°(?:\\s*[cf])?"," ");
+        x=x.replaceAll("\\b(weather|temperature|forecast|feels\\s+like|clear|sunny|cloudy|partly|mostly|rain|rainy|shower|showers|thunderstorm|thunderstorms|storm|haze|fog|wind|windy|humidity|high|low)\\b"," ");
+        x=x.replaceAll("(الطقس|درجة الحرارة|الحرارة|مشمس|صافي|غائم|ممطر|أمطار|امطار|رياح|رطوبة)"," ");
+        return topic(x.replaceAll("\\s+"," ").trim());
     }
     private static String sourceIdentity(String source){String s=n(source).toLowerCase(Locale.ROOT);return s.isEmpty()?"":Fingerprint.text(s);}
     private static String phone(String s){String digits=s.replaceAll("[^0-9+]","");String only=digits.replaceAll("\\D","");return only.length()>=7&&only.length()<=15?only:"";}
