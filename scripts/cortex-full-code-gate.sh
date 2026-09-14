@@ -53,7 +53,6 @@ for name in files:
         data=p.read_bytes()
     except OSError:
         continue
-    # Signing material and opaque binary/base64 assets are deliberately outside code review.
     if '\x00' in data[:4096].decode('latin1'):
         continue
     lines=data.count(b'\n') + (1 if data and not data.endswith(b'\n') else 0)
@@ -95,7 +94,7 @@ run_gate shell_syntax bash -c 'set -euo pipefail; while IFS= read -r f; do bash 
 run_gate whitespace_and_conflict_check git diff --check HEAD
 
 if [ -f chatgpt-bridge/package.json ]; then
-  run_gate bridge_install bash -c 'cd chatgpt-bridge && npm install --no-audit --no-fund'
+  run_gate bridge_install bash -c 'cd chatgpt-bridge && npm install --no-audit --no-fund --package-lock=false'
   run_gate bridge_typecheck bash -c 'cd chatgpt-bridge && npm run check'
 fi
 
