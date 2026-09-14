@@ -9,11 +9,12 @@ import android.database.sqlite.SQLiteDatabase;
  * A process death may abandon a claim, but it cannot strand the semantic event forever.
  */
 public final class UniversalSemanticQueueStore {
-    public static final String VERSION="semantic_queue_001";
+    public static final String VERSION="semantic_queue_002";
     public static final int MAX_ATTEMPTS=4;
     public static final long LEASE_MS=5L*60L*1000L;
     private static final long BASE_RETRY_MS=30_000L;
     private static final long MAX_RETRY_MS=15L*60L*1000L;
+    private static final String RUNTIME_BLOCK_PREFIX="RUNTIME_BLOCK:";
     private UniversalSemanticQueueStore(){}
 
     public static void ensure(SQLiteDatabase db){
@@ -68,12 +69,12 @@ public final class UniversalSemanticQueueStore {
     }
 
     public static void markRuntimeBlocked(SQLiteDatabase db,String detail){
-        ensure(db);ContentValues e=new ContentValues();e.put("semantic_state","blocked");e.put("model_route","local_background_model");e.put("semantic_claimed_at",0);e.put("semantic_next_attempt_at",0);e.put("semantic_last_error",safe(detail));e.put("reason",safe(detail));db.update("ue_semantic_events",e,"semantic_state='waiting' AND superseded_by=0",null);
+        ensure(db);String clean=safe(detail),marker=RUNTIME_BLOCK_PREFIX+clean;ContentValues e=new ContentValues();e.put("semantic_state","blocked");e.put("model_route","local_background_model");e.put("semantic_claimed_at",0);e.put("semantic_next_attempt_at",0);e.put("semantic_last_error",marker);e.put("reason",clean);db.update("ue_semantic_events",e,"semantic_state='waiting' AND superseded_by=0",null);
     }
 
-    /** Resume only model-runtime blocks; evidence-integrity blocks remain blocked. */
+    /** Resume only model-runtime blocks; evidence-integrity and exhausted-retry blocks stay blocked. */
     public static int resumeRuntimeBlocked(SQLiteDatabase db){
-        ensure(db);ContentValues e=new ContentValues();e.put("semantic_state","waiting");e.put("semantic_claimed_at",0);e.put("semantic_next_attempt_at",0);e.put("semantic_last_error","");e.put("reason","Local runtime recovered; semantic refinement resumed");return db.update("ue_semantic_events",e,"semantic_state='blocked' AND superseded_by=0 AND model_route='local_background_model' AND (semantic_last_error<>'' OR reason LIKE 'Local runtime%')",null);
+        ensure(db);ContentValues e=new ContentValues();e.put("semantic_state","waiting");e.put("semantic_claimed_at",0);e.put("semantic_next_attempt_at",0);e.put("semantic_last_error","");e.put("reason","Local runtime recovered; semantic refinement resumed");return db.update("ue_semantic_events",e,"semantic_state='blocked' AND superseded_by=0 AND model_route='local_background_model' AND semantic_last_error LIKE ?",new String[]{RUNTIME_BLOCK_PREFIX+"%"});
     }
 
     public static boolean hasPending(SQLiteDatabase db){ensure(db);Cursor c=db.rawQuery("SELECT 1 FROM ue_semantic_events WHERE semantic_state IN ('waiting','running') AND superseded_by=0 LIMIT 1",null);boolean yes=c.moveToFirst();c.close();return yes;}
