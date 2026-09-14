@@ -94,6 +94,12 @@ jobs:
       - name: Run Android lint
         run: gradle :app:lintDebug --stacktrace
 
+      - name: Compile instrumentation accessibility contracts
+        shell: bash
+        run: |
+          set -o pipefail
+          gradle :app:assembleDebugAndroidTest --stacktrace 2>&1 | tee app/build/diagnostics/android-test-compile-console.log
+
       - name: Upload v146 unit-test diagnostics on failure
         if: failure() && github.ref_name == 'v146/hard-explicit-request-boundary'
         uses: actions/upload-artifact@v4
@@ -101,6 +107,7 @@ jobs:
           name: Cortex-v146-unit-test-diagnostics
           path: |
             app/build/diagnostics/unit-test-console.log
+            app/build/diagnostics/android-test-compile-console.log
             app/build/test-results/testDebugUnitTest/**
             app/build/reports/tests/testDebugUnitTest/**
             app/build/reports/lint-results-debug.html
@@ -115,6 +122,7 @@ jobs:
           name: Cortex-v145-unit-test-diagnostics
           path: |
             app/build/diagnostics/unit-test-console.log
+            app/build/diagnostics/android-test-compile-console.log
             app/build/test-results/testDebugUnitTest/**
             app/build/reports/tests/testDebugUnitTest/**
             app/build/reports/lint-results-debug.html
