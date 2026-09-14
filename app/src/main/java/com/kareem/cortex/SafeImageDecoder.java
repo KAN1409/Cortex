@@ -3,7 +3,7 @@ package com.kareem.cortex;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Matrix;
-import android.media.ExifInterface;
+import androidx.exifinterface.media.ExifInterface;
 import java.io.File;
 
 /** Memory-bounded image decoding shared by OCR paths. Never decode a camera image at full size. */
