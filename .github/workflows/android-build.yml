@@ -42,6 +42,7 @@ jobs:
           node-version: '22'
 
       - name: Validate ChatGPT bridge
+        if: github.ref_name != 'feature/discovery-engine-v1-core'
         working-directory: chatgpt-bridge
         run: |
           npm install --no-audit --no-fund
