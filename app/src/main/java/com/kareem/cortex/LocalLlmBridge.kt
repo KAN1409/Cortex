@@ -113,7 +113,7 @@ object LocalLlmBridge {
         requireNativeAllowed()
         runBlocking {
             val threads = min(4, max(2, Runtime.getRuntime().availableProcessors() - 2))
-            val config = LlamaConfig(contextSize = 2048, threads = threads, gpuLayers = 0, temperature = 0.25f, topP = 0.92f, topK = 40)
+            val config = LlamaConfig(contextSize = 4096, threads = threads, gpuLayers = 0, temperature = 0.25f, topP = 0.92f, topK = 40)
             val totalStarted = System.currentTimeMillis()
             var loadMs = 0L
             var hit = cachedModel != null && cachedModelPath == modelPath
