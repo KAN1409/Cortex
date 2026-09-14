@@ -14,6 +14,7 @@ BUILD = ROOT / "app/build.gradle"
 WORKFLOW = ROOT / ".github/workflows/android-build.yml"
 NAVIGATION = ROOT / "app/src/main/java/com/kareem/cortex/CortexNavigation.java"
 PRODUCTION_ACCEPTANCE = ROOT / "app/src/androidTest/java/com/kareem/cortex/CortexPublishAcceptanceTest.java"
+PRODUCTION_SECONDARY_ACCEPTANCE = ROOT / "app/src/androidTest/java/com/kareem/cortex/CortexProductionSecondaryAcceptanceTest.java"
 INTERNAL_DIAGNOSTIC_ACCEPTANCE = ROOT / "app/src/androidTest/java/com/kareem/cortex/CortexInternalDiagnosticCoverageTest.java"
 ANDROID = "{http://schemas.android.com/apk/res/android}"
 
@@ -32,9 +33,19 @@ FORBIDDEN_EXPORTED_DIAGNOSTICS = {
     ".ExternalModelCheckActivity",
     ".RelevanceEvaluationActivity",
     ".EnvironmentActivity",
-    ".CortexStatusActivity",
     ".CognitiveShadowActivity",
     ".CrashReportActivity",
+}
+PRODUCTION_SECONDARY_INTERNAL_ONLY = {".SettingsActivity", ".CortexStatusActivity"}
+EXPECTED_LEGACY_ALIASES = {
+    ".NowActivity": ".CortexShellActivity",
+    ".SatinBriefActivity": ".ProposalBriefActivity",
+    ".CortexOrbBriefActivity": ".ProposalBriefActivity",
+    ".PremiumHomeActivity": ".ProposalBriefActivity",
+    ".CaptureActivity": ".ProposalCaptureActivity",
+    ".SatinCaptureActivity": ".ProposalCaptureActivity",
+    ".PeopleProjectsActivity": ".ProposalPeopleProjectsActivity",
+    ".AskCortexActivity": ".ProposalAskCortexActivity",
 }
 
 
@@ -86,13 +97,27 @@ def verify_manifest() -> None:
     resolved_launcher = launcher(root)
     if resolved_launcher != EXPECTED_LAUNCHER:
         fail(f"launcher drifted: {resolved_launcher}; expected {EXPECTED_LAUNCHER}")
-    for activity in app.findall("activity"):
-        name = activity.attrib.get(ANDROID + "name", "")
-        if name not in FORBIDDEN_EXPORTED_DIAGNOSTICS:
-            continue
+
+    activity_by_name = {x.attrib.get(ANDROID + "name", ""): x for x in app.findall("activity")}
+    for name in FORBIDDEN_EXPORTED_DIAGNOSTICS | PRODUCTION_SECONDARY_INTERNAL_ONLY:
+        activity = activity_by_name.get(name)
+        if activity is None:
+            fail(f"required activity missing from manifest: {name}")
         exported = activity.attrib.get(ANDROID + "exported", "false").lower() == "true"
         if exported:
-            fail(f"internal diagnostic is externally exported: {name}")
+            fail(f"internal-only activity is externally exported: {name}")
+
+    aliases = {
+        x.attrib.get(ANDROID + "name", ""): x.attrib.get(ANDROID + "targetActivity", "")
+        for x in app.findall("activity-alias")
+    }
+    for alias, target in EXPECTED_LEGACY_ALIASES.items():
+        actual = aliases.get(alias)
+        if actual != target:
+            fail(f"legacy surface alias drifted: {alias} -> {actual!r}; expected {target}")
+        alias_node = next(x for x in app.findall("activity-alias") if x.attrib.get(ANDROID + "name", "") == alias)
+        if alias_node.attrib.get(ANDROID + "exported", "false").lower() == "true":
+            fail(f"legacy compatibility alias must stay internal: {alias}")
 
 
 def verify_build(expected_code: int | None, expected_name: str | None) -> None:
@@ -139,6 +164,8 @@ def verify_release_workflow() -> None:
         fail("v146 CI versionName stamp drifted")
     if "python tools/verify_product_contracts.py" not in workflow:
         fail("Android CI no longer enforces the product identity contract")
+    if ":app:assembleDebugAndroidTest" not in workflow:
+        fail("instrumentation accessibility contracts are no longer compiled in CI")
 
 
 def verify_navigation_contract() -> None:
@@ -148,6 +175,7 @@ def verify_navigation_contract() -> None:
         "EXTRA_DESTINATION_ID",
         "EXTRA_OPEN_DOCK",
         "openDock(Activity from)",
+        "CortexStatusActivity.class",
     ]
     for token in required:
         if token not in navigation:
@@ -156,6 +184,7 @@ def verify_navigation_contract() -> None:
 
 def verify_acceptance_split() -> None:
     production = text(PRODUCTION_ACCEPTANCE)
+    secondary = text(PRODUCTION_SECONDARY_ACCEPTANCE)
     internal = text(INTERNAL_DIAGNOSTIC_ACCEPTANCE)
     if "CortexDestinationRegistry.primary()" not in production:
         fail("production surface acceptance is not derived from canonical primary destinations")
@@ -163,10 +192,15 @@ def verify_acceptance_split() -> None:
         fail("legacy every-manifest-activity production acceptance philosophy returned")
     for activity in FORBIDDEN_EXPORTED_DIAGNOSTICS:
         simple = activity.removeprefix(".")
-        if simple in production:
-            fail(f"internal diagnostic leaked into production surface acceptance: {simple}")
+        if simple in production or simple in secondary:
+            fail(f"internal diagnostic leaked into production acceptance: {simple}")
         if simple not in internal:
             fail(f"internal diagnostic lost runtime coverage: {simple}")
+    for simple in ("SettingsActivity", "CortexStatusActivity"):
+        if simple not in secondary:
+            fail(f"production secondary user surface lost acceptance coverage: {simple}")
+        if simple in internal:
+            fail(f"production secondary user surface incorrectly classified as diagnostic: {simple}")
     if "assertFalse(\"Internal diagnostic must not be exported:" not in internal:
         fail("internal diagnostic runtime suite no longer asserts non-exported status")
 
@@ -182,7 +216,7 @@ def main() -> int:
     verify_release_workflow()
     verify_navigation_contract()
     verify_acceptance_split()
-    print("CORTEX_CONTRACT_PASS: identity, shell launcher, signing, v146 release, diagnostic export and acceptance boundaries")
+    print("CORTEX_CONTRACT_PASS: identity, shell launcher, signing, v146 release, legacy aliases, user health, diagnostic isolation and acceptance boundaries")
     return 0
 
 
