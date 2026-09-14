@@ -52,12 +52,12 @@ public class CortexFullApplicationSimulationTest {
             assertNotNull(launch);
             ComponentName component=launch.getComponent();
             assertNotNull(component);
-            assertEquals(NowActivity.class.getName(), component.getClassName());
+            assertEquals(CortexShellActivity.class.getName(), component.getClassName());
         });
 
         stage("LAUNCHER_SAFE_CORE", () -> {
             SafeCoreRuntime.resetForTests();
-            NowActivity activity=Robolectric.buildActivity(NowActivity.class).get();
+            CortexShellActivity activity=Robolectric.buildActivity(CortexShellActivity.class).get();
             new SafeCoreLifecycle().onActivityResumed(activity);
             assertTrue(SafeCoreRuntime.armedForTests());
             assertEquals("v102_reindexed_after_entry_surface_fix", DocumentIntelligenceMigration.preferenceKeyForTests());
