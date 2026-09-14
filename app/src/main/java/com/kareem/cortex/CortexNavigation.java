@@ -75,7 +75,7 @@ public final class CortexNavigation {
         CortexDestinationRegistry.Destination destination = CortexDestinationRegistry.require(destinationId);
         if (destination.category == CortexDestinationRegistry.Category.PRIMARY) return CortexShellActivity.class;
         if (CortexDestinationRegistry.SETTINGS.equals(destination.destinationId)) return SettingsActivity.class;
-        if (CortexDestinationRegistry.SYSTEM_HEALTH.equals(destination.destinationId)) return CortexAuditActivity.class;
+        if (CortexDestinationRegistry.SYSTEM_HEALTH.equals(destination.destinationId)) return CortexStatusActivity.class;
         throw new IllegalArgumentException("No implementation mapped for destination " + destination.destinationId);
     }
 }

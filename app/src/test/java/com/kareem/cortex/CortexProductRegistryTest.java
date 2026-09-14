@@ -45,4 +45,9 @@ public final class CortexProductRegistryTest {
             assertNotEquals(CortexDestinationRegistry.SETTINGS, d.destinationId);
         }
     }
+
+    @Test public void systemHealthMapsToUserFacingStatusNotInternalAudit() {
+        assertEquals(CortexStatusActivity.class, CortexNavigation.activityFor(CortexDestinationRegistry.SYSTEM_HEALTH));
+        assertNotEquals(CortexAuditActivity.class, CortexNavigation.activityFor(CortexDestinationRegistry.SYSTEM_HEALTH));
+    }
 }

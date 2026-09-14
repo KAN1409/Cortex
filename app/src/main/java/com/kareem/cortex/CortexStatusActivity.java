@@ -1,41 +1,134 @@
 package com.kareem.cortex;
 
 import android.app.*;
-import android.content.*;
-import android.database.Cursor;
-import android.database.sqlite.SQLiteDatabase;
-import android.graphics.Color;
-import android.graphics.drawable.GradientDrawable;
 import android.os.*;
 import android.view.*;
 import android.widget.*;
-import org.json.JSONObject;
 import java.util.*;
+import java.util.concurrent.*;
 
-/** Human-readable live dashboard for development/advanced diagnostics. */
+/** User-facing health summary. Engineering diagnostics remain in dedicated internal Activities. */
 public class CortexStatusActivity extends Activity {
-    VaultDb db;LinearLayout box;Handler h=new Handler(Looper.getMainLooper());TextView headline,current,fast,vision,model,quality,backend,storage;ProgressBar fastBar,visionBar;Button openVision;
-    int bg=Color.rgb(11,12,14),surface=Color.rgb(24,26,30),text=Color.rgb(245,244,240),muted=Color.rgb(156,159,168),accent=Color.rgb(232,177,72),ok=Color.rgb(120,205,150),warn=Color.rgb(238,184,94),border=Color.rgb(47,50,57);
-    int dp(int x){return(int)(x*getResources().getDisplayMetrics().density+.5f);}GradientDrawable round(int fill,int stroke,int r){GradientDrawable g=new GradientDrawable();g.setColor(fill);g.setCornerRadius(dp(r));g.setStroke(dp(1),stroke);return g;}TextView tv(String s,int sp,int c){TextView v=new TextView(this);v.setTextSize(sp);v.setTextColor(c);CortexTextUi.setPlain(v,s);return v;}
-    @Override public void onCreate(Bundle b){super.onCreate(b);db=new VaultDb(this);VisualInsightStore.ensure(db);DiagnosticsLog.ensure(db);RelevanceEvaluationStore.ensure(db);build();refresh();}
-    @Override protected void onResume(){super.onResume();h.post(tick);ScreenshotWorkScheduler.kick(this);}@Override protected void onPause(){super.onPause();h.removeCallbacks(tick);}Runnable tick=new Runnable(){public void run(){if(!isFinishing()){refresh();h.postDelayed(this,1200);}}};
+    private static final Set<String> CORE = Collections.unmodifiableSet(new HashSet<>(Arrays.asList(
+            "app_identity","components","db_integrity","db_schema","vault_readability",
+            "grounded_ask","semantic_retrieval","smart_inbox","interaction_telemetry"
+    )));
 
-    void build(){ScrollView sv=new ScrollView(this);box=new LinearLayout(this);box.setOrientation(LinearLayout.VERTICAL);box.setPadding(dp(18),dp(18),dp(18),dp(30));box.setBackgroundColor(bg);sv.addView(box);TextView title=tv("CORTEX STATUS",27,text);title.setTypeface(null,1);box.addView(title);TextView sub=tv("What Cortex is doing, what is useful already, and what is waiting.",13,muted);sub.setPadding(0,dp(4),0,dp(16));box.addView(sub);
-        headline=card("RIGHT NOW");current=card("CURRENT IMAGE");fast=card("FAST TEXT EXTRACTION");fastBar=bar();box.addView(fastBar,barLp());vision=card("VISUAL INTELLIGENCE");visionBar=bar();box.addView(visionBar,barLp());openVision=button("OPEN VISUAL INTELLIGENCE INSPECTOR");openVision.setOnClickListener(v->{long id=currentVisualItem();Intent i=new Intent(this,VisualIntelligenceActivity.class);if(id>0)i.putExtra("item_id",id);startActivity(i);});box.addView(openVision,lp());model=card("LOCAL BRAIN");quality=card("RELEVANCE QUALITY");backend=card("BACKEND HEALTH");storage=card("VAULT");TextView note=tv("Advanced status is diagnostic only. Daily Cortex screens should surface useful intelligence rather than model, database or pipeline internals.",12,muted);note.setPadding(dp(4),dp(10),dp(4),0);box.addView(note);setContentView(sv);}
-    TextView card(String title){LinearLayout c=new LinearLayout(this);c.setOrientation(LinearLayout.VERTICAL);c.setPadding(dp(16),dp(14),dp(16),dp(14));c.setBackground(round(surface,border,20));TextView t=tv(title,11,accent);t.setTypeface(null,1);c.addView(t);TextView state=tv("",14,text);state.setPadding(0,dp(7),0,0);c.addView(state);LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,-2);p.setMargins(0,0,0,dp(10));box.addView(c,p);return state;}
-    Button button(String s){Button b=new Button(this);b.setText(s);b.setTextSize(11);b.setTextColor(text);b.setAllCaps(false);b.setBackground(round(surface,border,16));return b;}LinearLayout.LayoutParams lp(){LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,dp(48));p.setMargins(0,0,0,dp(12));return p;}ProgressBar bar(){ProgressBar p=new ProgressBar(this,null,android.R.attr.progressBarStyleHorizontal);p.setMax(1000);return p;}LinearLayout.LayoutParams barLp(){LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,dp(7));p.setMargins(dp(4),-dp(5),dp(4),dp(12));return p;}
+    private LinearLayout body,issuesBox;
+    private TextView stateText,summaryText,setupText,refresh;
+    private final ExecutorService worker=Executors.newSingleThreadExecutor(r->{Thread t=new Thread(r,"CortexSystemHealth");t.setPriority(Thread.NORM_PRIORITY-1);return t;});
+    private volatile boolean destroyed=false,running=false;
+    private boolean resumedOnce=false;
 
-    void refresh(){SQLiteDatabase s=db.getReadableDatabase();int total=count(s,"SELECT COUNT(*) FROM knowledge_items WHERE source='screenshot-folder' AND type IN ('SCREENSHOT','IMAGE')"),analyzed=count(s,"SELECT COUNT(*) FROM knowledge_items WHERE source='screenshot-folder' AND type IN ('SCREENSHOT','IMAGE') AND status='analyzed'"),queued=count(s,"SELECT COUNT(*) FROM knowledge_items WHERE source='screenshot-folder' AND type IN ('SCREENSHOT','IMAGE') AND status='queued'"),analyzing=count(s,"SELECT COUNT(*) FROM knowledge_items WHERE source='screenshot-folder' AND type IN ('SCREENSHOT','IMAGE') AND status='analyzing'");boolean charging=charging();
-        long start=VisualInsightStore.existingBackgroundStart(this);int visionDone=VisualInsightStore.countDone(db),visionSkipped=VisualInsightStore.countSkipped(db),visionFailed=VisualInsightStore.countFailed(db),visionPending=start>0?VisualInsightStore.countPendingSince(db,start):0;String ws=VisualInsightStore.workerState(this),stage=VisualInsightStore.workerStage(this),detail=VisualInsightStore.workerDetail(this);long wi=VisualInsightStore.workerItem(this);
-        String now;if(analyzing>0)now="Making a new screenshot searchable.";else if("running".equals(ws))now="Understanding a screenshot visually now.";else if(visionPending>0&&!charging)now="New screenshots are ready for visual understanding when the phone is charging.";else if(visionPending>0)now="Visual Intelligence is waiting for its background worker.";else now="Cortex is caught up with new screenshot work.";headline.setText(now+"\n"+(charging?"Phone is charging.":"Phone is not charging."));headline.setTextColor((queued==0&&analyzing==0&&visionPending==0&&!"running".equals(ws))?ok:text);
-        if(wi>0){KnowledgeItem k=db.getById(wi);current.setText((k==null?"Screenshot":clean(k.title))+"\n"+empty(stage,"Visual Intelligence")+(detail.isEmpty()?"":"\n"+clip(detail,180)));}else{long latest=currentVisualItem();KnowledgeItem k=latest>0?db.getById(latest):null;current.setText(k==null?"No screenshot available yet.":"Latest screenshot: "+clean(k.title)+"\nOpen the inspector to see the real image and its useful result.");}
-        fast.setText(analyzed+" of "+total+" screenshots have searchable evidence"+(queued>0?" • "+queued+" waiting":"")+(analyzing>0?" • "+analyzing+" being read":"")+"\nThis is supporting text extraction, not the final understanding.");fastBar.setProgress(total==0?0:(int)Math.min(1000,(analyzed*1000L)/total));
-        int backgroundTotal=visionDone+visionSkipped+visionFailed+visionPending,finished=visionDone+visionSkipped+visionFailed;vision.setText(visionDone+" screenshots fully understood with strong vision\n"+visionSkipped+" protected/skipped locally • "+visionFailed+" failed • "+visionPending+" new screenshots waiting");visionBar.setProgress(backgroundTotal==0?0:(int)Math.min(1000,(finished*1000L)/backgroundTotal));
-        LocalLlmRuntime.State rt=LocalLlmRuntime.state(this);model.setText(LocalModelManager.installed(this)?"Local Qwen is ready for reasoning.\nLast self-test: "+String.format(Locale.US,"%.2f tokens/sec",rt.tokensPerSecond):"Local Qwen is not ready yet.");model.setTextColor(LocalModelManager.installed(this)?ok:warn);
-        JSONObject q=RelevanceEvaluationStore.matrix(db);int evals=q.optInt("total"),withModel=q.optInt("with_model"),verdicts=q.optInt("with_user_verdict"),disagree=q.optInt("rule_model_disagreement"),confirmed=q.optInt("confirmed_reviews"),rejected=q.optInt("rejected_reviews");quality.setText(evals+" thread decisions measured • "+withModel+" checked by local model • "+verdicts+" have user verdicts\n"+disagree+" rule/model disagreements • "+confirmed+" confirmed reviews • "+rejected+" rejected reviews");quality.setTextColor(evals>0?text:muted);
-        long day=System.currentTimeMillis()-24L*60L*60L*1000L;int errors=count(s,"SELECT COUNT(*) FROM diagnostics_log WHERE severity IN ('ERROR','CRITICAL') AND created_at>="+day),warnings=count(s,"SELECT COUNT(*) FROM diagnostics_log WHERE severity='WARNING' AND created_at>="+day);backend.setText("Schema "+CognitiveStore.schemaRevision(db)+" • DB v"+CognitiveSchema.DB_VERSION+"\nLast 24h: "+errors+" errors • "+warnings+" warnings • diagnostics retained locally");backend.setTextColor(errors>0?warn:ok);
-        int memories=count(s,"SELECT COUNT(*) FROM knowledge_items"),txt=count(s,"SELECT COUNT(*) FROM knowledge_items WHERE COALESCE(extracted_text,'')<>''");storage.setText(memories+" original memories saved • "+txt+" have supporting extracted text • "+visionDone+" have visual understanding");}
-    long currentVisualItem(){long wi=VisualInsightStore.workerItem(this);if(wi>0)return wi;try(Cursor c=db.getReadableDatabase().rawQuery("SELECT id FROM knowledge_items WHERE source='screenshot-folder' AND type IN ('SCREENSHOT','IMAGE') ORDER BY created_at DESC LIMIT 1",null)){return c.moveToFirst()?c.getLong(0):0;}}
-    boolean charging(){Intent i=registerReceiver(null,new IntentFilter(Intent.ACTION_BATTERY_CHANGED));if(i==null)return false;int st=i.getIntExtra(BatteryManager.EXTRA_STATUS,-1);return st==BatteryManager.BATTERY_STATUS_CHARGING||st==BatteryManager.BATTERY_STATUS_FULL;}
-    int count(SQLiteDatabase s,String q){try(Cursor c=s.rawQuery(q,null)){return c.moveToFirst()?c.getInt(0):0;}catch(Exception e){return 0;}}String clean(String x){if(x==null||x.trim().isEmpty())return"Screenshot";String s=x.trim();return s.length()>90?s.substring(0,90)+"…":s;}String clip(String s,int n){return s==null?"":(s.length()<=n?s:s.substring(0,n)+"…");}String empty(String s,String f){return s==null||s.trim().isEmpty()?f:s;}
+    int dp(int x){return CortexUi.dp(this,x);}
+
+    @Override public void onCreate(Bundle b){
+        super.onCreate(b);
+        CortexUi.applyWindow(this);
+        build();
+        refreshHealth();
+    }
+
+    @Override protected void onResume(){
+        super.onResume();
+        if(resumedOnce)refreshHealth(); else resumedOnce=true;
+    }
+
+    @Override protected void onDestroy(){
+        destroyed=true;
+        worker.shutdownNow();
+        super.onDestroy();
+    }
+
+    private void build(){
+        LinearLayout root=new LinearLayout(this);root.setOrientation(LinearLayout.VERTICAL);root.setBackgroundColor(CortexUi.BG);
+        ScrollView sv=new ScrollView(this);body=new LinearLayout(this);body.setOrientation(LinearLayout.VERTICAL);body.setPadding(dp(20),dp(14),dp(20),dp(30));sv.addView(body);root.addView(sv,new LinearLayout.LayoutParams(-1,0,1));
+
+        LinearLayout head=new LinearLayout(this);head.setGravity(Gravity.CENTER_VERTICAL);
+        TextView back=CortexUi.plain(this,"‹",34,CortexUi.TEXT);back.setGravity(Gravity.CENTER);back.setContentDescription("Back");back.setOnClickListener(v->finish());head.addView(back,new LinearLayout.LayoutParams(dp(48),dp(48)));
+        LinearLayout titles=new LinearLayout(this);titles.setOrientation(LinearLayout.VERTICAL);head.addView(titles,new LinearLayout.LayoutParams(0,-2,1));
+        TextView title=CortexUi.plain(this,"System Health",29,CortexUi.TEXT);CortexUi.medium(title);titles.addView(title);
+        TextView sub=CortexUi.text(this,"A simple live check of the Cortex paths that protect your data and results.",11,CortexUi.MUTED);sub.setPadding(0,dp(2),0,0);titles.addView(sub);body.addView(head);
+
+        LinearLayout hero=CortexUi.card(this,24);hero.setPadding(dp(16),dp(18),dp(16),dp(18));
+        TextView eyebrow=CortexUi.plain(this,"CORTEX STATUS",11,CortexUi.MUTED);CortexUi.medium(eyebrow);hero.addView(eyebrow);
+        stateText=CortexUi.plain(this,"CHECKING…",28,CortexUi.TEXT);CortexUi.medium(stateText);stateText.setPadding(0,dp(8),0,0);hero.addView(stateText);
+        summaryText=CortexUi.text(this,"Reading core data, memory and intelligence paths.",13,CortexUi.MUTED);summaryText.setPadding(0,dp(8),0,0);hero.addView(summaryText);
+        setupText=CortexUi.text(this,"",11,CortexUi.MUTED);setupText.setPadding(0,dp(8),0,0);hero.addView(setupText);
+        body.addView(hero,lp(0,16,0,0));
+
+        refresh=CortexUi.action(this,"REFRESH HEALTH",CortexUi.LIME,true);refresh.setContentDescription("Refresh System Health");refresh.setOnClickListener(v->refreshHealth());body.addView(refresh,lp(0,12,0,0));
+
+        body.addView(CortexUi.section(this,"Needs attention"));
+        issuesBox=new LinearLayout(this);issuesBox.setOrientation(LinearLayout.VERTICAL);body.addView(issuesBox);
+        TextView note=CortexUi.text(this,"Optional permissions and providers do not count as failures by themselves. Cortex will ask for them when a feature actually needs them.",11,CortexUi.MUTED);note.setPadding(dp(2),dp(14),dp(2),0);body.addView(note);
+
+        setContentView(root);CortexUi.fitSystemBars(this,root);
+    }
+
+    private void refreshHealth(){
+        if(destroyed||worker.isShutdown()||running)return;
+        running=true;refresh.setEnabled(false);refresh.setText("CHECKING…");stateText.setText("CHECKING…");stateText.setTextColor(CortexUi.TEXT);summaryText.setText("Reading core data, memory and intelligence paths.");
+        try{worker.execute(()->{
+            Health health=evaluate();
+            post(()->render(health));
+        });}catch(RejectedExecutionException ignored){running=false;}
+    }
+
+    private Health evaluate(){
+        VaultDb db=null;
+        ArrayList<Issue> critical=new ArrayList<>(),degraded=new ArrayList<>();
+        int setup=0;
+        try{
+            db=new VaultDb(getApplicationContext());
+            for(CortexCapabilityRegistry.Capability c:CortexCapabilityRegistry.all()){
+                CortexCapabilityRegistry.State s=CortexCapabilityRegistry.evaluate(getApplicationContext(),db,c);
+                if(CortexCapabilityRegistry.FAILED.equals(s.status)){
+                    Issue issue=new Issue(c.title,s.detail,CortexRemediation.canHandle(c.title));
+                    if(CORE.contains(c.key))critical.add(issue);else degraded.add(issue);
+                }else if(CortexCapabilityRegistry.NOT_VERIFIED.equals(s.status)){
+                    degraded.add(new Issue(c.title,s.detail,CortexRemediation.canHandle(c.title)));
+                }else if(CortexCapabilityRegistry.NEEDS_ACCESS.equals(s.status)||CortexCapabilityRegistry.NEEDS_SETUP.equals(s.status)){
+                    setup++;
+                }
+            }
+        }catch(Throwable t){
+            critical.add(new Issue("System health check","Cortex could not complete the live health evaluation: "+safe(t.getMessage()),false));
+        }finally{if(db!=null)try{db.close();}catch(Throwable ignored){}}
+        String level=critical.isEmpty()?(degraded.isEmpty()?"HEALTHY":"DEGRADED"):"NEEDS ATTENTION";
+        ArrayList<Issue> shown=new ArrayList<>();shown.addAll(critical);shown.addAll(degraded);
+        return new Health(level,shown,critical.size(),degraded.size(),setup);
+    }
+
+    private void render(Health h){
+        if(destroyed)return;
+        running=false;refresh.setEnabled(true);refresh.setText("REFRESH HEALTH");
+        int color="HEALTHY".equals(h.level)?CortexUi.GREEN:("DEGRADED".equals(h.level)?CortexUi.YELLOW:CortexUi.RED);
+        stateText.setText(h.level);stateText.setTextColor(color);
+        if("HEALTHY".equals(h.level))summaryText.setText("Core Cortex data, memory and intelligence paths are operating normally.");
+        else if("DEGRADED".equals(h.level))summaryText.setText("Core Cortex remains available, but "+h.degraded+" non-core subsystem"+(h.degraded==1?" is":"s are")+" reporting a failure.");
+        else summaryText.setText(h.critical+" core problem"+(h.critical==1?" needs":"s need")+" attention before Cortex can claim full health.");
+        setupText.setText(h.setup>0?h.setup+" optional connection"+(h.setup==1?" is":"s are")+" not configured. This is not counted as a failure.":"No optional setup is blocking this health result.");
+        issuesBox.removeAllViews();
+        if(h.issues.isEmpty()){
+            TextView ok=CortexUi.text(this,"No active failures need your attention.",13,CortexUi.MUTED);ok.setPadding(dp(2),dp(8),dp(2),dp(10));issuesBox.addView(ok);return;
+        }
+        for(Issue issue:h.issues)addIssue(issue);
+    }
+
+    private void addIssue(Issue issue){
+        LinearLayout row=new LinearLayout(this);row.setOrientation(LinearLayout.HORIZONTAL);row.setGravity(Gravity.CENTER_VERTICAL);row.setPadding(dp(2),dp(14),dp(2),dp(14));
+        TextView dot=CortexUi.plain(this,"•",20,CortexUi.RED);dot.setGravity(Gravity.TOP|Gravity.CENTER_HORIZONTAL);row.addView(dot,new LinearLayout.LayoutParams(dp(24),dp(48)));
+        LinearLayout tx=new LinearLayout(this);tx.setOrientation(LinearLayout.VERTICAL);row.addView(tx,new LinearLayout.LayoutParams(0,-2,1));
+        TextView title=CortexUi.plain(this,issue.title,15,CortexUi.TEXT);CortexUi.medium(title);tx.addView(title);
+        TextView detail=CortexUi.text(this,issue.detail,11,CortexUi.MUTED);detail.setPadding(0,dp(3),0,0);tx.addView(detail);
+        if(issue.fixable){TextView fix=CortexUi.plain(this,"Tap to fix",10,CortexUi.LIME);fix.setPadding(0,dp(5),0,0);tx.addView(fix);row.setContentDescription(issue.title+". Tap to fix.");CortexUi.pressable(this,row,CortexUi.round(this,android.graphics.Color.TRANSPARENT,android.graphics.Color.TRANSPARENT,12));row.setOnClickListener(v->CortexRemediation.open(this,issue.title));}
+        issuesBox.addView(row);issuesBox.addView(CortexUi.divider(this),new LinearLayout.LayoutParams(-1,dp(1)));
+    }
+
+    private void post(Runnable r){if(destroyed||isFinishing()||isDestroyed())return;runOnUiThread(()->{if(!destroyed&&!isFinishing()&&!isDestroyed())r.run();});}
+    private LinearLayout.LayoutParams lp(int l,int t,int r,int b){LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,-2);p.setMargins(dp(l),dp(t),dp(r),dp(b));return p;}
+    private static String safe(String s){return s==null?"":s.trim();}
+    private static final class Issue{final String title,detail;final boolean fixable;Issue(String t,String d,boolean f){title=t;detail=d;fixable=f;}}
+    private static final class Health{final String level;final ArrayList<Issue> issues;final int critical,degraded,setup;Health(String l,ArrayList<Issue> i,int c,int d,int s){level=l;issues=i;critical=c;degraded=d;setup=s;}}
 }
