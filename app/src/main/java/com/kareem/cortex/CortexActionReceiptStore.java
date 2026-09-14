@@ -13,11 +13,11 @@ public final class CortexActionReceiptStore {
     private CortexActionReceiptStore(){}
 
     public static final class Receipt {
-        public final long receiptId,sourceItemId,createdAt,validatedAt,approvedAt,dispatchedAt,observedAt,verifiedAt;
+        public final long receiptId,sourceItemId,createdAt,validatedAt,approvedAt,dispatchedAt,observedAt,verifiedAt,updatedAt;
         public final String requestId,canonicalActionId,executor,verificationMethod,inputHash,idempotencyKey,executionStatus,verificationStatus,resultSummary,evidenceType,evidenceReference,evidenceHash,failureCode,failureReason,undoReference,metadataJson;
         public final boolean undoSupported;
         Receipt(Cursor c){
-            receiptId=g(c,"receipt_id");requestId=s(c,"request_id");canonicalActionId=s(c,"canonical_action_id");sourceItemId=g(c,"source_item_id");createdAt=g(c,"created_at");validatedAt=g(c,"validated_at");approvedAt=g(c,"approved_at");dispatchedAt=g(c,"dispatched_at");observedAt=g(c,"observed_at");verifiedAt=g(c,"verified_at");executor=s(c,"executor");verificationMethod=s(c,"verification_method");inputHash=s(c,"input_hash");idempotencyKey=s(c,"idempotency_key");executionStatus=s(c,"execution_status");verificationStatus=s(c,"verification_status");resultSummary=s(c,"result_summary");evidenceType=s(c,"evidence_type");evidenceReference=s(c,"evidence_reference");evidenceHash=s(c,"evidence_hash");failureCode=s(c,"failure_code");failureReason=s(c,"failure_reason");undoSupported=g(c,"undo_supported")!=0;undoReference=s(c,"undo_reference");metadataJson=s(c,"metadata_json");
+            receiptId=g(c,"receipt_id");requestId=s(c,"request_id");canonicalActionId=s(c,"canonical_action_id");sourceItemId=g(c,"source_item_id");createdAt=g(c,"created_at");validatedAt=g(c,"validated_at");approvedAt=g(c,"approved_at");dispatchedAt=g(c,"dispatched_at");observedAt=g(c,"observed_at");verifiedAt=g(c,"verified_at");executor=s(c,"executor");verificationMethod=s(c,"verification_method");inputHash=s(c,"input_hash");idempotencyKey=s(c,"idempotency_key");executionStatus=s(c,"execution_status");verificationStatus=s(c,"verification_status");resultSummary=s(c,"result_summary");evidenceType=s(c,"evidence_type");evidenceReference=s(c,"evidence_reference");evidenceHash=s(c,"evidence_hash");failureCode=s(c,"failure_code");failureReason=s(c,"failure_reason");undoSupported=g(c,"undo_supported")!=0;undoReference=s(c,"undo_reference");metadataJson=s(c,"metadata_json");updatedAt=g(c,"updated_at");
         }
     }
 
