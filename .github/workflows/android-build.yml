@@ -2,7 +2,7 @@ name: Android Debug APK
 
 on:
   push:
-    branches: [ main, v71/visual-memory-u1, v72/visual-memory-u2-provenance, v73/nav-picbrain, v74/u2-structured-knowledge, v80/cortex-major-unified, v81/nexus-inside-cortex, v82/chatgpt-policy-bridge, v83/intelligence-layer-reorg, v86/work-vault, v105/chatgpt-gmail-bridge, v106/gmail-bridge-fallback, v107/gmail-mime-decoder, v108/free-intelligence-comparison-teaching, v109/true-1000-scenarios-dashboard, v110/run-scoped-gmail-poll, v111/bridge-rejection-diagnostics, v112/persistent-bridge-diagnostics, v113/canonical-hash-roundtrip, v114/bridge-state-machine-root-fix, v115/convergent-gmail-poll, v116/imap-literal-root-fix, v117/dual-source-verdict-discovery, v118/structured-resolution-judge, v119/hard-explicit-request-boundary ]
+    branches: [ main, v71/visual-memory-u1, v72/visual-memory-u2-provenance, v73/nav-picbrain, v74/u2-structured-knowledge, v80/cortex-major-unified, v81/nexus-inside-cortex, v82/chatgpt-policy-bridge, v83/intelligence-layer-reorg, v86/work-vault, v105/chatgpt-gmail-bridge, v106/gmail-bridge-fallback, v107/gmail-mime-decoder, v108/free-intelligence-comparison-teaching, v109/true-1000-scenarios-dashboard, v110/run-scoped-gmail-poll, v111/bridge-rejection-diagnostics, v112/persistent-bridge-diagnostics, v113/canonical-hash-roundtrip, v114/bridge-state-machine-root-fix, v115/convergent-gmail-poll, v116/imap-literal-root-fix, v117/dual-source-verdict-discovery, v118/structured-resolution-judge, v119/hard-explicit-request-boundary, v146/hard-explicit-request-boundary ]
   pull_request:
     branches: [ main ]
   workflow_dispatch:
@@ -17,10 +17,13 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 30
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Verify source product contracts
+        run: python tools/verify_product_contracts.py
 
       - name: Stamp v119 update-safe version
         if: github.ref_name == 'v119/hard-explicit-request-boundary'
@@ -35,6 +38,29 @@ jobs:
           p.write_text(s)
           PY
           grep -E 'versionCode|versionName' app/build.gradle
+
+      - name: Stamp v146 update-safe version
+        if: github.ref_name == 'v146/hard-explicit-request-boundary'
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+          p = Path('app/build.gradle')
+          s = p.read_text()
+          s, code_count = re.subn(r'versionCode\s+\d+', 'versionCode 146', s, count=1)
+          s, name_count = re.subn(r"versionName\s+['\"][^'\"]+['\"]", "versionName '2.34.0-v146-ui-action-truth'", s, count=1)
+          if code_count != 1 or name_count != 1:
+              raise SystemExit(f'v146 version stamping failed: code={code_count} name={name_count}')
+          p.write_text(s)
+          PY
+          python tools/verify_product_contracts.py \
+            --expected-version-code 146 \
+            --expected-version-name 2.34.0-v146-ui-action-truth
+          grep -E 'versionCode|versionName' app/build.gradle
+
+      - name: Verify post-stamp product contracts
+        run: python tools/verify_product_contracts.py
 
       - name: Set up Node 22
         uses: actions/setup-node@v4
@@ -65,8 +91,25 @@ jobs:
           set -o pipefail
           gradle :app:testDebugUnitTest --info --stacktrace 2>&1 | tee app/build/diagnostics/unit-test-console.log
 
-      - name: Upload unit-test diagnostics on failure
-        if: failure()
+      - name: Run Android lint
+        run: gradle :app:lintDebug --stacktrace
+
+      - name: Upload v146 unit-test diagnostics on failure
+        if: failure() && github.ref_name == 'v146/hard-explicit-request-boundary'
+        uses: actions/upload-artifact@v4
+        with:
+          name: Cortex-v146-unit-test-diagnostics
+          path: |
+            app/build/diagnostics/unit-test-console.log
+            app/build/test-results/testDebugUnitTest/**
+            app/build/reports/tests/testDebugUnitTest/**
+            app/build/reports/lint-results-debug.html
+            app/build/reports/lint-results-debug.xml
+          if-no-files-found: warn
+          retention-days: 3
+
+      - name: Upload legacy unit-test diagnostics on failure
+        if: failure() && github.ref_name != 'v146/hard-explicit-request-boundary'
         uses: actions/upload-artifact@v4
         with:
           name: Cortex-v145-unit-test-diagnostics
@@ -74,13 +117,24 @@ jobs:
             app/build/diagnostics/unit-test-console.log
             app/build/test-results/testDebugUnitTest/**
             app/build/reports/tests/testDebugUnitTest/**
-          if-no-files-found: error
+            app/build/reports/lint-results-debug.html
+            app/build/reports/lint-results-debug.xml
+          if-no-files-found: warn
           retention-days: 3
 
       - name: Build debug APK
         run: gradle :app:assembleDebug --stacktrace
 
-      - name: Upload debug APK
+      - name: Upload v146 debug APK
+        if: github.ref_name == 'v146/hard-explicit-request-boundary'
+        uses: actions/upload-artifact@v4
+        with:
+          name: Cortex-v146-hard-explicit-request-boundary-ci
+          path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+
+      - name: Upload legacy debug APK
+        if: github.ref_name != 'v146/hard-explicit-request-boundary'
         uses: actions/upload-artifact@v4
         with:
           name: Cortex-v119-hard-explicit-request-boundary-ci

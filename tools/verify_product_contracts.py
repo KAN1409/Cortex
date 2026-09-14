@@ -11,11 +11,15 @@ import xml.etree.ElementTree as ET
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 MANIFEST = ROOT / "app/src/main/AndroidManifest.xml"
 BUILD = ROOT / "app/build.gradle"
+WORKFLOW = ROOT / ".github/workflows/android-build.yml"
 ANDROID = "{http://schemas.android.com/apk/res/android}"
 
 EXPECTED_APP_ID = "com.kareem.cortex"
 EXPECTED_LABEL = "Cortex"
 EXPECTED_LAUNCHER = ".NowActivity"
+EXPECTED_V146_BRANCH = "v146/hard-explicit-request-boundary"
+EXPECTED_V146_VERSION_CODE = 146
+EXPECTED_V146_VERSION_NAME = "2.34.0-v146-ui-action-truth"
 FORBIDDEN_EXPORTED_DIAGNOSTICS = {
     ".CortexEndToEndActivity",
     ".CortexAuditActivity",
@@ -93,8 +97,10 @@ def verify_build(expected_code: int | None, expected_name: str | None) -> None:
     app_id = one(r"applicationId\s+['\"]([^'\"]+)['\"]", source, "applicationId")
     if app_id != EXPECTED_APP_ID:
         fail(f"applicationId drifted: {app_id}")
-    if "storeFile file('cortex-debug.keystore')" not in source:
-        fail("permanent Cortex signing keystore path is not configured")
+    if "def cortexDebugKeystore = file('cortex-debug.keystore')" not in source:
+        fail("permanent Cortex signing keystore path variable drifted")
+    if not re.search(r"signingConfigs\s*\{.*?debug\s*\{.*?storeFile\s+cortexDebugKeystore", source, re.DOTALL):
+        fail("debug signing config no longer uses the permanent Cortex keystore")
     if "keyAlias 'androiddebugkey'" not in source:
         fail("permanent Cortex signing key alias drifted")
     if expected_code is not None:
@@ -119,6 +125,18 @@ def verify_identity_document() -> None:
             fail(f"identity document is stale; missing {token}")
 
 
+def verify_release_workflow() -> None:
+    workflow = text(WORKFLOW)
+    if EXPECTED_V146_BRANCH not in workflow:
+        fail("v146 branch is not a first-class Android CI trigger")
+    if f"versionCode {EXPECTED_V146_VERSION_CODE}" not in workflow:
+        fail("v146 CI versionCode stamp drifted")
+    if EXPECTED_V146_VERSION_NAME not in workflow:
+        fail("v146 CI versionName stamp drifted")
+    if "python tools/verify_product_contracts.py" not in workflow:
+        fail("Android CI no longer enforces the product identity contract")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--expected-version-code", type=int)
@@ -127,7 +145,8 @@ def main() -> int:
     verify_manifest()
     verify_build(args.expected_version_code, args.expected_version_name)
     verify_identity_document()
-    print("CORTEX_CONTRACT_PASS: identity, launcher, signing config and diagnostic export boundaries")
+    verify_release_workflow()
+    print("CORTEX_CONTRACT_PASS: identity, launcher, signing, v146 release and diagnostic export boundaries")
     return 0
 
 
