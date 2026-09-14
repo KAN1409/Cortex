@@ -7,12 +7,12 @@ import org.json.JSONObject;
 
 /** Incrementally rebuilds stateful identity/correlation/projection tables from immutable UE evidence. */
 public final class StatefulMeaningRebuilder {
-    public static final String PROCESSOR_VERSION="stateful_rebuilder_005";
+    public static final String PROCESSOR_VERSION="stateful_rebuilder_006";
     private StatefulMeaningRebuilder(){}
 
     public static int run(VaultDb vault,int maxRows){
         if(vault==null)return 0;SQLiteDatabase db=vault.getWritableDatabase();UniversalEventStore.ensure(db);StatefulMeaningStore.ensure(db);CommitmentLifecycleStore.ensure(db);CanonicalStateStore.ensure(db);CortexV91Authority.migrate(db);
-        int budget=Math.max(1,Math.min(500,maxRows)),done=0;retireLegacyDirectProjections(db);quarantineInvalidSituations(db);done+=rebuildObservations(db,budget-done);if(done<budget)done+=rebuildSemantic(vault,db,budget-done);CommitmentLifecycleStore.rebuild(db,Math.max(8,Math.min(80,budget/2)));CortexV91Authority.enforceLive(db);return done;
+        int budget=Math.max(1,Math.min(500,maxRows)),done=0;retireLegacyDirectProjections(db);quarantineInvalidSituations(db);StatefulMeaningStore.reconcileTransientSituations(db);done+=rebuildObservations(db,budget-done);if(done<budget)done+=rebuildSemantic(vault,db,budget-done);CommitmentLifecycleStore.rebuild(db,Math.max(8,Math.min(80,budget/2)));CortexV91Authority.enforceLive(db);return done;
     }
 
     private static int rebuildObservations(SQLiteDatabase db,int limit){
