@@ -4,10 +4,11 @@ import android.content.ContentValues;
 import android.database.Cursor;
 import android.database.sqlite.SQLiteDatabase;
 import org.json.JSONObject;
+import java.util.*;
 
-/** v69 stateful ledger layered over immutable UE raw observations. */
+/** Stateful ledger layered over immutable UE raw observations. */
 public final class StatefulMeaningStore {
-    public static final String SCHEMA_VERSION="stateful_meaning_schema_001";
+    public static final String SCHEMA_VERSION="stateful_meaning_schema_002";
     private StatefulMeaningStore(){}
 
     public static final class ObservationState {
@@ -48,23 +49,62 @@ public final class StatefulMeaningStore {
 
     /** Links a validated semantic event to a reversible cross-source situation and records material deltas. */
     public static long correlate(SQLiteDatabase db,long semanticEventId,long sourceInstanceId,String source,String semanticType,String subject,String summary,double confidence,long occurredAt){
-        ensure(db);long when=occurredAt>0?occurredAt:System.currentTimeMillis(),now=System.currentTimeMillis();String factText=LocalSemanticEmbedder.norm(n(subject)+" "+n(summary));String key=StatefulMeaningPolicy.correlationKey(semanticType,subject,summary,source,when),factHash=Fingerprint.text(n(semanticType)+"|"+factText);
+        ensure(db);long when=occurredAt>0?occurredAt:System.currentTimeMillis(),now=System.currentTimeMillis();String factText=LocalSemanticEmbedder.norm(n(subject)+" "+n(summary));String key=StatefulMeaningPolicy.correlationKey(semanticType,subject,summary,source,when,sourceInstanceId),factHash=Fingerprint.text(n(semanticType)+"|"+factText);
         long situationId=0;String previousHash="",previousText="";int members=0;Cursor c=db.rawQuery("SELECT situation_id,last_fact_hash,COALESCE(last_fact_text,''),member_count FROM ue_situation_state_v2 WHERE correlation_key=? LIMIT 1",new String[]{key});if(c.moveToFirst()){situationId=c.getLong(0);previousHash=n(c.getString(1));previousText=n(c.getString(2));members=c.getInt(3);}c.close();
         String title=CanonicalPresentation.cleanTitle("situation",semanticType,subject,subject);String body=CanonicalPresentation.cleanBody(summary);
-        if(situationId<=0){situationId=UniversalEventStore.upsertSituation(db,key,"stateful",title,body,"open",priority(semanticType),confidence,when,new JSONObject());ContentValues st=new ContentValues();st.put("situation_id",situationId);st.put("correlation_key",key);st.put("last_fact_hash",factHash);st.put("last_fact_text",factText);st.put("last_transition_kind","OPENED");st.put("member_count",1);st.put("opened_at",when);st.put("updated_at",now);db.insertOrThrow("ue_situation_state_v2",null,st);recordSituationTransition(db,situationId,semanticEventId,"OPENED",title,body,confidence,"new correlation key",when);}
+        if(situationId<=0){situationId=UniversalEventStore.upsertSituation(db,key,"stateful",title,body,"open",priority(semanticType),confidence,when,new JSONObject());ContentValues st=new ContentValues();st.put("situation_id",situationId);st.put("correlation_key",key);st.put("last_fact_hash",factHash);st.put("last_fact_text",factText);st.put("last_transition_kind","OPENED");st.put("member_count",1);st.put("opened_at",when);st.put("updated_at",now);db.insertWithOnConflict("ue_situation_state_v2",null,st,SQLiteDatabase.CONFLICT_REPLACE);recordSituationTransition(db,situationId,semanticEventId,"OPENED",title,body,confidence,"new correlation key",when);}
         else{
             boolean same=previousHash.equals(factHash)||!StatefulMeaningPolicy.materialChange(previousText,factText);String transition=same?"SUPPORTING_EVIDENCE":"MATERIAL_UPDATE";ContentValues st=new ContentValues();st.put("last_fact_hash",factHash);st.put("last_fact_text",factText);st.put("last_transition_kind",transition);st.put("member_count",members+1);st.put("updated_at",now);db.update("ue_situation_state_v2",st,"situation_id=?",new String[]{String.valueOf(situationId)});if(StatefulMeaningPolicy.materialTransition(transition))recordSituationTransition(db,situationId,semanticEventId,transition,title,body,confidence,"material correlated fact",when);
+            refreshCurrentSituation(db,situationId,semanticType,title,body,confidence,when);
         }
-        ContentValues member=new ContentValues();member.put("situation_id",situationId);member.put("semantic_event_id",semanticEventId);member.put("source_instance_id",sourceInstanceId);member.put("relation","supports");member.put("confidence",confidence);member.put("evidence_json",evidenceJson("correlated source evidence"));member.put("created_at",now);db.insertWithOnConflict("ue_situation_members_v2",null,member,SQLiteDatabase.CONFLICT_IGNORE);UniversalEventStore.linkSituationEvent(db,situationId,semanticEventId,"supports");return situationId;
+        ContentValues member=new ContentValues();member.put("situation_id",situationId);member.put("semantic_event_id",semanticEventId);member.put("source_instance_id",sourceInstanceId);member.put("relation","supports");member.put("confidence",confidence);member.put("evidence_json",evidenceJson("correlated source evidence"));member.put("created_at",now);db.insertWithOnConflict("ue_situation_members_v2",null,member,SQLiteDatabase.CONFLICT_IGNORE);UniversalEventStore.linkSituationEvent(db,situationId,semanticEventId,"supports");
+        String domain=StatefulMeaningPolicy.transientDomain(semanticType,subject,summary,source,sourceInstanceId);if(!domain.isEmpty())supersedeTransientPeers(db,situationId,domain,now);
+        return situationId;
+    }
+
+    /** One-shot + recurring reconciliation for pre-v145 transient situations. Provenance is retained. */
+    public static int reconcileTransientSituations(SQLiteDatabase db){
+        ensure(db);String sql="SELECT s.id,e.semantic_type,e.subject,e.summary,r.source_key,COALESCE(m.source_instance_id,0),e.occurred_at " +
+                "FROM ue_situations s JOIN ue_situation_members_v2 m ON m.situation_id=s.id JOIN ue_semantic_events e ON e.id=m.semantic_event_id JOIN ue_raw_observations r ON r.id=e.raw_observation_id " +
+                "WHERE s.state='open' AND e.superseded_by=0 AND e.id=(SELECT e2.id FROM ue_situation_members_v2 m2 JOIN ue_semantic_events e2 ON e2.id=m2.semantic_event_id WHERE m2.situation_id=s.id AND e2.superseded_by=0 ORDER BY e2.occurred_at DESC,e2.id DESC LIMIT 1) ORDER BY e.occurred_at DESC,e.id DESC";
+        Cursor c=db.rawQuery(sql,null);Map<String,Long> keepers=new HashMap<>();int fixed=0;long now=System.currentTimeMillis();
+        try{while(c.moveToNext()){
+            long situation=c.getLong(0),instance=c.getLong(5);String domain=StatefulMeaningPolicy.transientDomain(c.getString(1),c.getString(2),c.getString(3),c.getString(4),instance);if(domain.isEmpty())continue;
+            Long keeper=keepers.get(domain);if(keeper==null){keepers.put(domain,situation);adoptStableKey(db,situation,domain);continue;}
+            if(keeper!=situation){closeSupersededSituation(db,situation,now,"superseded by newer transient world state");fixed++;}
+        }}finally{c.close();}
+        return fixed;
     }
 
     public static void recordProjectionDecision(SQLiteDatabase db,long semanticEventId,long situationId,StatefulMeaningPolicy.ProjectionDecision d){ensure(db);putDecision(db,semanticEventId,situationId,"CAPTURE",d.capture,d.reason);putDecision(db,semanticEventId,situationId,"NOW",d.now,d.reason);putDecision(db,semanticEventId,situationId,"BRIEF",d.brief,d.reason);putDecision(db,semanticEventId,situationId,"BRAIN",d.brain,d.reason);bump(db,"projection");}
 
     private static void putDecision(SQLiteDatabase db,long eventId,long situationId,String projection,boolean eligible,String reason){ContentValues v=new ContentValues();v.put("semantic_event_id",eventId);v.put("situation_id",situationId);v.put("projection",projection);v.put("eligible",eligible?1:0);v.put("reason",n(reason));v.put("policy_version",StatefulMeaningPolicy.VERSION);v.put("created_at",System.currentTimeMillis());db.insertWithOnConflict("ue_projection_decisions",null,v,SQLiteDatabase.CONFLICT_REPLACE);}
     private static void recordSituationTransition(SQLiteDatabase db,long situationId,long eventId,String kind,String title,String summary,double confidence,String evidence,long when){ContentValues v=new ContentValues();v.put("situation_id",situationId);v.put("semantic_event_id",eventId);v.put("kind",kind);v.put("title",n(title));v.put("summary",n(summary));v.put("confidence",confidence);v.put("evidence_json",evidenceJson(evidence));v.put("occurred_at",when);v.put("created_at",System.currentTimeMillis());db.insertWithOnConflict("ue_situation_transitions",null,v,SQLiteDatabase.CONFLICT_IGNORE);}
-    private static String evidenceJson(String reason){JSONObject j=new JSONObject();try{j.put("reason",reason).put("policy",StatefulMeaningPolicy.VERSION);}catch(Exception ignored){}return j.toString();}
+    private static JSONObject evidenceJson(String reason){JSONObject j=new JSONObject();try{j.put("reason",reason).put("policy",StatefulMeaningPolicy.VERSION);}catch(Exception ignored){}return j.toString();}
     private static void bump(SQLiteDatabase db,String name){long now=System.currentTimeMillis();Cursor c=db.rawQuery("SELECT revision FROM ue_projection_revisions WHERE name=?",new String[]{name});long rev=c.moveToFirst()?c.getLong(0):0;c.close();ContentValues v=new ContentValues();v.put("name",name);v.put("revision",rev+1);v.put("updated_at",now);db.insertWithOnConflict("ue_projection_revisions",null,v,SQLiteDatabase.CONFLICT_REPLACE);}
     private static void addColumn(SQLiteDatabase db,String table,String column,String definition){Cursor c=db.rawQuery("PRAGMA table_info("+table+")",null);boolean found=false;while(c.moveToNext()){int i=c.getColumnIndex("name");if(i>=0&&column.equals(c.getString(i))){found=true;break;}}c.close();if(!found)db.execSQL("ALTER TABLE "+table+" ADD COLUMN "+column+" "+definition);}
+
+    private static void refreshCurrentSituation(SQLiteDatabase db,long situationId,String semanticType,String title,String body,double confidence,long when){
+        ContentValues v=new ContentValues();v.put("kind","stateful");v.put("title",n(title));v.put("summary",n(body));v.put("state","open");v.put("priority",priority(semanticType));v.put("confidence",confidence);v.put("last_changed_at",when);v.put("resolved_at",0);v.put("updated_at",System.currentTimeMillis());db.update("ue_situations",v,"id=?",new String[]{String.valueOf(situationId)});
+    }
+
+    private static void supersedeTransientPeers(SQLiteDatabase db,long currentId,String domain,long now){
+        String sql="SELECT s.id,e.semantic_type,e.subject,e.summary,r.source_key,COALESCE(m.source_instance_id,0) FROM ue_situations s JOIN ue_situation_members_v2 m ON m.situation_id=s.id JOIN ue_semantic_events e ON e.id=m.semantic_event_id JOIN ue_raw_observations r ON r.id=e.raw_observation_id WHERE s.state='open' AND s.id<>? AND e.superseded_by=0 AND e.id=(SELECT e2.id FROM ue_situation_members_v2 m2 JOIN ue_semantic_events e2 ON e2.id=m2.semantic_event_id WHERE m2.situation_id=s.id AND e2.superseded_by=0 ORDER BY e2.occurred_at DESC,e2.id DESC LIMIT 1)";
+        Cursor c=db.rawQuery(sql,new String[]{String.valueOf(currentId)});try{while(c.moveToNext()){String peer=StatefulMeaningPolicy.transientDomain(c.getString(1),c.getString(2),c.getString(3),c.getString(4),c.getLong(5));if(domain.equals(peer))closeSupersededSituation(db,c.getLong(0),now,"superseded by current transient world state");}}finally{c.close();}
+    }
+
+    private static void closeSupersededSituation(SQLiteDatabase db,long situationId,long now,String reason){
+        ContentValues s=new ContentValues();s.put("state","superseded_state");s.put("resolved_at",now);s.put("updated_at",now);db.update("ue_situations",s,"id=? AND state='open'",new String[]{String.valueOf(situationId)});
+        ContentValues a=new ContentValues();a.put("state","suppressed");a.put("resolved_at",now);a.put("updated_at",now);a.put("reason",reason);db.update("ue_attention_items",a,"situation_id=? AND state IN ('open','deferred')",new String[]{String.valueOf(situationId)});
+        db.delete("ue_situation_state_v2","situation_id=?",new String[]{String.valueOf(situationId)});
+    }
+
+    private static void adoptStableKey(SQLiteDatabase db,long situationId,String domain){
+        if(domain.isEmpty())return;Cursor c=db.rawQuery("SELECT 1 FROM ue_situations WHERE situation_key=? AND id<>? LIMIT 1",new String[]{domain,String.valueOf(situationId)});boolean conflict=c.moveToFirst();c.close();if(conflict)return;
+        c=db.rawQuery("SELECT 1 FROM ue_situation_state_v2 WHERE correlation_key=? AND situation_id<>? LIMIT 1",new String[]{domain,String.valueOf(situationId)});conflict=c.moveToFirst();c.close();if(conflict)return;
+        ContentValues s=new ContentValues();s.put("situation_key",domain);db.update("ue_situations",s,"id=?",new String[]{String.valueOf(situationId)});ContentValues st=new ContentValues();st.put("correlation_key",domain);db.update("ue_situation_state_v2",st,"situation_id=?",new String[]{String.valueOf(situationId)});
+    }
+
     private static String transitionKind(String from,String to){if(n(from).isEmpty())return "OPENED";if(to.startsWith("removed:"))return "REMOVED";if(from.equals(to))return "CONTENT_UPDATE";if("completed".equals(to)||"ended".equals(to)||"missed".equals(to)||"failed".equals(to))return "TERMINAL";return "STATE_CHANGE";}
     private static int priority(String type){String x=n(type).toLowerCase();if(x.contains("security")||x.contains("request"))return 90;if(x.contains("decision")||x.contains("commitment"))return 75;return 40;}
     private static String n(String s){return s==null?"":s.trim();}
