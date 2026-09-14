@@ -71,6 +71,7 @@
         <activity android:name=".AsrSettingsActivity" android:exported="false" android:label="Cortex ASR Setup" />
         <activity android:name=".CortexAsrLabActivity" android:exported="false" android:label="Cortex ASR Lab" />
         <activity android:name=".BrainActivity" android:exported="false" />
+        <activity android:name=".CognitiveCouncilActivity" android:exported="false" />
         <activity android:name=".OpenRouterSettingsActivity" android:exported="false" android:label="Cortex OpenRouter Setup" />
         <activity android:name=".GeminiSettingsActivity" android:exported="false" android:label="Cortex Gemini Setup" />
         <activity android:name=".ChatGptTeacherActivity" android:exported="false" android:label="Cortex ChatGPT Teacher" />
