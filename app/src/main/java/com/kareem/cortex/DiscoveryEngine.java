@@ -12,7 +12,7 @@ import java.util.*;
  * No UI assumptions and no cloud/model dependency.
  */
 public final class DiscoveryEngine {
-    public static final String VERSION="discovery_engine_001";
+    public static final String VERSION="discovery_engine_002";
     private DiscoveryEngine(){}
 
     public static long processAnalyzedItem(VaultDb vault,long itemId){
@@ -166,16 +166,19 @@ public final class DiscoveryEngine {
     private static long storeCandidate(SQLiteDatabase db,long situationId,Candidate x,List<Long> evidenceIds){
         int evidenceCount=evidenceIds==null?0:new LinkedHashSet<>(evidenceIds).size();
         double evidence=Math.min(1,0.52+0.16*Math.max(0,evidenceCount-1));
-        double score=DiscoveryPolicy.score(x.novelty,0.86,x.consequence,evidence,x.timeliness,x.uncertainty);
-        DiscoveryCritic.Verdict verdict=DiscoveryCritic.judge(x.family,x.title,x.body,evidenceCount,x.confidence,score);
         String fp=Fingerprint.text(VERSION+"|"+situationId+"|"+x.family+"|"+DiscoveryPolicy.norm(x.title)+"|"+DiscoveryPolicy.norm(x.body));
+        double novelty=Math.min(x.novelty,DiscoveryAdvancedEngine.novelty(db,fp));
+        double personalized=DiscoveryAdvancedEngine.personalizedMultiplier(db,x.family);
+        double score=DiscoveryPolicy.score(novelty,0.86,x.consequence,evidence,x.timeliness,x.uncertainty)*personalized;
+        score=Math.max(0,Math.min(1,score));
+        DiscoveryCritic.Verdict verdict=DiscoveryCritic.judge(x.family,x.title,x.body,evidenceCount,x.confidence,score);
         long now=System.currentTimeMillis(),id=0;
         Cursor old=db.rawQuery("SELECT id FROM discovery_candidates WHERE fingerprint=? LIMIT 1",new String[]{fp});
         if(old.moveToFirst())id=old.getLong(0);old.close();
 
         ContentValues v=new ContentValues();
         v.put("situation_id",situationId);v.put("family",x.family);v.put("title",x.title);v.put("body",x.body);
-        v.put("why_matters",x.whyMatters);v.put("why_now",x.whyNow);v.put("confidence",x.confidence);v.put("novelty",x.novelty);
+        v.put("why_matters",x.whyMatters);v.put("why_now",x.whyNow);v.put("confidence",x.confidence);v.put("novelty",novelty);
         v.put("consequence",x.consequence);v.put("timeliness",x.timeliness);v.put("evidence_count",evidenceCount);v.put("score",score);
         v.put("state",verdict.keep?"publishable":"suppressed");v.put("critic_reason",verdict.reason);v.put("fingerprint",fp);v.put("updated_at",now);
         if(id>0)db.update("discovery_candidates",v,"id=?",new String[]{String.valueOf(id)});
@@ -184,7 +187,20 @@ public final class DiscoveryEngine {
             ContentValues e=new ContentValues();e.put("candidate_id",id);e.put("item_id",itemId);e.put("relation","supports");e.put("created_at",now);
             db.insertWithOnConflict("discovery_candidate_evidence",null,e,SQLiteDatabase.CONFLICT_IGNORE);
         }
+        if(id>0&&verdict.keep){
+            ContentValues ih=new ContentValues();ih.put("candidate_id",id);ih.put("fingerprint",fp);ih.put("event","published");
+            ih.put("score",score);ih.put("created_at",now);db.insert("discovery_insight_history",null,ih);
+        }
         return id;
+    }
+
+    public static long publishResearchInsight(SQLiteDatabase db,long situationId,String body,List<Long> evidenceIds,double confidence){
+        String title="External research adds useful context";
+        Candidate x=new Candidate("RESEARCH_BACKED",title,body,
+                "Current external knowledge can change how a private situation should be interpreted.",
+                "Cortex found a hypothesis where current web-grounded context was likely to add material value.",
+                Math.max(.60,Math.min(.95,confidence)),.92,.72,.78,.12);
+        return storeCandidate(db,situationId,x,evidenceIds==null?Collections.<Long>emptyList():evidenceIds);
     }
 
     private static EvidenceSet loadEvidence(SQLiteDatabase db,long situationId){
