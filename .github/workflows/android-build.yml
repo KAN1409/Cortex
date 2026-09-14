@@ -61,6 +61,17 @@ jobs:
       - name: Run unit tests
         run: gradle :app:testDebugUnitTest --info --stacktrace
 
+      - name: Upload unit-test diagnostics on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Cortex-v145-unit-test-diagnostics
+          path: |
+            app/build/test-results/testDebugUnitTest/**
+            app/build/reports/tests/testDebugUnitTest/**
+          if-no-files-found: warn
+          retention-days: 3
+
       - name: Build debug APK
         run: gradle :app:assembleDebug --stacktrace
 
