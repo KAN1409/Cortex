@@ -21,7 +21,7 @@
 
         <activity android:name=".InputActivity" android:exported="false" />
         <activity android:name=".CortexShellActivity" android:exported="true" android:windowSoftInputMode="adjustResize"><intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter></activity>
-        <activity android:name=".NowActivity" android:exported="false" />
+        <activity-alias android:name=".NowActivity" android:targetActivity=".CortexShellActivity" android:exported="false" />
         <activity android:name=".NexusActivity" android:exported="false" />
         <activity android:name=".CaptureHubActivity" android:exported="false" />
         <activity android:name=".VoiceLibraryActivity" android:exported="false" />
@@ -35,23 +35,23 @@
         <activity android:name=".WorkChatGptBuildActivity" android:exported="false" android:windowSoftInputMode="adjustResize" />
         <activity android:name=".CognitiveShadowActivity" android:exported="false" />
         <activity android:name=".CrashReportActivity" android:exported="false" />
-        <activity android:name=".SatinBriefActivity" android:exported="false" />
-        <activity android:name=".CortexOrbBriefActivity" android:exported="false" />
         <activity android:name=".ProposalBriefActivity" android:exported="false" />
+        <activity-alias android:name=".SatinBriefActivity" android:targetActivity=".ProposalBriefActivity" android:exported="false" />
+        <activity-alias android:name=".CortexOrbBriefActivity" android:targetActivity=".ProposalBriefActivity" android:exported="false" />
         <activity-alias android:name=".PremiumHomeActivity" android:targetActivity=".ProposalBriefActivity" android:exported="false" />
-        <activity android:name=".SatinCaptureActivity" android:exported="false" android:theme="@style/CaptureSheetTheme" android:windowSoftInputMode="adjustResize" />
-        <activity android:name=".CaptureActivity" android:exported="false" android:theme="@style/CaptureSheetTheme" android:windowSoftInputMode="adjustResize" />
         <activity android:name=".ProposalCaptureActivity" android:exported="true" android:theme="@style/CaptureSheetTheme" android:windowSoftInputMode="adjustResize"><intent-filter><action android:name="android.intent.action.SEND" /><category android:name="android.intent.category.DEFAULT" /><data android:mimeType="*/*" /></intent-filter><intent-filter><action android:name="android.intent.action.SEND_MULTIPLE" /><category android:name="android.intent.category.DEFAULT" /><data android:mimeType="*/*" /></intent-filter></activity>
+        <activity-alias android:name=".SatinCaptureActivity" android:targetActivity=".ProposalCaptureActivity" android:exported="false" />
+        <activity-alias android:name=".CaptureActivity" android:targetActivity=".ProposalCaptureActivity" android:exported="false" />
         <activity android:name=".CaptureResultActivity" android:exported="false" />
         <activity android:name=".ProposalCaptureResultActivity" android:exported="false" />
         <activity android:name=".PinRecordWidgetActivity" android:exported="true" android:label="Add Cortex Voice widget" />
-        <activity android:name=".PeopleProjectsActivity" android:exported="false" />
         <activity android:name=".ProposalPeopleProjectsActivity" android:exported="false" />
+        <activity-alias android:name=".PeopleProjectsActivity" android:targetActivity=".ProposalPeopleProjectsActivity" android:exported="false" />
         <activity android:name=".SmartInboxActivity" android:exported="false" />
         <activity android:name=".VaultActivity" android:exported="false" />
         <activity android:name=".PromptLibraryActivity" android:exported="false" />
-        <activity android:name=".AskCortexActivity" android:exported="false" android:windowSoftInputMode="adjustResize" />
         <activity android:name=".ProposalAskCortexActivity" android:exported="false" android:windowSoftInputMode="adjustResize" />
+        <activity-alias android:name=".AskCortexActivity" android:targetActivity=".ProposalAskCortexActivity" android:exported="false" />
         <activity android:name=".SettingsActivity" android:exported="false" />
         <activity android:name=".CortexEndToEndActivity" android:exported="false" android:label="Cortex Test Lab" />
         <activity android:name=".ReviewQueueActivity" android:exported="false" />
