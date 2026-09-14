@@ -30,8 +30,8 @@ jobs:
           from pathlib import Path
           p=Path('app/build.gradle')
           s=p.read_text()
-          s=s.replace('versionCode 129', 'versionCode 143')
-          s=s.replace("versionName '2.23.0-v109-true-1000-dashboard'", "versionName '2.33.4-v119-runtime-truth'")
+          s=s.replace('versionCode 129', 'versionCode 144')
+          s=s.replace("versionName '2.23.0-v109-true-1000-dashboard'", "versionName '2.33.5-v119-build-scoped-stability'")
           p.write_text(s)
           PY
           grep -E 'versionCode|versionName' app/build.gradle
