@@ -39,6 +39,12 @@ public final class DiscoveryResearchWorker extends Worker {
             ContentValues v=new ContentValues();v.put("provider",r.provider);v.put("model",r.model);v.put("result_text",r.text);v.put("citations_json",r.citationsJson);
             v.put("state","complete");v.put("latency_ms",r.durationMs);v.put("updated_at",System.currentTimeMillis());db.update("discovery_research",v,"id=?",new String[]{String.valueOf(row)});
             ContentValues h=new ContentValues();h.put("status","researched");h.put("updated_at",System.currentTimeMillis());db.update("discovery_hypotheses",h,"id=?",new String[]{String.valueOf(hid)});
+            ArrayList<Long> evidenceIds=new ArrayList<>();
+            Cursor ec=db.rawQuery("SELECT item_id FROM discovery_situation_evidence WHERE situation_id=? ORDER BY created_at DESC LIMIT 8",new String[]{String.valueOf(sid)});
+            while(ec.moveToNext())evidenceIds.add(ec.getLong(0));ec.close();
+            String body=r.text;
+            if(r.citationsJson!=null&&!r.citationsJson.equals("[]"))body=body+"\n\nExternal sources are stored with this research result.";
+            DiscoveryEngine.publishResearchInsight(db,sid,body,evidenceIds,.82);
         }catch(Throwable e){ContentValues v=new ContentValues();v.put("state","failed");v.put("error",e.getClass().getSimpleName()+": "+String.valueOf(e.getMessage()));v.put("updated_at",System.currentTimeMillis());db.update("discovery_research",v,"id=?",new String[]{String.valueOf(row)});throw e;}
     }
     private long start(SQLiteDatabase db,long sid,long hid,String q){ContentValues v=new ContentValues();long now=System.currentTimeMillis();v.put("situation_id",sid);v.put("hypothesis_id",hid);v.put("query_text",q);v.put("state","running");v.put("created_at",now);v.put("updated_at",now);return db.insertOrThrow("discovery_research",null,v);}
