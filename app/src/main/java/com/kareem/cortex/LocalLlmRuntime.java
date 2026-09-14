@@ -53,7 +53,12 @@ public final class LocalLlmRuntime {
             }
             if(r.getOk())CapabilitySupervisor.recordHealthy(app,CapabilitySupervisor.Capability.LOCAL_LLM_NATIVE);
             else CapabilitySupervisor.recordFailure(app,CapabilitySupervisor.Capability.LOCAL_LLM_NATIVE,new IllegalStateException(safe(r.getError())));
-            SharedPreferences.Editor e=app.getSharedPreferences(PREF,Context.MODE_PRIVATE).edit();e.putString(K_STATE,r.getOk()?"ready":"failed");e.putString(K_ERROR,safe(r.getError()));e.putString(K_TEXT,safeLong(r.getText(),1200));e.putString(K_INFO,safeLong(r.getSystemInfo(),2400));e.putFloat(K_TPS,r.getTokensPerSecond());e.putInt(K_TOKENS,r.getTokensGenerated());e.putLong(K_DURATION,r.getDurationMs());e.putLong(K_TESTED,System.currentTimeMillis());e.putString(K_MODEL_SHA,LocalModelManager.SHA256);e.apply();if(cb!=null)cb.done(state(app));
+            SharedPreferences.Editor e=app.getSharedPreferences(PREF,Context.MODE_PRIVATE).edit();e.putString(K_STATE,r.getOk()?"ready":"failed");e.putString(K_ERROR,safe(r.getError()));e.putString(K_TEXT,safeLong(r.getText(),1200));e.putString(K_INFO,safeLong(r.getSystemInfo(),2400));e.putFloat(K_TPS,r.getTokensPerSecond());e.putInt(K_TOKENS,r.getTokensGenerated());e.putLong(K_DURATION,r.getDurationMs());e.putLong(K_TESTED,System.currentTimeMillis());e.putString(K_MODEL_SHA,LocalModelManager.SHA256);e.apply();
+            // A previously model-less semantic worker intentionally completed without retrying.
+            // Once real local inference is proven ready, explicitly wake the canonical waiting
+            // semantic backlog so paused evidence resumes without requiring a new notification.
+            if(r.getOk())try{UniversalSemanticScheduler.kick(app);}catch(Throwable ignored){}
+            if(cb!=null)cb.done(state(app));
         },"cortex-local-self-test").start();
     }
 
