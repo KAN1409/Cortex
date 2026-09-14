@@ -11,6 +11,7 @@ import java.util.*;
 
 /** Approval-first execution bridge backed by durable action receipts. */
 public final class CortexActionDispatcher {
+    private static final long STALE_EXTERNAL_DISPATCH_MS=120_000L;
     private CortexActionDispatcher(){}
 
     public static void preview(Activity a,VaultDb db,BrainActionStore.Action action){
@@ -35,6 +36,7 @@ public final class CortexActionDispatcher {
             receiptId=startApprovedReceipt(db,x,canonical);
             CortexActionReceiptStore.Receipt prior=CortexActionReceiptStore.get(db,receiptId);
             if(prior!=null&&CortexActionReceiptStore.VERIFIED.equals(prior.executionStatus)){BrainActionStore.markStatus(db,x.rowId,"DONE");toast(a,"Already verified in Cortex");return;}
+            if(prior!=null&&CortexActionReceiptStore.DISPATCHING.equals(prior.executionStatus)){toast(a,"This action is already being handed off");return;}
 
             if(localType(x.type)){createLocal(db,x,receiptId);toast(a,"Added to Cortex · verified");return;}
             if("CALENDAR_EVENT".equals(x.type)||"REMINDER".equals(x.type)){
@@ -89,6 +91,12 @@ public final class CortexActionDispatcher {
         String baseKey=Fingerprint.text("brain-action|"+x.jobId+"|"+x.key+"|"+canonical);
         long id=CortexActionReceiptStore.begin(db,"brain_action:"+x.rowId,canonical,x.sourceItemId,contract.executor,inputHash,baseKey,contract.undoPolicy==CortexActionRegistry.UndoPolicy.LOCAL_ROLLBACK,new JSONObject().put("job_id",x.jobId).put("action_key",x.key).put("brain_type",x.type).toString());
         CortexActionReceiptStore.Receipt r=CortexActionReceiptStore.get(db,id);
+        if(r!=null&&!localType(x.type)&&CortexActionReceiptStore.DISPATCHING.equals(r.executionStatus)){
+            long age=r.updatedAt<=0?Long.MAX_VALUE:Math.max(0L,System.currentTimeMillis()-r.updatedAt);
+            if(age<STALE_EXTERNAL_DISPATCH_MS)return id;
+            if(!CortexActionReceiptStore.markUnknown(db,id,"Previous external handoff remained in DISPATCHING and was recovered before confirmed retry"))throw new IllegalStateException("Could not recover stale external dispatch");
+            r=CortexActionReceiptStore.get(db,id);
+        }
         if(r!=null&&(CortexActionReceiptStore.FAILED.equals(r.executionStatus)||CortexActionReceiptStore.CANCELLED.equals(r.executionStatus)||CortexActionReceiptStore.UNKNOWN.equals(r.executionStatus)||CortexActionReceiptStore.HANDED_OFF.equals(r.executionStatus)||CortexActionReceiptStore.ROLLED_BACK.equals(r.executionStatus))){
             id=CortexActionReceiptStore.begin(db,"brain_action:"+x.rowId,canonical,x.sourceItemId,contract.executor,inputHash,baseKey+"-retry-"+System.currentTimeMillis(),contract.undoPolicy==CortexActionRegistry.UndoPolicy.LOCAL_ROLLBACK,new JSONObject().put("job_id",x.jobId).put("action_key",x.key).put("brain_type",x.type).put("user_confirmed_retry",true).toString());r=CortexActionReceiptStore.get(db,id);
         }
