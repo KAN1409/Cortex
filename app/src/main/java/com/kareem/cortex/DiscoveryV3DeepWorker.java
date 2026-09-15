@@ -18,7 +18,12 @@ public final class DiscoveryV3DeepWorker extends Worker {
         }
         Context ctx=getApplicationContext();
         if(StartupSafetyGate.active())return Result.failure(new Data.Builder().putString("error","Startup recovery is active; try again when ready").build());
-        if(!LocalCouncilModelRegistry.fullCouncilReady(ctx))return Result.failure(new Data.Builder().putString("error","Required local models are not ready").build());
+        if(!LocalCouncilModelRegistry.fullCouncilReady(ctx)){
+            LocalLlmRuntime.State runtime=LocalLlmRuntime.state(ctx);
+            String detail="Required local inference is not proven ready";
+            if(runtime!=null&&runtime.error!=null&&!runtime.error.isEmpty())detail+=": "+runtime.error;
+            return Result.failure(new Data.Builder().putString("error",detail).build());
+        }
 
         VaultDb vault=null;
         try{
@@ -41,7 +46,8 @@ public final class DiscoveryV3DeepWorker extends Worker {
             if(published>0)DiscoveryV3ResearchWorker.enqueue(ctx);
             return Result.success(new Data.Builder().putInt("situations",situations.size()).putInt("published",published).build());
         }catch(Throwable t){
-            return Result.failure(new Data.Builder().putString("error","Analysis stopped: "+t.getClass().getSimpleName()).build());
+            try{CapabilitySupervisor.recordFailure(ctx,CapabilitySupervisor.Capability.LOCAL_LLM_NATIVE,t);}catch(Throwable ignored){}
+            return Result.failure(new Data.Builder().putString("error","Analysis stopped: "+t.getClass().getSimpleName()+": "+String.valueOf(t.getMessage())).build());
         }finally{if(vault!=null)try{vault.close();}catch(Throwable ignored){}}
     }
 
