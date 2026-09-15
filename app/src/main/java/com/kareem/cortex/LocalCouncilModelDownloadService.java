@@ -14,6 +14,7 @@ public final class LocalCouncilModelDownloadService extends Service {
     public static final String ACTION_START="com.kareem.cortex.COUNCIL_MODEL_START";
     public static final String EXTRA_MODEL_ID="model_id";
     private static final String CHANNEL="cortex_council_model_download";
+    private static final String PREFS="cortex_council_download_state";
     private static final AtomicBoolean RUNNING=new AtomicBoolean(false);
     private volatile boolean stop=false;private volatile boolean chain=false;
 
@@ -48,20 +49,22 @@ public final class LocalCouncilModelDownloadService extends Service {
             boolean append=offset>0&&code==206;if(offset>0&&code==200){part.delete();offset=0;append=false;}
             if(code!=200&&code!=206)throw new IOException("HTTP "+code);
             long total=total(c,offset,code),done=offset,last=offset,lastAt=System.currentTimeMillis();
+            state(model,"downloading",done,total,0L,"");
             byte[] buf=new byte[256*1024];
             try(InputStream in=new BufferedInputStream(c.getInputStream(),512*1024);OutputStream out=new BufferedOutputStream(new FileOutputStream(part,append),512*1024)){
-                for(int n;(n=in.read(buf))!=-1&&!stop;){out.write(buf,0,n);done+=n;long now=System.currentTimeMillis();if(now-lastAt>900||done-last>4L*1024*1024){out.flush();notify(model,"Downloading",pct(done,total),done,total);last=done;lastAt=now;}}
+                for(int n;(n=in.read(buf))!=-1&&!stop;){out.write(buf,0,n);done+=n;long now=System.currentTimeMillis();if(now-lastAt>900||done-last>4L*1024*1024){out.flush();long elapsed=Math.max(1,now-lastAt);long speed=Math.max(0,(done-last)*1000L/elapsed);state(model,"downloading",done,total,speed,"");notify(model,"Downloading",pct(done,total),done,total);last=done;lastAt=now;}}
                 out.flush();
             }finally{c.disconnect();}
             if(stop)return;
             if(total>0&&part.length()!=total)throw new EOFException("ended at "+part.length()+" / "+total);
             if(part.length()<model.minBytes)throw new EOFException("model file too small");
+            state(model,"verifying",part.length(),total,0L,"");
             if(finalFile.exists()&&!finalFile.delete())throw new IOException("cannot replace model");
             if(!part.renameTo(finalFile)){copy(part,finalFile);part.delete();}
             if(!LocalCouncilModelRegistry.ready(this,model))throw new IOException("GGUF validation failed");
-            notify(model,"Ready",100,finalFile.length(),finalFile.length());
+            state(model,"ready",finalFile.length(),finalFile.length(),0L,"");notify(model,"Ready",100,finalFile.length(),finalFile.length());
         }catch(Throwable t){
-            notify(model,"Download failed: "+t.getClass().getSimpleName(),0,LocalCouncilModelRegistry.partFile(this,model).length(),0);
+            long partial=LocalCouncilModelRegistry.partFile(this,model).length();state(model,"failed",partial,0,0L,t.getClass().getSimpleName()+": "+String.valueOf(t.getMessage()));notify(model,"Download failed: "+t.getClass().getSimpleName(),0,partial,0);
         }finally{
             if(wake!=null&&wake.isHeld())try{wake.release();}catch(Throwable ignored){}
             RUNNING.set(false);stopForeground(false);
@@ -100,6 +103,18 @@ public final class LocalCouncilModelDownloadService extends Service {
     }
     private long total(HttpURLConnection c,long offset,int code){String cr=c.getHeaderField("Content-Range");if(cr!=null){int slash=cr.lastIndexOf('/');if(slash>=0)try{return Long.parseLong(cr.substring(slash+1).trim());}catch(Throwable ignored){}}long len=c.getContentLengthLong();return len>0?(code==206?offset+len:len):0;}
     private int pct(long done,long total){return total>0?(int)Math.min(100,done*100/total):0;}
+    private void state(LocalCouncilModelRegistry.Model m,String phase,long done,long total,long speed,String error){
+        getSharedPreferences(PREFS,MODE_PRIVATE).edit().putString(m.id+"_phase",phase).putLong(m.id+"_done",done).putLong(m.id+"_total",total).putLong(m.id+"_speed",speed).putString(m.id+"_error",error==null?"":error).putLong(m.id+"_at",System.currentTimeMillis()).apply();
+    }
+    public static Progress progress(Context c,LocalCouncilModelRegistry.Model m){
+        android.content.SharedPreferences p=c.getSharedPreferences(PREFS,Context.MODE_PRIVATE);File part=LocalCouncilModelRegistry.partFile(c,m);
+        String phase=p.getString(m.id+"_phase","");long done=Math.max(p.getLong(m.id+"_done",0),part.exists()?part.length():0),total=p.getLong(m.id+"_total",0),speed=p.getLong(m.id+"_speed",0),at=p.getLong(m.id+"_at",0);
+        if(LocalCouncilModelRegistry.ready(c,m))return new Progress("ready",LocalCouncilModelRegistry.file(c,m).length(),LocalCouncilModelRegistry.file(c,m).length(),0,"",at);
+        if(!phase.equals("downloading")&&!phase.equals("verifying")&&!phase.equals("failed")&&done>0)phase="paused";
+        if(phase.equals("downloading")&&System.currentTimeMillis()-at>15000)phase="paused";
+        return new Progress(phase,done,total,speed,p.getString(m.id+"_error",""),at);
+    }
+    public static final class Progress{public final String phase,error;public final long done,total,speed,updatedAt;Progress(String p,long d,long t,long s,String e,long a){phase=p;done=d;total=t;speed=s;error=e;updatedAt=a;}public int percent(){return total>0?(int)Math.min(100,done*100/total):0;}public long etaSeconds(){return speed>0&&total>done?(total-done)/speed:-1;}}
     private void notify(LocalCouncilModelRegistry.Model m,String title,int pct,long done,long total){((NotificationManager)getSystemService(NOTIFICATION_SERVICE)).notify(43000+Math.abs(m.id.hashCode()%500),notification(m,title,pct,done,total));}
     private Notification notification(LocalCouncilModelRegistry.Model m,String title,int pct,long done,long total){
         Notification.Builder b=Build.VERSION.SDK_INT>=26?new Notification.Builder(this,CHANNEL):new Notification.Builder(this);
