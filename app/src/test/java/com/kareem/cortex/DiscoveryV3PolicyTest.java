@@ -42,6 +42,14 @@ public class DiscoveryV3PolicyTest {
         assertFalse(DiscoveryV3Policy.publishable("CONTRADICTION","PR-0262 has conflicting status evidence.","Open evidence",1,.9,.9));
     }
 
+    @Test public void legacyMalformedProcurementDiscoveriesNeverSurface(){
+        assertTrue(DiscoveryV3Feed.hasMalformedProcurementRef("PR-OJECTS status changed"));
+        assertTrue(DiscoveryV3Feed.hasMalformedProcurementRef("PR-OTECTED/SKIPPED pending"));
+        assertTrue(DiscoveryV3Feed.hasMalformedProcurementRef("PO-ROCESSING conflict"));
+        assertFalse(DiscoveryV3Feed.hasMalformedProcurementRef("PR-0262 status changed"));
+        assertFalse(DiscoveryV3Feed.hasMalformedProcurementRef("PO-ABC-17 approved"));
+    }
+
     @Test public void discoveryFeedRejectsConnectivityAsProductOutput(){
         assertFalse(DiscoveryV3Feed.userWorthy("CROSS_SOURCE_CONNECTION","Cortex connected evidence","Negma appears in two apps","Open combined history",2,.92,.91));
     }
