@@ -8,11 +8,11 @@ import java.util.Locale;
 
 /**
  * Read-only price comparison over grounded active Work Vault price records.
- * Comparisons are allowed only for the same normalized item, compatible unit and currency.
+ * Comparisons are allowed only for the same normalized item, compatible unit/currency and trusted case scope.
  * Source file modified time is used for chronology so re-indexing never makes an old price look new.
  */
 public final class WorkPriceComparisonEngine {
-    public static final String VERSION="work_price_comparison_engine_002";
+    public static final String VERSION="work_price_comparison_engine_003_scoped";
     private WorkPriceComparisonEngine(){}
 
     public static ArrayList<Comparison> recent(VaultDb vault,int limit){
@@ -45,19 +45,37 @@ public final class WorkPriceComparisonEngine {
 
     static Comparison compare(Price current,Price previous){
         if(current==null||previous==null)return Comparison.notComparable(current,previous,"MISSING_PRICE_RECORD");
+        if(!compatibleScope(current,previous))return Comparison.notComparable(current,previous,"SCOPE_MISMATCH_OR_UNKNOWN");
         if(!item(current.item).equals(item(previous.item)))return Comparison.notComparable(current,previous,"ITEM_MISMATCH");
         String cu=unit(current.unit),pu=unit(previous.unit);if(cu.isEmpty()||pu.isEmpty()||!cu.equals(pu))return Comparison.notComparable(current,previous,"UNIT_MISMATCH");
         String cc=currency(current.currency),pc=currency(previous.currency);if(cc.isEmpty()||pc.isEmpty()||!cc.equals(pc))return Comparison.notComparable(current,previous,"CURRENCY_MISMATCH");
         if(current.unitPrice<=0||previous.unitPrice<=0)return Comparison.notComparable(current,previous,"INVALID_PRICE");
         double delta=current.unitPrice-previous.unitPrice;double pct=(delta/previous.unitPrice)*100d;
+        if(!Double.isFinite(delta)||!Double.isFinite(pct))return Comparison.notComparable(current,previous,"INVALID_PRICE");
         return new Comparison(current,previous,true,"COMPARABLE",delta,pct);
+    }
+
+    static boolean compatibleScope(Price a,Price b){
+        if(a==null||b==null)return false;
+        if(a.projectId>0||b.projectId>0)return a.projectId>0&&a.projectId==b.projectId;
+        String at=refType(a.referenceType),bt=refType(b.referenceType),av=refValue(a.referenceValue),bv=refValue(b.referenceValue);
+        return !at.isEmpty()&&at.equals(bt)&&!av.isEmpty()&&av.equals(bv)&&trustedReference(av);
     }
 
     static String item(String s){return norm(s).replaceAll("[^\\p{L}\\p{N}]+"," ").trim();}
     static String unit(String s){String x=norm(s).replace("²","2").replace("³","3").replaceAll("[ ._-]+","");if(x.equals("sqm")||x.equals("sqmeter")||x.equals("squaremeter")||x.equals("m2"))return "m2";if(x.equals("lm")||x.equals("linm")||x.equals("linearmeter")||x.equals("m"))return x.equals("m")?"m":"lm";if(x.equals("no")||x.equals("nos")||x.equals("nr")||x.equals("number")||x.equals("pcs")||x.equals("pc")||x.equals("piece")||x.equals("pieces"))return "pcs";return x;}
     static String currency(String s){String x=norm(s).replaceAll("[ ._-]+","");if(x.equals("egp")||x.equals("le")||x.equals("جنيه")||x.equals("جنيهمصري"))return "EGP";if(x.equals("usd")||x.equals("$")||x.equals("dollar")||x.equals("dollars"))return "USD";if(x.equals("eur")||x.equals("€")||x.equals("euro"))return "EUR";return x.toUpperCase(Locale.ROOT);}
 
-    private static String key(Price p){String i=item(p.item),u=unit(p.unit),c=currency(p.currency);if(i.isEmpty()||u.isEmpty()||c.isEmpty())return "";return i+"|"+u+"|"+c;}
+    private static String key(Price p){String i=item(p.item),u=unit(p.unit),c=currency(p.currency),scope=scopeKey(p);if(i.isEmpty()||u.isEmpty()||c.isEmpty()||scope.isEmpty())return "";return scope+"|"+i+"|"+u+"|"+c;}
+    private static String scopeKey(Price p){
+        if(p==null)return "";
+        if(p.projectId>0)return "project:"+p.projectId;
+        String t=refType(p.referenceType),v=refValue(p.referenceValue);
+        return !t.isEmpty()&&!v.isEmpty()&&trustedReference(v)?"ref:"+t+":"+v:"";
+    }
+    private static String refType(String s){String x=norm(s).replaceAll("[^a-z]","").toUpperCase(Locale.ROOT);return ("PR".equals(x)||"PO".equals(x))?x:"";}
+    private static String refValue(String s){return WorkStructuredExtractor.normalizeReference(s);}
+    private static boolean trustedReference(String s){if(s==null||s.isEmpty())return false;int digits=0;for(int i=0;i<s.length();i++)if(Character.isDigit(s.charAt(i)))digits++;return digits>0;}
     private static String norm(String s){return s==null?"":s.trim().toLowerCase(Locale.ROOT).replaceAll("\\s+"," ");}
     private static String s(Cursor c,int i){return c.isNull(i)?"":c.getString(i);}
     private static Price read(Cursor c){Price p=new Price();p.id=c.getLong(0);p.fileId=c.getLong(1);p.projectId=c.getLong(2);p.item=s(c,3);p.vendor=s(c,4);p.unit=s(c,5);p.unitPrice=c.getDouble(6);p.currency=s(c,7);p.referenceType=s(c,8);p.referenceValue=s(c,9);p.fileName=s(c,10);p.documentUri=s(c,11);long modified=c.getLong(12),created=c.getLong(13);p.sourceTime=modified>0?modified:created;p.sheet=s(c,14);p.page=c.getInt(15);p.row=c.getInt(16);p.project=s(c,17);return p;}
