@@ -4,15 +4,22 @@ import java.util.*;
 import java.util.regex.*;
 
 public final class DiscoveryV3Policy {
-    private static final Pattern REF=Pattern.compile("(?i)\\b(PR|PO)[\\s#:/._-]*([A-Z0-9][A-Z0-9._/-]{1,})\\b");
+    private static final Pattern REF=Pattern.compile("(?i)(?<![\\p{L}\\p{N}])(?:P\\.?R\\.?|P\\.?O\\.?)(?![\\p{L}\\p{N}])\\s*[#:/._-]?\\s*([A-Z0-9][A-Z0-9._/-]{1,31})(?![\\p{L}\\p{N}])");
+    private static final Pattern REF_PREFIX=Pattern.compile("(?i)(?<![\\p{L}\\p{N}])(P\\.?R\\.?|P\\.?O\\.?)(?![\\p{L}\\p{N}])");
     private DiscoveryV3Policy(){}
 
     public static String norm(String s){return LocalSemanticEmbedder.norm(s==null?"":s).toLowerCase(Locale.ROOT).trim();}
 
     public static String exactRef(String text){
-        Matcher m=REF.matcher(text==null?"":text);
-        if(!m.find())return "";
-        return m.group(1).toUpperCase(Locale.ROOT)+"-"+m.group(2).toUpperCase(Locale.ROOT);
+        String raw=text==null?"":text;Matcher m=REF.matcher(raw);
+        while(m.find()){
+            String token=m.group(1).toUpperCase(Locale.ROOT).replaceAll("[^A-Z0-9._/-]","");
+            if(!validRefBody(token))continue;
+            Matcher p=REF_PREFIX.matcher(m.group());if(!p.find())continue;
+            String kind=p.group(1).toUpperCase(Locale.ROOT).replace(".","");
+            return kind+"-"+token;
+        }
+        return "";
     }
 
     public static String space(KnowledgeItem k){
@@ -65,6 +72,16 @@ public final class DiscoveryV3Policy {
         if(confidence<.68||score<.66)return false;
         if(("CONTRADICTION".equals(family)||"CROSS_SOURCE_CONNECTION".equals(family))&&evidenceCount<2)return false;
         return evidenceCount>=1;
+    }
+
+    private static boolean validRefBody(String body){
+        if(body==null)return false;String x=body.trim().toUpperCase(Locale.ROOT);
+        if(x.length()<2||x.length()>32)return false;
+        boolean digit=x.matches(".*\\d.*");
+        boolean structured=x.matches(".*[-_/].*");
+        if(!digit&&!structured)return false;
+        if(x.matches("(?i)(IVACY|OJECT|IMARY|OCESSING|ICE|OGRESS|OVIDER|EVIEW|ODUCT|OBLEM|OMPT|OFILE|OJECTS)"))return false;
+        return true;
     }
 
     private static String explicitSpace(String metadata){
