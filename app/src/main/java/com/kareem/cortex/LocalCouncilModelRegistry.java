@@ -58,7 +58,7 @@ public final class LocalCouncilModelRegistry {
     public static File partFile(Context c,Model m){File f=file(c,m);return new File(f.getParentFile(),f.getName()+".part");}
 
     public static boolean ready(Context c,Model m){
-        if(PRIMARY.equals(m.id))return LocalModelManager.installed(c);
+        if(PRIMARY.equals(m.id))return LocalModelManager.verified(c)&&LocalLlmRuntime.ready(c);
         File f=file(c,m);return f.exists()&&f.length()>=m.minBytes&&gguf(f);
     }
     public static boolean present(Context c,Model m){File f=file(c,m);return f.exists()&&f.length()>=m.minBytes;}
