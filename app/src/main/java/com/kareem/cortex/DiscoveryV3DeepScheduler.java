@@ -18,6 +18,15 @@ public final class DiscoveryV3DeepScheduler {
         WorkManager.getInstance(c.getApplicationContext()).enqueueUniqueWork(NOW,ExistingWorkPolicy.KEEP,r);
     }
 
+    /** Explicit user retry must not be swallowed by a stale finished/failed KEEP record. */
+    public static void kickFresh(Context c){
+        if(c==null)return;
+        OneTimeWorkRequest r=new OneTimeWorkRequest.Builder(DiscoveryV3DeepWorker.class)
+                .setInputData(new Data.Builder().putBoolean("user_requested",true).build())
+                .setBackoffCriteria(BackoffPolicy.EXPONENTIAL,15,TimeUnit.MINUTES).build();
+        WorkManager.getInstance(c.getApplicationContext()).enqueueUniqueWork(NOW,ExistingWorkPolicy.REPLACE,r);
+    }
+
     /** Startup migration cancels legacy heavy recurrence and refreshes cheap deterministic intelligence. */
     public static void enable(Context c){
         if(c==null)return;
