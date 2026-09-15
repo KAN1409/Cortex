@@ -69,7 +69,19 @@ public final class CognitiveCouncilActivity extends Activity {
             StringBuilder ms=new StringBuilder();int ready=0;
             for(LocalCouncilModelRegistry.Model m:LocalCouncilModelRegistry.council()){
                 boolean r=LocalCouncilModelRegistry.ready(this,m);if(r)ready++;
-                ms.append(r?"✓ ":"○ ").append(m.role).append(" · ").append(m.name).append(r?" · READY":" · MISSING").append("\n");
+                ms.append(r?"✓ ":"○ ").append(m.role).append(" · ").append(m.name);
+                if(r){ms.append(" · READY");}
+                else{
+                    LocalCouncilModelDownloadService.Progress p=LocalCouncilModelDownloadService.progress(this,m);
+                    if(p.done>0||!p.phase.isEmpty()){
+                        ms.append(" · ").append(p.phase.isEmpty()?"PARTIAL":p.phase.toUpperCase(Locale.ROOT));
+                        if(p.total>0)ms.append(" · ").append(LocalModelManager.human(p.done)).append(" / ").append(LocalModelManager.human(p.total)).append(" · ").append(p.percent()).append("%");
+                        else if(p.done>0)ms.append(" · ").append(LocalModelManager.human(p.done));
+                        if(p.speed>0){ms.append(" · ").append(LocalModelManager.human(p.speed)).append("/s");long eta=p.etaSeconds();if(eta>=0)ms.append(" · ETA ").append(etaText(eta));}
+                        if("failed".equals(p.phase)&&!p.error.isEmpty())ms.append(" · ").append(clip(p.error,100));
+                    }else ms.append(" · MISSING");
+                }
+                ms.append("\n");
             }
             models.setText(ms.toString().trim());
             status.setText("Council readiness: "+ready+"/"+LocalCouncilModelRegistry.council().size()+" heavy brains");
@@ -126,4 +138,5 @@ public final class CognitiveCouncilActivity extends Activity {
     String s(Cursor c,int i){return c.isNull(i)?"":c.getString(i);}
     String clip(String s,int n){String x=s==null?"":s;return x.length()<=n?x:x.substring(0,n)+"…";}
     String safe(String s){return s==null?"":s;}
+    String etaText(long sec){long h=sec/3600,m=(sec%3600)/60,s=sec%60;if(h>0)return h+"h "+m+"m";if(m>0)return m+"m "+s+"s";return s+"s";}
 }
