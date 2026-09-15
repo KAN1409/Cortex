@@ -47,7 +47,7 @@ public final class CognitiveCouncilActivity extends Activity {
                 refresh();return;
             }
             run.setEnabled(false);runState.setText("Council is starting on the strongest grounded situation…");
-            DiscoveryV3DeepScheduler.kick(getApplicationContext());
+            DiscoveryV3DeepScheduler.kickFresh(getApplicationContext());
             Toast.makeText(this,"Analysis queued. Results will be saved when complete.",Toast.LENGTH_LONG).show();
         });
 
