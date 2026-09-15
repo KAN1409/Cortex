@@ -51,7 +51,10 @@ public final class DiscoveryV3Feed {
         java.util.regex.Matcher m=java.util.regex.Pattern.compile("(?i)(?<![\\p{L}\\p{N}])P[RO][-_/][A-Z]{2,}(?![\\p{L}\\p{N}])").matcher(text);
         while(m.find()){
             String token=m.group();
-            if(!token.matches("(?i)P[RO][-_/].*\\d.*"))return true;
+            String body=token.substring(3);
+            // Valid references need either a digit or an intentionally structured body (e.g. ABC-17).
+            // A plain alphabetic suffix is the legacy word-fragment corruption we quarantine.
+            if(!body.matches(".*\\d.*")&&!body.matches(".*[-_/].*"))return true;
         }
         return false;
     }
