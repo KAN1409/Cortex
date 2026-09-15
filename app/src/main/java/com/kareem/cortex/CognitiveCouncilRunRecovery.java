@@ -14,8 +14,8 @@ public final class CognitiveCouncilRunRecovery {
     static int recoverWhileOwned(SQLiteDatabase db,long now){
         DiscoveryV3Schema.ensure(db);
         ContentValues v=new ContentValues();v.put("state","interrupted");
-        v.put("error","Previous execution ended without a result; no active execution owner remains");
+        v.put("error","Previous execution ended without a result; persisted state identifies the last completed model pass; no active execution owner remains");
         v.put("completed_at",now);v.put("updated_at",now);
-        return db.update("discovery_v3_council_runs",v,"state='running'",null);
+        return db.update("discovery_v3_council_runs",v,"state LIKE 'running%'",null);
     }
 }
