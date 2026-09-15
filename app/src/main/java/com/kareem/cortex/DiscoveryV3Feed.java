@@ -36,11 +36,20 @@ public final class DiscoveryV3Feed {
         if(confidence<.72||score<.68)return false;
         if(("CONTRADICTION".equals(family)||"CROSS_SOURCE_CONNECTION".equals(family)||"COUNCIL_DISCOVERY".equals(family))&&evidenceCount<2)return false;
         if("CROSS_SOURCE_CONNECTION".equals(family)){
-            // Connectivity is useful internally, but "I connected N sources" is not itself a discovery for Karim.
-            if(x.contains("connected evidence")||x.contains("different sources")||x.contains("split across apps")||x.contains("combined story"))return false;
+            // Connectivity is graph infrastructure, never a user-facing discovery by itself.
+            return false;
         }
+        if("COUNCIL_DISCOVERY".equals(family)&&!hasConcreteConsequence(found,action))return false;
         if(x.matches(".*\\b\\d+\\s+(records?|items?|observations?|notifications?|sources?|screenshots?|projects?)\\b.*"))return false;
         return !x.contains("cortex can now treat")&&!x.contains("open the history to review");
+    }
+
+    static boolean hasConcreteConsequence(String found,String action){
+        String x=DiscoveryV3Policy.norm(found+" "+action);
+        if(x.length()<32)return false;
+        String[] signals={"pending","overdue","missing","changed","increase","decrease","conflict","revision","rejected","approved","completed","price","cost","deadline","due","risk","delay","compare","verify","confirm","follow up","معلق","متأخر","ناقص","تغير","زيادة","انخفاض","تعارض","تعديل","مرفوض","معتمد","سعر","تكلفة","موعد","خطر","تأخير","راجع","تأكد","تابع"};
+        for(String s:signals)if(x.contains(DiscoveryV3Policy.norm(s)))return true;
+        return false;
     }
 
     static String semanticKey(String title,String found){
