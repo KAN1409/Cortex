@@ -12,7 +12,7 @@ import java.util.Locale;
  * Source file modified time is used for chronology so re-indexing never makes an old price look new.
  */
 public final class WorkPriceComparisonEngine {
-    public static final String VERSION="work_price_comparison_engine_003_scoped";
+    public static final String VERSION="work_price_comparison_engine_004_scoped_links";
     private WorkPriceComparisonEngine(){}
 
     public static ArrayList<Comparison> recent(VaultDb vault,int limit){
@@ -22,7 +22,9 @@ public final class WorkPriceComparisonEngine {
         LinkedHashMap<String,Price> latest=new LinkedHashMap<>();
         LinkedHashMap<String,Price> previous=new LinkedHashMap<>();
         Cursor c=db.rawQuery(
-                "SELECT p.id,p.file_id,p.project_id,p.item_name,p.vendor_name,p.unit,p.unit_price,p.currency,p.reference_type,p.reference_value,"+
+                "SELECT p.id,p.file_id,p.project_id,p.item_name,p.vendor_name,p.unit,p.unit_price,p.currency,"+
+                "COALESCE(NULLIF(TRIM(p.reference_type),''),(SELECT r.ref_type FROM work_procurement_links l JOIN work_procurement_refs r ON r.id=l.to_id WHERE l.from_kind='PRICE' AND l.from_id=p.id AND l.to_kind='REF' AND l.relation LIKE 'price_context%' ORDER BY l.confidence DESC,l.id DESC LIMIT 1),''),"+
+                "COALESCE(NULLIF(TRIM(p.reference_value),''),(SELECT r.normalized_value FROM work_procurement_links l JOIN work_procurement_refs r ON r.id=l.to_id WHERE l.from_kind='PRICE' AND l.from_id=p.id AND l.to_kind='REF' AND l.relation LIKE 'price_context%' ORDER BY l.confidence DESC,l.id DESC LIMIT 1),''),"+
                 "f.display_name,f.document_uri,f.modified_at,p.created_at,p.sheet_name,p.page_number,p.row_number,COALESCE(pr.canonical_name,'') "+
                 "FROM work_price_records p JOIN work_files f ON f.id=p.file_id LEFT JOIN work_projects pr ON pr.id=p.project_id "+
                 "WHERE f.active_version_id>0 AND p.version_id=f.active_version_id AND p.unit_price IS NOT NULL AND p.unit_price>0 AND TRIM(p.item_name)<>'' "+
