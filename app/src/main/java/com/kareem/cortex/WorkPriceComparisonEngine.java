@@ -12,7 +12,7 @@ import java.util.Locale;
  * Source file modified time is used for chronology so re-indexing never makes an old price look new.
  */
 public final class WorkPriceComparisonEngine {
-    public static final String VERSION="work_price_comparison_engine_004_scoped_links";
+    public static final String VERSION="work_price_comparison_engine_005_grounded_quality";
     private WorkPriceComparisonEngine(){}
 
     public static ArrayList<Comparison> recent(VaultDb vault,int limit){
@@ -22,10 +22,10 @@ public final class WorkPriceComparisonEngine {
         LinkedHashMap<String,Price> latest=new LinkedHashMap<>();
         LinkedHashMap<String,Price> previous=new LinkedHashMap<>();
         Cursor c=db.rawQuery(
-                "SELECT p.id,p.file_id,p.project_id,p.item_name,p.vendor_name,p.unit,p.unit_price,p.currency,"+
+                "SELECT p.id,p.file_id,p.version_id,p.project_id,p.item_name,p.vendor_name,p.unit,p.unit_price,p.currency,"+
                 "COALESCE(NULLIF(TRIM(p.reference_type),''),(SELECT r.ref_type FROM work_procurement_links l JOIN work_procurement_refs r ON r.id=l.to_id WHERE l.from_kind='PRICE' AND l.from_id=p.id AND l.to_kind='REF' AND l.relation LIKE 'price_context%' ORDER BY l.confidence DESC,l.id DESC LIMIT 1),''),"+
                 "COALESCE(NULLIF(TRIM(p.reference_value),''),(SELECT r.normalized_value FROM work_procurement_links l JOIN work_procurement_refs r ON r.id=l.to_id WHERE l.from_kind='PRICE' AND l.from_id=p.id AND l.to_kind='REF' AND l.relation LIKE 'price_context%' ORDER BY l.confidence DESC,l.id DESC LIMIT 1),''),"+
-                "f.display_name,f.document_uri,f.modified_at,p.created_at,p.sheet_name,p.page_number,p.row_number,COALESCE(pr.canonical_name,'') "+
+                "f.display_name,f.document_uri,f.modified_at,p.created_at,p.sheet_name,p.page_number,p.row_number,COALESCE(pr.canonical_name,''),p.confidence "+
                 "FROM work_price_records p JOIN work_files f ON f.id=p.file_id LEFT JOIN work_projects pr ON pr.id=p.project_id "+
                 "WHERE f.active_version_id>0 AND p.version_id=f.active_version_id AND p.unit_price IS NOT NULL AND p.unit_price>0 AND TRIM(p.item_name)<>'' "+
                 "ORDER BY CASE WHEN f.modified_at>0 THEN f.modified_at ELSE p.created_at END DESC,p.id DESC LIMIT 1200",null);
@@ -64,6 +64,7 @@ public final class WorkPriceComparisonEngine {
         return !at.isEmpty()&&at.equals(bt)&&!av.isEmpty()&&av.equals(bv)&&trustedReference(av);
     }
 
+    static String comparisonKey(Price p){return key(p);}
     static String item(String s){return norm(s).replaceAll("[^\\p{L}\\p{N}]+"," ").trim();}
     static String unit(String s){String x=norm(s).replace("²","2").replace("³","3").replaceAll("[ ._-]+","");if(x.equals("sqm")||x.equals("sqmeter")||x.equals("squaremeter")||x.equals("m2"))return "m2";if(x.equals("lm")||x.equals("linm")||x.equals("linearmeter")||x.equals("m"))return x.equals("m")?"m":"lm";if(x.equals("no")||x.equals("nos")||x.equals("nr")||x.equals("number")||x.equals("pcs")||x.equals("pc")||x.equals("piece")||x.equals("pieces"))return "pcs";return x;}
     static String currency(String s){String x=norm(s).replaceAll("[ ._-]+","");if(x.equals("egp")||x.equals("le")||x.equals("جنيه")||x.equals("جنيهمصري"))return "EGP";if(x.equals("usd")||x.equals("$")||x.equals("dollar")||x.equals("dollars"))return "USD";if(x.equals("eur")||x.equals("€")||x.equals("euro"))return "EUR";return x.toUpperCase(Locale.ROOT);}
@@ -80,10 +81,10 @@ public final class WorkPriceComparisonEngine {
     private static boolean trustedReference(String s){if(s==null||s.isEmpty())return false;int digits=0;for(int i=0;i<s.length();i++)if(Character.isDigit(s.charAt(i)))digits++;return digits>0;}
     private static String norm(String s){return s==null?"":s.trim().toLowerCase(Locale.ROOT).replaceAll("\\s+"," ");}
     private static String s(Cursor c,int i){return c.isNull(i)?"":c.getString(i);}
-    private static Price read(Cursor c){Price p=new Price();p.id=c.getLong(0);p.fileId=c.getLong(1);p.projectId=c.getLong(2);p.item=s(c,3);p.vendor=s(c,4);p.unit=s(c,5);p.unitPrice=c.getDouble(6);p.currency=s(c,7);p.referenceType=s(c,8);p.referenceValue=s(c,9);p.fileName=s(c,10);p.documentUri=s(c,11);long modified=c.getLong(12),created=c.getLong(13);p.sourceTime=modified>0?modified:created;p.sheet=s(c,14);p.page=c.getInt(15);p.row=c.getInt(16);p.project=s(c,17);return p;}
+    private static Price read(Cursor c){Price p=new Price();p.id=c.getLong(0);p.fileId=c.getLong(1);p.versionId=c.getLong(2);p.projectId=c.getLong(3);p.item=s(c,4);p.vendor=s(c,5);p.unit=s(c,6);p.unitPrice=c.getDouble(7);p.currency=s(c,8);p.referenceType=s(c,9);p.referenceValue=s(c,10);p.fileName=s(c,11);p.documentUri=s(c,12);long modified=c.getLong(13),created=c.getLong(14);p.sourceTime=modified>0?modified:created;p.sheet=s(c,15);p.page=c.getInt(16);p.row=c.getInt(17);p.project=s(c,18);p.confidence=c.getDouble(19);return p;}
 
     public static final class Price{
-        public long id,fileId,projectId,sourceTime;public String item="",vendor="",unit="",currency="",referenceType="",referenceValue="",fileName="",documentUri="",sheet="",project="";public double unitPrice;public int page,row;
+        public long id,fileId,versionId,projectId,sourceTime;public String item="",vendor="",unit="",currency="",referenceType="",referenceValue="",fileName="",documentUri="",sheet="",project="";public double unitPrice,confidence;public int page,row;
         static Price of(String item,String unit,double value,String currency){Price p=new Price();p.item=item;p.unit=unit;p.unitPrice=value;p.currency=currency;return p;}
     }
     public static final class Comparison{
