@@ -42,6 +42,15 @@ public class DiscoveryV3PolicyTest {
         assertFalse(DiscoveryV3Policy.publishable("CONTRADICTION","PR-0262 has conflicting status evidence.","Open evidence",1,.9,.9));
     }
 
+    @Test public void discoveryFeedRejectsConnectivityAsProductOutput(){
+        assertFalse(DiscoveryV3Feed.userWorthy("CROSS_SOURCE_CONNECTION","Cortex connected evidence","Negma appears in two apps","Open combined history",2,.92,.91));
+    }
+
+    @Test public void councilDiscoveryNeedsAConsequence(){
+        assertFalse(DiscoveryV3Feed.userWorthy("COUNCIL_DISCOVERY","Negma evidence is related","The same project appears across email and a document","Open the evidence",3,.91,.88));
+        assertTrue(DiscoveryV3Feed.userWorthy("COUNCIL_DISCOVERY","Negma quotation may still be pending","The latest project evidence still shows a missing quotation after the approval reference","Verify the quotation status before issuing the next PO",3,.91,.88));
+    }
+
     @Test public void councilUsesThreeDistinctHeavyBrains(){
         LocalCouncilModelRegistry.Model a=LocalCouncilModelRegistry.primary();
         LocalCouncilModelRegistry.Model b=LocalCouncilModelRegistry.analyst();
