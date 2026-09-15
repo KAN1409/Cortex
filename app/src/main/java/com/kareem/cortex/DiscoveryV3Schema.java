@@ -1,10 +1,11 @@
 package com.kareem.cortex;
 
+import android.database.Cursor;
 import android.database.sqlite.SQLiteDatabase;
 
 /** Additive storage for Discovery Engine v3. Raw evidence remains authoritative. */
 public final class DiscoveryV3Schema {
-    public static final String VERSION="discovery_v3_003_cognitive_council";
+    public static final String VERSION="discovery_v3_004_council_ownership";
     private static volatile boolean ready=false;
     private DiscoveryV3Schema(){}
 
@@ -138,10 +139,15 @@ public final class DiscoveryV3Schema {
                 "evidence_count INTEGER NOT NULL DEFAULT 0,"+
                 "final_output TEXT,"+
                 "error TEXT,"+
+                "owner_session TEXT NOT NULL DEFAULT '',"+
+                "heartbeat_at INTEGER NOT NULL DEFAULT 0,"+
                 "started_at INTEGER NOT NULL,"+
                 "completed_at INTEGER NOT NULL DEFAULT 0,"+
                 "updated_at INTEGER NOT NULL)");
+        ensureColumn(db,"discovery_v3_council_runs","owner_session","TEXT NOT NULL DEFAULT ''");
+        ensureColumn(db,"discovery_v3_council_runs","heartbeat_at","INTEGER NOT NULL DEFAULT 0");
         db.execSQL("CREATE INDEX IF NOT EXISTS idx_dv3_council_run ON discovery_v3_council_runs(situation_id,started_at DESC)");
+        db.execSQL("CREATE INDEX IF NOT EXISTS idx_dv3_council_owner ON discovery_v3_council_runs(state,heartbeat_at DESC)");
 
         db.execSQL("CREATE TABLE IF NOT EXISTS discovery_v3_council_passes("+
                 "id INTEGER PRIMARY KEY AUTOINCREMENT,"+
@@ -155,11 +161,34 @@ public final class DiscoveryV3Schema {
                 "tokens_per_second REAL NOT NULL DEFAULT 0,"+
                 "created_at INTEGER NOT NULL)");
         db.execSQL("CREATE INDEX IF NOT EXISTS idx_dv3_council_pass ON discovery_v3_council_passes(run_id,id)");
+        db.execSQL("CREATE TRIGGER IF NOT EXISTS trg_dv3_council_run_owner AFTER INSERT ON discovery_v3_council_runs "+
+                "WHEN NEW.state='running' BEGIN UPDATE discovery_v3_council_runs SET "+
+                "owner_session=CASE WHEN NEW.owner_session='' THEN printf('%d:%d',NEW.started_at,NEW.id) ELSE NEW.owner_session END,"+
+                "heartbeat_at=CASE WHEN NEW.heartbeat_at<=0 THEN NEW.started_at ELSE NEW.heartbeat_at END "+
+                "WHERE id=NEW.id; END");
+        db.execSQL("CREATE TRIGGER IF NOT EXISTS trg_dv3_council_pass_heartbeat AFTER INSERT ON discovery_v3_council_passes BEGIN "+
+                "UPDATE discovery_v3_council_runs SET heartbeat_at=CASE WHEN NEW.created_at>heartbeat_at THEN NEW.created_at ELSE heartbeat_at END,"+
+                "updated_at=CASE WHEN NEW.created_at>updated_at THEN NEW.created_at ELSE updated_at END "+
+                "WHERE id=NEW.run_id AND state='running'; END");
 
         db.execSQL("CREATE TABLE IF NOT EXISTS discovery_v3_meta(key TEXT PRIMARY KEY,value TEXT NOT NULL,updated_at INTEGER NOT NULL)");
         db.execSQL("INSERT OR REPLACE INTO discovery_v3_meta(key,value,updated_at) VALUES('schema_version',?,?)",
                 new Object[]{VERSION,System.currentTimeMillis()});
         ready=true;
         }
+    }
+
+    private static void ensureColumn(SQLiteDatabase db,String table,String column,String definition){
+        if(hasColumn(db,table,column))return;
+        db.execSQL("ALTER TABLE "+table+" ADD COLUMN "+column+" "+definition);
+    }
+
+    private static boolean hasColumn(SQLiteDatabase db,String table,String column){
+        Cursor c=db.rawQuery("PRAGMA table_info("+table+")",null);
+        try{
+            int name=c.getColumnIndex("name");
+            while(c.moveToNext())if(name>=0&&column.equals(c.getString(name)))return true;
+            return false;
+        }finally{c.close();}
     }
 }
