@@ -75,6 +75,7 @@ public final class CognitiveCouncilOrchestrator {
             String action=clean(o.optString("suggested_action",""));
             double confidence=Math.max(0,Math.min(1,o.optDouble("confidence",0)));
             if(title.isEmpty()||found.isEmpty()||why.isEmpty()||action.isEmpty()||confidence<.70)publish=false;
+            if(publish&&!DiscoveryV3Feed.userWorthy("COUNCIL_DISCOVERY",title,found,action,pack.ids.size(),confidence,councilScore(confidence,pack.ids.size())))publish=false;
             finishRun(db,runId,publish?"complete_publish":"complete_silent",String.join(" | ",used),"",finalPass.text);
             return new Result(true,publish,title,found,why,whyNow,action,confidence,finalPass.text,String.join(" | ",used),"",pack.ids);
         }catch(Throwable t){
@@ -135,6 +136,10 @@ public final class CognitiveCouncilOrchestrator {
     private static JSONObject parseJson(String text)throws Exception{
         String x=text==null?"":text.trim();int a=x.indexOf('{'),b=x.lastIndexOf('}');if(a<0||b<=a)throw new JSONException("Council final output was not JSON");
         return new JSONObject(x.substring(a,b+1));
+    }
+    private static double councilScore(double confidence,int evidenceCount){
+        double evidence=Math.min(1,.52+.16*Math.max(0,evidenceCount-1));
+        return DiscoveryV3Policy.score(.90,.88,evidence,.76,confidence,.10);
     }
     private static String clean(String s){return s==null?"":s.replaceAll("\\s+"," ").trim();}
     private static String safe(String s){return s==null?"":clip(s,500);}
