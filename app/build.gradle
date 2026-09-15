@@ -37,8 +37,8 @@ android {
         applicationId 'com.kareem.cortex'
         minSdk 26
         targetSdk 35
-        versionCode 153
-        versionName '2.40.0-direct-council-execution'
+        versionCode 154
+        versionName '2.41.0-live-model-download-progress'
         testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
     }
     buildTypes { debug { signingConfig signingConfigs.debug } }
