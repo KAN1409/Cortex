@@ -57,7 +57,9 @@ public final class WorkPriceComparisonEngine {
         return new Comparison(current,previous,true,"COMPARABLE",delta,pct);
     }
 
-    static boolean hasScope(Price p){return p!=null&&(p.projectId>0||(!refType(p.referenceType).isEmpty()&&!refValue(p.referenceValue).isEmpty()));}\n\n    static boolean compatibleScope(Price a,Price b){
+    static boolean hasScope(Price p){return p!=null&&(p.projectId>0||(!refType(p.referenceType).isEmpty()&&!refValue(p.referenceValue).isEmpty()));}
+
+    static boolean compatibleScope(Price a,Price b){
         if(a==null||b==null)return false;
         if(a.projectId>0||b.projectId>0)return a.projectId>0&&a.projectId==b.projectId;
         String at=refType(a.referenceType),bt=refType(b.referenceType),av=refValue(a.referenceValue),bv=refValue(b.referenceValue);
