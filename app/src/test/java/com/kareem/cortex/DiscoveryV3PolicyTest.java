@@ -13,6 +13,13 @@ public class DiscoveryV3PolicyTest {
         assertEquals("PO-123/7",DiscoveryV3Policy.exactRef("PO#123/7 approved"));
     }
 
+    @Test public void proseBeginningWithPrIsNeverAReference(){
+        assertEquals("",DiscoveryV3Policy.exactRef("privacy processing primary project provider"));
+        assertEquals("",DiscoveryV3Policy.exactRef("PR IVACY and PR OJECT must never become procurement references"));
+        assertEquals("",DiscoveryV3Policy.exactRef("please review PR ABC because it has no identifier structure"));
+        assertEquals("PR-ABC-17",DiscoveryV3Policy.exactRef("please review PR ABC-17 ceiling"));
+    }
+
     @Test public void explicitSpaceOverridesWeakCategory(){
         assertEquals("WORK",DiscoveryV3Policy.space(item("Health","anything","{\"space\":\"WORK\"}")));
     }
