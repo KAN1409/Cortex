@@ -47,7 +47,7 @@ public final class WorkPriceComparisonEngine {
 
     static Comparison compare(Price current,Price previous){
         if(current==null||previous==null)return Comparison.notComparable(current,previous,"MISSING_PRICE_RECORD");
-        if(hasScope(current)||hasScope(previous)){if(!compatibleScope(current,previous))return Comparison.notComparable(current,previous,"SCOPE_MISMATCH_OR_UNKNOWN");}
+        if(!compatibleScope(current,previous))return Comparison.notComparable(current,previous,"SCOPE_MISMATCH_OR_UNKNOWN");
         if(!item(current.item).equals(item(previous.item)))return Comparison.notComparable(current,previous,"ITEM_MISMATCH");
         String cu=unit(current.unit),pu=unit(previous.unit);if(cu.isEmpty()||pu.isEmpty()||!cu.equals(pu))return Comparison.notComparable(current,previous,"UNIT_MISMATCH");
         String cc=currency(current.currency),pc=currency(previous.currency);if(cc.isEmpty()||pc.isEmpty()||!cc.equals(pc))return Comparison.notComparable(current,previous,"CURRENCY_MISMATCH");
