@@ -37,8 +37,8 @@ android {
         applicationId 'com.kareem.cortex'
         minSdk 26
         targetSdk 35
-        versionCode 156
-        versionName '2.42.0-intelligence-quality-gate'
+        versionCode 157
+        versionName '2.43.0-grounded-results'
         testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
     }
     buildTypes { debug { signingConfig signingConfigs.debug } }
