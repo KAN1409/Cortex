@@ -48,13 +48,12 @@ public final class DiscoveryV3Feed {
 
     static boolean hasMalformedProcurementRef(String text){
         if(text==null)return false;
-        java.util.regex.Matcher m=java.util.regex.Pattern.compile("(?i)(?<![\\p{L}\\p{N}])P[RO][-_/][A-Z0-9]+(?:[-_/][A-Z0-9]+)*(?![\\p{L}\\p{N}])").matcher(text);
+        java.util.regex.Matcher m=java.util.regex.Pattern.compile("(?i)(?<![\\p{L}\\p{N}])(P[RO])[-_/]([A-Z0-9]+(?:[-_/][A-Z0-9]+)*)(?![\\p{L}\\p{N}])").matcher(text);
         while(m.find()){
-            String token=m.group();
-            String body=token.substring(3);
-            // Valid references need either a digit or an intentionally structured body (e.g. ABC-17).
-            // A plain alphabetic suffix is the legacy word-fragment corruption we quarantine.
-            if(!body.matches(".*\\d.*")&&!body.matches(".*[-_/].*"))return true;
+            String body=m.group(2);
+            // Persisted corruption is alphabetic prose accidentally split after PR/PO.
+            // Real references must carry numeric identity somewhere in the body.
+            if(!body.matches(".*\\d.*"))return true;
         }
         return false;
     }
