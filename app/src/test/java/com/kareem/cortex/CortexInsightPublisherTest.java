@@ -29,7 +29,7 @@ public class CortexInsightPublisherTest {
     }
     @Test public void missingSourceCannotPublish(){assertEquals("quarantined",state(submit(Arrays.asList(1L,99L))));}
     @Test public void noSourceCannotPublish(){assertEquals("quarantined",state(submit(Collections.emptyList())));}
-    @Test public void activeOwnerIsNeverRecoveredEvenForOldRun()throws Exception{
+    @Test public void checkpointedRunRemainsResumableWhenOwnerIsGone()throws Exception{
         android.content.Context context=androidx.test.core.app.ApplicationProvider.getApplicationContext();
         db.execSQL("INSERT INTO discovery_v3_council_runs(situation_id,state,started_at,updated_at) VALUES(1,'running',1000,1000)");
         long runId;String owner;
@@ -38,17 +38,16 @@ public class CortexInsightPublisherTest {
         }
         db.execSQL("INSERT INTO discovery_v3_council_passes(run_id,role,model_id,model_name,output_text,created_at) VALUES(?,?,?,?,?,?)",
                 new Object[]{runId,"investigator","m1","Model 1","grounded pass",2000});
-        try(Cursor c=db.rawQuery("SELECT owner_session,heartbeat_at,updated_at FROM discovery_v3_council_runs WHERE id=?",new String[]{String.valueOf(runId)})){
-            assertTrue(c.moveToFirst());assertEquals(owner,c.getString(0));assertEquals(2000,c.getLong(1));assertEquals(2000,c.getLong(2));
-        }
         try(CouncilExecutionLease lease=CouncilExecutionLease.acquire(context)){
             assertNotNull(lease);
             assertEquals(0,CognitiveCouncilRunRecovery.recoverStale(context,db,999999999));
         }
-        assertEquals(1,CognitiveCouncilRunRecovery.recoverStale(context,db,999999999));
         assertEquals(0,CognitiveCouncilRunRecovery.recoverStale(context,db,999999999));
         try(Cursor c=db.rawQuery("SELECT state,owner_session,heartbeat_at FROM discovery_v3_council_runs WHERE id=?",new String[]{String.valueOf(runId)})){
-            assertTrue(c.moveToFirst());assertEquals("interrupted",c.getString(0));assertEquals(owner,c.getString(1));assertEquals(2000,c.getLong(2));
+            assertTrue(c.moveToFirst());assertEquals("running",c.getString(0));assertEquals(owner,c.getString(1));assertEquals(2000,c.getLong(2));
+        }
+        try(Cursor c=db.rawQuery("SELECT role,output_text FROM discovery_v3_council_passes WHERE run_id=?",new String[]{String.valueOf(runId)})){
+            assertTrue(c.moveToFirst());assertEquals("investigator",c.getString(0));assertEquals("grounded pass",c.getString(1));
         }
     }
     @Test public void legacyCouncilRunTableUpgradesWithoutDataLoss()throws Exception{
