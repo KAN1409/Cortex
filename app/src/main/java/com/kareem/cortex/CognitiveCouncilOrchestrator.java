@@ -50,13 +50,13 @@ public final class CognitiveCouncilOrchestrator {
                     "INVESTIGATION TARGET\n"+pack.header+"\n\nEVIDENCE\n"+pack.text+
                     "\n\nTask: identify only non-obvious, potentially useful findings. Test temporal order, missing expected steps, contradictions, recurrence, dependencies and latent relationships. "+
                     "For every claim cite one or more evidence IDs like [E123]. Explicitly list uncertainty and what evidence could falsify each hypothesis.";
-            Pass investigator=call(ctx,primary,"investigator",investigatorPrompt);passes.add(investigator);used.add(primary.name);persistPass(db,runId,investigator);
+            Pass investigator=call(ctx,primary,"investigator",investigatorPrompt);passes.add(investigator);used.add(primary.name);persistPass(db,runId,investigator);touchRun(db,runId,"running_investigator_complete",String.join(" | ",used));
 
             LocalCouncilModelRegistry.Model analyst=LocalCouncilModelRegistry.analyst();
             if(LocalCouncilModelRegistry.ready(ctx,analyst)){
                 String prompt="Analyze the same evidence independently, then compare against the primary investigator. Do not copy it. Find missed interpretations and entity/time mistakes.\n\n"+
                         pack.header+"\n\nEVIDENCE\n"+pack.text+"\n\nPRIMARY INVESTIGATOR\n"+clip(investigator.text,6000);
-                Pass p=call(ctx,analyst,"independent_analyst",prompt);passes.add(p);used.add(analyst.name);persistPass(db,runId,p);
+                Pass p=call(ctx,analyst,"independent_analyst",prompt);passes.add(p);used.add(analyst.name);persistPass(db,runId,p);touchRun(db,runId,"running_analyst_complete",String.join(" | ",used));
             }
 
             LocalCouncilModelRegistry.Model critic=LocalCouncilModelRegistry.critic();
@@ -65,7 +65,7 @@ public final class CognitiveCouncilOrchestrator {
                 String prompt="Attempt to falsify the following analyses using only the supplied evidence. Reject unsupported claims, bad entity merges, timeline errors, causal overreach and duplicated/trivial findings. "+
                         "Return: SURVIVES, REJECTED, MISSING_EVIDENCE, and the strongest surviving candidate with evidence IDs.\n\n"+
                         pack.header+"\n\nEVIDENCE\n"+pack.text+prior;
-                Pass p=call(ctx,critic,"adversarial_critic",prompt);passes.add(p);used.add(critic.name);persistPass(db,runId,p);
+                Pass p=call(ctx,critic,"adversarial_critic",prompt);passes.add(p);used.add(critic.name);persistPass(db,runId,p);touchRun(db,runId,"running_critic_complete",String.join(" | ",used));
             }
 
             StringBuilder council=new StringBuilder();
@@ -75,7 +75,7 @@ public final class CognitiveCouncilOrchestrator {
                     "Do not output chain-of-thought. Return ONLY valid JSON with keys: should_publish(boolean), title, what_found, why_matters, why_now, suggested_action, confidence(number 0..1), evidence_ids(array of numeric IDs supporting the finding). Cite those IDs in what_found. "+
                     "what_found must mention concrete subjects/statuses/relationships and preserve uncertainty. Generic statistics are forbidden.\n\n"+
                     pack.header+"\n\nEVIDENCE\n"+pack.text+"\n\nCOUNCIL"+council;
-            Pass finalPass=call(ctx,primary,"final_judge",finalPrompt);used.add(primary.name+" · final");persistPass(db,runId,finalPass);
+            Pass finalPass=call(ctx,primary,"final_judge",finalPrompt);used.add(primary.name+" · final");persistPass(db,runId,finalPass);touchRun(db,runId,"running_final_complete",String.join(" | ",used));
 
             JSONObject o=parseJson(finalPass.text);
             boolean publish=o.optBoolean("should_publish",false);
@@ -158,6 +158,10 @@ public final class CognitiveCouncilOrchestrator {
     }
     private static void persistPass(SQLiteDatabase db,long runId,Pass p){
         ContentValues v=new ContentValues();v.put("run_id",runId);v.put("role",p.role);v.put("model_id",p.modelId);v.put("model_name",p.modelName);v.put("output_text",p.text);v.put("duration_ms",p.durationMs);v.put("tokens",p.tokens);v.put("tokens_per_second",p.tps);v.put("created_at",System.currentTimeMillis());db.insert("discovery_v3_council_passes",null,v);
+    }
+    private static void touchRun(SQLiteDatabase db,long id,String state,String models){
+        ContentValues v=new ContentValues();v.put("state",state);v.put("models_used",models);v.put("updated_at",System.currentTimeMillis());
+        db.update("discovery_v3_council_runs",v,"id=?",new String[]{String.valueOf(id)});
     }
     private static void finishRun(SQLiteDatabase db,long id,String state,String models,String error,String finalText){
         ContentValues v=new ContentValues();v.put("state",state);v.put("models_used",models);v.put("error",error);v.put("final_output",finalText);v.put("completed_at",System.currentTimeMillis());v.put("updated_at",System.currentTimeMillis());db.update("discovery_v3_council_runs",v,"id=?",new String[]{String.valueOf(id)});
