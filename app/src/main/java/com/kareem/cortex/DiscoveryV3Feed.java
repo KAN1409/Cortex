@@ -74,9 +74,18 @@ public final class DiscoveryV3Feed {
     }
 
     public static void feedback(VaultDb vault,Item x,String event){
+        if(!Arrays.asList("useful","acted","not_useful","wrong","already_knew").contains(event))throw new IllegalArgumentException("Unknown feedback");
         if(vault==null||x==null)return;double w="useful".equals(event)?1:"acted".equals(event)?1.4:"not_useful".equals(event)?-1:"wrong".equals(event)?-1.5:0;
         ContentValues v=new ContentValues();v.put("insight_id",x.id);v.put("family",x.family);v.put("event",event);v.put("weight",w);v.put("created_at",System.currentTimeMillis());
-        vault.getWritableDatabase().insert("discovery_v3_feedback",null,v);
+        SQLiteDatabase db=vault.getWritableDatabase();db.beginTransaction();
+        try{
+            db.insertOrThrow("discovery_v3_feedback",null,v);
+            if("not_useful".equals(event)||"wrong".equals(event)||"already_knew".equals(event)){
+                ContentValues state=new ContentValues();state.put("state","wrong".equals(event)?"wrong":"dismissed");state.put("updated_at",System.currentTimeMillis());
+                db.update("discovery_v3_insights",state,"id=?",new String[]{String.valueOf(x.id)});
+            }
+            db.setTransactionSuccessful();
+        }finally{db.endTransaction();}
     }
 
     private static String s(Cursor c,int i){return c.isNull(i)?"":c.getString(i);}

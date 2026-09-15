@@ -28,10 +28,6 @@ public final class NowActivity extends PremiumHomeActivity {
         }catch(java.util.concurrent.RejectedExecutionException ignored){}
     }
     @Override void build(){
-        DiscoveryV3BackfillWorker.enqueue(this);
-        DiscoveryV3ResearchWorker.enqueue(this);
-        DiscoveryV3DeepScheduler.enable(this);
-        DiscoveryV3DeepScheduler.kick(this);
         LinearLayout root=new LinearLayout(this);root.setOrientation(LinearLayout.VERTICAL);root.setBackgroundColor(CortexUi.BG);
         ScrollView sv=new ScrollView(this);sv.setFillViewport(true);sv.setClipToPadding(false);sv.setVerticalScrollBarEnabled(false);
         content=new LinearLayout(this);content.setOrientation(LinearLayout.VERTICAL);content.setPadding(dp(18),dp(8),dp(18),dp(30));sv.addView(content);root.addView(sv,new LinearLayout.LayoutParams(-1,0,1));
@@ -111,12 +107,21 @@ public final class NowActivity extends PremiumHomeActivity {
         box.addView(CortexUi.section(this,"Why now"));box.addView(CortexUi.text(this,x.whyNow,12,CortexUi.MUTED));
         box.addView(CortexUi.section(this,"Suggested next step"));box.addView(CortexUi.text(this,x.suggestedAction,12,CortexUi.LIME));
         if(x.history!=null&&!x.history.trim().isEmpty()){box.addView(CortexUi.section(this,"History"));TextView hist=CortexUi.text(this,clipLocal(x.history,8000),12,CortexUi.MUTED);hist.setTextIsSelectable(true);box.addView(hist);}
-        if(!x.evidenceIds.isEmpty()){TextView e=CortexUi.action(this,"Open source evidence",CortexUi.MUTED,false);LinearLayout.LayoutParams ep=new LinearLayout.LayoutParams(-1,dp(44));ep.setMargins(0,dp(12),0,0);box.addView(e,ep);long id=x.evidenceIds.get(0);e.setOnClickListener(v->{d.dismiss();try{Intent i=new Intent(this,VaultActivity.class);i.putExtra("item_id",id);startActivity(i);}catch(Throwable ignored){}});}
+        for(long id:new java.util.LinkedHashSet<>(x.evidenceIds)){
+            TextView e=CortexUi.action(this,"Open source #"+id,CortexUi.MUTED,false);
+            LinearLayout.LayoutParams ep=new LinearLayout.LayoutParams(-1,dp(44));ep.setMargins(0,dp(8),0,0);box.addView(e,ep);
+            e.setOnClickListener(v->{try{Intent i=new Intent(this,VaultActivity.class);i.putExtra("item_id",id);startActivity(i);}catch(Exception unavailable){Toast.makeText(this,"Source could not be opened",Toast.LENGTH_LONG).show();}});
+        }
         LinearLayout fb=new LinearLayout(this);fb.setOrientation(LinearLayout.HORIZONTAL);fb.setPadding(0,dp(10),0,0);
         TextView useful=CortexUi.action(this,"Useful",CortexUi.LIME,false),bad=CortexUi.action(this,"Not useful",CortexUi.MUTED,false);
         fb.addView(useful,new LinearLayout.LayoutParams(0,dp(42),1));LinearLayout.LayoutParams bp=new LinearLayout.LayoutParams(0,dp(42),1);bp.setMargins(dp(8),0,0,0);fb.addView(bad,bp);box.addView(fb);
         useful.setOnClickListener(v->{try{DiscoveryV3Feed.feedback(db,x,"useful");}catch(Throwable ignored){}d.dismiss();});
-        bad.setOnClickListener(v->{try{DiscoveryV3Feed.feedback(db,x,"not_useful");}catch(Throwable ignored){}d.dismiss();});
+        bad.setOnClickListener(v->{try{DiscoveryV3Feed.feedback(db,x,"not_useful");d.dismiss();refreshAsync();}catch(Exception failure){Toast.makeText(this,"Feedback could not be saved",Toast.LENGTH_LONG).show();}});
+        for(String event:new String[]{"wrong","already_knew"}){
+            TextView feedback=CortexUi.action(this,"wrong".equals(event)?"Wrong":"Already knew this",CortexUi.MUTED,false);
+            box.addView(feedback,new LinearLayout.LayoutParams(-1,dp(44)));
+            feedback.setOnClickListener(v->{try{DiscoveryV3Feed.feedback(db,x,event);d.dismiss();refreshAsync();}catch(Exception failure){Toast.makeText(this,"Feedback could not be saved",Toast.LENGTH_LONG).show();}});
+        }
         TextView close=CortexUi.action(this,"Close",CortexUi.MUTED,false);LinearLayout.LayoutParams cp=new LinearLayout.LayoutParams(-1,dp(44));cp.setMargins(0,dp(8),0,0);box.addView(close,cp);close.setOnClickListener(v->d.dismiss());
         d.setContentView(sv);try{d.show();if(d.getWindow()!=null)d.getWindow().setLayout((int)(getResources().getDisplayMetrics().widthPixels*.94f),(int)(getResources().getDisplayMetrics().heightPixels*.84f));}catch(Throwable ignored){}
     }

@@ -11,6 +11,7 @@ import java.util.*;
  * Heavy models are loaded one-at-a-time and pass structured reasoning to each other.
  */
 public final class CognitiveCouncilOrchestrator {
+    private static final java.util.concurrent.atomic.AtomicBoolean RUNNING=new java.util.concurrent.atomic.AtomicBoolean(false);
     private CognitiveCouncilOrchestrator(){}
 
     public static final class Result {
@@ -24,7 +25,17 @@ public final class CognitiveCouncilOrchestrator {
     }
 
     public static Result run(Context ctx,VaultDb vault,long situationId){
+        if(!RUNNING.compareAndSet(false,true))return fail("Another council run is already active",Collections.emptyList());
+        try(CouncilExecutionLease lease=CouncilExecutionLease.acquire(ctx)){
+            if(lease==null)return fail("Another council run is already active",Collections.emptyList());
+            return runOwned(ctx,vault,situationId);
+        }catch(Exception e){return fail("Council execution failed: "+safe(e.getMessage()),Collections.emptyList());}
+        finally{RUNNING.set(false);}
+    }
+
+    private static Result runOwned(Context ctx,VaultDb vault,long situationId){
         SQLiteDatabase db=vault.getReadableDatabase();DiscoveryV3Schema.ensure(db);
+        CognitiveCouncilRunRecovery.recoverWhileOwned(db,System.currentTimeMillis());
         EvidencePack pack=pack(db,situationId);
         if(pack.ids.isEmpty())return fail("No linked evidence",pack.ids);
         ArrayList<String> used=new ArrayList<>();
@@ -61,7 +72,7 @@ public final class CognitiveCouncilOrchestrator {
             for(Pass p:passes)council.append("\n\n### ").append(p.role).append("\n").append(clip(p.text,5200));
             String finalPrompt=
                     "You are the final Cortex council judge. Use the original evidence and the council passes below. Publish NOTHING unless it is specific, non-trivial, grounded, useful, and survives criticism. "+
-                    "Do not output chain-of-thought. Return ONLY valid JSON with keys: should_publish(boolean), title, what_found, why_matters, why_now, suggested_action, confidence(number 0..1). "+
+                    "Do not output chain-of-thought. Return ONLY valid JSON with keys: should_publish(boolean), title, what_found, why_matters, why_now, suggested_action, confidence(number 0..1), evidence_ids(array of numeric IDs supporting the finding). Cite those IDs in what_found. "+
                     "what_found must mention concrete subjects/statuses/relationships and preserve uncertainty. Generic statistics are forbidden.\n\n"+
                     pack.header+"\n\nEVIDENCE\n"+pack.text+"\n\nCOUNCIL"+council;
             Pass finalPass=call(ctx,primary,"final_judge",finalPrompt);used.add(primary.name+" · final");persistPass(db,runId,finalPass);
@@ -74,10 +85,16 @@ public final class CognitiveCouncilOrchestrator {
             String whyNow=clean(o.optString("why_now",""));
             String action=clean(o.optString("suggested_action",""));
             double confidence=Math.max(0,Math.min(1,o.optDouble("confidence",0)));
+            LinkedHashSet<Long> cited=new LinkedHashSet<>();JSONArray references=o.optJSONArray("evidence_ids");
+            if(references!=null)for(int i=0;i<references.length();i++){
+                long id=references.optLong(i,-1);
+                if(!pack.ids.contains(id))publish=false;else cited.add(id);
+            }
+            if(cited.size()<2||!Double.isFinite(confidence))publish=false;
             if(title.isEmpty()||found.isEmpty()||why.isEmpty()||action.isEmpty()||confidence<.70)publish=false;
             if(publish&&!DiscoveryV3Feed.userWorthy("COUNCIL_DISCOVERY",title,found,action,pack.ids.size(),confidence,councilScore(confidence,pack.ids.size())))publish=false;
-            finishRun(db,runId,publish?"complete_publish":"complete_silent",String.join(" | ",used),"",finalPass.text);
-            return new Result(true,publish,title,found,why,whyNow,action,confidence,finalPass.text,String.join(" | ",used),"",pack.ids);
+            finishRun(db,runId,publish?"complete_candidate":"complete_silent",String.join(" | ",used),"",finalPass.text);
+            return new Result(true,publish,title,found,why,whyNow,action,confidence,finalPass.text,String.join(" | ",used),"",new ArrayList<>(cited));
         }catch(Throwable t){
             String err=t.getClass().getSimpleName()+": "+safe(t.getMessage());finishRun(db,runId,"failed",String.join(" | ",used),err,"");
             return new Result(false,false,"","","","","",0,"",String.join(" | ",used),err,pack.ids);

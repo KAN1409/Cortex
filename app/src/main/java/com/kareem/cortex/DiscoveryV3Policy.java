@@ -79,7 +79,7 @@ public final class DiscoveryV3Policy {
         if(x.length()<2||x.length()>32)return false;
         boolean digit=x.matches(".*\\d.*");
         boolean structured=x.matches(".*[-_/].*");
-        if(!digit&&!structured)return false;
+        if(!digit)return false;
         if(x.matches("(?i)(IVACY|OJECT|IMARY|OCESSING|ICE|OGRESS|OVIDER|EVIEW|ODUCT|OBLEM|OMPT|OFILE|OJECTS)"))return false;
         return true;
     }

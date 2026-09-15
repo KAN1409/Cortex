@@ -12,8 +12,10 @@ import java.util.*;
 import java.util.concurrent.*;
 
 public final class CognitiveCouncilActivity extends Activity {
-    VaultDb db;LinearLayout body;TextView status,models,runState;Handler handler=new Handler(Looper.getMainLooper());
+    VaultDb db;LinearLayout body;TextView status,models,runState,run;Handler handler=new Handler(Looper.getMainLooper());
     boolean destroyed=false;final Runnable poll=new Runnable(){public void run(){if(destroyed)return;refresh();handler.postDelayed(this,2500);}};
+    com.google.common.util.concurrent.ListenableFuture<java.util.List<androidx.work.WorkInfo>> workSnapshot;
+    String workMessage="";boolean workActive=false;
 
     int dp(int x){return CortexUi.dp(this,x);}
     @Override public void onCreate(Bundle b){
@@ -35,37 +37,18 @@ public final class CognitiveCouncilActivity extends Activity {
 
         models=CortexUi.text(this,"Checking model state…",11,CortexUi.MUTED);models.setPadding(dp(4),dp(14),dp(4),dp(4));body.addView(models);
 
-        LinearLayout actions=new LinearLayout(this);actions.setOrientation(LinearLayout.HORIZONTAL);TextView install=CortexUi.action(this,"Install / continue brains",CortexUi.OLIVE,false);TextView run=CortexUi.action(this,"Run council now",CortexUi.LIME,false);
+        LinearLayout actions=new LinearLayout(this);actions.setOrientation(LinearLayout.HORIZONTAL);TextView install=CortexUi.action(this,"Install / continue brains",CortexUi.OLIVE,false);run=CortexUi.action(this,"Run council now",CortexUi.LIME,false);
         actions.addView(install,new LinearLayout.LayoutParams(0,dp(46),1));LinearLayout.LayoutParams rp=new LinearLayout.LayoutParams(0,dp(46),1);rp.setMargins(dp(8),0,0,0);actions.addView(run,rp);body.addView(actions,lp(0,8,0,0));
         install.setOnClickListener(v->{LocalCouncilModelDownloadService.startAll(this);Toast.makeText(this,"Council model download started / resumed",Toast.LENGTH_SHORT).show();refresh();});
         run.setOnClickListener(v->{
             int ready=LocalCouncilModelRegistry.readyCount(this);
             if(ready<LocalCouncilModelRegistry.council().size()){
-                Toast.makeText(this,"Maximum council needs all 3 brains. Downloading missing brains now.",Toast.LENGTH_LONG).show();
-                LocalCouncilModelDownloadService.startAll(this);refresh();return;
+                Toast.makeText(this,"Required models are missing. Use Install / continue brains to download them.",Toast.LENGTH_LONG).show();
+                refresh();return;
             }
             run.setEnabled(false);runState.setText("Council is starting on the strongest grounded situation…");
-            Executors.newSingleThreadExecutor().execute(()->{
-                try{
-                    SQLiteDatabase r=db.getReadableDatabase();DiscoveryV3Schema.ensure(r);
-                    Cursor q=r.rawQuery(
-                            "SELECT s.id FROM discovery_v3_situations s "+
-                            "JOIN discovery_v3_evidence e ON e.situation_id=s.id "+
-                            "JOIN knowledge_items k ON k.id=e.item_id "+
-                            "LEFT JOIN discovery_v3_insights i ON i.situation_id=s.id AND i.state='published' "+
-                            "GROUP BY s.id HAVING COUNT(DISTINCT e.item_id)>=2 "+
-                            "ORDER BY "+
-                            "MAX(CASE WHEN i.family IN ('CONTRADICTION','OPEN_LOOP') THEN i.score ELSE 0 END) DESC,"+
-                            "COUNT(DISTINCT COALESCE(NULLIF(e.source_key,''),e.source_type)) DESC,"+
-                            "MAX(e.quality) DESC,"+
-                            "MAX(k.created_at) DESC,"+
-                            "COUNT(DISTINCT e.item_id) DESC LIMIT 1",null);
-                    long sid=q.moveToFirst()?q.getLong(0):-1;q.close();
-                    if(sid<0)throw new IllegalStateException("No grounded situation with at least 2 evidence items");
-                    CognitiveCouncilOrchestrator.Result result=CognitiveCouncilOrchestrator.run(getApplicationContext(),db,sid);
-                    handler.post(()->{run.setEnabled(true);refresh();Toast.makeText(this,result.ok?(result.publish?"Council produced a publishable discovery":"Council finished: no claim survived the quality gate"):"Council failed: "+safe(result.error),Toast.LENGTH_LONG).show();});
-                }catch(Throwable t){handler.post(()->{run.setEnabled(true);refresh();Toast.makeText(this,"Council failed: "+safe(t.getMessage()),Toast.LENGTH_LONG).show();});}
-            });
+            DiscoveryV3DeepScheduler.kick(getApplicationContext());
+            Toast.makeText(this,"Analysis queued. Results will be saved when complete.",Toast.LENGTH_LONG).show();
         });
 
         status=CortexUi.text(this,"",11,CortexUi.MUTED);status.setPadding(dp(4),dp(14),dp(4),0);body.addView(status);
@@ -77,6 +60,16 @@ public final class CognitiveCouncilActivity extends Activity {
     void refresh(){
         if(destroyed)return;
         try{
+            if(workSnapshot!=null&&workSnapshot.isDone()){
+                java.util.List<androidx.work.WorkInfo> jobs=workSnapshot.get();workActive=false;workMessage="";
+                for(androidx.work.WorkInfo job:jobs){
+                    if(!job.getState().isFinished()){workActive=true;workMessage="Analysis "+job.getState().name().toLowerCase(java.util.Locale.ROOT);break;}
+                    if(job.getState()==androidx.work.WorkInfo.State.FAILED)workMessage=job.getOutputData().getString("error");
+                    else if(job.getState()==androidx.work.WorkInfo.State.SUCCEEDED)workMessage="Last requested analysis finished. Published findings: "+job.getOutputData().getInt("published",0);
+                }
+                workSnapshot=null;
+            }
+            if(workSnapshot==null)workSnapshot=androidx.work.WorkManager.getInstance(getApplicationContext()).getWorkInfosForUniqueWork("cortex-discovery-v3-deep-now");
             StringBuilder ms=new StringBuilder();int ready=0;
             for(LocalCouncilModelRegistry.Model m:LocalCouncilModelRegistry.council()){
                 boolean r=LocalCouncilModelRegistry.ready(this,m);if(r)ready++;
@@ -97,18 +90,20 @@ public final class CognitiveCouncilActivity extends Activity {
             models.setText(ms.toString().trim());
             status.setText("Council readiness: "+ready+"/"+LocalCouncilModelRegistry.council().size()+" heavy brains");
             renderRuns();
+            if(workMessage!=null&&!workMessage.isEmpty())runState.setText(workMessage);
         }catch(Throwable e){runState.setText("Council view error: "+safe(e.getMessage()));}
     }
 
     void renderRuns(){
         while(body.getChildCount()>7)body.removeViewAt(7);
-        SQLiteDatabase r=db.getReadableDatabase();DiscoveryV3Schema.ensure(r);
+        SQLiteDatabase r=db.getReadableDatabase();DiscoveryV3Schema.ensure(r);int recovered=CognitiveCouncilRunRecovery.recoverStale(this,r,System.currentTimeMillis());
         Cursor c=r.rawQuery("SELECT r.id,r.situation_id,r.state,r.models_used,r.evidence_count,r.error,r.started_at,r.completed_at,s.label,s.domain "+
                 "FROM discovery_v3_council_runs r LEFT JOIN discovery_v3_situations s ON s.id=r.situation_id ORDER BY r.id DESC LIMIT 6",null);
         int n=0;boolean running=false;
         while(c.moveToNext()){n++;String state=s(c,2);if("running".equals(state))running=true;body.addView(runCard(r,c),lp(0,0,0,10));}
         c.close();
-        runState.setText(running?"Council is thinking now. This screen will refresh automatically.":(n==0?(LocalCouncilModelRegistry.fullCouncilReady(this)?"Ready. Tap Run council now to analyze the strongest grounded situation.":"Maximum council is waiting for all 3 local brains. Install / continue brains resumes the missing downloads."):"Latest results below · tap a run to inspect every model pass."));
+        run.setEnabled(!running&&!workActive);
+        runState.setText(running?"One council run is active. This screen will refresh automatically.":(recovered>0?recovered+" interrupted run(s) recovered. Deep analysis now runs only when you request it.":(n==0?(LocalCouncilModelRegistry.fullCouncilReady(this)?"Ready. Deep analysis runs only when you tap Run council now.":"Maximum council is waiting for all 3 local brains. Install / continue brains resumes the missing downloads."):"Deep analysis is manual · latest results below · tap a run to inspect every model pass.")));
     }
 
     View runCard(SQLiteDatabase r,Cursor c){

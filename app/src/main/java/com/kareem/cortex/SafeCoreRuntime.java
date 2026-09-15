@@ -44,6 +44,8 @@ public final class SafeCoreRuntime {
             PHASE.set(Phase.CORE_READY);
 
             StartupSafetyGate.releaseAfterSafeCore();
+            try{DiscoveryV3DeepScheduler.enable(app);CognitiveCouncilRunRecovery.recoverStale(app,db.getWritableDatabase(),System.currentTimeMillis());}
+            catch(Throwable t){CapabilitySupervisor.recordFailure(app,CapabilitySupervisor.Capability.BACKGROUND_SCHEDULING,t);}
 
             // Normalize the two authoritative Vault integrity failures from the physical-device
             // report before the capability matrix is evaluated. This is idempotent and preserves

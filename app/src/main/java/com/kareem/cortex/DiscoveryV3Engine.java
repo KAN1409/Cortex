@@ -166,17 +166,7 @@ public final class DiscoveryV3Engine {
         LinkedHashSet<Long> unique=new LinkedHashSet<>(evidenceIds);int n=unique.size();
         double evidence=Math.min(1,.52+.16*Math.max(0,n-1));
         double score=DiscoveryV3Policy.score(consequence,novelty,evidence,timeliness,confidence,uncertainty);
-        boolean publish=DiscoveryV3Policy.publishable(family,found,action,n,confidence,score);
-        long now=System.currentTimeMillis(),id=0;Cursor c=db.rawQuery("SELECT id FROM discovery_v3_insights WHERE issue_key=? LIMIT 1",new String[]{issue});
-        if(c.moveToFirst())id=c.getLong(0);c.close();
-        ContentValues v=new ContentValues();v.put("situation_id",sid);v.put("issue_key",issue);v.put("family",family);v.put("domain",domain);v.put("title",title);
-        v.put("what_found",found);v.put("why_matters",why);v.put("why_now",whyNow);v.put("suggested_action",action);v.put("confidence",confidence);v.put("score",score);
-        v.put("state",publish?"published":"suppressed");v.put("quality_reason",publish?"passed strict evidence and value gates":"failed strict publication gate");
-        v.put("evidence_count",n);v.put("last_evidence_at",now);v.put("updated_at",now);
-        if(id>0)db.update("discovery_v3_insights",v,"id=?",new String[]{String.valueOf(id)});
-        else{v.put("created_at",now);id=db.insertOrThrow("discovery_v3_insights",null,v);}
-        for(long itemId:unique){ContentValues ev=new ContentValues();ev.put("insight_id",id);ev.put("item_id",itemId);ev.put("role","supports");db.insertWithOnConflict("discovery_v3_insight_evidence",null,ev,SQLiteDatabase.CONFLICT_IGNORE);}
-        if(publish&&score>=.80&&("HEALTH".equals(domain)||"PURCHASE".equals(domain)))DiscoveryV3Research.enqueueIfNeeded(db,id,domain,title,found,why);
+        CortexInsightPublisher.submit(db,sid,issue,family,domain,title,found,why,whyNow,action,confidence,score,evidenceIds,System.currentTimeMillis());
     }
 
     private static void refreshSituation(SQLiteDatabase db,long sid){

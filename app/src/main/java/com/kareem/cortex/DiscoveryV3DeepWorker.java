@@ -12,25 +12,36 @@ public final class DiscoveryV3DeepWorker extends Worker {
     public DiscoveryV3DeepWorker(@NonNull Context c,@NonNull WorkerParameters p){super(c,p);}
 
     @NonNull @Override public Result doWork(){
+        if(!getInputData().getBoolean("user_requested",false)){
+            DiscoveryV3DeepScheduler.enable(getApplicationContext());
+            return Result.success();
+        }
         Context ctx=getApplicationContext();
-        if(StartupSafetyGate.active())return Result.retry();
-        if(!LocalCouncilModelRegistry.fullCouncilReady(ctx))return Result.success();
+        if(StartupSafetyGate.active())return Result.failure(new Data.Builder().putString("error","Startup recovery is active; try again when ready").build());
+        if(!LocalCouncilModelRegistry.fullCouncilReady(ctx))return Result.failure(new Data.Builder().putString("error","Required local models are not ready").build());
 
         VaultDb vault=null;
         try{
-            vault=new VaultDb(ctx);SQLiteDatabase db=vault.getWritableDatabase();DiscoveryV3Schema.ensure(db);
-            ArrayList<Long> situations=dueSituations(db,2);
+            vault=new VaultDb(ctx);SQLiteDatabase db=vault.getWritableDatabase();DiscoveryV3Schema.ensure(db);CognitiveCouncilRunRecovery.recoverStale(ctx,db,System.currentTimeMillis());
+            ArrayList<Long> situations=dueSituations(db,1);
+            if(situations.isEmpty())return Result.failure(new Data.Builder().putString("error","No eligible situation with new evidence is available").build());
             int published=0;
             for(long sid:situations){
                 if(isStopped())break;
                 CognitiveCouncilOrchestrator.Result r=CognitiveCouncilOrchestrator.run(ctx,vault,sid);
                 markState(db,sid,r);
-                if(r.ok&&r.publish&&publish(db,sid,r)>0)published++;
+                if(!r.ok)return Result.failure(new Data.Builder().putString("error",r.error).build());
+                if(r.ok&&r.publish){
+                    long id=publish(db,sid,r);
+                    try(Cursor c=db.rawQuery("SELECT state FROM discovery_v3_insights WHERE id=?",new String[]{String.valueOf(id)})){
+                        if(c.moveToFirst()&&"published".equals(c.getString(0)))published++;
+                    }
+                }
             }
             if(published>0)DiscoveryV3ResearchWorker.enqueue(ctx);
             return Result.success(new Data.Builder().putInt("situations",situations.size()).putInt("published",published).build());
         }catch(Throwable t){
-            return getRunAttemptCount()<2?Result.retry():Result.failure();
+            return Result.failure(new Data.Builder().putString("error","Analysis stopped: "+t.getClass().getSimpleName()).build());
         }finally{if(vault!=null)try{vault.close();}catch(Throwable ignored){}}
     }
 
@@ -45,29 +56,10 @@ public final class DiscoveryV3DeepWorker extends Worker {
     }
 
     private static long publish(SQLiteDatabase db,long sid,CognitiveCouncilOrchestrator.Result r){
-        String domain="GENERAL";long lastEvidence=System.currentTimeMillis();
-        Cursor s=db.rawQuery("SELECT domain,last_seen FROM discovery_v3_situations WHERE id=?",new String[]{String.valueOf(sid)});
-        if(s.moveToFirst()){domain=s.getString(0);lastEvidence=s.getLong(1);}s.close();
-
+        String domain="GENERAL";
+        try(Cursor c=db.rawQuery("SELECT domain FROM discovery_v3_situations WHERE id=?",new String[]{String.valueOf(sid)})){if(c.moveToFirst())domain=c.getString(0);}
         String issue="council|"+sid+"|"+Fingerprint.text(DiscoveryV3Policy.norm(r.title+" "+r.whatFound));
-        long now=System.currentTimeMillis(),id=0;
-        Cursor old=db.rawQuery("SELECT id FROM discovery_v3_insights WHERE issue_key=? LIMIT 1",new String[]{issue});
-        if(old.moveToFirst())id=old.getLong(0);old.close();
-
-        double score=Math.max(.72,Math.min(.98,.62+r.confidence*.34));
-        ContentValues v=new ContentValues();v.put("situation_id",sid);v.put("issue_key",issue);v.put("family","COUNCIL_DISCOVERY");v.put("domain",domain);
-        v.put("title",r.title);v.put("what_found",r.whatFound);v.put("why_matters",r.whyMatters);v.put("why_now",r.whyNow);v.put("suggested_action",r.suggestedAction);
-        v.put("confidence",r.confidence);v.put("score",score);v.put("state","published");v.put("quality_reason","Survived multi-model investigator, independent analyst, adversarial critic and final judge");
-        v.put("evidence_count",r.evidenceIds.size());v.put("last_evidence_at",lastEvidence);v.put("updated_at",now);
-        if(id>0)db.update("discovery_v3_insights",v,"id=?",new String[]{String.valueOf(id)});
-        else{v.put("created_at",now);id=db.insertOrThrow("discovery_v3_insights",null,v);}
-
-        for(long item:r.evidenceIds){
-            ContentValues e=new ContentValues();e.put("insight_id",id);e.put("item_id",item);e.put("role","council_evidence");
-            db.insertWithOnConflict("discovery_v3_insight_evidence",null,e,SQLiteDatabase.CONFLICT_IGNORE);
-        }
-        if("HEALTH".equals(domain)||"PURCHASE".equals(domain))DiscoveryV3Research.enqueueIfNeeded(db,id,domain,r.title,r.whatFound,r.whyMatters);
-        return id;
+        return CortexInsightPublisher.submit(db,sid,issue,"COUNCIL_DISCOVERY",domain,r.title,r.whatFound,r.whyMatters,r.whyNow,r.suggestedAction,r.confidence,Math.max(.72,Math.min(.98,.62+r.confidence*.34)),r.evidenceIds,System.currentTimeMillis());
     }
 
     private static void markState(SQLiteDatabase db,long sid,CognitiveCouncilOrchestrator.Result r){
