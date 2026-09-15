@@ -35,14 +35,16 @@ public final class CognitiveCouncilOrchestrator {
 
     private static Result runOwned(Context ctx,VaultDb vault,long situationId){
         SQLiteDatabase db=vault.getReadableDatabase();DiscoveryV3Schema.ensure(db);
-        CognitiveCouncilRunRecovery.recoverWhileOwned(db,System.currentTimeMillis());
         EvidencePack pack=pack(db,situationId);
         if(pack.ids.isEmpty())return fail("No linked evidence",pack.ids);
         ArrayList<String> used=new ArrayList<>();
         ArrayList<Pass> passes=new ArrayList<>();
-        long runId=startRun(db,situationId,pack);
+        long runId=findResumableRun(db,situationId);
+        if(runId<=0)runId=startRun(db,situationId,pack);
 
         try{
+            passes.addAll(loadPasses(db,runId));
+            for(Pass existing:passes)if(!existing.modelName.isEmpty())used.add(existing.modelName);
             LocalCouncilModelRegistry.Model primary=LocalCouncilModelRegistry.primary();
             if(!LocalCouncilModelRegistry.ready(ctx,primary))return finishFailure(db,runId,"Primary 30B local brain is not ready",pack.ids);
 
@@ -50,13 +52,15 @@ public final class CognitiveCouncilOrchestrator {
                     "INVESTIGATION TARGET\n"+pack.header+"\n\nEVIDENCE\n"+pack.text+
                     "\n\nTask: identify only non-obvious, potentially useful findings. Test temporal order, missing expected steps, contradictions, recurrence, dependencies and latent relationships. "+
                     "For every claim cite one or more evidence IDs like [E123]. Explicitly list uncertainty and what evidence could falsify each hypothesis.";
-            Pass investigator=call(ctx,primary,"investigator",investigatorPrompt);passes.add(investigator);used.add(primary.name);persistPass(db,runId,investigator);touchRun(db,runId,"running_investigator_complete",String.join(" | ",used));
+            Pass investigator=findPass(passes,"investigator");
+            if(investigator==null){investigator=call(ctx,primary,"investigator",investigatorPrompt);passes.add(investigator);used.add(primary.name);persistPass(db,runId,investigator);touchRun(db,runId,"running_investigator_complete",String.join(" | ",used));}
 
             LocalCouncilModelRegistry.Model analyst=LocalCouncilModelRegistry.analyst();
             if(LocalCouncilModelRegistry.ready(ctx,analyst)){
                 String prompt="Analyze the same evidence independently, then compare against the primary investigator. Do not copy it. Find missed interpretations and entity/time mistakes.\n\n"+
                         pack.header+"\n\nEVIDENCE\n"+pack.text+"\n\nPRIMARY INVESTIGATOR\n"+clip(investigator.text,6000);
-                Pass p=call(ctx,analyst,"independent_analyst",prompt);passes.add(p);used.add(analyst.name);persistPass(db,runId,p);touchRun(db,runId,"running_analyst_complete",String.join(" | ",used));
+                Pass p=findPass(passes,"independent_analyst");
+                if(p==null){p=call(ctx,analyst,"independent_analyst",prompt);passes.add(p);used.add(analyst.name);persistPass(db,runId,p);touchRun(db,runId,"running_analyst_complete",String.join(" | ",used));}
             }
 
             LocalCouncilModelRegistry.Model critic=LocalCouncilModelRegistry.critic();
@@ -65,7 +69,8 @@ public final class CognitiveCouncilOrchestrator {
                 String prompt="Attempt to falsify the following analyses using only the supplied evidence. Reject unsupported claims, bad entity merges, timeline errors, causal overreach and duplicated/trivial findings. "+
                         "Return: SURVIVES, REJECTED, MISSING_EVIDENCE, and the strongest surviving candidate with evidence IDs.\n\n"+
                         pack.header+"\n\nEVIDENCE\n"+pack.text+prior;
-                Pass p=call(ctx,critic,"adversarial_critic",prompt);passes.add(p);used.add(critic.name);persistPass(db,runId,p);touchRun(db,runId,"running_critic_complete",String.join(" | ",used));
+                Pass p=findPass(passes,"adversarial_critic");
+                if(p==null){p=call(ctx,critic,"adversarial_critic",prompt);passes.add(p);used.add(critic.name);persistPass(db,runId,p);touchRun(db,runId,"running_critic_complete",String.join(" | ",used));}
             }
 
             StringBuilder council=new StringBuilder();
@@ -75,7 +80,8 @@ public final class CognitiveCouncilOrchestrator {
                     "Do not output chain-of-thought. Return ONLY valid JSON with keys: should_publish(boolean), title, what_found, why_matters, why_now, suggested_action, confidence(number 0..1), evidence_ids(array of numeric IDs supporting the finding). Cite those IDs in what_found. "+
                     "what_found must mention concrete subjects/statuses/relationships and preserve uncertainty. Generic statistics are forbidden.\n\n"+
                     pack.header+"\n\nEVIDENCE\n"+pack.text+"\n\nCOUNCIL"+council;
-            Pass finalPass=call(ctx,primary,"final_judge",finalPrompt);used.add(primary.name+" · final");persistPass(db,runId,finalPass);touchRun(db,runId,"running_final_complete",String.join(" | ",used));
+            Pass finalPass=findPass(passes,"final_judge");
+            if(finalPass==null){finalPass=call(ctx,primary,"final_judge",finalPrompt);passes.add(finalPass);used.add(primary.name+" · final");persistPass(db,runId,finalPass);touchRun(db,runId,"running_final_complete",String.join(" | ",used));}
 
             JSONObject o=parseJson(finalPass.text);
             boolean publish=o.optBoolean("should_publish",false);
@@ -151,6 +157,18 @@ public final class CognitiveCouncilOrchestrator {
         if(!history.isEmpty())b.append("CURRENT CORTEX HISTORY\n").append(clip(history,4500));
         return new EvidencePack(ids,"Situation: "+label+" | space="+space+" | domain="+domain,b.toString());
     }
+
+    private static long findResumableRun(SQLiteDatabase db,long sid){
+        Cursor c=db.rawQuery("SELECT id FROM discovery_v3_council_runs WHERE situation_id=? AND state LIKE 'running%' ORDER BY id DESC LIMIT 1",new String[]{String.valueOf(sid)});
+        try{return c.moveToFirst()?c.getLong(0):0;}finally{c.close();}
+    }
+    private static ArrayList<Pass> loadPasses(SQLiteDatabase db,long runId){
+        ArrayList<Pass> out=new ArrayList<>();
+        Cursor c=db.rawQuery("SELECT role,model_id,model_name,output_text,duration_ms,tokens,tokens_per_second FROM discovery_v3_council_passes WHERE run_id=? ORDER BY id ASC",new String[]{String.valueOf(runId)});
+        try{while(c.moveToNext())out.add(new Pass(str(c,0),str(c,1),str(c,2),str(c,3),c.getLong(4),c.getInt(5),c.getFloat(6)));}finally{c.close();}
+        return out;
+    }
+    private static Pass findPass(List<Pass> passes,String role){for(Pass p:passes)if(role.equals(p.role))return p;return null;}
 
     private static long startRun(SQLiteDatabase db,long sid,EvidencePack p){
         ContentValues v=new ContentValues();v.put("situation_id",sid);v.put("state","running");v.put("models_used","");v.put("evidence_count",p.ids.size());v.put("started_at",System.currentTimeMillis());v.put("updated_at",System.currentTimeMillis());
