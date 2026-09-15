@@ -71,6 +71,9 @@ public final class WorkVaultIndexService extends Service {
             WorkVaultVersionGc.Result gc=WorkVaultVersionGc.collectSource(db.getWritableDatabase(),sourceId);
             if(Thread.currentThread().isInterrupted())return;
 
+            // Tier-0 intelligence is cheap and deterministic; refresh it after the source graph is complete.
+            try{WorkDeterministicInsightScheduler.kick(getApplicationContext());}catch(Throwable ignored){}
+
             int allLinks=indexed.procurementLinks+documentLinks.links;
             String summary="Parsed "+indexed.indexed+" • skipped "+indexed.skippedUnchanged+" • classified "+profiled+" • follow-up "+indexed.followUpRecords+" • links "+allLinks+" • OCR pending "+indexed.needsOcr+" • failed "+indexed.failed;
             if(gc.versionsDeleted>0)summary+=" • old versions cleaned "+gc.versionsDeleted;
