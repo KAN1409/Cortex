@@ -48,7 +48,18 @@ public final class CognitiveCouncilActivity extends Activity {
             Executors.newSingleThreadExecutor().execute(()->{
                 try{
                     SQLiteDatabase r=db.getReadableDatabase();DiscoveryV3Schema.ensure(r);
-                    Cursor q=r.rawQuery("SELECT s.id FROM discovery_v3_situations s JOIN discovery_v3_evidence e ON e.situation_id=s.id JOIN knowledge_items k ON k.id=e.item_id GROUP BY s.id HAVING COUNT(DISTINCT e.item_id)>=2 ORDER BY COUNT(DISTINCT e.item_id) DESC,MAX(k.created_at) DESC LIMIT 1",null);
+                    Cursor q=r.rawQuery(
+                            "SELECT s.id FROM discovery_v3_situations s "+
+                            "JOIN discovery_v3_evidence e ON e.situation_id=s.id "+
+                            "JOIN knowledge_items k ON k.id=e.item_id "+
+                            "LEFT JOIN discovery_v3_insights i ON i.situation_id=s.id AND i.state='published' "+
+                            "GROUP BY s.id HAVING COUNT(DISTINCT e.item_id)>=2 "+
+                            "ORDER BY "+
+                            "MAX(CASE WHEN i.family IN ('CONTRADICTION','OPEN_LOOP') THEN i.score ELSE 0 END) DESC,"+
+                            "COUNT(DISTINCT COALESCE(NULLIF(e.source_key,''),e.source_type)) DESC,"+
+                            "MAX(e.quality) DESC,"+
+                            "MAX(k.created_at) DESC,"+
+                            "COUNT(DISTINCT e.item_id) DESC LIMIT 1",null);
                     long sid=q.moveToFirst()?q.getLong(0):-1;q.close();
                     if(sid<0)throw new IllegalStateException("No grounded situation with at least 2 evidence items");
                     CognitiveCouncilOrchestrator.Result result=CognitiveCouncilOrchestrator.run(getApplicationContext(),db,sid);
