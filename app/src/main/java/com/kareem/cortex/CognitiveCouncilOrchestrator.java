@@ -113,6 +113,23 @@ public final class CognitiveCouncilOrchestrator {
                     .append(" quality=").append(String.format(Locale.US,"%.2f",c.getDouble(6))).append("\n")
                     .append(str(c,2)).append("\n").append(clip(body,900)).append("\n\n");
         }c.close();
+        // Give the council a compact state-transition ledger in addition to raw evidence.
+        StringBuilder claims=new StringBuilder();
+        Cursor cl=db.rawQuery("SELECT item_id,subject_label,predicate,value,confidence,observed_at FROM discovery_v3_claims WHERE situation_id=? ORDER BY observed_at ASC,id ASC LIMIT 40",new String[]{String.valueOf(sid)});
+        String lastKey="";while(cl.moveToNext()){
+            String key=str(cl,1)+"|"+str(cl,2)+"|"+str(cl,3);
+            if(key.equals(lastKey))continue;lastKey=key;
+            claims.append("[E").append(cl.getLong(0)).append("] ").append(cl.getLong(5)).append(" · ")
+                    .append(str(cl,1)).append(" · ").append(str(cl,2)).append(" → ").append(str(cl,3))
+                    .append(" · confidence=").append(String.format(Locale.US,"%.2f",cl.getDouble(4))).append("\n");
+        }cl.close();
+        if(claims.length()>0)b.append("STATE / CLAIM TIMELINE\n").append(clip(claims.toString(),4200)).append("\n");
+
+        Cursor cov=db.rawQuery("SELECT COUNT(DISTINCT item_id),COUNT(DISTINCT COALESCE(NULLIF(source_key,''),source_type)),MIN(k.created_at),MAX(k.created_at),AVG(e.quality) FROM discovery_v3_evidence e JOIN knowledge_items k ON k.id=e.item_id WHERE e.situation_id=?",new String[]{String.valueOf(sid)});
+        if(cov.moveToFirst())b.append("COVERAGE\nitems=").append(cov.getInt(0)).append(" sources=").append(cov.getInt(1))
+                .append(" first=").append(cov.isNull(2)?0:cov.getLong(2)).append(" latest=").append(cov.isNull(3)?0:cov.getLong(3))
+                .append(" avg_quality=").append(String.format(Locale.US,"%.2f",cov.getDouble(4))).append("\n\n");cov.close();
+
         String history=DiscoveryV3History.latest(db,sid);
         if(!history.isEmpty())b.append("CURRENT CORTEX HISTORY\n").append(clip(history,4500));
         return new EvidencePack(ids,"Situation: "+label+" | space="+space+" | domain="+domain,b.toString());
