@@ -33,6 +33,8 @@ public final class DiscoveryV3Feed {
     static boolean userWorthy(String family,String title,String found,String action,int evidenceCount,double confidence,double score){
         String x=DiscoveryV3Policy.norm(title+" "+found);
         if(title==null||title.trim().length()<8||found==null||found.trim().length()<18||action==null||action.trim().length()<8)return false;
+        // Never surface legacy malformed procurement identifiers already persisted by older builds.
+        if(hasMalformedProcurementRef(title)||hasMalformedProcurementRef(found))return false;
         if(confidence<.72||score<.68)return false;
         if(("CONTRADICTION".equals(family)||"CROSS_SOURCE_CONNECTION".equals(family)||"COUNCIL_DISCOVERY".equals(family))&&evidenceCount<2)return false;
         if("CROSS_SOURCE_CONNECTION".equals(family)){
@@ -42,6 +44,16 @@ public final class DiscoveryV3Feed {
         if("COUNCIL_DISCOVERY".equals(family)&&!hasConcreteConsequence(found,action))return false;
         if(x.matches(".*\\b\\d+\\s+(records?|items?|observations?|notifications?|sources?|screenshots?|projects?)\\b.*"))return false;
         return !x.contains("cortex can now treat")&&!x.contains("open the history to review");
+    }
+
+    static boolean hasMalformedProcurementRef(String text){
+        if(text==null)return false;
+        java.util.regex.Matcher m=java.util.regex.Pattern.compile("(?i)(?<![\\p{L}\\p{N}])P[RO][-_/][A-Z]{2,}(?![\\p{L}\\p{N}])").matcher(text);
+        while(m.find()){
+            String token=m.group();
+            if(!token.matches("(?i)P[RO][-_/].*\\d.*"))return true;
+        }
+        return false;
     }
 
     static boolean hasConcreteConsequence(String found,String action){
