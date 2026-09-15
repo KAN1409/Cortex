@@ -9,6 +9,7 @@ public final class DiscoveryV3DeepScheduler {
     private static final String PERIODIC="cortex-discovery-v3-deep-periodic";
     private DiscoveryV3DeepScheduler(){}
 
+    /** Heavy council stays explicit/manual. */
     public static void kick(Context c){
         if(c==null)return;
         OneTimeWorkRequest r=new OneTimeWorkRequest.Builder(DiscoveryV3DeepWorker.class)
@@ -17,8 +18,11 @@ public final class DiscoveryV3DeepScheduler {
         WorkManager.getInstance(c.getApplicationContext()).enqueueUniqueWork(NOW,ExistingWorkPolicy.KEEP,r);
     }
 
+    /** Startup migration cancels legacy heavy recurrence and refreshes cheap deterministic intelligence. */
     public static void enable(Context c){
         if(c==null)return;
-        WorkManager.getInstance(c.getApplicationContext()).cancelUniqueWork(PERIODIC);
+        Context app=c.getApplicationContext();
+        WorkManager.getInstance(app).cancelUniqueWork(PERIODIC);
+        WorkDeterministicInsightScheduler.kick(app);
     }
 }
