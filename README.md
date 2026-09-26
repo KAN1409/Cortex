@@ -1,4 +1,4 @@
-# Cortex v0.2 — Intelligence Layer
+# Cortex v50 — Intelligence Layer
 
 Cortex is a local-first Android knowledge vault and second-brain foundation.
 
@@ -21,7 +21,17 @@ Cortex is a local-first Android knowledge vault and second-brain foundation.
 
 The GitHub Actions workflow in `.github/workflows/build-apk.yml` builds a debug APK automatically on pushes to `main` and on manual workflow dispatch.
 
-Expected artifact: `Cortex-v0.2.0-debug.apk`
+Expected artifact: `Cortex-v50-debug`
+
+The repository's own regression gate (`scripts/cortex-repo-audit.sh`) runs before every Gradle build; `termux-build-cortex.sh` uses it as a local release gate as well.
+
+## Install
+
+Install over the existing Cortex build to preserve app data:
+
+1. Download `Cortex-latest-debug.apk` from `downloads/` (or the `Cortex-v50-debug` workflow artifact) together with `Cortex-latest-debug.sha256`.
+2. Verify the checksum: `sha256sum -c Cortex-latest-debug.sha256`.
+3. Open the APK on the phone and allow the install when prompted.
 
 ## Architecture direction
 
