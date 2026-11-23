@@ -19,5 +19,7 @@ public final class CortexApp extends Application {
         appContext=getApplicationContext();
         CrashRecorder.install(this);
         SafeCoreLifecycle.install(this);
+        // Registers a lifecycle callback only; its database work runs on resume, off the main thread.
+        CortexActionReturnPrompt.install(this);
     }
 }

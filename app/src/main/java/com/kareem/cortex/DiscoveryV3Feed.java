@@ -11,12 +11,20 @@ public final class DiscoveryV3Feed {
     public static ArrayList<Item> top(VaultDb vault,int limit){
         ArrayList<Item> out=new ArrayList<>();if(vault==null||limit<=0)return out;
         SQLiteDatabase db=vault.getReadableDatabase();DiscoveryV3Schema.ensure(db);
+        // Load the strongest candidates, then reorder them by score adjusted with bounded user feedback.
+        ArrayList<Row> rows=new ArrayList<>();
         Cursor c=db.rawQuery("SELECT id,situation_id,family,domain,title,what_found,why_matters,why_now,suggested_action,confidence,score,evidence_count,last_evidence_at "+
                 "FROM discovery_v3_insights WHERE state='published' ORDER BY score DESC,last_evidence_at DESC LIMIT 80",null);
+        try{while(c.moveToNext())rows.add(new Row(c.getLong(0),c.getLong(1),s(c,2),s(c,3),s(c,4),s(c,5),s(c,6),s(c,7),s(c,8),c.getDouble(9),c.getDouble(10),c.getInt(11),c.getLong(12)));}finally{c.close();}
+        Map<String,Double> learned=FeedbackRanking.load(db,System.currentTimeMillis());
+        for(Row r:rows)r.rank=FeedbackRanking.adjusted(learned,r.family,r.domain,r.score);
+        Collections.sort(rows,(a,b)->a.rank!=b.rank?Double.compare(b.rank,a.rank):Long.compare(b.lastEvidenceAt,a.lastEvidenceAt));
         HashSet<String> situationFamily=new HashSet<>();HashSet<Long> councilSituations=new HashSet<>();HashSet<String> semantic=new HashSet<>();HashMap<String,Integer> domainCounts=new HashMap<>();
-        while(c.moveToNext()&&out.size()<limit){
-            long id=c.getLong(0),sid=c.getLong(1);String family=s(c,2),domain=s(c,3),title=s(c,4),found=s(c,5),action=s(c,8);
-            if(!userWorthy(family,title,found,action,c.getInt(11),c.getDouble(9),c.getDouble(10)))continue;
+        for(Row r:rows){
+            if(out.size()>=limit)break;
+            long id=r.id,sid=r.situationId;String family=r.family,domain=r.domain,title=r.title,found=r.found,action=r.action;
+            // Quality gate uses the model's own score; feedback only reorders what already passes.
+            if(!userWorthy(family,title,found,action,r.evidenceCount,r.confidence,r.score))continue;
             // Once the multi-model council has judged a situation, heuristic observations from that same situation are implementation noise.
             if("COUNCIL_DISCOVERY".equals(family))councilSituations.add(sid);else if(councilSituations.contains(sid))continue;
             String sf=sid+"|"+family;if(!situationFamily.add(sf))continue;
@@ -25,8 +33,14 @@ public final class DiscoveryV3Feed {
             domainCounts.put(domain,dc+1);
             ArrayList<Long> ev=new ArrayList<>();Cursor e=db.rawQuery("SELECT item_id FROM discovery_v3_insight_evidence WHERE insight_id=? ORDER BY item_id",new String[]{String.valueOf(id)});
             while(e.moveToNext())ev.add(e.getLong(0));e.close();
-            out.add(new Item(id,sid,family,domain,title,found,s(c,6),s(c,7),action,c.getDouble(9),c.getDouble(10),c.getInt(11),c.getLong(12),DiscoveryV3History.latest(db,sid),ev));
-        }c.close();return out;
+            out.add(new Item(id,sid,family,domain,title,found,r.why,r.whyNow,action,r.confidence,r.score,r.evidenceCount,r.lastEvidenceAt,DiscoveryV3History.latest(db,sid),ev));
+        }
+        return out;
+    }
+
+    private static final class Row{
+        final long id,situationId,lastEvidenceAt;final String family,domain,title,found,why,whyNow,action;final double confidence,score;final int evidenceCount;double rank;
+        Row(long id,long sid,String f,String d,String t,String wf,String wm,String wn,String a,double c,double sc,int ec,long le){this.id=id;situationId=sid;family=f;domain=d;title=t;found=wf;why=wm;whyNow=wn;action=a;confidence=c;score=sc;evidenceCount=ec;lastEvidenceAt=le;rank=sc;}
     }
 
     /** Product boundary: Now is for discoveries, never raw pipeline facts dressed as insights. */
