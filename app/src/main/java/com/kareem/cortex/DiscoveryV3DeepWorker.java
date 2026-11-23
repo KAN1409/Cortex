@@ -34,7 +34,7 @@ public final class DiscoveryV3DeepWorker extends Worker {
             for(long sid:situations){
                 if(isStopped())break;
                 CognitiveCouncilOrchestrator.Result r=CognitiveCouncilOrchestrator.run(ctx,vault,sid);
-                markState(db,sid,r);
+                recordOutcome(db,sid,r,System.currentTimeMillis());
                 if(!r.ok)return Result.failure(new Data.Builder().putString("error",r.error).build());
                 if(r.ok&&r.publish){
                     long id=publish(db,sid,r);
@@ -51,12 +51,15 @@ public final class DiscoveryV3DeepWorker extends Worker {
         }finally{if(vault!=null)try{vault.close();}catch(Throwable ignored){}}
     }
 
-    private static ArrayList<Long> dueSituations(SQLiteDatabase db,int limit){
+    static ArrayList<Long> dueSituations(SQLiteDatabase db,int limit){
+        return dueSituations(db,limit,System.currentTimeMillis());
+    }
+    static ArrayList<Long> dueSituations(SQLiteDatabase db,int limit,long now){
         ArrayList<Long> out=new ArrayList<>();
         String sql="SELECT s.id FROM discovery_v3_situations s LEFT JOIN discovery_v3_deep_state d ON d.scope_key='situation:'||s.id "+
                 "WHERE s.state='active' AND s.evidence_count>=2 AND (d.last_run_at IS NULL OR s.last_seen>d.last_evidence_at OR d.last_run_at<?) "+
-                "ORDER BY CASE WHEN d.last_run_at IS NULL THEN 0 ELSE 1 END,s.last_seen DESC LIMIT ?";
-        long stale=System.currentTimeMillis()-6L*60L*60L*1000L;
+                "ORDER BY CASE WHEN d.last_run_at IS NULL OR d.last_run_at=0 THEN 0 ELSE 1 END,s.last_seen DESC LIMIT ?";
+        long stale=now-6L*60L*60L*1000L;
         Cursor c=db.rawQuery(sql,new String[]{String.valueOf(stale),String.valueOf(limit)});
         while(c.moveToNext())out.add(c.getLong(0));c.close();return out;
     }
@@ -68,10 +71,25 @@ public final class DiscoveryV3DeepWorker extends Worker {
         return CortexInsightPublisher.submit(db,sid,issue,"COUNCIL_DISCOVERY",domain,r.title,r.whatFound,r.whyMatters,r.whyNow,r.suggestedAction,r.confidence,Math.max(.72,Math.min(.98,.62+r.confidence*.34)),r.evidenceIds,System.currentTimeMillis());
     }
 
-    private static void markState(SQLiteDatabase db,long sid,CognitiveCouncilOrchestrator.Result r){
+    /**
+     * Only a completed council run consumes the situation's eligibility. A failed or blocked
+     * run (model not ready, another executor active, inference error) records its error but
+     * keeps the previous last_run_at/last_evidence_at, so an explicit retry can run it again
+     * instead of reporting "no eligible situation" for six hours.
+     */
+    static void recordOutcome(SQLiteDatabase db,long sid,CognitiveCouncilOrchestrator.Result r,long now){
+        String key="situation:"+sid;
+        if(!r.ok){
+            ContentValues seed=new ContentValues();seed.put("scope_key",key);seed.put("last_run_at",0);seed.put("last_evidence_at",0);seed.put("updated_at",now);
+            db.insertWithOnConflict("discovery_v3_deep_state",null,seed,SQLiteDatabase.CONFLICT_IGNORE);
+            ContentValues v=new ContentValues();v.put("last_error",r.error);v.put("updated_at",now);
+            if(r.modelsUsed!=null&&!r.modelsUsed.isEmpty())v.put("last_model",r.modelsUsed);
+            db.update("discovery_v3_deep_state",v,"scope_key=?",new String[]{key});
+            return;
+        }
         long evidenceAt=0;Cursor c=db.rawQuery("SELECT last_seen FROM discovery_v3_situations WHERE id=?",new String[]{String.valueOf(sid)});if(c.moveToFirst())evidenceAt=c.getLong(0);c.close();
-        ContentValues v=new ContentValues();v.put("scope_key","situation:"+sid);v.put("last_run_at",System.currentTimeMillis());v.put("last_evidence_at",evidenceAt);
-        v.put("last_model",r.modelsUsed);v.put("last_error",r.error);v.put("updated_at",System.currentTimeMillis());
+        ContentValues v=new ContentValues();v.put("scope_key",key);v.put("last_run_at",now);v.put("last_evidence_at",evidenceAt);
+        v.put("last_model",r.modelsUsed);v.put("last_error",r.error);v.put("updated_at",now);
         db.insertWithOnConflict("discovery_v3_deep_state",null,v,SQLiteDatabase.CONFLICT_REPLACE);
     }
 }

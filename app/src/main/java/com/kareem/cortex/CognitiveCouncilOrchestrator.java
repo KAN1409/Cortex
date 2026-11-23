@@ -39,14 +39,15 @@ public final class CognitiveCouncilOrchestrator {
         if(pack.ids.isEmpty())return fail("No linked evidence",pack.ids);
         ArrayList<String> used=new ArrayList<>();
         ArrayList<Pass> passes=new ArrayList<>();
+        LocalCouncilModelRegistry.Model primary=LocalCouncilModelRegistry.primary();
+        // Not-ready is a precondition failure: leave any checkpointed run resumable and start none.
+        if(!LocalCouncilModelRegistry.ready(ctx,primary))return fail("Primary 30B local brain is not ready",pack.ids);
         long runId=findResumableRun(db,situationId);
         if(runId<=0)runId=startRun(db,situationId,pack);
 
         try{
             passes.addAll(loadPasses(db,runId));
             for(Pass existing:passes)if(!existing.modelName.isEmpty())used.add(existing.modelName);
-            LocalCouncilModelRegistry.Model primary=LocalCouncilModelRegistry.primary();
-            if(!LocalCouncilModelRegistry.ready(ctx,primary))return finishFailure(db,runId,"Primary 30B local brain is not ready",pack.ids);
 
             String investigatorPrompt=
                     "INVESTIGATION TARGET\n"+pack.header+"\n\nEVIDENCE\n"+pack.text+
@@ -183,9 +184,6 @@ public final class CognitiveCouncilOrchestrator {
     }
     private static void finishRun(SQLiteDatabase db,long id,String state,String models,String error,String finalText){
         ContentValues v=new ContentValues();v.put("state",state);v.put("models_used",models);v.put("error",error);v.put("final_output",finalText);v.put("completed_at",System.currentTimeMillis());v.put("updated_at",System.currentTimeMillis());db.update("discovery_v3_council_runs",v,"id=?",new String[]{String.valueOf(id)});
-    }
-    private static Result finishFailure(SQLiteDatabase db,long id,String error,List<Long> evidence){
-        finishRun(db,id,"blocked","",error,"");return new Result(false,false,"","","","","",0,"","",error,evidence);
     }
     private static Result fail(String error,List<Long> evidence){return new Result(false,false,"","","","","",0,"","",error,evidence);}
 
