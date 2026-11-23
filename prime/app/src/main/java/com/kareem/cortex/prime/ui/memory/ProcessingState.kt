@@ -44,7 +44,7 @@ fun memoryRows(evidence: Flow<List<Evidence>>, jobs: Flow<List<Job>>, zone: Zone
             val job = byEvidence[e.id]
             val at = Instant.ofEpochMilli(e.capturedAt).atZone(zone)
             val said = heard[e.id]
-            val title = e.text?.let(::rowTitle) ?: said?.takeIf { it.isNotBlank() }?.let(::rowTitle) ?: if (said != null) "Voice note · no speech found" else "${e.kind.name.lowercase().replaceFirstChar { it.uppercase() }} · ${at.format(timeFmt)}"
+            val title = e.text?.let(::rowTitle) ?: said?.takeIf { it.isNotBlank() }?.let(::rowTitle) ?: if (said != null) (if (e.kind == EvidenceKind.IMAGE) "Screenshot · no text found" else "Voice note · no speech found") else "${e.kind.name.lowercase().replaceFirstChar { it.uppercase() }} · ${at.format(timeFmt)}"
             val preview = e.text?.trim()?.lineSequence()?.drop(1)?.joinToString(" ")?.trim()?.takeIf { it.isNotEmpty() }
             MemoryRow(e.id, e.kind, title, preview, e.capturedAt, processingLabel(job), job?.lastError?.takeIf { job.state == JobState.FAILED })
         }.groupBy { Instant.ofEpochMilli(it.capturedAt).atZone(zone).toLocalDate() }

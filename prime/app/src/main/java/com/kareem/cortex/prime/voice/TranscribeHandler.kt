@@ -39,12 +39,22 @@ class TranscribeHandler(
 }
 
 /** The single "perceive" stage: text reads itself; anything text can't read goes to voice, which refuses non-audio. */
-class PerceiveRouter(private val text: StageHandler, private val voice: TranscribeHandler) : StageHandler {
+class PerceiveRouter(
+    private val text: StageHandler,
+    private val voice: TranscribeHandler,
+    private val ocr: com.kareem.cortex.prime.vision.OcrHandler? = null,
+) : StageHandler {
     override val stage = "perceive"
     // Covers the longest note we accept; the voice handler applies its own per-note limit inside.
     override val timeLimitMs = 30 * 60_000L
+    override val next: String? = com.kareem.cortex.prime.understand.STAGE_UNDERSTAND
 
     override suspend fun run(evidenceId: Long) {
-        try { text.run(evidenceId) } catch (e: NotYetSupported) { voice.run(evidenceId) }
+        try { text.run(evidenceId) } catch (e: NotYetSupported) {
+            try { voice.run(evidenceId) } catch (e2: NotYetSupported) {
+                if (e2.message == MODEL_MISSING) throw e2
+                ocr?.run(evidenceId) ?: throw e2
+            }
+        }
     }
 }

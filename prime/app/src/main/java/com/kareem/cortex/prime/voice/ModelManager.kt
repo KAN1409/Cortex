@@ -65,8 +65,8 @@ class ModelManager(private val context: Context, val spec: ModelSpec = WHISPER_S
         val WHISPER_SMALL = ModelSpec(
             fileName = "ggml-small-q5_1.bin",
             url = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small-q5_1.bin",
-            sizeBytes = 0L,
-            sha256 = "",
+            sizeBytes = 190_085_487L,
+            sha256 = "ae85e4a935d7a567bd102fe55afc16bb595bdb618e11b2fc7591bc08120411bb",
         )
     }
 }

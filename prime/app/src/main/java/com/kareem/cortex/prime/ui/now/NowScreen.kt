@@ -38,7 +38,12 @@ import java.time.format.DateTimeFormatter
 import java.util.Locale
 
 @Composable
-fun NowScreen(name: String?, recent: List<MemoryRow>, modifier: Modifier = Modifier) {
+fun NowScreen(
+    name: String?, recent: List<MemoryRow>, modifier: Modifier = Modifier,
+    loops: List<com.kareem.cortex.prime.data.db.LoopWithSource> = emptyList(), pending: Int = 0,
+    onDone: (Long) -> Unit = {}, onLater: (Long) -> Unit = {}, onConfirm: (Long) -> Unit = {}, onDismiss: (Long) -> Unit = {},
+    onArea: (Long, com.kareem.cortex.prime.data.db.Area) -> Unit = { _, _ -> },
+) {
     val motion = LocalMotionEnabled.current
     val now = LocalDateTime.now()
     Column(modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 18.dp)) {
@@ -58,7 +63,16 @@ fun NowScreen(name: String?, recent: List<MemoryRow>, modifier: Modifier = Modif
                 if (parts.size > 1) Text(parts[1], style = sans(40.sp, FontWeight.Light))
             }
         }
-        Text("RECENTLY CAPTURED", style = mono(10.sp), modifier = Modifier.padding(top = 8.dp, bottom = 10.dp, start = 4.dp).staggeredRise(2))
+        if (loops.isNotEmpty()) {
+            Text("YOU MIGHT FORGET · ${loops.size}", style = mono(10.sp), modifier = Modifier.padding(top = 8.dp, bottom = 10.dp, start = 4.dp).staggeredRise(2))
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                loops.take(6).forEachIndexed { i, it ->
+                    val id = it.loop.id
+                    LoopCard(it, highlight = i == 0, onDone = { onDone(id) }, onLater = { onLater(id) }, onConfirm = { onConfirm(id) }, onDismiss = { onDismiss(id) }, onArea = { onArea(id, it.loop.area) }, modifier = Modifier.staggeredRise(2 + i))
+                }
+            }
+        }
+        Text("RECENTLY CAPTURED", style = mono(10.sp), modifier = Modifier.padding(top = 18.dp, bottom = 10.dp, start = 4.dp).staggeredRise(3))
         if (recent.isEmpty()) {
             Box(Modifier.fillMaxWidth().glass().staggeredRise(3).padding(18.dp)) {
                 Text("Nothing captured yet. Tap the glass button to record a voice note, long-press it to write an idea, or share something into Cortex.", style = sans(14.sp, color = Cx.Text2))
@@ -75,7 +89,14 @@ fun NowScreen(name: String?, recent: List<MemoryRow>, modifier: Modifier = Modif
         }
         Row(Modifier.padding(top = 18.dp, start = 4.dp, end = 4.dp, bottom = 120.dp).staggeredRise(6), verticalAlignment = Alignment.Top) {
             Box(Modifier.padding(top = 7.dp).size(5.dp).clip(CircleShape).background(Cx.Gold))
-            Text("Reminders start once Cortex can read your voice notes and screenshots.", style = sans(13.sp, color = Cx.Label), modifier = Modifier.padding(start = 10.dp))
+            Text(
+                when {
+                    pending > 0 -> "Cortex is still reading $pending ${if (pending == 1) "item" else "items"}."
+                    loops.isEmpty() -> "Nothing you're likely to forget right now."
+                    else -> "Everything captured has been read."
+                },
+                style = sans(13.sp, color = Cx.Label), modifier = Modifier.padding(start = 10.dp),
+            )
         }
     }
 }

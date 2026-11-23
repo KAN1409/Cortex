@@ -31,10 +31,17 @@ import java.time.format.DateTimeFormatter
 import java.util.Locale
 
 @Composable
-fun MemoryScreen(rows: Map<LocalDate, List<MemoryRow>>, onRetry: (Long) -> Unit, modifier: Modifier = Modifier) {
+fun MemoryScreen(rows: Map<LocalDate, List<MemoryRow>>, onRetry: (Long) -> Unit, modifier: Modifier = Modifier, screenshotsAllowed: Boolean = true, onAllowScreenshots: () -> Unit = {}) {
     val today = LocalDate.now()
     LazyColumn(modifier.fillMaxSize(), contentPadding = PaddingValues(start = 18.dp, end = 18.dp, top = 22.dp, bottom = 130.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         item { Text("Memory", style = sans(40.sp, FontWeight.Light), modifier = Modifier.staggeredRise(0).padding(bottom = 6.dp)) }
+        if (!screenshotsAllowed) item {
+            Column(Modifier.fillMaxWidth().glass().padding(18.dp)) {
+                Text("Let Cortex read your screenshots", style = sans(16.sp, FontWeight.Medium))
+                Text("Read-only, on this phone. Nothing is uploaded.", style = sans(13.sp, color = Cx.Label), modifier = Modifier.padding(top = 4.dp))
+                TextButton(onClick = onAllowScreenshots) { Text("Allow", style = sans(14.sp, FontWeight.SemiBold, Cx.SheenB)) }
+            }
+        }
         if (rows.isEmpty()) item {
             Text("Everything you capture appears here, newest first.", style = sans(14.sp, color = Cx.Text2), modifier = Modifier.staggeredRise(1))
         }

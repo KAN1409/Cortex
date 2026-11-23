@@ -10,7 +10,7 @@ object TranscriptCleaner {
 
     fun clean(raw: String): String {
         val noArtefacts = bracket.replace(raw) { m ->
-            val words = m.groupValues[1].lowercase().split(Regex("""[\s_]+""")).filter { it.isNotBlank() }
+            val words = m.groupValues[1].lowercase().split(Regex("""\s+""")).filter { it.isNotBlank() }
             if (words.isNotEmpty() && words.all { it in nonSpeech }) " " else m.value
         }
         return noArtefacts.split(Regex("""\s+"""))

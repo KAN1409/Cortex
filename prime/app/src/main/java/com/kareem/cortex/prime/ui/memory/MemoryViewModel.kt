@@ -15,6 +15,19 @@ class MemoryViewModel(private val graph: AppGraph) : ViewModel() {
         memoryRows(graph.db.evidence().timeline(), graph.jobs.observeAll(), ZoneId.systemDefault(), graph.db.perception().observeTranscripts())
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
 
+    val loops: StateFlow<List<com.kareem.cortex.prime.data.db.LoopWithSource>> =
+        graph.db.loops().observeActiveWithSource().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    private fun io(block: () -> Unit) = viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) { block() }
+    fun done(id: Long) = io { graph.loopActions.done(id) }
+    fun dismiss(id: Long) = io { graph.loopActions.dismiss(id) }
+    fun confirm(id: Long) = io { graph.loopActions.confirm(id) }
+    fun later(id: Long) = io { graph.loopActions.snooze(id, com.kareem.cortex.prime.understand.tomorrowAt(9)) }
+    fun cycleArea(id: Long, current: com.kareem.cortex.prime.data.db.Area) = io {
+        val all = com.kareem.cortex.prime.data.db.Area.entries
+        graph.loopActions.setArea(id, all[(all.indexOf(current) + 1) % all.size])
+    }
+
     fun retry(evidenceId: Long) = viewModelScope.launch {
         graph.jobs.retry("perceive", evidenceId); graph.kickJobs()
     }

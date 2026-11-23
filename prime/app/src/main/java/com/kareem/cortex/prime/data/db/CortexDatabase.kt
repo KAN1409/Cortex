@@ -5,11 +5,12 @@ import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
 
-@Database(entities = [Evidence::class, Perception::class, Job::class], version = 1, exportSchema = true)
+@Database(entities = [Evidence::class, Perception::class, Job::class, OpenLoop::class, Reminder::class], version = 1, exportSchema = true)
 abstract class CortexDatabase : RoomDatabase() {
     abstract fun evidence(): EvidenceDao
     abstract fun perception(): PerceptionDao
     abstract fun jobs(): JobDao
+    abstract fun loops(): LoopDao
 
     companion object {
         const val NAME = "cortex_prime.db"

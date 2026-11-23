@@ -10,6 +10,7 @@ class CortexPrimeApp : Application() {
         super.onCreate()
         graph = AppGraph(this)
         graph.kickJobs() // resume anything left from a previous run (expired leases are reclaimed)
+        com.kareem.cortex.prime.vision.ScanWorker.schedule(this)
     }
 }
 

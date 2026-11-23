@@ -17,6 +17,12 @@ import com.kareem.cortex.prime.voice.ModelManager
 import com.kareem.cortex.prime.voice.PerceiveRouter
 import com.kareem.cortex.prime.voice.TranscribeHandler
 import com.kareem.cortex.prime.voice.WhisperEngine
+import com.kareem.cortex.prime.vision.HybridOcrEngine
+import com.kareem.cortex.prime.vision.OcrHandler
+import com.kareem.cortex.prime.vision.ScreenshotScanner
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
 
 /** Hand wiring for the whole app (no DI framework). */
 class AppGraph(private val context: Context) {
@@ -25,10 +31,19 @@ class AppGraph(private val context: Context) {
     val evidence = EvidenceRepository(db.evidence(), OriginalStore(context.filesDir), jobs)
     val models = ModelManager(context)
     private val whisper by lazy { WhisperEngine(models.file) }
+    val reminders = com.kareem.cortex.prime.understand.AndroidReminderScheduler(context)
     val runner = JobRunner(jobs, listOf(PerceiveRouter(
         TextPerceiveHandler(db.evidence(), db.perception()),
         TranscribeHandler(db.evidence(), db.perception(), modelReady = { models.isReady() }, engine = { whisper }),
-    )))
+        OcrHandler(db.evidence(), db.perception(), HybridOcrEngine(context)),
+    ), com.kareem.cortex.prime.understand.UnderstandHandler(db.evidence(), db.perception(), db.loops(), reminders)))
+    val scanner = ScreenshotScanner(context, evidence)
+    val loopActions = com.kareem.cortex.prime.understand.LoopActions(db.loops(), reminders)
+
+    fun canReadScreenshots(): Boolean {
+        val perm = if (Build.VERSION.SDK_INT >= 33) Manifest.permission.READ_MEDIA_IMAGES else Manifest.permission.READ_EXTERNAL_STORAGE
+        return context.checkSelfPermission(perm) == PackageManager.PERMISSION_GRANTED
+    }
     val prefs = Prefs(context)
 
     /** Ask WorkManager to drain the queue now (idempotent: appends to the running chain). */

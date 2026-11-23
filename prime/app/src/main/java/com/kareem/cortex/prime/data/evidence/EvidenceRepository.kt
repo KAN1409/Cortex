@@ -37,6 +37,19 @@ class EvidenceRepository(
         return save(Evidence(kind = kindFor(mime), originalPath = stored.file.absolutePath, text = null, sha256 = stored.sha256, mime = mime, sizeBytes = stored.sizeBytes, sourceApp = sourceApp, capturedAt = clock()))
     }
 
+    /**
+     * Records a file the phone already keeps (e.g. a screenshot) without copying it:
+     * the SHA-256 is streamed for dedupe and the evidence points at the original URI.
+     */
+    suspend fun captureReference(uri: String, mime: String, sourceApp: String?, capturedAt: Long, open: () -> InputStream): CaptureResult {
+        val (sha, size) = withContext(Dispatchers.IO) {
+            val md = java.security.MessageDigest.getInstance("SHA-256"); var n = 0L
+            open().use { input -> val buf = ByteArray(1 shl 16); while (true) { val r = input.read(buf); if (r < 0) break; md.update(buf, 0, r); n += r } }
+            md.digest().joinToString("") { "%02x".format(it) } to n
+        }
+        return save(Evidence(kind = kindFor(mime), originalPath = uri, text = null, sha256 = sha, mime = mime, sizeBytes = size, sourceApp = sourceApp, capturedAt = capturedAt))
+    }
+
     private suspend fun save(e: Evidence): CaptureResult {
         val id = withContext(Dispatchers.IO) { dao.insert(e) }
         if (id < 0) {

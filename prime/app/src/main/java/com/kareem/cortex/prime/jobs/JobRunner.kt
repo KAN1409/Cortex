@@ -15,6 +15,7 @@ class JobRunner(private val queue: JobQueue, private val handlers: List<StageHan
                 try {
                     withTimeout(h.timeLimitMs) { h.run(job.evidenceId) }
                     queue.complete(job.id)
+                    h.next?.let { queue.enqueue(it, job.evidenceId) }
                 } catch (e: TimeoutCancellationException) {
                     queue.fail(job.id, "timeout")
                 } catch (e: NotYetSupported) {
