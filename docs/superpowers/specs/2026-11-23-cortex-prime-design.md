@@ -69,6 +69,28 @@ Work and procurement are **not** the focus. Work is one area of life (a filter),
 - The new app lives in **`prime/`** in this repo as a standalone Gradle project with its own CI
   workflow. v159 stays untouched.
 
+### 3.1 Zero cost (owner decision)
+Cortex Prime and every component it uses must be **completely free**: free to build, free to
+run, no usage fees, no subscriptions, no API keys for paid services, no paid assets. Any new
+component must pass this check before it is added.
+
+| Component | Use | Cost / licence |
+|---|---|---|
+| Kotlin, Jetpack Compose, Room, WorkManager, AndroidX | app framework | free, Apache 2.0 |
+| ML Kit text recognition (bundled Latin model) | English OCR | free of charge, runs on-device (closed-source Google SDK) |
+| Tesseract + `ara` trained data | Arabic OCR | free, Apache 2.0 |
+| whisper.cpp + Whisper models | transcription | free, MIT |
+| On-device language model (milestone 6) | flagged items, Ask | must be free with an open licence, e.g. Apache 2.0 or MIT |
+| Multilingual sentence-embedding model (milestone 5) | meaning search, Ideas | must be free with an open licence, e.g. MIT or Apache 2.0 |
+| Geist, Geist Mono, Readex Pro | fonts | free, SIL Open Font License |
+| Brain mesh (fsaverage template) | the brain visual | free; redistribution licence to confirm, otherwise swap to a CC0/CC-BY model |
+| Android text-to-speech | daily brief | free, built into the phone |
+| Google Drive via the system file picker | owner-triggered backup | free with the Google account's free storage |
+| GitHub Actions | build and tests | free for public repos; private repos use the free monthly minutes allowance |
+
+Not allowed: cloud AI APIs (OpenAI, Gemini API, OpenRouter, ElevenLabs and others), paid model
+or asset downloads, ad SDKs, analytics SDKs, and anything with a paid tier the app depends on.
+
 ## 4. Approaches (decided)
 
 **How Cortex finds what you'd forget**

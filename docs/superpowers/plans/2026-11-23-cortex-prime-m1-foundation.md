@@ -22,6 +22,7 @@
 - No visible control without a working implementation behind it. Ideas and Ask stay hidden until their milestones.
 - Colours, motion and the brain follow spec §7 exactly. Reduce-motion (system setting or app override) stops all ambient motion.
 - Every Gradle command runs from `prime/`.
+- **Zero cost** (spec §3.1): add only free, openly licensed or free-of-charge components. No paid APIs, keys, assets, ad or analytics SDKs. Each new dependency's licence goes in `prime/THIRD_PARTY.md` in the task that adds it.
 
 ## Review Focus
 
