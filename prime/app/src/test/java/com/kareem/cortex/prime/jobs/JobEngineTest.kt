@@ -82,4 +82,12 @@ class JobEngineTest {
         assertEquals(0, j.attempts)
         assertEquals(Long.MAX_VALUE, j.nextRunAt)
     }
+
+    @Test fun retryResetsAFailedJob() = runTest {
+        q.enqueue("perceive", 1)
+        repeat(3) { val j = q.claim("perceive", 1_000)!!; q.fail(j.id, "boom"); now += 10 * 60_000 }
+        q.retry("perceive", 1)
+        val j = db.jobs().forEvidence(1)!!
+        assertEquals(JobState.WAITING, j.state); assertEquals(0, j.attempts); assertEquals(null, j.lastError)
+    }
 }

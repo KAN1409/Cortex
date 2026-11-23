@@ -11,5 +11,7 @@ interface JobQueue {
     suspend fun fail(id: Long, error: String)
     /** Park a job whose evidence kind no stage can read yet; does not count as an attempt. */
     suspend fun park(id: Long, reason: String)
+    /** User-requested retry of a failed job: fresh attempts, due now. */
+    suspend fun retry(stage: String, evidenceId: Long)
     fun observeAll(): Flow<List<Job>>
 }
