@@ -27,6 +27,7 @@ class FakeJobs : JobQueue {
     override suspend fun fail(id: Long, error: String) {}
     override suspend fun park(id: Long, reason: String) {}
     override suspend fun retry(stage: String, evidenceId: Long) {}
+    override suspend fun unpark(reason: String) {}
     override fun observeAll(): Flow<List<Job>> = emptyFlow()
 }
 

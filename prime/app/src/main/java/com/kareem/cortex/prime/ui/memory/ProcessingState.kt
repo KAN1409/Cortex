@@ -16,6 +16,7 @@ import java.util.Locale
 enum class ProcessingLabel(val text: String) {
     WAITING("Waiting"), READING("Reading"), DONE("Done"), FAILED("Couldn't read"),
     LATER("Saved · reading comes in a later update"),
+    MODEL("Waiting for the voice model"),
 }
 
 data class MemoryRow(val id: Long, val kind: EvidenceKind, val title: String, val preview: String?, val capturedAt: Long, val label: ProcessingLabel, val error: String?)

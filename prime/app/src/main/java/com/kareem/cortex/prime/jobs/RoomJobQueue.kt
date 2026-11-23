@@ -50,6 +50,8 @@ class RoomJobQueue(
         dao.update(j.copy(state = JobState.WAITING, attempts = (j.attempts - 1).coerceAtLeast(0), lastError = reason, leaseUntil = 0, nextRunAt = Long.MAX_VALUE, updatedAt = clock()))
     }
 
+    override suspend fun unpark(reason: String): Unit = TODO()
+
     override suspend fun retry(stage: String, evidenceId: Long): Unit = io {
         val j = dao.forEvidence(evidenceId, stage) ?: return@io
         dao.update(j.copy(state = JobState.WAITING, attempts = 0, lastError = null, leaseUntil = 0, nextRunAt = clock(), updatedAt = clock()))
