@@ -1,0 +1,49 @@
+name: Cortex Prime
+
+on:
+  push:
+    paths:
+      - 'prime/**'
+      - '.github/workflows/prime-build.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cortex-prime-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.11.1'
+      - name: Unit tests
+        run: gradle -p prime :app:testDebugUnitTest --stacktrace --console=plain
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Cortex-Prime-test-reports
+          path: |
+            prime/app/build/reports/tests/testDebugUnitTest/**
+            prime/app/build/test-results/testDebugUnitTest/**
+          if-no-files-found: ignore
+          retention-days: 5
+      - name: Build debug APK
+        run: gradle -p prime :app:assembleDebug --stacktrace --console=plain
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Cortex-Prime-debug
+          path: prime/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
