@@ -108,7 +108,8 @@ require_text app/src/main/java/com/kareem/cortex/CortexScrubberView.java 'Color\
 
 if git grep -nEi '126,158,255|182,137,255|178,103,255|#7E9EFF|#B689FF|#B267FF' -- 'app/src/main/**' >/dev/null 2>&1; then bad "legacy blue/purple visual token detected in final app sources"; else ok "no legacy blue/purple visual token in final app sources"; fi
 
-placeholder_hits="$(git grep -nEi '\b(TODO|FIXME|temporary stub|placeholder implementation)\b' -- '*.java' '*.kt' '*.xml' '*.gradle' '*.sh' 2>/dev/null | wc -l | tr -d ' ' || true)"
+# Only comment-style markers count; keyword strings such as "todo" in classifier code are real logic.
+placeholder_hits="$(git grep -nEi '(//|/\*|^[[:space:]]*\*|#|<!--)[[:space:]]*(TODO|FIXME)\b|\b(temporary stub|placeholder implementation)\b' -- '*.java' '*.kt' '*.xml' '*.gradle' '*.sh' ':!scripts/cortex-repo-audit.sh' 2>/dev/null | wc -l | tr -d ' ' || true)"
 [ "$placeholder_hits" = "0" ] || warn "$placeholder_hits TODO/FIXME/placeholder source hit(s) require human context review"
 
 printf '%s\n' '-----------------------------------------------------'
