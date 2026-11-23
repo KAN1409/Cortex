@@ -1,3 +1,3 @@
 package com.kareem.cortex.prime.ui.capture
 
-fun ideaSaveEnabled(text: String): Boolean = TODO()
+fun ideaSaveEnabled(text: String): Boolean = text.isNotBlank()
