@@ -1,0 +1,15 @@
+package com.kareem.cortex.prime.jobs
+
+import com.kareem.cortex.prime.data.db.Job
+import kotlinx.coroutines.flow.Flow
+
+/** The processing queue. Interface so capture code can be tested with a fake. */
+interface JobQueue {
+    suspend fun enqueue(stage: String, evidenceId: Long)
+    suspend fun claim(stage: String, leaseMs: Long): Job?
+    suspend fun complete(id: Long)
+    suspend fun fail(id: Long, error: String)
+    /** Park a job whose evidence kind no stage can read yet; does not count as an attempt. */
+    suspend fun park(id: Long, reason: String)
+    fun observeAll(): Flow<List<Job>>
+}
