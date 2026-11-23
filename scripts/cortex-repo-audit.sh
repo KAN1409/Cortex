@@ -59,9 +59,12 @@ MAN="app/src/main/AndroidManifest.xml"
 require_file "$MAN"
 launcher_count="$(grep -o 'android.intent.action.MAIN' "$MAN" | wc -l | tr -d ' ')"
 [ "$launcher_count" = "1" ] && ok "exactly one launcher intent" || bad "expected 1 launcher intent, found $launcher_count"
-send_count="$(grep -o 'android.intent.action.SEND"' "$MAN" | wc -l | tr -d ' ')"
+# General share (any MIME type) has one owner; ChatGPT policy import (v84+) is a separate text/plain-only target.
+send_count="$(grep 'android.intent.action.SEND"' "$MAN" | grep -c 'mimeType="\*/\*"' || true)"
+teacher_send="$(grep 'android.intent.action.SEND"' "$MAN" | grep -v 'mimeType="\*/\*"' || true)"
+if [ -z "$teacher_send" ]; then ok "no extra ACTION_SEND targets"; elif [ "$(printf '%s\n' "$teacher_send" | wc -l | tr -d ' ')" = "1" ] && printf '%s' "$teacher_send" | grep -q 'CortexTeacherImportActivity' && printf '%s' "$teacher_send" | grep -q 'mimeType="text/plain"' && ! printf '%s' "$teacher_send" | grep -q 'SEND_MULTIPLE'; then ok "only extra ACTION_SEND target is text/plain ChatGPT policy import"; else bad "unexpected extra ACTION_SEND target: $teacher_send"; fi
 send_multi_count="$(grep -o 'android.intent.action.SEND_MULTIPLE' "$MAN" | wc -l | tr -d ' ')"
-[ "$send_count" = "1" ] && ok "exactly one ACTION_SEND owner" || bad "expected 1 ACTION_SEND owner, found $send_count"
+[ "$send_count" = "1" ] && ok "exactly one general ACTION_SEND owner" || bad "expected 1 general (*/*) ACTION_SEND owner, found $send_count"
 [ "$send_multi_count" = "1" ] && ok "exactly one ACTION_SEND_MULTIPLE owner" || bad "expected 1 ACTION_SEND_MULTIPLE owner, found $send_multi_count"
 require_text "$MAN" 'activity android:name="\.ProposalCaptureActivity" android:exported="true"' 'proposal-aware capture owns external share entry'
 require_text "$MAN" 'activity-alias android:name="\.PremiumHomeActivity" android:targetActivity="\.ProposalBriefActivity"' 'legacy Brief alias routes to final proposal Brief'
@@ -72,9 +75,11 @@ require_text app/src/main/java/com/kareem/cortex/UnderstandScreenTileService.jav
 require_text app/src/main/java/com/kareem/cortex/CortexRecordWidget.java 'ProposalCaptureActivity\.class' 'record widget setup routes to proposal-aware capture'
 
 UI="app/src/main/java/com/kareem/cortex/CortexUi.java"
-require_text "$UI" 'ProposalBriefActivity\.class' 'bottom nav routes to proposal Brief'
-require_text "$UI" 'ProposalPeopleProjectsActivity\.class' 'bottom nav routes to proposal People/Projects'
-require_text "$UI" 'ProposalAskCortexActivity\.class' 'bottom nav routes to proposal Brain'
+require_text "$UI" 'addNav\([^)]*"now"[^)]*NowActivity\.class\)' 'bottom nav routes to Now'
+require_text "$UI" 'addNav\([^)]*"memory"[^)]*VisualMemoryActivity\.class\)' 'bottom nav routes to Memory'
+require_text "$UI" 'addNav\([^)]*"work"[^)]*WorkWorkspaceActivity\.class\)' 'bottom nav routes to Work'
+require_text "$UI" 'addNav\([^)]*"capture"[^)]*CaptureHubActivity\.class\)' 'bottom nav routes to Capture'
+require_text "$UI" 'addCenter\(' 'bottom nav keeps center capture button'
 
 CAP="app/src/main/java/com/kareem/cortex/CortexCapabilityRegistry.java"
 require_file "$CAP"
@@ -88,14 +93,16 @@ require_text app/src/main/java/com/kareem/cortex/CortexActionExecutor.java 'Cale
 require_text app/src/main/java/com/kareem/cortex/BrainRouter.java 'CloudEvidencePolicy\.filter' 'Combined Brain still filters cloud evidence locally'
 
 # Locked approved preview: matte graphite + red/orange/yellow/green, no purple/blue drift.
-require_text "$UI" 'RED = Color\.rgb\(255,72,62\)' 'approved red signal is centralized'
-require_text "$UI" 'ORANGE = Color\.rgb\(255,146,42\)' 'approved orange interaction color is centralized'
-require_text "$UI" 'YELLOW = Color\.rgb\(241,188,52\)' 'approved yellow decision/attention color is centralized'
-require_text "$UI" 'GREEN = Color\.rgb\(105,194,82\)' 'approved green useful/confirmed color is centralized'
-require_text "$UI" 'VIOLET = YELLOW' 'legacy violet semantic cannot render purple'
+# v96+ AMOLED lime palette.
+require_text "$UI" 'LIME *= *Color\.rgb\(190,221,82\)' 'approved lime accent is centralized'
+require_text "$UI" 'RED *= *Color\.rgb\(239,92,73\)' 'approved red signal is centralized'
+require_text "$UI" 'ORANGE *= *Color\.rgb\(242,154,49\)' 'approved orange interaction color is centralized'
+require_text "$UI" 'YELLOW *= *Color\.rgb\(240,184,56\)' 'approved yellow decision/attention color is centralized'
+require_text "$UI" 'GREEN *= *Color\.rgb\(111,202,86\)' 'approved green useful/confirmed color is centralized'
+require_text "$UI" 'VIOLET *= *OLIVE' 'legacy violet semantic cannot render purple'
 require_text "$UI" 'public static GradientDrawable matte' 'matte surface helper is centralized'
 require_text "$UI" 'public static GradientDrawable velvet' 'low-reflection depth helper is centralized'
-require_text "$UI" 'public static <T extends View> T raised' 'raised elevation helper is centralized'
+require_text "$UI" 'public static <T extends View> *T raised' 'raised elevation helper is centralized'
 require_text app/src/main/java/com/kareem/cortex/CortexGlyphView.java 'monoline white glyph' 'custom raised monoline icon language is present'
 require_text app/src/main/java/com/kareem/cortex/ProposalBriefActivity.java 'CortexUi\.glyph' 'Brief uses shared custom icon plates'
 require_text app/src/main/java/com/kareem/cortex/InputActivity.java 'CortexUi\.glyph' 'Input uses shared custom icon plates'
@@ -108,7 +115,8 @@ require_text app/src/main/java/com/kareem/cortex/CortexScrubberView.java 'Color\
 
 if git grep -nEi '126,158,255|182,137,255|178,103,255|#7E9EFF|#B689FF|#B267FF' -- 'app/src/main/**' >/dev/null 2>&1; then bad "legacy blue/purple visual token detected in final app sources"; else ok "no legacy blue/purple visual token in final app sources"; fi
 
-placeholder_hits="$(git grep -nEi '\b(TODO|FIXME|temporary stub|placeholder implementation)\b' -- '*.java' '*.kt' '*.xml' '*.gradle' '*.sh' 2>/dev/null | wc -l | tr -d ' ' || true)"
+# Only comment-style markers count; keyword strings such as "todo" in classifier code are real logic.
+placeholder_hits="$(git grep -nEi '(//|/\*|^[[:space:]]*\*|#|<!--)[[:space:]]*(TODO|FIXME)\b|\b(temporary stub|placeholder implementation)\b' -- '*.java' '*.kt' '*.xml' '*.gradle' '*.sh' ':!scripts/cortex-repo-audit.sh' 2>/dev/null | wc -l | tr -d ' ' || true)"
 [ "$placeholder_hits" = "0" ] || warn "$placeholder_hits TODO/FIXME/placeholder source hit(s) require human context review"
 
 printf '%s\n' '-----------------------------------------------------'
