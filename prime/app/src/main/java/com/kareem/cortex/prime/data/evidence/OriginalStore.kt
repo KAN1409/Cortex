@@ -17,7 +17,7 @@ class OriginalStore(val root: File) {
 
     fun write(open: () -> InputStream, maxBytes: Long = MAX_CAPTURE_BYTES): StoredFile {
         tmpDir.mkdirs()
-        val tmp = File.createTempFile("in", ".part", tmpDir)
+        val tmp = File.createTempFile("capture", ".part", tmpDir)
         try {
             val md = MessageDigest.getInstance("SHA-256")
             var total = 0L
