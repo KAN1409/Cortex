@@ -30,9 +30,9 @@ import kotlin.random.Random
 
 /** Spec §7.3: the pre-rendered glass brain (transparent animated WebP), floating, with drifting motes. */
 @Composable
-fun BrainHero(sizeDp: Dp, animate: Boolean, modifier: Modifier = Modifier) {
+fun BrainHero(sizeDp: Dp, animate: Boolean, modifier: Modifier = Modifier, fast: Boolean = false) {
     val context = LocalContext.current
-    val drawable = remember { ImageDecoder.decodeDrawable(ImageDecoder.createSource(context.resources, R.raw.brain_loop)) }
+    val drawable = remember { ImageDecoder.decodeDrawable(ImageDecoder.createSource(context.resources, if (fast) R.raw.brain_fast else R.raw.brain_loop)) }
     val t = rememberInfiniteTransition(label = "brain")
     val phase = if (animate) t.animateFloat(0f, 1f, infiniteRepeatable(tween(6000, easing = LinearEasing), RepeatMode.Restart), label = "p").value else 0f
     val floatPx = with(LocalDensity.current) { 6.dp.toPx() }

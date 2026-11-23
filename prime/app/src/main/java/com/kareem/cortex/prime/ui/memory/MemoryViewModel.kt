@@ -12,7 +12,7 @@ import java.time.ZoneId
 
 class MemoryViewModel(private val graph: AppGraph) : ViewModel() {
     val rows: StateFlow<Map<LocalDate, List<MemoryRow>>> =
-        memoryRows(graph.db.evidence().timeline(), graph.jobs.observeAll(), ZoneId.systemDefault())
+        memoryRows(graph.db.evidence().timeline(), graph.jobs.observeAll(), ZoneId.systemDefault(), graph.db.perception().observeTranscripts())
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
 
     fun retry(evidenceId: Long) = viewModelScope.launch {

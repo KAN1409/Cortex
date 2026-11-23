@@ -61,7 +61,7 @@ fun NowScreen(name: String?, recent: List<MemoryRow>, modifier: Modifier = Modif
         Text("RECENTLY CAPTURED", style = mono(10.sp), modifier = Modifier.padding(top = 8.dp, bottom = 10.dp, start = 4.dp).staggeredRise(2))
         if (recent.isEmpty()) {
             Box(Modifier.fillMaxWidth().glass().staggeredRise(3).padding(18.dp)) {
-                Text("Nothing captured yet. Tap the glass button to add your first idea, or share something into Cortex.", style = sans(14.sp, color = Cx.Text2))
+                Text("Nothing captured yet. Tap the glass button to record a voice note, long-press it to write an idea, or share something into Cortex.", style = sans(14.sp, color = Cx.Text2))
             }
         } else {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {

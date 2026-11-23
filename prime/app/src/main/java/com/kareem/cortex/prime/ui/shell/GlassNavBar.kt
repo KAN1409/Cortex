@@ -47,7 +47,7 @@ enum class Tab(val label: String) { NOW("Now"), MEMORY("Memory") }
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun GlassNavBar(current: Tab, onTab: (Tab) -> Unit, onCapture: () -> Unit, modifier: Modifier = Modifier) {
+fun GlassNavBar(current: Tab, onTab: (Tab) -> Unit, onCapture: () -> Unit, modifier: Modifier = Modifier, onRecord: () -> Unit = onCapture) {
     val motion = LocalMotionEnabled.current
     Row(
         modifier.fillMaxWidth().height(76.dp).glass(RoundedCornerShape(38.dp)).padding(horizontal = 18.dp),
@@ -64,8 +64,8 @@ fun GlassNavBar(current: Tab, onTab: (Tab) -> Unit, onCapture: () -> Unit, modif
                 Modifier.size(62.dp).shadow(22.dp, CircleShape, spotColor = Cx.Blue).clip(CircleShape)
                     .background(Brush.radialGradient(listOf(Color.White.copy(alpha = 0.85f), Cx.SheenB.copy(alpha = 0.55f), Cx.Blue.copy(alpha = 0.8f), Color(0xFF141850)), center = Offset(60f, 50f), radius = 190f))
                     .border(1.dp, Color.White.copy(alpha = 0.25f), CircleShape)
-                    .combinedClickable(onClick = onCapture, onLongClick = onCapture)
-                    .semantics { contentDescription = "Add an idea" },
+                    .combinedClickable(onClick = onRecord, onLongClick = onCapture)
+                    .semantics { contentDescription = "Record a voice note; long-press to write an idea" },
                 contentAlignment = Alignment.Center,
             ) {
                 Canvas(Modifier.size(20.dp)) {

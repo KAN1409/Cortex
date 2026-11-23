@@ -11,4 +11,10 @@ interface PerceptionDao {
 
     @Query("SELECT * FROM perception WHERE evidenceId = :evidenceId ORDER BY id")
     fun forEvidence(evidenceId: Long): List<Perception>
+
+    @Query("SELECT * FROM perception WHERE evidenceId = :evidenceId ORDER BY id")
+    fun observeForEvidence(evidenceId: Long): kotlinx.coroutines.flow.Flow<List<Perception>>
+
+    @Query("SELECT * FROM perception WHERE kind = 'transcript'")
+    fun observeTranscripts(): kotlinx.coroutines.flow.Flow<List<Perception>>
 }

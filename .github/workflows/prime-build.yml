@@ -27,6 +27,14 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.11.1'
+      - name: Cache Robolectric runtime jars
+        uses: actions/cache@v4
+        with:
+          path: ~/.m2/repository/org/robolectric
+          key: robolectric-android-all-4.14.1-sdk34
+      - name: Model hashes (informational, pins ModelSpec)
+        run: |
+          curl -sf https://huggingface.co/api/models/ggerganov/whisper.cpp/tree/main | python3 -c "import sys,json; [print('MODEL', x['path'], x.get('size'), (x.get('lfs') or {}).get('oid')) for x in json.load(sys.stdin) if x['path'] in ('ggml-base-q5_1.bin','ggml-small-q5_1.bin','ggml-base.bin','ggml-small.bin')]" || echo "MODEL lookup failed"
       - name: Unit tests
         run: gradle -p prime :app:testDebugUnitTest --stacktrace --console=plain
       - name: Upload test reports

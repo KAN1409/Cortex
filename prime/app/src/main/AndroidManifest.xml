@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <application
         android:name=".CortexPrimeApp"
         android:label="Cortex Prime"
@@ -38,5 +40,24 @@
                 <data android:mimeType="audio/*" />
             </intent-filter>
         </activity>
+        <activity
+            android:name=".voice.RecordActivity"
+            android:exported="false"
+            android:launchMode="singleTask"
+            android:excludeFromRecents="true"
+            android:theme="@android:style/Theme.Material.NoActionBar" />
+
+        <service
+            android:name=".voice.RecordTileService"
+            android:exported="true"
+            android:icon="@android:drawable/ic_btn_speak_now"
+            android:label="Cortex voice note"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter><action android:name="android.service.quicksettings.action.QS_TILE" /></intent-filter>
+        </service>
+
+        <receiver android:name=".voice.ModelDownloadReceiver" android:exported="true">
+            <intent-filter><action android:name="android.intent.action.DOWNLOAD_COMPLETE" /></intent-filter>
+        </receiver>
     </application>
 </manifest>

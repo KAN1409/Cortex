@@ -7,7 +7,10 @@ import com.kareem.cortex.prime.graph
 
 class JobWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
     override suspend fun doWork(): Result {
-        applicationContext.graph.runner.drain()
+        val g = applicationContext.graph
+        // A finished model download wakes every voice note that was waiting for it.
+        if (g.models.refresh()) g.jobs.unpark(com.kareem.cortex.prime.voice.MODEL_MISSING)
+        g.runner.drain()
         return Result.success()
     }
 

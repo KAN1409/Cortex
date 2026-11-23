@@ -52,7 +52,7 @@ class MainActivity : ComponentActivity() {
                             Tab.MEMORY -> MemoryScreen(rows, onRetry = { vm.retry(it) })
                         }
                     }
-                    GlassNavBar(tab, { tab = it }, { ideaOpen = true }, Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(horizontal = 16.dp, vertical = 14.dp))
+                    GlassNavBar(tab, { tab = it }, { ideaOpen = true }, onRecord = { startActivity(android.content.Intent(this@MainActivity, com.kareem.cortex.prime.voice.RecordActivity::class.java)) }, modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(horizontal = 16.dp, vertical = 14.dp))
                     if (ideaOpen) IdeaSheet(onSave = { vm.saveIdea(it); ideaOpen = false }, onDismiss = { ideaOpen = false })
                     if (name == null) FirstRunNameSheet { g.prefs.displayName = it; name = it }
                 }

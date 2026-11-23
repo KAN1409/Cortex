@@ -34,6 +34,9 @@ interface JobDao {
     )
     fun takeLease(id: Long, expectedState: JobState, expectedUpdatedAt: Long, leaseUntil: Long, now: Long): Int
 
+    @Query("UPDATE job SET nextRunAt = :now, lastError = NULL, updatedAt = :now WHERE state = 'WAITING' AND lastError = :reason")
+    fun unpark(reason: String, now: Long): Int
+
     @Update
     fun update(j: Job)
 
