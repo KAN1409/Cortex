@@ -1,6 +1,6 @@
 # Cortex Prime — Design
 
-Status: draft for owner approval · 2026-11-23
+Status: approved by owner · 2026-11-23
 Visual reference: Design canvas "Cortex Prime Directions", artboard **D** (playable mockup).
 
 ---
@@ -340,11 +340,12 @@ Ask never answers without citations.
 - Compose implementation details of the glass, glow and motion effects, within §7.
 - The internal module layout inside `prime/`.
 
-## 14. Open questions for the owner
-1. **Brain model licence:** if the fsaverage licence doesn't allow redistribution, is it OK to
-   use a commercially licensed brain 3D model? That may be a paid asset of roughly $20–80;
-   price unverified.
-2. **App language:** should the interface (buttons, labels, dates) be in English, in Arabic
-   (right-to-left), or follow the phone's language? Your content is shown as written either way.
-3. **Area tagging:** should Cortex guess Life / Family / Health / Work automatically (and you
-   correct it), or should you pick it at capture time?
+## 14. Owner decisions (resolved)
+1. **Interface language: English.** Arabic content (transcripts, OCR text, quotes) is always
+   shown right-to-left with Arabic-capable fonts inside the English UI.
+2. **Areas: Cortex guesses** Life / Family / Health / Work for every capture, from its people,
+   topics and wording. Each guess shows as a chip the owner can tap to change. Corrections feed
+   the learning stage.
+3. **Brain model: free only.** Before release, confirm the fsaverage template's licence allows
+   redistribution in an app. If it doesn't, replace the mesh with a freely licensed (CC0 or
+   CC-BY) human brain model and re-render the frames. No paid assets.
