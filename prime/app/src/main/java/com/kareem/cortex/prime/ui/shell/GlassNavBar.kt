@@ -43,17 +43,18 @@ import com.kareem.cortex.prime.ui.theme.LocalMotionEnabled
 import com.kareem.cortex.prime.ui.theme.glass
 import com.kareem.cortex.prime.ui.theme.sans
 
-enum class Tab(val label: String) { NOW("Now"), MEMORY("Memory") }
+enum class Tab(val label: String) { NOW("Now"), MEMORY("Memory"), IDEAS("Ideas"), ASK("Ask") }
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun GlassNavBar(current: Tab, onTab: (Tab) -> Unit, onCapture: () -> Unit, modifier: Modifier = Modifier, onRecord: () -> Unit = onCapture) {
     val motion = LocalMotionEnabled.current
     Row(
-        modifier.fillMaxWidth().height(76.dp).glass(RoundedCornerShape(38.dp)).padding(horizontal = 18.dp),
+        modifier.fillMaxWidth().height(76.dp).glass(RoundedCornerShape(38.dp)).padding(horizontal = 6.dp),
         horizontalArrangement = Arrangement.SpaceAround, verticalAlignment = Alignment.CenterVertically,
     ) {
         NavItem(Tab.NOW, current, onTab)
+        NavItem(Tab.MEMORY, current, onTab)
         Box(Modifier.size(66.dp), contentAlignment = Alignment.Center) {
             if (motion) {
                 val p = rememberInfiniteTransition(label = "ping").animateFloat(1f, 1.7f, infiniteRepeatable(tween(2400), RepeatMode.Restart), label = "s").value
@@ -75,7 +76,8 @@ fun GlassNavBar(current: Tab, onTab: (Tab) -> Unit, onCapture: () -> Unit, modif
                 }
             }
         }
-        NavItem(Tab.MEMORY, current, onTab)
+        NavItem(Tab.IDEAS, current, onTab)
+        NavItem(Tab.ASK, current, onTab)
     }
 }
 
@@ -83,7 +85,7 @@ fun GlassNavBar(current: Tab, onTab: (Tab) -> Unit, onCapture: () -> Unit, modif
 private fun NavItem(tab: Tab, current: Tab, onTab: (Tab) -> Unit) {
     val selected = tab == current
     Column(
-        Modifier.width(88.dp).height(56.dp).clip(RoundedCornerShape(28.dp)).clickable { onTab(tab) }.padding(top = 10.dp),
+        Modifier.width(58.dp).height(56.dp).clip(RoundedCornerShape(28.dp)).clickable { onTab(tab) }.padding(top = 10.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Text(tab.label, style = sans(14.sp, if (selected) FontWeight.SemiBold else FontWeight.Normal, if (selected) Cx.Text else Cx.Label))

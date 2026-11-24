@@ -13,7 +13,7 @@ import com.kareem.cortex.prime.voice.SpeechEngine
 import com.kareem.cortex.prime.voice.EngineResult
 import com.kareem.cortex.prime.voice.TranscribeHandler
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Before
@@ -33,10 +33,10 @@ class OcrHandlerTest {
     private fun runner(ocr: OcrEngine) = JobRunner(q, listOf(PerceiveRouter(
         TextPerceiveHandler(db.evidence(), db.perception()),
         TranscribeHandler(db.evidence(), db.perception(), { true }, { object : SpeechEngine { override suspend fun transcribe(pcm: FloatArray) = EngineResult("", null) } }),
-        OcrHandler(db.evidence(), db.perception(), ocr),
+        OcrHandler(db.evidence(), db.perception(), ocr, limitMs = 300),
     )))
 
-    @Test fun ocrTextIsStored() = runTest {
+    @Test fun ocrTextIsStored() = runBlocking<Unit> {
         val id = image("content://a"); q.enqueue("perceive", id)
         runner(object : OcrEngine { override suspend fun read(path: String) = OcrOutput("Licence expires 30/11", "en") }).drain()
         val j = db.jobs().forEvidence(id)!!
@@ -44,10 +44,10 @@ class OcrHandlerTest {
         assertEquals("Licence expires 30/11", db.perception().forEvidence(id).single { it.kind == "ocr" }.text)
     }
 
-    @Test fun oneStuckImageDoesNotBlockTheNext() = runTest {
+    @Test fun oneStuckImageDoesNotBlockTheNext() = runBlocking<Unit> {
         val slow = image("content://slow"); val fast = image("content://fast")
         q.enqueue("perceive", slow); q.enqueue("perceive", fast)
-        runner(object : OcrEngine { override suspend fun read(path: String): OcrOutput { if (path.endsWith("slow")) delay(10 * 60_000); return OcrOutput("ok text here", "en") } }).drain()
+        runner(object : OcrEngine { override suspend fun read(path: String): OcrOutput { if (path.endsWith("slow")) delay(5_000); return OcrOutput("ok text here", "en") } }).drain()
         assertEquals("timeout", db.jobs().forEvidence(slow)!!.lastError)
         val f = db.jobs().forEvidence(fast)!!
         assertEquals("lastError=${f.lastError}", JobState.DONE, f.state)

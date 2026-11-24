@@ -1,6 +1,10 @@
 package com.kareem.cortex.prime.ui.now
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -43,24 +47,26 @@ fun NowScreen(
     loops: List<com.kareem.cortex.prime.data.db.LoopWithSource> = emptyList(), pending: Int = 0,
     onDone: (Long) -> Unit = {}, onLater: (Long) -> Unit = {}, onConfirm: (Long) -> Unit = {}, onDismiss: (Long) -> Unit = {},
     onArea: (Long, com.kareem.cortex.prime.data.db.Area) -> Unit = { _, _ -> },
+    onSettings: () -> Unit = {}, onBrief: () -> Unit = {},
 ) {
     val motion = LocalMotionEnabled.current
     val now = LocalDateTime.now()
     Column(modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 18.dp)) {
         Row(Modifier.fillMaxWidth().padding(top = 18.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.size(44.dp).glass(CircleShape).staggeredRise(0), contentAlignment = Alignment.Center) {
+            Box(Modifier.size(44.dp).glass(CircleShape).staggeredRise(0).clickable(onClick = onSettings).semantics { contentDescription = "Settings" }, contentAlignment = Alignment.Center) {
                 Text(name?.trim()?.takeIf { it.isNotEmpty() }?.take(1)?.uppercase() ?: "·", style = sans(15.sp, FontWeight.SemiBold))
             }
             Spacer(Modifier.weight(1f))
             Text(now.format(DateTimeFormatter.ofPattern("EEE · d MMM", Locale.ENGLISH)).uppercase(), style = mono(11.sp), modifier = Modifier.staggeredRise(0))
         }
-        Box(Modifier.fillMaxWidth().height(200.dp)) {
+        Box(Modifier.fillMaxWidth().height(236.dp)) {
             BrainHero(230.dp, animate = motion, modifier = Modifier.align(Alignment.TopEnd).padding(top = 4.dp))
             Column(Modifier.align(Alignment.BottomStart).padding(bottom = 10.dp).staggeredRise(1)) {
                 val g = greeting(now.hour, name)
                 val parts = g.split(", ", limit = 2)
                 SheenText(parts[0] + if (parts.size > 1) "," else "", 40.sp, motion)
                 if (parts.size > 1) Text(parts[1], style = sans(40.sp, FontWeight.Light))
+                Text("▶  Daily brief", style = sans(14.sp, FontWeight.Medium, Cx.SheenA), modifier = Modifier.padding(top = 10.dp).glass(RoundedCornerShape(20.dp)).clickable(onClick = onBrief).padding(horizontal = 14.dp, vertical = 8.dp))
             }
         }
         if (loops.isNotEmpty()) {

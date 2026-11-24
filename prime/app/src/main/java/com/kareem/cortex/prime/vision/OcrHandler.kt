@@ -17,11 +17,12 @@ class OcrHandler(
     private val perception: PerceptionDao,
     private val engine: OcrEngine,
     private val clock: () -> Long = System::currentTimeMillis,
+    private val limitMs: Long = OCR_LIMIT_MS,
 ) {
     suspend fun run(evidenceId: Long) {
         val e = withContext(Dispatchers.IO) { evidence.byId(evidenceId) } ?: error("evidence missing")
         if (e.kind != EvidenceKind.IMAGE) throw NotYetSupported()
-        val out = withTimeout(OCR_LIMIT_MS) { engine.read(e.originalPath ?: error("image missing")) }
+        val out = withTimeout(limitMs) { engine.read(e.originalPath ?: error("image missing")) }
         withContext(Dispatchers.IO) {
             if (perception.forEvidence(evidenceId).none { it.kind == "ocr" })
                 perception.insert(Perception(evidenceId = evidenceId, kind = "ocr", text = out.text.trim(), language = out.language, confidence = 0.7, engine = "mlkit+tesseract-ara-fast", createdAt = clock()))

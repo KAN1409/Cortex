@@ -10,7 +10,7 @@ import com.kareem.cortex.prime.jobs.TextPerceiveHandler
 import com.kareem.cortex.prime.testDb
 import com.kareem.cortex.prime.ui.memory.ProcessingLabel
 import com.kareem.cortex.prime.ui.memory.processingLabel
-import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Before
@@ -42,7 +42,7 @@ class TranscribeHandlerTest {
 
     private fun runner() = JobRunner(q, listOf(PerceiveRouter(TextPerceiveHandler(db.evidence(), db.perception()), TranscribeHandler(db.evidence(), db.perception(), { ready }, { engine }))))
 
-    @Test fun parkedWhileModelMissingThenTranscribedAfterReady() = runTest {
+    @Test fun parkedWhileModelMissingThenTranscribedAfterReady() = runBlocking<Unit> {
         val id = audio(); q.enqueue("perceive", id)
         runner().drain()
         val parked = db.jobs().forEvidence(id)!!
