@@ -44,17 +44,17 @@ class MainActivity : ComponentActivity() {
         if (screenshotsAllowed) lifecycleScope.launch { if (graph.scanner.scan() > 0) graph.kickJobs() }
     }
 
-    private var pending: CharArray? = null
+    private var pendingPass: CharArray? = null
     private var backupMessage by mutableStateOf<String?>(null)
     private val createBackup = registerForActivityResult(androidx.activity.result.contract.ActivityResultContracts.CreateDocument("application/octet-stream")) { uri ->
-        val p = pending ?: return@registerForActivityResult; pending = null
+        val p = pendingPass ?: return@registerForActivityResult; pendingPass = null
         if (uri != null) lifecycleScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             backupMessage = runCatching { com.kareem.cortex.prime.backup.BackupManager(this@MainActivity, graph.db).export(uri, p); "Backup saved." }.getOrElse { "Backup failed: ${it.message}" }
             p.fill(' ')
         }
     }
     private val openBackup = registerForActivityResult(androidx.activity.result.contract.ActivityResultContracts.OpenDocument()) { uri ->
-        val p = pending ?: return@registerForActivityResult; pending = null
+        val p = pendingPass ?: return@registerForActivityResult; pendingPass = null
         if (uri != null) lifecycleScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             val r = runCatching { com.kareem.cortex.prime.backup.BackupManager(this@MainActivity, graph.db).restore(uri, p) }
             p.fill(' ')
@@ -115,7 +115,7 @@ class MainActivity : ComponentActivity() {
                             Tab.NOW -> NowScreen(name, rows.values.flatten().take(3), loops = loops, pending = pending, onDone = vm::done, onLater = vm::later, onConfirm = vm::confirm, onDismiss = vm::dismiss, onArea = vm::cycleArea, onSettings = { settingsOpen = true }, onBrief = { speakBrief(loops) })
                             Tab.MEMORY -> MemoryScreen(rows, onRetry = { vm.retry(it) }, screenshotsAllowed = shotsAllowed, onAllowScreenshots = { askPhotos() })
                             Tab.IDEAS -> { val clusters by vm.clusters.collectAsStateWithLifecycle(); val docs by vm.docs.collectAsStateWithLifecycle(); val byId = docs.associateBy { it.id }
-                                com.kareem.cortex.prime.ui.ideas.IdeasScreen(clusters) { id -> byId[id]?.text?.let(com.kareem.cortex.prime.ui.memory::rowTitle) ?: "" } }
+                                com.kareem.cortex.prime.ui.ideas.IdeasScreen(clusters) { id -> byId[id]?.text?.let { t -> com.kareem.cortex.prime.ui.memory.rowTitle(t) } ?: "" } }
                             Tab.ASK -> com.kareem.cortex.prime.ui.ask.AskScreen(vm::ask)
                         }
                     }
@@ -128,8 +128,8 @@ class MainActivity : ComponentActivity() {
                             onClose = { settingsOpen = false }, onName = { g.prefs.displayName = it; name = it },
                             onReduceMotion = { g.prefs.reduceMotion = it; motionOverride = it }, onDownloadModel = { g.models.start() },
                             onScreenshots = { askPhotos() },
-                            onBackup = { pending = it; createBackup.launch("cortex-${java.time.LocalDate.now()}.cortexbackup") },
-                            onRestore = { pending = it; openBackup.launch(arrayOf("*/*")) },
+                            onBackup = { pendingPass = it; createBackup.launch("cortex-${java.time.LocalDate.now()}.cortexbackup") },
+                            onRestore = { pendingPass = it; openBackup.launch(arrayOf("*/*")) },
                         )
                     }
                     if (name == null) FirstRunNameSheet { g.prefs.displayName = it; name = it }
