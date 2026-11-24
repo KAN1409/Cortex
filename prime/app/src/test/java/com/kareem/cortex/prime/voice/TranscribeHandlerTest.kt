@@ -46,7 +46,7 @@ class TranscribeHandlerTest {
         val id = audio(); q.enqueue("perceive", id)
         runner().drain()
         val parked = db.jobs().forEvidence(id)!!
-        assertEquals(ProcessingLabel.MODEL, processingLabel(parked))
+        assertEquals("lastError=${parked.lastError} attempts=${parked.attempts}", ProcessingLabel.MODEL, processingLabel(parked))
         ready = true; q.unpark(MODEL_MISSING)
         runner().drain()
         assertEquals(JobState.DONE, db.jobs().forEvidence(id)!!.state)

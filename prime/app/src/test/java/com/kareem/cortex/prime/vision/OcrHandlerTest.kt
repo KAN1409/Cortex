@@ -39,7 +39,8 @@ class OcrHandlerTest {
     @Test fun ocrTextIsStored() = runTest {
         val id = image("content://a"); q.enqueue("perceive", id)
         runner(object : OcrEngine { override suspend fun read(path: String) = OcrOutput("Licence expires 30/11", "en") }).drain()
-        assertEquals(JobState.DONE, db.jobs().forEvidence(id)!!.state)
+        val j = db.jobs().forEvidence(id)!!
+        assertEquals("lastError=${j.lastError}", JobState.DONE, j.state)
         assertEquals("Licence expires 30/11", db.perception().forEvidence(id).single { it.kind == "ocr" }.text)
     }
 
@@ -48,6 +49,7 @@ class OcrHandlerTest {
         q.enqueue("perceive", slow); q.enqueue("perceive", fast)
         runner(object : OcrEngine { override suspend fun read(path: String): OcrOutput { if (path.endsWith("slow")) delay(10 * 60_000); return OcrOutput("ok text here", "en") } }).drain()
         assertEquals("timeout", db.jobs().forEvidence(slow)!!.lastError)
-        assertEquals(JobState.DONE, db.jobs().forEvidence(fast)!!.state)
+        val f = db.jobs().forEvidence(fast)!!
+        assertEquals("lastError=${f.lastError}", JobState.DONE, f.state)
     }
 }
